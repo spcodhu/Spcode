@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { formatTime } from "../format";
 import { useStore } from "../store";
+import { Switch } from "./ui/Switch";
 
 interface QuotaLimit {
   label: string;
@@ -47,9 +48,10 @@ export function QuotaPage() {
           <div className="text-[15px] font-medium text-text-primary">快捷展示配额</div>
           <div className="mt-0.5 text-[12px] text-text-tertiary">在模型行悬浮时显示配额卡片</div>
         </div>
-        <Toggle
+        <Switch
           on={settings?.quickQuota ?? true}
           onChange={(v) => void saveSettings({ quickQuota: v })}
+          label="快捷展示配额"
         />
       </div>
 
@@ -110,27 +112,5 @@ function ProviderSection({ info }: { info: QuotaInfo }) {
         <div className="mt-3 text-right text-[11px] text-text-tertiary">更新于 {formatTime(info.updatedAt)}</div>
       )}
     </section>
-  );
-}
-
-export function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <button
-      role="switch"
-      aria-checked={on}
-      onClick={(e) => {
-        e.stopPropagation();
-        onChange(!on);
-      }}
-      className={`relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors duration-200 ${
-        on ? "bg-accent" : "border border-border-strong bg-bg-hover"
-      }`}
-    >
-      <span
-        className={`absolute top-[2px] h-[18px] w-[18px] rounded-full bg-white shadow-sm transition-transform duration-200 ${
-          on ? "translate-x-[16px]" : "translate-x-[1px]"
-        }`}
-      />
-    </button>
   );
 }

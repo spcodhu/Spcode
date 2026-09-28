@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
 import { UsagePage } from "./UsagePage";
-import { QuotaPage, Toggle } from "./QuotaPage";
+import { QuotaPage } from "./QuotaPage";
 import { ModelsPage } from "./ModelsPage";
+import { Switch } from "./ui/Switch";
 
 type PageId = "general" | "appearance" | "models" | "usage" | "quota" | "memory" | "about";
 
@@ -132,7 +133,7 @@ function GeneralPage() {
           <div className="text-[14px] text-text-primary">启动时检查更新</div>
           <div className="mt-0.5 text-[12px] text-text-tertiary">需要先在 updater.ts 配置 GitHub 更新源</div>
         </div>
-        <Toggle on={settings?.autoUpdate ?? true} onChange={(v) => void saveSettings({ autoUpdate: v })} />
+        <Switch on={settings?.autoUpdate ?? true} onChange={(v) => void saveSettings({ autoUpdate: v })} label="自动更新" />
       </div>
     </div>
   );

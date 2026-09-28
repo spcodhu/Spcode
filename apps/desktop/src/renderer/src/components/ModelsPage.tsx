@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
-import { Toggle } from "./QuotaPage";
+import { Switch } from "./ui/Switch";
 
 interface CatalogModel {
   provider: string;
@@ -144,7 +144,7 @@ function ProviderRow({
       {enabled && provider.configured && (
         <span className="shrink-0 text-[12px] text-text-tertiary">已启用 {enabledCount} 个模型</span>
       )}
-      <Toggle on={enabled} onChange={onToggle} />
+      <Switch on={enabled} onChange={onToggle} label={`${provider.name} 启用`} />
       <button onClick={onOpen} className="shrink-0 text-text-tertiary hover:text-text-secondary">
         <Icon name="chevronRight" size={15} />
       </button>
@@ -220,7 +220,7 @@ function ProviderDetail({
               <Icon name="cpu" size={14} className="shrink-0 text-text-tertiary" />
               <span className="min-w-0 flex-1 truncate text-[13px] text-text-primary">{m.displayName}</span>
               {m.reasoning && <span className="shrink-0 rounded-full bg-thinking/15 px-2 py-0.5 text-[11px] text-thinking">推理</span>}
-              <Toggle on={enabled} onChange={(v) => onToggleModel(k, v)} />
+              <Switch on={enabled} onChange={(v) => onToggleModel(k, v)} label={`${m.displayName} 启用`} />
             </div>
           );
         })}
