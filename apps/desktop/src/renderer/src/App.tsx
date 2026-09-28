@@ -38,6 +38,13 @@ export default function App() {
     if (settings) void applyAppearance(settings);
   }, [settings]);
 
+  // 错误提示：6 秒自动消失，也可手动关闭
+  useEffect(() => {
+    if (!lastError) return;
+    const timer = setTimeout(() => useStore.setState({ lastError: null }), 6000);
+    return () => clearTimeout(timer);
+  }, [lastError]);
+
   if (!ready) {
     return (
       <div className="flex h-full items-center justify-center text-text-secondary">
@@ -63,8 +70,15 @@ export default function App() {
       <QuestionCard />
       {settingsOpen && <SettingsPage onClose={() => setSettingsOpen(false)} />}
       {lastError && (
-        <div className="fixed bottom-4 right-4 max-w-md rounded-lg border border-danger/40 bg-bg-elevated px-4 py-3 text-sm text-danger shadow-xl">
-          {lastError}
+        <div className="fixed bottom-4 right-4 z-50 flex max-w-md items-start gap-2 rounded-lg border border-danger/40 bg-bg-elevated px-4 py-3 text-sm text-danger shadow-xl">
+          <span className="flex-1">{lastError}</span>
+          <button
+            onClick={() => useStore.setState({ lastError: null })}
+            className="shrink-0 text-text-tertiary hover:text-text-primary"
+            title="关闭"
+          >
+            ✕
+          </button>
         </div>
       )}
     </div>

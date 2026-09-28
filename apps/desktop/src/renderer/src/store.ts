@@ -410,7 +410,12 @@ export const useStore = create<StoreState>((set, get) => ({
       return;
     }
     if (!entry.sessionFile) {
-      set({ lastError: "该会话没有可恢复的会话文件" });
+      // 死条目（历史遗留无会话文件）：静默移除并开新会话，不打扰用户
+      await window.spcode.removeSession(entry.id).catch(() => {});
+      set((s) => ({
+        registrySessions: s.registrySessions.filter((x) => x.id !== entry.id),
+      }));
+      await get().createSession(entry.mode, entry.cwd?.trim() ? entry.cwd : undefined);
       return;
     }
     const info = await window.spcode.command<{

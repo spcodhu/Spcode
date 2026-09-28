@@ -70,18 +70,25 @@ function watchSessionLifecycle(): void {
       ledger.append(event.usage);
       return;
     }
-    if (event.type !== "response" || !event.success) return;
-    const data = event.data as
-      | { sessionId?: string; sessionFile?: string | null; model?: { provider: string; modelId: string } | null; thinkingLevel?: string }
-      | undefined;
-    if (!data?.sessionId) return;
-    const entry = registry.get(data.sessionId);
-    if (!entry) return;
-    registry.patch(data.sessionId, {
-      sessionFile: data.sessionFile ?? entry.sessionFile,
-      model: data.model ?? entry.model,
-      thinkingLevel: data.thinkingLevel ?? entry.thinkingLevel,
-    });
+  });
+}
+
+/** 会话创建/恢复成功后回填 sessionFile 到注册表（支撑下次恢复） */
+function backfillSessionFile(
+  cmd: HostCommand,
+  result: unknown,
+): void {
+  if (cmd.type !== "session.create" && cmd.type !== "session.open") return;
+  const data = result as
+    | { sessionId?: string; sessionFile?: string | null; model?: { provider: string; modelId: string } | null; thinkingLevel?: string }
+    | undefined;
+  if (!data?.sessionId) return;
+  const entry = registry.get(data.sessionId);
+  if (!entry) return;
+  registry.patch(data.sessionId, {
+    sessionFile: data.sessionFile ?? entry.sessionFile,
+    model: data.model ?? entry.model,
+    thinkingLevel: data.thinkingLevel ?? entry.thinkingLevel,
   });
 }
 
@@ -109,7 +116,10 @@ function registerIpc(): void {
       });
     }
 
-    return bridge.call(cmd);
+    return bridge.call(cmd).then((result) => {
+      backfillSessionFile(cmd, result);
+      return result;
+    });
   });
 
   ipcMain.on(IPC.permissionReply, (_e, payload: { requestId: string; approved: boolean }) => {
