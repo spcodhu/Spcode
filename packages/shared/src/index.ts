@@ -133,6 +133,7 @@ export type HostCommand =
   | { id: string; type: "session.setThinkingLevel"; payload: { sessionId: string; level: string } }
   | { id: string; type: "session.dispose"; payload: { sessionId: string } }
   | { id: string; type: "models.list" }
+  | { id: string; type: "memory.read" }
   | { id: string; type: "auth.setApiKey"; payload: { provider: string; apiKey: string } }
   | { id: string; type: "auth.listProviders" }
   | { type: "permission.reply"; payload: { requestId: string; approved: boolean } }

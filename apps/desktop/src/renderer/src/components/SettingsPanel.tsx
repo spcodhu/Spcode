@@ -129,6 +129,9 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
 
           {/* Token 用量统计 */}
           <UsageSection />
+
+          {/* 记忆 */}
+          <MemorySection />
         </div>
       </div>
     </div>
@@ -276,4 +279,55 @@ function formatTok(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
   return String(n);
+}
+
+// ---------------------------------------------------------------------------
+// 记忆查看
+// ---------------------------------------------------------------------------
+
+function MemorySection() {
+  const [files, setFiles] = useState<Record<string, string> | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
+
+  useEffect(() => {
+    void window.spcode
+      .command<Record<string, string>>({ type: "memory.read" })
+      .then((f) => setFiles(f ?? {}))
+      .catch(() => setFiles({}));
+  }, []);
+
+  const names = Object.keys(files ?? {});
+
+  return (
+    <section>
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-tertiary">
+        记忆（~/.spcode）
+      </h3>
+      <p className="mb-2 text-xs text-text-tertiary">
+        分层记忆在会话创建时注入系统提示；会话结束后蒸馏自动写回。文件可直接编辑，下一轮会话生效。
+      </p>
+      {names.length === 0 ? (
+        <div className="text-xs text-text-tertiary">读取中…</div>
+      ) : (
+        <div className="space-y-1">
+          {names.map((name) => (
+            <div key={name} className="rounded-lg border border-border bg-bg-main">
+              <button
+                onClick={() => setOpen(open === name ? null : name)}
+                className="flex w-full items-center gap-2 px-3 py-2 text-xs text-text-secondary"
+              >
+                <span>{open === name ? "▾" : "▸"}</span>
+                <span className="mono">{name}</span>
+              </button>
+              {open === name && (
+                <pre className="max-h-56 overflow-auto whitespace-pre-wrap border-t border-border px-3 py-2 text-xs leading-5 text-text-tertiary">
+                  {files?.[name]?.trim() || "（空）"}
+                </pre>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
 }

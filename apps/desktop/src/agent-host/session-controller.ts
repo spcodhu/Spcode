@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentSession, AgentSessionEvent, ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, DefaultResourceLoader, SessionManager } from "@earendil-works/pi-coding-agent";
 import { getSupportedThinkingLevels, type Model } from "@earendil-works/pi-ai";
 import type {
   ModelRef,
@@ -21,6 +21,8 @@ import type {
   ToolRisk,
   UsageRecord,
 } from "@spcode/shared";
+import { MemoryDistiller } from "./distill.js";
+import type { MemoryStore } from "./memory-store.js";
 import { createAskUserQuestionTool } from "./tools/ask-user.js";
 import { createTaskTool } from "./tools/task.js";
 import { createTodoWriteTool } from "./tools/todowrite.js";
@@ -79,6 +81,8 @@ export interface SessionControllerOptions {
   cwd: string;
   agentDir: string;
   modelRuntime: ModelRuntime;
+  memoryStore: MemoryStore;
+  mode?: SessionMode;
   modelRef?: ModelRef;
   thinkingLevel?: string;
   /** 打开已存在的 pi 会话文件（会话恢复） */
@@ -92,6 +96,7 @@ export interface SessionControllerOptions {
 
 export class SessionController {
   private running = false;
+  private distiller: MemoryDistiller | null = null;
 
   private constructor(
     readonly sessionId: string,
@@ -110,6 +115,16 @@ export class SessionController {
       ? opts.modelRuntime.getModel(opts.modelRef.provider, opts.modelRef.modelId)
       : undefined;
 
+    // 记忆注入：分层记忆块拼进系统提示尾部
+    const isProject = opts.mode === "project";
+    const memoryBlock = opts.memoryStore.buildInjection(isProject ? cwd : null, isProject);
+    const resourceLoader = new DefaultResourceLoader({
+      cwd,
+      agentDir: opts.agentDir,
+      appendSystemPrompt: memoryBlock ? [memoryBlock] : [],
+    });
+    await resourceLoader.reload();
+
     const { session } = await createAgentSession({
       cwd,
       agentDir: opts.agentDir,
@@ -117,6 +132,7 @@ export class SessionController {
       model: model as Model<never> | undefined,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       thinkingLevel: opts.thinkingLevel as any,
+      resourceLoader,
       sessionManager: opts.sessionFile ? SessionManager.open(opts.sessionFile) : undefined,
       customTools: [
         createWebSearchTool(),
@@ -142,10 +158,20 @@ export class SessionController {
       opts.emitEvent,
     );
 
-    // 事件转发 + usage 提取 + running 状态跟踪
+    // 事件转发 + usage 提取 + running 状态跟踪 + 蒸馏调度
+    const distiller = new MemoryDistiller(opts.memoryStore, {
+      cwd,
+      isProject,
+      agentDir: opts.agentDir,
+      modelRuntime: opts.modelRuntime,
+    });
+    ctl.distiller = distiller;
     session.subscribe((event) => {
       if (event.type === "agent_start") ctl.running = true;
-      if (event.type === "agent_settled") ctl.running = false;
+      if (event.type === "agent_settled") {
+        ctl.running = false;
+        distiller.schedule(session);
+      }
       opts.emitEvent(event);
       const usage = extractUsage(event, opts.sessionId, ctl.currentModelRef());
       if (usage) opts.emitUsage(usage);
@@ -215,6 +241,7 @@ export class SessionController {
   }
 
   async dispose(): Promise<void> {
+    this.distiller?.cancel();
     await this.session.dispose();
   }
 }

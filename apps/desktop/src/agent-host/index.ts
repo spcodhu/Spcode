@@ -20,6 +20,7 @@ import type {
   PermissionRequest,
   QuestionRequest,
 } from "@spcode/shared";
+import { MemoryStore } from "./memory-store.js";
 import { SessionController } from "./session-controller.js";
 
 // ---------------------------------------------------------------------------
@@ -50,6 +51,7 @@ const SPCODE_HOME = join(homedir(), ".spcode");
 const AGENT_DIR = join(SPCODE_HOME, "agent");
 
 let modelRuntime: ModelRuntime | null = null;
+let memoryStore: MemoryStore | null = null;
 const sessions = new Map<string, SessionController>();
 /** 等待主进程裁决的权限请求 */
 const pendingPermissions = new Map<string, (approved: boolean) => void>();
@@ -64,6 +66,11 @@ async function getRuntime(): Promise<ModelRuntime> {
     });
   }
   return modelRuntime;
+}
+
+function getMemoryStore(): MemoryStore {
+  if (!memoryStore) memoryStore = new MemoryStore(SPCODE_HOME);
+  return memoryStore;
 }
 
 function toModelInfo(m: {
@@ -108,6 +115,7 @@ function askQuestion(request: QuestionRequest): Promise<Record<string, string>> 
 async function createController(params: {
   sessionId: string;
   cwd: string;
+  mode?: "chat" | "project";
   model?: ModelRef;
   thinkingLevel?: string;
   sessionFile?: string;
@@ -118,6 +126,8 @@ async function createController(params: {
     cwd: params.cwd,
     agentDir: AGENT_DIR,
     modelRuntime: rt,
+    memoryStore: getMemoryStore(),
+    mode: params.mode,
     modelRef: params.model,
     thinkingLevel: params.thinkingLevel,
     sessionFile: params.sessionFile,
@@ -185,6 +195,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         const ctl = await createController({
           sessionId: cmd.payload.sessionId,
           cwd: cmd.payload.cwd,
+          mode: cmd.payload.mode,
           model: cmd.payload.model,
           thinkingLevel: cmd.payload.thinkingLevel,
         });
@@ -196,12 +207,18 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         const ctl = await createController({
           sessionId: cmd.payload.sessionId,
           cwd: cmd.payload.cwd,
+          // 恢复会话按 cwd 推断模式（聊天会话 cwd 为空）
+          mode: cmd.payload.cwd?.trim() ? "project" : "chat",
           sessionFile: cmd.payload.sessionFile,
         });
         sessions.set(cmd.payload.sessionId, ctl);
         // 先回响应，再推历史（渲染进程按序处理）
         respond(id, true, ctl.info());
         emit({ type: "session.history", sessionId: cmd.payload.sessionId, messages: ctl.history() });
+        break;
+      }
+      case "memory.read": {
+        respond(id, true, getMemoryStore().readAll());
         break;
       }
       case "session.prompt": {
