@@ -21,6 +21,7 @@ export interface SpcodeApi {
   removeSession(id: string): Promise<void>;
   /** 用量聚合（按日×模型）与厂商配额 */
   usageSummary(days?: number): Promise<DailyUsage[]>;
+  usageAggregate(range: "today" | "week" | "all"): Promise<{ total: import("@spcode/shared").UsageAggregate; byModel: Record<string, import("@spcode/shared").UsageAggregate> }>;
   quotaQuery(): Promise<QuotaInfo[]>;
   /** 选择项目文件夹 */
   pickDirectory(): Promise<string | null>;
@@ -56,6 +57,9 @@ const api: SpcodeApi = {
   },
   usageSummary(days) {
     return ipcRenderer.invoke(IPC.usageSummary, days);
+  },
+  usageAggregate(range) {
+    return ipcRenderer.invoke(IPC.usageAggregate, range);
   },
   quotaQuery() {
     return ipcRenderer.invoke(IPC.quotaQuery);

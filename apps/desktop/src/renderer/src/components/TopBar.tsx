@@ -1,78 +1,27 @@
 import { useStore } from "../store";
-import type { ModelRef } from "@spcode/shared";
+import { Icon } from "./Icon";
 
 export function TopBar() {
-  const activeSessionId = useStore((s) => s.activeSessionId);
   const session = useStore((s) => (s.activeSessionId ? s.sessions[s.activeSessionId] : undefined));
-  const models = useStore((s) => s.models);
-  const settings = useStore((s) => s.settings);
-  const setModel = useStore((s) => s.setModel);
-  const setThinkingLevel = useStore((s) => s.setThinkingLevel);
-  const saveSettings = useStore((s) => s.saveSettings);
-
-  const modelValue = session?.meta.model
-    ? `${session.meta.model.provider}/${session.meta.model.modelId}`
-    : "";
 
   return (
-    <header className="titlebar-drag flex h-12 shrink-0 items-center gap-3 border-b border-border bg-bg-main px-4 pl-20">
-      {activeSessionId && session ? (
-        <div className="titlebar-no-drag flex min-w-0 flex-1 items-center gap-2">
-          {/* 模型选择 */}
-          <select
-            value={modelValue}
-            onChange={(e) => {
-              const [provider, ...rest] = e.target.value.split("/");
-              if (provider && rest.length) {
-                void setModel({ provider, modelId: rest.join("/") } as ModelRef);
-              }
-            }}
-            className="max-w-56 truncate rounded-md border border-border bg-bg-elevated px-2 py-1 text-xs text-text-primary outline-none"
-          >
-            {models.length === 0 && <option value="">未配置模型（去设置里填 API Key）</option>}
-            {models.map((m) => (
-              <option key={`${m.provider}/${m.modelId}`} value={`${m.provider}/${m.modelId}`}>
-                {m.provider} · {m.displayName}
-              </option>
-            ))}
-          </select>
-
-          {/* 思考强度 */}
-          {session.supportedThinkingLevels.length > 0 && (
-            <select
-              value={session.meta.thinkingLevel}
-              onChange={(e) => void setThinkingLevel(e.target.value)}
-              title="思考强度（实际下发到厂商 API）"
-              className="rounded-md border border-border bg-bg-elevated px-2 py-1 text-xs text-text-secondary outline-none"
-            >
-              {session.supportedThinkingLevels.map((lv) => (
-                <option key={lv} value={lv}>
-                  思考 · {lv}
-                </option>
-              ))}
-            </select>
-          )}
-
-          {/* 权限模式 */}
-          <button
-            onClick={() =>
-              void saveSettings({ permissionMode: settings?.permissionMode === "ask" ? "act" : "ask" })
-            }
-            title="ask=每次确认；act=自动放行（危险命令仍确认）"
-            className={`rounded-md border px-2 py-1 text-xs ${
-              settings?.permissionMode === "act"
-                ? "border-warning/50 bg-warning/10 text-warning"
-                : "border-border bg-bg-elevated text-text-secondary"
-            }`}
-          >
-            {settings?.permissionMode === "act" ? "⚡ 行动模式" : "🛡 询问模式"}
-          </button>
-
+    <header className="titlebar-drag flex h-12 shrink-0 items-center gap-2 border-b border-border bg-bg-main px-4">
+      {session ? (
+        <>
+          {/* 面包屑：空间/模式 > 会话标题 */}
+          <nav className="titlebar-no-drag flex min-w-0 items-center gap-1.5 text-[13px]">
+            <span className="flex shrink-0 items-center gap-1.5 text-text-secondary">
+              <Icon name={session.meta.mode === "project" ? "folder" : "chat"} size={14} />
+              {session.meta.mode === "project"
+                ? (session.meta.cwd.split("/").pop() ?? "项目")
+                : "聊天"}
+            </span>
+            <Icon name="chevronRight" size={12} className="shrink-0 text-text-tertiary" />
+            <span className="min-w-0 truncate text-text-primary">{session.meta.title}</span>
+          </nav>
           <div className="flex-1" />
-
-          {/* 用量摘要 */}
           <UsageChip />
-        </div>
+        </>
       ) : (
         <div className="flex-1" />
       )}
@@ -89,9 +38,10 @@ function UsageChip() {
   return (
     <div
       title={`输入 ${u.input.toLocaleString()} · 输出 ${u.output.toLocaleString()} · 缓存命中 ${u.cacheRead.toLocaleString()} · 成本 $${u.costTotal.toFixed(4)}`}
-      className="flex items-center gap-1.5 rounded-md border border-border bg-bg-elevated px-2 py-1 text-xs text-text-tertiary"
+      className="titlebar-no-drag flex items-center gap-1.5 rounded-full border border-border bg-bg-elevated px-2.5 py-1 text-[11px] text-text-tertiary"
     >
-      <span>{formatTokens(totalTokens)} tok</span>
+      <Icon name="chart" size={12} />
+      <span>{formatTokens(totalTokens)}</span>
       <span className="text-accent">缓存 {cacheHitRate}%</span>
       <span>${u.costTotal.toFixed(4)}</span>
     </div>

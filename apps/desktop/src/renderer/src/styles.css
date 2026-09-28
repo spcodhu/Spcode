@@ -1,30 +1,35 @@
 @import "tailwindcss";
 
 /*
- * Spcode 默认暗色主题「雀羽 · 墨」
- * 青玉 accent + 墨蓝底色，低饱和、长看不累。
- * 主题系统（M5）会通过覆盖这些 CSS 变量实现换肤与 AI 生成主题。
+ * Spcode 默认暗色主题「雀羽 · 墨」（Finch 风格中性灰 + 雀绿 accent）
+ * 中性灰阶不带蓝调；accent 为雀绿，用于激活态、开关、进度条、发送键。
  */
 @theme inline {
-  --color-bg-root: #0b0f14;
-  --color-bg-sidebar: #0e141b;
-  --color-bg-main: #10171f;
-  --color-bg-elevated: #161f2a;
-  --color-bg-hover: #1c2735;
-  --color-bg-active: #22303f;
-  --color-border: #24303f;
-  --color-border-strong: #33445a;
-  --color-text-primary: #e3e9f0;
-  --color-text-secondary: #93a1b3;
-  --color-text-tertiary: #5d6c80;
-  --color-accent: #3ec6b8;
-  --color-accent-dim: #2a8f85;
-  --color-accent-soft: rgba(62, 198, 184, 0.12);
+  --color-bg-root: #141416;
+  --color-bg-sidebar: #17171a;
+  --color-bg-main: #1b1b1f;
+  --color-bg-elevated: #212127;
+  --color-bg-hover: #26262d;
+  --color-bg-active: #2c2c34;
+  --color-border: #2c2c33;
+  --color-border-strong: #3a3a44;
+  --color-text-primary: #ececee;
+  --color-text-secondary: #9c9ca5;
+  --color-text-tertiary: #63636d;
+  --color-accent: #3fa97b;
+  --color-accent-dim: #2f8560;
+  --color-accent-soft: rgba(63, 169, 123, 0.14);
   --color-danger: #e5636f;
   --color-warning: #d9a045;
   --color-success: #5cb87a;
-  --color-user-bubble: #1a2531;
-  --color-thinking: #7c6bb0;
+  --color-user-bubble: #232329;
+  --color-thinking: #8b7fc0;
+  --color-chart-1: #f2994a;
+  --color-chart-2: #e56b8c;
+  --color-chart-3: #3fa97b;
+  --color-chart-4: #5b9bd5;
+  --color-chart-5: #b083d8;
+  --color-chart-6: #d9a045;
 }
 
 :root {
@@ -80,12 +85,15 @@ pre,
   background: transparent;
 }
 
-/* Markdown 内容微调 */
+/* Markdown 内容 */
+.md-body {
+  line-height: 1.75;
+}
 .md-body pre {
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
-  border-radius: 8px;
-  padding: 12px;
+  border-radius: 10px;
+  padding: 12px 14px;
   overflow-x: auto;
   font-size: 12.5px;
 }
@@ -95,4 +103,37 @@ pre,
   border-radius: 4px;
   padding: 1px 5px;
   font-size: 12.5px;
+  color: var(--color-accent);
+}
+.md-body table {
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 13px;
+}
+.md-body th,
+.md-body td {
+  border: 1px solid var(--color-border);
+  padding: 6px 12px;
+  text-align: left;
+}
+.md-body th {
+  background: var(--color-bg-elevated);
+  font-weight: 500;
+}
+.md-body a {
+  color: var(--color-accent);
+}
+.md-body h1,
+.md-body h2,
+.md-body h3 {
+  font-weight: 600;
+  margin: 18px 0 8px;
+}
+.md-body ul,
+.md-body ol {
+  padding-left: 22px;
+  margin: 8px 0;
+}
+.md-body li {
+  margin: 3px 0;
 }

@@ -22,26 +22,33 @@ test.describe("Spcode 冒烟 E2E", () => {
     await app.close();
   });
 
-  test("侧边栏会话列表 + 设置面板开合", async () => {
+  test("设置页：导航开合与各页面", async () => {
     const app = await electron.launch({ args: [".", "--no-sandbox"], cwd: appDir });
     const window = await app.firstWindow();
 
     await window.getByRole("button", { name: /新建聊天/ }).click();
     await expect(window.getByPlaceholder(/说点什么/)).toBeVisible({ timeout: 15000 });
 
-    // 侧边栏出现会话条目（默认标题"新聊天"）
-    await expect(window.getByText("新聊天").first()).toBeVisible();
+    // 打开设置（底部齿轮）
+    await window.getByTitle("设置", { exact: true }).click();
+    await expect(window.getByRole("button", { name: "用量" })).toBeVisible();
+    await expect(window.getByRole("button", { name: "配额" })).toBeVisible();
+    await expect(window.getByRole("button", { name: "记忆" })).toBeVisible();
 
-    // 打开设置：出现 API Key 区块与配额区块
-    await window.getByText("⚙️ 设置").click();
-    await expect(window.getByText("模型供应商 API Key")).toBeVisible();
-    await expect(window.getByText("厂商配额")).toBeVisible();
-    await expect(window.getByText(/Token 用量/)).toBeVisible();
+    // 默认落在用量页
+    await expect(window.getByRole("heading", { name: "用量" })).toBeVisible();
 
-    // 关闭设置（✕ 有多处，限定在设置对话框内）
-    const dialog = window.locator(".fixed.inset-0.z-40");
-    await dialog.getByText("✕").click();
-    await expect(window.getByText("模型供应商 API Key")).not.toBeVisible();
+    // 切到配额页
+    await window.getByRole("button", { name: "配额" }).click();
+    await expect(window.getByText("快捷展示配额")).toBeVisible();
+
+    // 切到模型页
+    await window.getByRole("button", { name: "模型" }).click();
+    await expect(window.getByText(/填入后该厂商全部模型自动可用/)).toBeVisible();
+
+    // 关闭设置
+    await window.getByTitle("关闭设置").click();
+    await expect(window.getByRole("button", { name: "用量" })).not.toBeVisible();
 
     await app.close();
   });

@@ -177,6 +177,7 @@ export const IPC = {
   removeSession: "spcode:remove-session",
   /** renderer -> main (invoke)：用量聚合查询（days 可选）/ 厂商配额查询 */
   usageSummary: "spcode:usage-summary",
+  usageAggregate: "spcode:usage-aggregate",
   quotaQuery: "spcode:quota-query",
   /** renderer -> main (invoke)：字体与主题文件操作 */
   pickFontFile: "spcode:pick-font-file",
@@ -206,6 +207,8 @@ export interface AppSettings {
   monoFontFamily: string;
   /** 自动更新开关（需要已配置更新源） */
   autoUpdate: boolean;
+  /** 模型行悬浮时显示配额卡片 */
+  quickQuota: boolean;
   /** 导入的字体文件名（存于 ~/.spcode/fonts/，family 名为展示名） */
   uiFontFile: string;
   monoFontFile: string;
@@ -226,6 +229,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   uiFontFamily: "",
   monoFontFamily: "",
   autoUpdate: true,
+  quickQuota: true,
   uiFontFile: "",
   monoFontFile: "",
 };

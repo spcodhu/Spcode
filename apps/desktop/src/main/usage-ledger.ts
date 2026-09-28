@@ -78,6 +78,23 @@ export class UsageLedger {
         return { date, total, byModel };
       });
   }
+
+  /** 区间聚合：today=今天，week=近7天，all=全部。用量页 Dashboard 用 */
+  aggregateRange(range: "today" | "week" | "all"): { total: UsageAggregate; byModel: Record<string, UsageAggregate> } {
+    const dates = this.listDates();
+    const today = UsageLedger.dateOf(Date.now());
+    const picked = range === "today" ? dates.filter((d) => d === today) : range === "week" ? dates.slice(0, 7) : dates;
+    const total = emptyAgg();
+    const byModel: Record<string, UsageAggregate> = {};
+    for (const date of picked) {
+      for (const r of this.readDay(date)) {
+        foldInto(total, r);
+        const key = `${r.model.provider}/${r.model.modelId}`;
+        foldInto((byModel[key] ??= emptyAgg()), r);
+      }
+    }
+    return { total, byModel };
+  }
 }
 
 export function emptyAgg(): UsageAggregate {

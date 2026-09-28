@@ -1,35 +1,38 @@
 /**
  * 配额服务：各厂商 token plan / 余额查询适配器。
  *
- * 设计：适配器接口统一返回 QuotaInfo；查询失败降级为 error 字段，
- * UI 显示"查询失败"而不是空白。密钥从 pi 的 auth.json 读取（只读）。
- *
- * 首批：z.ai / Moonshot / DeepSeek / Qwen(DashScope)。
- * 各厂接口无公开稳定文档，按已知端点实测接通，坏了只影响卡片不影响主流程。
+ * 每厂商返回若干行额度（每日/每周/每月/余额…），供配额页逐行渲染进度条。
+ * 查询失败降级为 error，UI 显示"查询失败"而不是空白。
+ * 密钥从 pi 的 auth.json 读取（只读、脱敏不出进程）。
  */
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { SPCODE_HOME_DIRNAME } from "@spcode/shared";
 
+export interface QuotaLimit {
+  /** 行标签：每日额度 / 每周额度 / 余额… */
+  label: string;
+  /** 已用百分比 0-100；null 表示无进度（如余额文本行） */
+  usedPercent: number | null;
+  /** 右侧主文本（如 "45%" / "¥32.50"） */
+  text: string | null;
+  /** 重置时间或补充说明（如 "21:21" / "10月22日"） */
+  resetText: string | null;
+}
+
 export interface QuotaInfo {
   provider: string;
   label: string;
-  /** 是否已配置密钥 */
   configured: boolean;
-  /** 剩余额度文本（如 "¥32.50" / "82%"），查询失败为 null */
-  remaining: string | null;
-  /** 总额度文本（可选） */
-  total?: string | null;
-  /** 用量百分比 0-100（可选，用于进度条） */
-  usedPercent?: number | null;
-  /** 计划名称（如 Coding Plan） */
-  plan?: string | null;
+  plan: string | null;
+  limits: QuotaLimit[];
+  updatedAt: number;
   error?: string;
 }
 
 // ---------------------------------------------------------------------------
-// 密钥读取（pi auth.json，只读、脱敏不出进程）
+// 密钥读取（pi auth.json，只读）
 // ---------------------------------------------------------------------------
 
 function readAuthKeys(agentDir: string): Record<string, string> {
@@ -52,7 +55,6 @@ function collectKeys(node: unknown, out: Record<string, string>, providerHint?: 
     return;
   }
   const obj = node as Record<string, unknown>;
-  // 形态1: { "deepseek": { "key": "sk-..." } } 或 { "deepseek": "sk-..." }
   for (const [k, v] of Object.entries(obj)) {
     if (typeof v === "string" && v.length > 8 && /key|token|secret/i.test(k) && providerHint) {
       out[providerHint] = v;
@@ -75,7 +77,7 @@ function isProviderId(s: string): boolean {
 interface QuotaAdapter {
   providerIds: string[];
   label: string;
-  fetch(apiKey: string, signal?: AbortSignal): Promise<Omit<QuotaInfo, "provider" | "label" | "configured">>;
+  fetch(apiKey: string, signal?: AbortSignal): Promise<{ plan: string | null; limits: QuotaLimit[] }>;
 }
 
 const TIMEOUT = 12000;
@@ -98,61 +100,65 @@ async function getJson(url: string, apiKey: string, signal?: AbortSignal): Promi
   }
 }
 
+function balanceRow(balance: string, currency?: string): QuotaLimit {
+  return { label: "可用余额", usedPercent: null, text: `${currency ?? ""}${balance}`, resetText: null };
+}
+
 const deepseekAdapter: QuotaAdapter = {
   providerIds: ["deepseek"],
   label: "DeepSeek",
   async fetch(apiKey, signal) {
     const data = (await getJson("https://api.deepseek.com/user/balance", apiKey, signal)) as {
-      balance_infos?: { currency?: string; total_balance?: string; topped_up_balance?: string }[];
+      balance_infos?: { currency?: string; total_balance?: string }[];
     };
     const info = data.balance_infos?.[0];
-    if (!info) return { remaining: null, error: "无余额信息" };
+    if (!info) throw new Error("无余额信息");
     return {
-      remaining: `${info.currency === "CNY" ? "¥" : "$"}${info.total_balance ?? "?"}`,
-      plan: "余额",
+      plan: "按量余额",
+      limits: [balanceRow(info.total_balance ?? "?", info.currency === "CNY" ? "¥" : "$")],
     };
   },
 };
 
 const moonshotAdapter: QuotaAdapter = {
-  providerIds: ["moonshot", "moonshotai", "moonshotai-cn"],
-  label: "Moonshot（月之暗面）",
+  providerIds: ["moonshot", "moonshotai", "moonshotai-cn", "kimi"],
+  label: "Kimi（月之暗面）",
   async fetch(apiKey, signal) {
     const data = (await getJson("https://api.moonshot.cn/v1/users/me/balance", apiKey, signal)) as {
       data?: { available_balance?: number; voucher_balance?: number; cash_balance?: number };
     };
     const d = data.data;
-    if (!d) return { remaining: null, error: "无余额信息" };
+    if (!d) throw new Error("无余额信息");
     return {
-      remaining: `¥${(d.available_balance ?? 0).toFixed(2)}`,
       plan: "余额",
+      limits: [balanceRow((d.available_balance ?? 0).toFixed(2), "¥")],
     };
   },
 };
 
 const zaiAdapter: QuotaAdapter = {
-  providerIds: ["zai", "z-ai", "zhipu", "bigmodel", "zai-coding", "zai-coding-cn"],
+  providerIds: ["zai", "z-ai", "zhipu", "bigmodel", "zai-coding", "zai-coding-cn", "glm"],
   label: "z.ai（GLM Coding Plan）",
   async fetch(apiKey, signal) {
-    // GLM Coding Plan 配额监控端点（社区已知）
     const data = (await getJson("https://api.z.ai/api/monitor/usage/quota/limit", apiKey, signal)) as {
       data?: {
-        limits?: { type?: string; usage?: number; currentValue?: number; remaining?: number; percentage?: number }[];
+        limits?: { type?: string; usage?: number; currentValue?: number; remaining?: number; percentage?: number; nextResetTime?: number }[];
         level?: string;
       };
     };
     const d = data.data;
-    if (!d) return { remaining: null, error: "无配额信息" };
-    const tokenLimit = d.limits?.find((l) => /token/i.test(l.type ?? "")) ?? d.limits?.[0];
-    if (!tokenLimit) {
-      return { remaining: d.level ?? null, plan: "Coding Plan" };
-    }
-    const pct = tokenLimit.percentage ?? null;
-    return {
-      remaining: pct != null ? `${Math.max(0, 100 - pct).toFixed(0)}%` : String(tokenLimit.remaining ?? "?"),
-      usedPercent: pct,
-      plan: d.level ?? "Coding Plan",
-    };
+    if (!d) throw new Error("无配额信息");
+    const rows: QuotaLimit[] = (d.limits ?? []).map((l) => {
+      const pct = l.percentage ?? null;
+      return {
+        label: limitLabel(l.type),
+        usedPercent: pct,
+        text: pct != null ? `${Math.max(0, 100 - pct).toFixed(0)}%` : String(l.remaining ?? "—"),
+        resetText: l.nextResetTime ? formatReset(l.nextResetTime) : null,
+      };
+    });
+    if (rows.length === 0) rows.push({ label: "订阅等级", usedPercent: null, text: d.level ?? "—", resetText: null });
+    return { plan: d.level ?? "Coding Plan", limits: rows };
   },
 };
 
@@ -160,24 +166,42 @@ const dashscopeAdapter: QuotaAdapter = {
   providerIds: ["qwen", "dashscope", "alibaba", "qwen-token-plan"],
   label: "Qwen / 通义（DashScope）",
   async fetch(apiKey, signal) {
-    // DashScope 没有公开余额查询 REST；Coding Plan 走 quota 端点
     const data = (await getJson(
       "https://dashscope.aliyuncs.com/compatible-mode/v1/dashboard/billing/quota",
       apiKey,
       signal,
     ).catch(() => null)) as { total_quota?: number; used_quota?: number } | null;
     if (!data || data.total_quota == null) {
-      return { remaining: null, error: "该厂商暂不支持在线查询" };
+      return { plan: "Token Plan", limits: [{ label: "额度", usedPercent: null, text: "暂不支持在线查询", resetText: null }] };
     }
     const used = data.used_quota ?? 0;
-    const pct = data.total_quota > 0 ? (used / data.total_quota) * 100 : null;
+    const pct = data.total_quota > 0 ? Math.round((used / data.total_quota) * 100) : null;
     return {
-      remaining: pct != null ? `${Math.max(0, 100 - pct).toFixed(0)}%` : null,
-      usedPercent: pct,
       plan: "Token Plan",
+      limits: [{ label: "总额度", usedPercent: pct, text: pct != null ? `${100 - pct}%` : null, resetText: null }],
     };
   },
 };
+
+function limitLabel(type?: string): string {
+  if (!type) return "额度";
+  const t = type.toLowerCase();
+  if (t.includes("day") || t.includes("daily")) return "每日额度";
+  if (t.includes("week")) return "每周额度";
+  if (t.includes("month")) return "每月额度";
+  if (t.includes("hour")) return `${type.replace(/[^0-9]/g, "")} 小时额度`;
+  if (t.includes("token")) return "Token 额度";
+  return type;
+}
+
+function formatReset(ts: number): string {
+  const d = new Date(ts);
+  const now = Date.now();
+  if (d.getTime() - now < 86_400_000) {
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  }
+  return `${d.getMonth() + 1}月${d.getDate()}日`;
+}
 
 const ADAPTERS: QuotaAdapter[] = [deepseekAdapter, moonshotAdapter, zaiAdapter, dashscopeAdapter];
 
@@ -194,23 +218,26 @@ export class QuotaService {
 
   async queryAll(): Promise<QuotaInfo[]> {
     const keys = readAuthKeys(this.agentDir);
+    const now = Date.now();
     const results: QuotaInfo[] = [];
     for (const adapter of ADAPTERS) {
       const apiKey = adapter.providerIds.map((id) => keys[id]).find((k) => !!k);
       const provider = adapter.providerIds[0] ?? "unknown";
       if (!apiKey) {
-        results.push({ provider, label: adapter.label, configured: false, remaining: null });
+        results.push({ provider, label: adapter.label, configured: false, plan: null, limits: [], updatedAt: now });
         continue;
       }
       try {
-        const info = await adapter.fetch(apiKey);
-        results.push({ provider, label: adapter.label, configured: true, ...info });
+        const { plan, limits } = await adapter.fetch(apiKey);
+        results.push({ provider, label: adapter.label, configured: true, plan, limits, updatedAt: now });
       } catch (err) {
         results.push({
           provider,
           label: adapter.label,
           configured: true,
-          remaining: null,
+          plan: null,
+          limits: [],
+          updatedAt: now,
           error: err instanceof Error ? err.message : String(err),
         });
       }

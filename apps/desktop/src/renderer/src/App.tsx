@@ -6,7 +6,7 @@ import { ChatView } from "./components/ChatView";
 import { TopBar } from "./components/TopBar";
 import { PermissionCard } from "./components/PermissionCard";
 import { QuestionCard } from "./components/QuestionCard";
-import { SettingsPanel } from "./components/SettingsPanel";
+import { SettingsPage } from "./components/SettingsPage";
 
 export default function App() {
   const ready = useStore((s) => s.ready);
@@ -47,7 +47,7 @@ export default function App() {
       </div>
       <PermissionCard />
       <QuestionCard />
-      {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && <SettingsPage onClose={() => setSettingsOpen(false)} />}
       {lastError && (
         <div className="fixed bottom-4 right-4 max-w-md rounded-lg border border-danger/40 bg-bg-elevated px-4 py-3 text-sm text-danger shadow-xl">
           {lastError}
