@@ -1,0 +1,98 @@
+@import "tailwindcss";
+
+/*
+ * Spcode 默认暗色主题「雀羽 · 墨」
+ * 青玉 accent + 墨蓝底色，低饱和、长看不累。
+ * 主题系统（M5）会通过覆盖这些 CSS 变量实现换肤与 AI 生成主题。
+ */
+@theme inline {
+  --color-bg-root: #0b0f14;
+  --color-bg-sidebar: #0e141b;
+  --color-bg-main: #10171f;
+  --color-bg-elevated: #161f2a;
+  --color-bg-hover: #1c2735;
+  --color-bg-active: #22303f;
+  --color-border: #24303f;
+  --color-border-strong: #33445a;
+  --color-text-primary: #e3e9f0;
+  --color-text-secondary: #93a1b3;
+  --color-text-tertiary: #5d6c80;
+  --color-accent: #3ec6b8;
+  --color-accent-dim: #2a8f85;
+  --color-accent-soft: rgba(62, 198, 184, 0.12);
+  --color-danger: #e5636f;
+  --color-warning: #d9a045;
+  --color-success: #5cb87a;
+  --color-user-bubble: #1a2531;
+  --color-thinking: #7c6bb0;
+}
+
+:root {
+  --ui-font:
+    "PingFang SC", -apple-system, "Segoe UI", "Noto Sans SC", "Helvetica Neue",
+    sans-serif;
+  --mono-font: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--ui-font);
+  font-size: 14px;
+  color: var(--color-text-primary);
+  background: var(--color-bg-root);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+code,
+pre,
+.mono {
+  font-family: var(--mono-font);
+}
+
+/* 标题栏拖拽区 */
+.titlebar-drag {
+  -webkit-app-region: drag;
+}
+.titlebar-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* 滚动条 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-border-strong);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Markdown 内容微调 */
+.md-body pre {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 12px;
+  overflow-x: auto;
+  font-size: 12.5px;
+}
+.md-body code:not(pre code) {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 12.5px;
+}
