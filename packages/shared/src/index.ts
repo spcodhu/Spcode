@@ -89,11 +89,44 @@ export interface PermissionRequest {
 }
 
 // ---------------------------------------------------------------------------
+// 结构化提问（AskUserQuestion 工具走这条通道）
+// ---------------------------------------------------------------------------
+
+export interface QuestionOption {
+  label: string;
+  description?: string;
+}
+
+export interface QuestionItem {
+  question: string;
+  header?: string;
+  multiSelect?: boolean;
+  options?: QuestionOption[];
+}
+
+export interface QuestionRequest {
+  requestId: string;
+  sessionId: string;
+  questions: QuestionItem[];
+}
+
+// ---------------------------------------------------------------------------
+// 待办（TodoWrite 工具状态）
+// ---------------------------------------------------------------------------
+
+export interface TodoItem {
+  content: string;
+  activeForm?: string;
+  status: "pending" | "in_progress" | "completed";
+}
+
+// ---------------------------------------------------------------------------
 // Agent Host 协议（Main ↔ utilityProcess）
 // ---------------------------------------------------------------------------
 
 export type HostCommand =
   | { id: string; type: "session.create"; payload: { sessionId: string; mode: SessionMode; cwd: string; model?: ModelRef; thinkingLevel?: string } }
+  | { id: string; type: "session.open"; payload: { sessionId: string; sessionFile: string; cwd: string } }
   | { id: string; type: "session.prompt"; payload: { sessionId: string; text: string } }
   | { id: string; type: "session.abort"; payload: { sessionId: string } }
   | { id: string; type: "session.setModel"; payload: { sessionId: string; model: ModelRef } }
@@ -103,14 +136,18 @@ export type HostCommand =
   | { id: string; type: "auth.setApiKey"; payload: { provider: string; apiKey: string } }
   | { id: string; type: "auth.listProviders" }
   | { type: "permission.reply"; payload: { requestId: string; approved: boolean } }
+  | { type: "question.reply"; payload: { requestId: string; answers: Record<string, string> } }
   | { type: "shutdown" };
 
 export type HostEvent =
   | { type: "ready" }
   | { type: "response"; id: string; success: boolean; data?: unknown; error?: string }
   | { type: "session.event"; sessionId: string; event: unknown }
+  | { type: "session.history"; sessionId: string; messages: unknown[] }
   | { type: "session.usage"; sessionId: string; usage: UsageRecord }
+  | { type: "session.todo"; sessionId: string; todos: TodoItem[] }
   | { type: "permission.request"; request: PermissionRequest }
+  | { type: "question.request"; request: QuestionRequest }
   | { type: "host.error"; message: string };
 
 /** 分布式 Omit：调用侧构造命令时省略 id（由通道层补发） */
@@ -131,6 +168,11 @@ export const IPC = {
   hostEvent: "spcode:host-event",
   /** renderer -> main：权限确认回复 */
   permissionReply: "spcode:permission-reply",
+  /** renderer -> main：结构化提问回复 */
+  questionReply: "spcode:question-reply",
+  /** renderer -> main (invoke)：会话注册表列表/删除 */
+  listSessions: "spcode:list-sessions",
+  removeSession: "spcode:remove-session",
   /** renderer -> main (invoke)：选择文件夹，返回路径或 null */
   pickDirectory: "spcode:pick-directory",
   /** renderer -> main (invoke)：读取/写入应用设置 */

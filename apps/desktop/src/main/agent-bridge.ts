@@ -115,6 +115,11 @@ export class AgentBridge {
     this.post({ type: "permission.reply", payload: { requestId, approved } });
   }
 
+  /** 渲染进程回复结构化提问（AskUserQuestion 工具） */
+  replyQuestion(requestId: string, answers: Record<string, string>): void {
+    this.post({ type: "question.reply", payload: { requestId, answers } });
+  }
+
   private post(cmd: HostCommand): void {
     this.child?.postMessage(cmd);
   }

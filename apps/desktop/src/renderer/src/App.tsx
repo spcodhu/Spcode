@@ -4,6 +4,7 @@ import { Sidebar } from "./components/Sidebar";
 import { ChatView } from "./components/ChatView";
 import { TopBar } from "./components/TopBar";
 import { PermissionCard } from "./components/PermissionCard";
+import { QuestionCard } from "./components/QuestionCard";
 import { SettingsPanel } from "./components/SettingsPanel";
 
 export default function App() {
@@ -38,6 +39,7 @@ export default function App() {
         </div>
       </div>
       <PermissionCard />
+      <QuestionCard />
       {settingsOpen && <SettingsPanel onClose={() => setSettingsOpen(false)} />}
       {lastError && (
         <div className="fixed bottom-4 right-4 max-w-md rounded-lg border border-danger/40 bg-bg-elevated px-4 py-3 text-sm text-danger shadow-xl">

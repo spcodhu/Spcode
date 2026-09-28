@@ -19,6 +19,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
     <div className="flex h-full flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-3xl px-6 py-6">
+          {session.todos.length > 0 && <TodoPanel todos={session.todos} />}
           {session.messages.length === 0 && (
             <div className="py-16 text-center text-sm text-text-tertiary">
               {session.meta.mode === "project" ? (
@@ -47,4 +48,33 @@ function lastMessageLength(messages: { text: string; thinking: string }[] | unde
   if (!messages || messages.length === 0) return 0;
   const last = messages[messages.length - 1];
   return last ? last.text.length + last.thinking.length : 0;
+}
+
+function TodoPanel({ todos }: { todos: import("@spcode/shared").TodoItem[] }) {
+  const done = todos.filter((t) => t.status === "completed").length;
+  return (
+    <div className="mb-4 rounded-lg border border-border bg-bg-elevated px-3 py-2">
+      <div className="mb-1 text-xs font-medium text-text-tertiary">
+        任务清单 · {done}/{todos.length}
+      </div>
+      {todos.map((t, i) => (
+        <div key={i} className="flex items-center gap-2 py-0.5 text-xs">
+          <span
+            className={
+              t.status === "completed"
+                ? "text-success"
+                : t.status === "in_progress"
+                  ? "text-accent"
+                  : "text-text-tertiary"
+            }
+          >
+            {t.status === "completed" ? "✓" : t.status === "in_progress" ? "◐" : "○"}
+          </span>
+          <span className={t.status === "completed" ? "text-text-tertiary line-through" : "text-text-secondary"}>
+            {t.status === "in_progress" && t.activeForm ? t.activeForm : t.content}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
 }

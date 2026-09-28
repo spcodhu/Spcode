@@ -3,6 +3,7 @@
  */
 import { contextBridge, ipcRenderer } from "electron";
 import { IPC, type AppSettings, type HostCommandInput, type HostEvent } from "@spcode/shared";
+import type { SessionRegistryEntry } from "../main/session-registry.js";
 
 export interface SpcodeApi {
   /** 发送带 id 的宿主命令并等待响应 */
@@ -11,6 +12,11 @@ export interface SpcodeApi {
   onEvent(cb: (event: HostEvent) => void): () => void;
   /** 权限确认回复 */
   replyPermission(requestId: string, approved: boolean): void;
+  /** 结构化提问回复（AskUserQuestion 工具） */
+  replyQuestion(requestId: string, answers: Record<string, string>): void;
+  /** 会话注册表（跨重启持久化） */
+  listSessions(): Promise<SessionRegistryEntry[]>;
+  removeSession(id: string): Promise<void>;
   /** 选择项目文件夹 */
   pickDirectory(): Promise<string | null>;
   getSettings(): Promise<AppSettings>;
@@ -29,6 +35,15 @@ const api: SpcodeApi = {
   },
   replyPermission(requestId, approved) {
     ipcRenderer.send(IPC.permissionReply, { requestId, approved });
+  },
+  replyQuestion(requestId, answers) {
+    ipcRenderer.send(IPC.questionReply, { requestId, answers });
+  },
+  listSessions() {
+    return ipcRenderer.invoke(IPC.listSessions);
+  },
+  removeSession(id) {
+    return ipcRenderer.invoke(IPC.removeSession, id);
   },
   pickDirectory() {
     return ipcRenderer.invoke(IPC.pickDirectory);

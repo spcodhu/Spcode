@@ -11,12 +11,15 @@
  */
 import { homedir } from "node:os";
 import { join } from "node:path";
-import {
-  createAgentSession,
-  ModelRuntime,
-  SessionManager,
-} from "@earendil-works/pi-coding-agent";
-import type { HostCommand, HostEvent, ModelInfo, PermissionRequest } from "@spcode/shared";
+import { ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
+import type {
+  HostCommand,
+  HostEvent,
+  ModelInfo,
+  ModelRef,
+  PermissionRequest,
+  QuestionRequest,
+} from "@spcode/shared";
 import { SessionController } from "./session-controller.js";
 
 // ---------------------------------------------------------------------------
@@ -50,6 +53,8 @@ let modelRuntime: ModelRuntime | null = null;
 const sessions = new Map<string, SessionController>();
 /** 等待主进程裁决的权限请求 */
 const pendingPermissions = new Map<string, (approved: boolean) => void>();
+/** 等待用户回答的结构化提问 */
+const pendingQuestions = new Map<string, (answers: Record<string, string>) => void>();
 
 async function getRuntime(): Promise<ModelRuntime> {
   if (!modelRuntime) {
@@ -92,6 +97,38 @@ function requestPermission(request: PermissionRequest): Promise<boolean> {
   });
 }
 
+function askQuestion(request: QuestionRequest): Promise<Record<string, string>> {
+  return new Promise((resolve) => {
+    pendingQuestions.set(request.requestId, resolve);
+    emit({ type: "question.request", request });
+  });
+}
+
+/** session.create / session.open 公共逻辑 */
+async function createController(params: {
+  sessionId: string;
+  cwd: string;
+  model?: ModelRef;
+  thinkingLevel?: string;
+  sessionFile?: string;
+}): Promise<SessionController> {
+  const rt = await getRuntime();
+  return SessionController.create({
+    sessionId: params.sessionId,
+    cwd: params.cwd,
+    agentDir: AGENT_DIR,
+    modelRuntime: rt,
+    modelRef: params.model,
+    thinkingLevel: params.thinkingLevel,
+    sessionFile: params.sessionFile,
+    emitEvent: (event) => emit({ type: "session.event", sessionId: params.sessionId, event }),
+    emitUsage: (usage) => emit({ type: "session.usage", sessionId: params.sessionId, usage }),
+    emitTodo: (todos) => emit({ type: "session.todo", sessionId: params.sessionId, todos }),
+    requestPermission,
+    askQuestion,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // 命令分发
 // ---------------------------------------------------------------------------
@@ -103,6 +140,14 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
     if (resolve) {
       pendingPermissions.delete(cmd.payload.requestId);
       resolve(cmd.payload.approved);
+    }
+    return;
+  }
+  if (cmd.type === "question.reply") {
+    const resolve = pendingQuestions.get(cmd.payload.requestId);
+    if (resolve) {
+      pendingQuestions.delete(cmd.payload.requestId);
+      resolve(cmd.payload.answers);
     }
     return;
   }
@@ -137,20 +182,26 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         break;
       }
       case "session.create": {
-        const rt = await getRuntime();
-        const ctl = await SessionController.create({
+        const ctl = await createController({
           sessionId: cmd.payload.sessionId,
           cwd: cmd.payload.cwd,
-          agentDir: AGENT_DIR,
-          modelRuntime: rt,
-          modelRef: cmd.payload.model,
+          model: cmd.payload.model,
           thinkingLevel: cmd.payload.thinkingLevel,
-          emitEvent: (event) => emit({ type: "session.event", sessionId: cmd.payload.sessionId, event }),
-          emitUsage: (usage) => emit({ type: "session.usage", sessionId: cmd.payload.sessionId, usage }),
-          requestPermission,
         });
         sessions.set(cmd.payload.sessionId, ctl);
         respond(id, true, ctl.info());
+        break;
+      }
+      case "session.open": {
+        const ctl = await createController({
+          sessionId: cmd.payload.sessionId,
+          cwd: cmd.payload.cwd,
+          sessionFile: cmd.payload.sessionFile,
+        });
+        sessions.set(cmd.payload.sessionId, ctl);
+        // 先回响应，再推历史（渲染进程按序处理）
+        respond(id, true, ctl.info());
+        emit({ type: "session.history", sessionId: cmd.payload.sessionId, messages: ctl.history() });
         break;
       }
       case "session.prompt": {

@@ -1,20 +1,34 @@
 /**
  * SessionController —— 包装一个 pi AgentSession。
  *
- * 每个 Spcode 会话一个实例：负责 prompt/abort/模型与思考档位切换，
+ * 每个 Spcode 会话一个实例：负责 prompt/steer/abort/模型与思考档位切换，
  * 把 pi 事件原样上抛，并在 beforeToolCall 里接权限网关。
+ * 自研工具（WebSearch/WebFetch/TodoWrite/AskUserQuestion/Task）在这里注册。
  * Token 用量在 message_end 事件里提取，单独走 usage 通道上抛。
  */
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentSession, AgentSessionEvent, ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { createAgentSession } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
 import { getSupportedThinkingLevels, type Model } from "@earendil-works/pi-ai";
-import type { ModelRef, PermissionRequest, SessionMode, ToolRisk, UsageRecord } from "@spcode/shared";
+import type {
+  ModelRef,
+  PermissionRequest,
+  QuestionRequest,
+  SessionMode,
+  TodoItem,
+  ToolRisk,
+  UsageRecord,
+} from "@spcode/shared";
+import { createAskUserQuestionTool } from "./tools/ask-user.js";
+import { createTaskTool } from "./tools/task.js";
+import { createTodoWriteTool } from "./tools/todowrite.js";
+import { createWebFetchTool } from "./tools/webfetch.js";
+import { createWebSearchTool } from "./tools/websearch.js";
 
 /** 工具风险分级：只读工具自动放行，写类/Shell 要确认 */
-const READONLY_TOOLS = new Set(["read", "grep", "find", "ls", "WebSearch", "websearch"]);
+const READONLY_TOOLS = new Set(["read", "grep", "find", "ls", "websearch", "webfetch", "glob", "todowrite", "askuserquestion"]);
 const DANGER_TOOL_NAMES = new Set(["bash", "powershell"]);
 
 /** Bash 命令危险特征（命中即 danger，act 模式下也要确认） */
@@ -48,7 +62,7 @@ export function classifyToolRisk(toolName: string, args: unknown): ToolRisk {
     if (cmd && isDangerousCommand(cmd)) return "danger";
     return "write";
   }
-  if (READONLY_TOOLS.has(name) || name === "webfetch" || name === "glob") return "readonly";
+  if (READONLY_TOOLS.has(name)) return "readonly";
   return "write";
 }
 
@@ -67,14 +81,21 @@ export interface SessionControllerOptions {
   modelRuntime: ModelRuntime;
   modelRef?: ModelRef;
   thinkingLevel?: string;
+  /** 打开已存在的 pi 会话文件（会话恢复） */
+  sessionFile?: string;
   emitEvent: (event: AgentSessionEvent) => void;
   emitUsage: (usage: UsageRecord) => void;
+  emitTodo: (todos: TodoItem[]) => void;
   requestPermission: (req: PermissionRequest) => Promise<boolean>;
+  askQuestion: (req: QuestionRequest) => Promise<Record<string, string>>;
 }
 
 export class SessionController {
+  private running = false;
+
   private constructor(
     readonly sessionId: string,
+    readonly sessionFile: string | null,
     private readonly session: AgentSession,
     private readonly runtime: ModelRuntime,
     private readonly emitEvent: (e: AgentSessionEvent) => void,
@@ -96,12 +117,35 @@ export class SessionController {
       model: model as Model<never> | undefined,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       thinkingLevel: opts.thinkingLevel as any,
+      sessionManager: opts.sessionFile ? SessionManager.open(opts.sessionFile) : undefined,
+      customTools: [
+        createWebSearchTool(),
+        createWebFetchTool(),
+        createTodoWriteTool(opts.emitTodo),
+        createAskUserQuestionTool(opts.sessionId, opts.askQuestion),
+        createTaskTool({
+          cwd,
+          agentDir: opts.agentDir,
+          modelRuntime: opts.modelRuntime,
+          model: model as Model<never> | undefined,
+          thinkingLevel: opts.thinkingLevel ?? "medium",
+          depth: 0,
+        }),
+      ],
     });
 
-    const ctl = new SessionController(opts.sessionId, session, opts.modelRuntime, opts.emitEvent);
+    const ctl = new SessionController(
+      opts.sessionId,
+      session.sessionFile ?? null,
+      session,
+      opts.modelRuntime,
+      opts.emitEvent,
+    );
 
-    // 事件转发 + usage 提取
+    // 事件转发 + usage 提取 + running 状态跟踪
     session.subscribe((event) => {
+      if (event.type === "agent_start") ctl.running = true;
+      if (event.type === "agent_settled") ctl.running = false;
       opts.emitEvent(event);
       const usage = extractUsage(event, opts.sessionId, ctl.currentModelRef());
       if (usage) opts.emitUsage(usage);
@@ -129,10 +173,16 @@ export class SessionController {
     const model = this.session.model;
     return {
       sessionId: this.sessionId,
+      sessionFile: this.sessionFile,
       model: model ? { provider: model.provider, modelId: model.id } : null,
       thinkingLevel: this.session.thinkingLevel,
       supportedThinkingLevels: model ? getSupportedThinkingLevels(model as Model<never>) : [],
     };
+  }
+
+  /** 恢复会话时给渲染进程回放历史消息 */
+  history(): unknown[] {
+    return [...this.session.messages];
   }
 
   private currentModelRef(): ModelRef | null {
@@ -140,7 +190,12 @@ export class SessionController {
     return m ? { provider: m.provider, modelId: m.id } : null;
   }
 
+  /** 正在运行时发送 = steering 插话；空闲时 = 正常 prompt */
   async prompt(text: string): Promise<void> {
+    if (this.running || this.session.isStreaming) {
+      await this.session.steer(text);
+      return;
+    }
     await this.session.prompt(text);
   }
 
