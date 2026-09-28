@@ -221,6 +221,31 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         respond(id, true, getMemoryStore().readAll());
         break;
       }
+      case "theme.generate": {
+        const rt = await getRuntime();
+        const available = await rt.getAvailable();
+        const model = available[0];
+        if (!model) throw new Error("没有可用模型，请先在设置里配置 API Key");
+        const prompt = [
+          "你是一个桌面应用主题设计师。根据用户的描述生成一个暗色主题 JSON。",
+          "严格只输出 JSON（不要 markdown 代码块），格式：",
+          '{"name":"主题名","base":"dark","colors":{"bgRoot":"#...","bgSidebar":"#...","bgMain":"#...","bgElevated":"#...","bgHover":"#...","bgActive":"#...","border":"#...","textPrimary":"#...","textSecondary":"#...","textTertiary":"#...","accent":"#...","danger":"#...","warning":"#...","success":"#..."}}',
+          "要求：背景层级分明（root 最深、elevated 最浅）、正文对比度 ≥ 7:1、accent 一个主色、低饱和长看不累。",
+          `用户描述：${cmd.payload.description}`,
+        ].join("\n");
+        const result = await rt.completeSimple(model, {
+          messages: [{ role: "user", content: prompt, timestamp: Date.now() }],
+        });
+        const text = result.content
+          .filter((b): b is { type: "text"; text: string } => b.type === "text")
+          .map((b) => b.text)
+          .join("");
+        const jsonMatch = /\{[\s\S]*\}/.exec(text);
+        if (!jsonMatch) throw new Error("模型未返回有效 JSON");
+        const theme = JSON.parse(jsonMatch[0]) as unknown;
+        respond(id, true, theme);
+        break;
+      }
       case "session.prompt": {
         const ctl = sessions.get(cmd.payload.sessionId);
         if (!ctl) throw new Error(`Session not found: ${cmd.payload.sessionId}`);

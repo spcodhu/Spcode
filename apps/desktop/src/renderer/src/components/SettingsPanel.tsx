@@ -124,6 +124,9 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
             </div>
           </section>
 
+          {/* 权限模式（上面）之后是外观 */}
+          <AppearanceSection />
+
           {/* 厂商配额 */}
           <QuotaSection />
 
@@ -328,6 +331,160 @@ function MemorySection() {
           ))}
         </div>
       )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 外观：主题导入 / AI 生成 / 字体导入
+// ---------------------------------------------------------------------------
+
+function AppearanceSection() {
+  const settings = useStore((s) => s.settings);
+  const saveSettings = useStore((s) => s.saveSettings);
+  const [themeDesc, setThemeDesc] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [hint, setHint] = useState<string | null>(null);
+
+  const flash = (text: string) => {
+    setHint(text);
+    setTimeout(() => setHint(null), 3000);
+  };
+
+  const importTheme = async () => {
+    const text = await window.spcode.pickThemeFile();
+    if (!text) return;
+    try {
+      const { normalizeTheme } = await import("../theme.js");
+      const theme = normalizeTheme(JSON.parse(text));
+      if (!theme) {
+        flash("主题文件格式不正确");
+        return;
+      }
+      await saveSettings({ customTheme: theme });
+      flash(`已应用主题「${theme.name}」`);
+    } catch {
+      flash("主题文件不是有效 JSON");
+    }
+  };
+
+  const generateTheme = async () => {
+    const desc = themeDesc.trim();
+    if (!desc || generating) return;
+    setGenerating(true);
+    try {
+      const raw = await window.spcode.command({ type: "theme.generate", payload: { description: desc } });
+      const { normalizeTheme } = await import("../theme.js");
+      const theme = normalizeTheme(raw);
+      if (!theme) {
+        flash("AI 返回的主题不完整，换个描述再试");
+        return;
+      }
+      await saveSettings({ customTheme: theme });
+      flash(`已生成并应用「${theme.name}」`);
+      setThemeDesc("");
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "生成失败");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const importFont = async (kind: "ui" | "mono") => {
+    const picked = await window.spcode.pickFontFile();
+    if (!picked) return;
+    await saveSettings(
+      kind === "ui"
+        ? { uiFontFamily: picked.family, uiFontFile: picked.file }
+        : { monoFontFamily: picked.family, monoFontFile: picked.file },
+    );
+    flash(`已导入字体 ${picked.family}`);
+  };
+
+  return (
+    <section>
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-tertiary">外观</h3>
+      {hint && <div className="mb-2 rounded-md bg-accent-soft px-3 py-1.5 text-xs text-accent">{hint}</div>}
+
+      {/* 当前主题 */}
+      <div className="mb-3 rounded-lg border border-border bg-bg-main px-3 py-2 text-xs text-text-secondary">
+        当前主题：{settings?.customTheme ? `「${settings.customTheme.name}」（自定义）` : "雀羽 · 墨（默认暗色）"}
+        {settings?.customTheme && (
+          <button
+            onClick={() => void saveSettings({ customTheme: null })}
+            className="ml-2 text-text-tertiary hover:text-danger"
+          >
+            恢复默认
+          </button>
+        )}
+      </div>
+
+      <div className="mb-3 flex gap-2">
+        <button
+          onClick={() => void importTheme()}
+          className="rounded-md border border-border px-3 py-1.5 text-xs text-text-secondary hover:bg-bg-hover"
+        >
+          导入主题 JSON
+        </button>
+      </div>
+
+      {/* AI 生成主题 */}
+      <div className="mb-4 flex gap-2">
+        <input
+          value={themeDesc}
+          onChange={(e) => setThemeDesc(e.target.value)}
+          placeholder="描述你想要的主题，如：深林墨绿、低对比护眼"
+          className="min-w-0 flex-1 rounded-md border border-border bg-bg-main px-3 py-1.5 text-xs outline-none focus:border-accent/50"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void generateTheme();
+          }}
+        />
+        <button
+          onClick={() => void generateTheme()}
+          disabled={!themeDesc.trim() || generating}
+          className="shrink-0 rounded-md bg-accent px-3 py-1.5 text-xs text-bg-root hover:bg-accent-dim disabled:opacity-40"
+        >
+          {generating ? "生成中…" : "✨ AI 生成"}
+        </button>
+      </div>
+
+      {/* 字体 */}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-lg border border-border bg-bg-main px-3 py-2">
+          <div className="text-xs text-text-tertiary">界面字体</div>
+          <div className="my-1 truncate text-xs text-text-secondary">{settings?.uiFontFamily || "系统默认"}</div>
+          <div className="flex gap-1">
+            <button onClick={() => void importFont("ui")} className="text-xs text-accent hover:underline">
+              导入字体
+            </button>
+            {settings?.uiFontFamily && (
+              <button
+                onClick={() => void saveSettings({ uiFontFamily: "", uiFontFile: "" })}
+                className="text-xs text-text-tertiary hover:text-danger"
+              >
+                重置
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="rounded-lg border border-border bg-bg-main px-3 py-2">
+          <div className="text-xs text-text-tertiary">等宽字体（代码）</div>
+          <div className="my-1 truncate text-xs text-text-secondary">{settings?.monoFontFamily || "系统默认"}</div>
+          <div className="flex gap-1">
+            <button onClick={() => void importFont("mono")} className="text-xs text-accent hover:underline">
+              导入字体
+            </button>
+            {settings?.monoFontFamily && (
+              <button
+                onClick={() => void saveSettings({ monoFontFamily: "", monoFontFile: "" })}
+                className="text-xs text-text-tertiary hover:text-danger"
+              >
+                重置
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
     </section>
   );
 }

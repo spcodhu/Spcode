@@ -2,9 +2,11 @@
  * Spcode 主进程入口：窗口、IPC、会话注册表、自动更新（未配置更新源时静默跳过）。
  */
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
-import { dirname, join } from "node:path";
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { IPC, type AppSettings, type HostCommand, type HostEvent, type SessionMode } from "@spcode/shared";
+import { IPC, SPCODE_HOME_DIRNAME, type AppSettings, type HostCommand, type HostEvent, type SessionMode } from "@spcode/shared";
 import { AgentBridge } from "./agent-bridge.js";
 import { QuotaService } from "./quota-service.js";
 import { SessionRegistry } from "./session-registry.js";
@@ -141,6 +143,49 @@ function registerIpc(): void {
 
   ipcMain.handle(IPC.getSettings, () => settings.get());
   ipcMain.handle(IPC.setSettings, (_e, patch: Partial<AppSettings>) => settings.set(patch));
+
+  // 字体：选择字体文件 → 复制进 ~/.spcode/fonts/，返回 { file, family }
+  ipcMain.handle(IPC.pickFontFile, async () => {
+    if (!mainWindow) return null;
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ["openFile"],
+      title: "选择字体文件",
+      filters: [{ name: "字体", extensions: ["ttf", "otf", "woff", "woff2"] }],
+    });
+    const src = result.canceled ? null : (result.filePaths[0] ?? null);
+    if (!src) return null;
+    const fontsDir = join(homedir(), SPCODE_HOME_DIRNAME, "fonts");
+    mkdirSync(fontsDir, { recursive: true });
+    const file = basename(src);
+    copyFileSync(src, join(fontsDir, file));
+    const family = file.replace(/\.(ttf|otf|woff2?)$/i, "").replace(/[\s_-]+/g, " ");
+    return { file, family };
+  });
+
+  // 字体数据：FontFace 注册用（只允许读 fonts 目录内的文件）
+  ipcMain.handle(IPC.getFontData, (_e, fileName: string) => {
+    const fontsDir = join(homedir(), SPCODE_HOME_DIRNAME, "fonts");
+    const file = join(fontsDir, basename(fileName));
+    if (!existsSync(file)) return null;
+    return readFileSync(file);
+  });
+
+  // 主题：选择主题 JSON 文件，返回文本内容（校验在渲染进程做）
+  ipcMain.handle(IPC.pickThemeFile, async () => {
+    if (!mainWindow) return null;
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ["openFile"],
+      title: "导入主题 JSON",
+      filters: [{ name: "主题", extensions: ["json"] }],
+    });
+    const src = result.canceled ? null : (result.filePaths[0] ?? null);
+    if (!src) return null;
+    try {
+      return readFileSync(src, "utf-8");
+    } catch {
+      return null;
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------

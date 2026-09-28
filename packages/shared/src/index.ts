@@ -134,6 +134,7 @@ export type HostCommand =
   | { id: string; type: "session.dispose"; payload: { sessionId: string } }
   | { id: string; type: "models.list" }
   | { id: string; type: "memory.read" }
+  | { id: string; type: "theme.generate"; payload: { description: string } }
   | { id: string; type: "auth.setApiKey"; payload: { provider: string; apiKey: string } }
   | { id: string; type: "auth.listProviders" }
   | { type: "permission.reply"; payload: { requestId: string; approved: boolean } }
@@ -177,6 +178,10 @@ export const IPC = {
   /** renderer -> main (invoke)：用量聚合查询（days 可选）/ 厂商配额查询 */
   usageSummary: "spcode:usage-summary",
   quotaQuery: "spcode:quota-query",
+  /** renderer -> main (invoke)：字体与主题文件操作 */
+  pickFontFile: "spcode:pick-font-file",
+  getFontData: "spcode:get-font-data",
+  pickThemeFile: "spcode:pick-theme-file",
   /** renderer -> main (invoke)：选择文件夹，返回路径或 null */
   pickDirectory: "spcode:pick-directory",
   /** renderer -> main (invoke)：读取/写入应用设置 */
@@ -201,6 +206,9 @@ export interface AppSettings {
   monoFontFamily: string;
   /** 自动更新开关（需要已配置更新源） */
   autoUpdate: boolean;
+  /** 导入的字体文件名（存于 ~/.spcode/fonts/，family 名为展示名） */
+  uiFontFile: string;
+  monoFontFile: string;
 }
 
 export interface CustomTheme {
@@ -218,6 +226,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   uiFontFamily: "",
   monoFontFamily: "",
   autoUpdate: true,
+  uiFontFile: "",
+  monoFontFile: "",
 };
 
 /** Spcode 全局数据目录（记忆、设置、用量、会话索引都放在这里） */

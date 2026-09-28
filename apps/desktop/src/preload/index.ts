@@ -24,6 +24,10 @@ export interface SpcodeApi {
   quotaQuery(): Promise<QuotaInfo[]>;
   /** 选择项目文件夹 */
   pickDirectory(): Promise<string | null>;
+  /** 外观：字体导入/字体数据/主题 JSON 导入 */
+  pickFontFile(): Promise<{ file: string; family: string } | null>;
+  getFontData(fileName: string): Promise<Uint8Array | null>;
+  pickThemeFile(): Promise<string | null>;
   getSettings(): Promise<AppSettings>;
   setSettings(patch: Partial<AppSettings>): Promise<AppSettings>;
 }
@@ -58,6 +62,15 @@ const api: SpcodeApi = {
   },
   pickDirectory() {
     return ipcRenderer.invoke(IPC.pickDirectory);
+  },
+  pickFontFile() {
+    return ipcRenderer.invoke(IPC.pickFontFile);
+  },
+  getFontData(fileName) {
+    return ipcRenderer.invoke(IPC.getFontData, fileName);
+  },
+  pickThemeFile() {
+    return ipcRenderer.invoke(IPC.pickThemeFile);
   },
   getSettings() {
     return ipcRenderer.invoke(IPC.getSettings);

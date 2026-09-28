@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useStore } from "./store";
+import { applyAppearance } from "./theme";
 import { Sidebar } from "./components/Sidebar";
 import { ChatView } from "./components/ChatView";
 import { TopBar } from "./components/TopBar";
@@ -16,6 +17,12 @@ export default function App() {
   useEffect(() => {
     void useStore.getState().init();
   }, []);
+
+  // 外观设置变化时即时应用（主题/字体）
+  const settings = useStore((s) => s.settings);
+  useEffect(() => {
+    if (settings) void applyAppearance(settings);
+  }, [settings]);
 
   if (!ready) {
     return (
