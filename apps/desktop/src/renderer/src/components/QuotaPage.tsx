@@ -118,12 +118,17 @@ export function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) =
     <button
       role="switch"
       aria-checked={on}
-      onClick={() => onChange(!on)}
-      className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${on ? "bg-accent" : "bg-bg-hover"}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        onChange(!on);
+      }}
+      className={`relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors duration-200 ${
+        on ? "bg-accent" : "border border-border-strong bg-bg-hover"
+      }`}
     >
       <span
-        className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-          on ? "translate-x-[22px]" : "translate-x-0.5"
+        className={`absolute top-[2px] h-[18px] w-[18px] rounded-full bg-white shadow-sm transition-transform duration-200 ${
+          on ? "translate-x-[16px]" : "translate-x-[1px]"
         }`}
       />
     </button>

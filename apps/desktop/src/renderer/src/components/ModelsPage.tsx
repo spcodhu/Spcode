@@ -25,11 +25,16 @@ export function ModelsPage() {
   const [detail, setDetail] = useState<string | null>(null);
 
   useEffect(() => {
+    void reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const reload = () => {
     void window.spcode
       .command<CatalogProvider[]>({ type: "models.catalog" })
       .then((c) => setCatalog(c ?? []))
       .catch(() => setCatalog([]));
-  }, []);
+  };
 
   const disabledProviders = useMemo(() => new Set(settings?.disabledProviders ?? []), [settings]);
   const disabledModels = useMemo(() => new Set(settings?.disabledModels ?? []), [settings]);
@@ -61,7 +66,10 @@ export function ModelsPage() {
           disabledModels={disabledModels}
           onToggleModel={toggleModel}
           onBack={() => setDetail(null)}
-          onKeySaved={refreshModels}
+          onKeySaved={() => {
+            reload();
+            void refreshModels();
+          }}
         />
       ) : (
         <>
@@ -94,7 +102,8 @@ export function ModelsPage() {
                 <ProviderRow
                   key={p.provider}
                   provider={p}
-                  enabled={!disabledProviders.has(p.provider)}
+                  // 未配置密钥的厂商默认关闭，保存密钥后自动开启
+                  enabled={false}
                   enabledCount={0}
                   onToggle={(v) => toggleProvider(p.provider, v)}
                   onOpen={() => setDetail(p.provider)}

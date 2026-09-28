@@ -205,39 +205,54 @@ function EmptyHint({ text }: { text: string }) {
   return <div className="px-2 py-2 text-[12px] text-text-tertiary">{text}</div>;
 }
 
-/** 空间标题右侧的 "…" 菜单：选择文件夹开始… / 创建聊天频道 */
+/** 空间标题右侧的 "…" 浮动菜单：选择文件夹开始… / 创建聊天频道
+ *  用 fixed 定位展开，避免被侧栏滚动容器裁切 */
 function SpaceMenu({ onPickFolder, onNewChat }: { onPickFolder: () => void; onNewChat: () => void }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const openMenu = () => {
+    const r = btnRef.current?.getBoundingClientRect();
+    if (r) setPos({ x: Math.min(r.left, window.innerWidth - 200), y: r.bottom + 4 });
+    setOpen(true);
+  };
 
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (!menuRef.current?.contains(t) && !btnRef.current?.contains(t)) setOpen(false);
     };
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
 
   return (
-    <div ref={ref} className="relative">
+    <>
       <button
-        onClick={() => setOpen(!open)}
+        ref={btnRef}
+        onClick={() => (open ? setOpen(false) : openMenu())}
         className="rounded p-0.5 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
         title="空间操作"
       >
         <Icon name="dots" size={13} />
       </button>
       {open && (
-        <div className="absolute left-0 top-6 z-50 w-44 rounded-xl border border-border bg-bg-elevated p-1 shadow-2xl">
+        <div
+          ref={menuRef}
+          style={{ left: pos.x, top: pos.y }}
+          className="fixed z-[80] w-52 rounded-xl border border-border bg-bg-elevated p-1.5 shadow-2xl"
+        >
           <button
             onClick={() => {
               setOpen(false);
               onPickFolder();
             }}
-            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] text-text-primary hover:bg-bg-hover"
+            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] text-text-primary hover:bg-bg-hover"
           >
-            <Icon name="folder" size={14} className="text-text-tertiary" />
+            <Icon name="folder" size={14} className="shrink-0 text-text-tertiary" />
             选择文件夹开始…
           </button>
           <button
@@ -245,13 +260,13 @@ function SpaceMenu({ onPickFolder, onNewChat }: { onPickFolder: () => void; onNe
               setOpen(false);
               onNewChat();
             }}
-            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] text-text-primary hover:bg-bg-hover"
+            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] text-text-primary hover:bg-bg-hover"
           >
-            <span className="w-3.5 text-center text-[13px] text-text-tertiary">#</span>
+            <span className="w-3.5 shrink-0 text-center text-[13px] text-text-tertiary">#</span>
             创建聊天频道
           </button>
         </div>
       )}
-    </div>
+    </>
   );
 }

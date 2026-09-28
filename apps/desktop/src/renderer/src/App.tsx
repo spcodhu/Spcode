@@ -18,6 +18,20 @@ export default function App() {
     void useStore.getState().init();
   }, []);
 
+  // 快捷键：Cmd+, 开关设置面板，ESC 关闭设置面板
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === "," || e.code === "Comma")) {
+        e.preventDefault();
+        setSettingsOpen((v) => !v);
+      } else if (e.key === "Escape") {
+        setSettingsOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // 外观设置变化时即时应用（主题/字体）
   const settings = useStore((s) => s.settings);
   useEffect(() => {

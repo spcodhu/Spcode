@@ -21,49 +21,58 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
   const [page, setPage] = useState<PageId>("usage");
 
   return (
-    <div className="fixed inset-0 z-40 flex bg-bg-main">
-      {/* 左侧导航 */}
-      <nav className="flex w-52 shrink-0 flex-col border-r border-border bg-bg-sidebar">
-        <div className="titlebar-drag flex h-12 items-center justify-center border-b border-border">
-          <span className="text-[14px] font-semibold text-text-primary">设置</span>
-        </div>
-        <div className="flex-1 overflow-y-auto px-2 py-3">
-          {NAV.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setPage(item.id)}
-              className={`mb-0.5 flex h-9 w-full items-center gap-2.5 rounded-lg px-3 text-[13px] transition-colors ${
-                page === item.id ? "bg-accent text-white" : "text-text-secondary hover:bg-bg-hover"
-              }`}
-            >
-              <Icon name={item.icon} size={15} />
-              {item.label}
-            </button>
-          ))}
-        </div>
-      </nav>
+    <div
+      className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 backdrop-blur-[2px]"
+      onMouseDown={(e) => {
+        // 点击面板外部任意位置关闭
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="flex h-[720px] max-h-[86vh] w-[1100px] max-w-[92vw] overflow-hidden rounded-2xl border border-border-strong bg-bg-main shadow-2xl">
+        {/* 左侧导航 */}
+        <nav className="flex w-52 shrink-0 flex-col border-r border-border bg-bg-sidebar">
+          <div className="titlebar-drag flex h-12 items-center justify-center border-b border-border">
+            <span className="text-[14px] font-semibold text-text-primary">设置</span>
+          </div>
+          <div className="flex-1 overflow-y-auto px-2 py-3">
+            {NAV.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => setPage(item.id)}
+                className={`mb-0.5 flex h-9 w-full items-center gap-2.5 rounded-lg px-3 text-[13px] transition-colors ${
+                  page === item.id ? "bg-accent text-white" : "text-text-secondary hover:bg-bg-hover"
+                }`}
+              >
+                <Icon name={item.icon} size={15} />
+                {item.label}
+              </button>
+            ))}
+          </div>
+          <div className="border-t border-border px-3 py-2 text-[11px] text-text-tertiary">
+            Esc 或点击外部关闭
+          </div>
+        </nav>
 
-      {/* 内容区 */}
-      <div className="min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-[860px] px-8 py-6">
-          {page === "general" && <GeneralPage />}
-          {page === "appearance" && <AppearancePage />}
-          {page === "models" && <ModelsPage />}
-          {page === "usage" && <UsagePage />}
-          {page === "quota" && <QuotaPage />}
-          {page === "memory" && <MemoryPage />}
-          {page === "about" && <AboutPage />}
+        {/* 内容区 */}
+        <div className="relative min-w-0 flex-1 overflow-y-auto">
+          <button
+            onClick={onClose}
+            title="关闭设置"
+            className="absolute right-4 top-3.5 rounded-lg p-1.5 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
+          >
+            <Icon name="x" size={16} />
+          </button>
+          <div className="mx-auto max-w-[760px] px-8 py-6">
+            {page === "general" && <GeneralPage />}
+            {page === "appearance" && <AppearancePage />}
+            {page === "models" && <ModelsPage />}
+            {page === "usage" && <UsagePage />}
+            {page === "quota" && <QuotaPage />}
+            {page === "memory" && <MemoryPage />}
+            {page === "about" && <AboutPage />}
+          </div>
         </div>
       </div>
-
-      {/* 关闭 */}
-      <button
-        onClick={onClose}
-        title="关闭设置"
-        className="absolute right-4 top-3.5 rounded-lg p-1.5 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
-      >
-        <Icon name="x" size={16} />
-      </button>
     </div>
   );
 }

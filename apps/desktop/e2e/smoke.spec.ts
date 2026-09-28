@@ -53,6 +53,31 @@ test.describe("Spcode 冒烟 E2E", () => {
     await app.close();
   });
 
+  test("快捷键 Cmd+, 开设置，ESC 与点击外部关闭", async () => {
+    const app = await electron.launch({ args: [".", "--no-sandbox"], cwd: appDir });
+    const window = await app.firstWindow();
+
+    await window.getByRole("button", { name: /新建聊天/ }).click();
+    await expect(window.getByPlaceholder(/说点什么/)).toBeVisible({ timeout: 15000 });
+
+    // Cmd+, 打开设置（macOS）
+    await window.keyboard.press("Meta+Comma");
+    await expect(window.getByRole("button", { name: "用量" })).toBeVisible({ timeout: 5000 });
+
+    // ESC 关闭
+    await window.keyboard.press("Escape");
+    await expect(window.getByRole("button", { name: "用量" })).not.toBeVisible();
+
+    // 再开，点面板外部任意位置关闭
+    await window.keyboard.press("Meta+Comma");
+    await expect(window.getByRole("button", { name: "用量" })).toBeVisible({ timeout: 5000 });
+    // 点左上角空白处（遮罩层）
+    await window.mouse.click(30, 30);
+    await expect(window.getByRole("button", { name: "用量" })).not.toBeVisible();
+
+    await app.close();
+  });
+
   test("无模型时发消息不会导致崩溃", async () => {
     const app = await electron.launch({ args: [".", "--no-sandbox"], cwd: appDir });
     const window = await app.firstWindow();
