@@ -3,6 +3,7 @@ import { useStore } from "../store";
 import { Icon } from "./Icon";
 import { UsagePage } from "./UsagePage";
 import { QuotaPage, Toggle } from "./QuotaPage";
+import { ModelsPage } from "./ModelsPage";
 
 type PageId = "general" | "appearance" | "models" | "usage" | "quota" | "memory" | "about";
 
@@ -259,68 +260,6 @@ function AppearancePage() {
                 </button>
               )}
             </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// 模型（API Key 管理）
-// ---------------------------------------------------------------------------
-
-interface ProviderInfo {
-  id: string;
-  name: string;
-}
-
-function ModelsPage() {
-  const refreshModels = useStore((s) => s.refreshModels);
-  const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
-  const [savedHint, setSavedHint] = useState<string | null>(null);
-
-  useEffect(() => {
-    void window.spcode
-      .command<ProviderInfo[]>({ type: "auth.listProviders" })
-      .then((list) => setProviders(list ?? []))
-      .catch(() => setProviders([]));
-  }, []);
-
-  const saveKey = async (provider: string) => {
-    const key = apiKeys[provider]?.trim();
-    if (!key) return;
-    await window.spcode.command({ type: "auth.setApiKey", payload: { provider, apiKey: key } });
-    setApiKeys((m) => ({ ...m, [provider]: "" }));
-    setSavedHint(provider);
-    setTimeout(() => setSavedHint(null), 2000);
-    await refreshModels();
-  };
-
-  return (
-    <div>
-      <PageHeader title="模型" subtitle="配置模型供应商 API Key，填入后该厂商全部模型自动可用。密钥仅存本地 ~/.spcode/agent/auth.json" />
-      <div className="space-y-2">
-        {providers.map((p) => (
-          <div key={p.id} className="flex items-center gap-3 rounded-xl border border-border bg-bg-elevated px-4 py-2.5">
-            <span className="w-40 shrink-0 truncate text-[13px] text-text-primary" title={p.id}>
-              {p.name}
-            </span>
-            <input
-              type="password"
-              value={apiKeys[p.id] ?? ""}
-              onChange={(e) => setApiKeys((m) => ({ ...m, [p.id]: e.target.value }))}
-              placeholder="sk-..."
-              className="min-w-0 flex-1 rounded-lg border border-border bg-bg-main px-3 py-1.5 text-[12px] outline-none focus:border-accent/50"
-            />
-            <button
-              onClick={() => void saveKey(p.id)}
-              disabled={!apiKeys[p.id]?.trim()}
-              className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-[12px] text-white hover:bg-accent-dim disabled:opacity-40"
-            >
-              {savedHint === p.id ? "已保存 ✓" : "保存"}
-            </button>
           </div>
         ))}
       </div>

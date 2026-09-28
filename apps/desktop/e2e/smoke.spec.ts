@@ -43,8 +43,8 @@ test.describe("Spcode 冒烟 E2E", () => {
     await expect(window.getByText("快捷展示配额")).toBeVisible();
 
     // 切到模型页
-    await window.getByRole("button", { name: "模型" }).click();
-    await expect(window.getByText(/填入后该厂商全部模型自动可用/)).toBeVisible();
+    await window.getByRole("button", { name: "模型", exact: true }).click();
+    await expect(window.getByText(/配置模型提供商和可用模型/)).toBeVisible();
 
     // 关闭设置
     await window.getByTitle("关闭设置").click();

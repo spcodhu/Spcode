@@ -133,6 +133,7 @@ export type HostCommand =
   | { id: string; type: "session.setThinkingLevel"; payload: { sessionId: string; level: string } }
   | { id: string; type: "session.dispose"; payload: { sessionId: string } }
   | { id: string; type: "models.list" }
+  | { id: string; type: "models.catalog" }
   | { id: string; type: "memory.read" }
   | { id: string; type: "theme.generate"; payload: { description: string } }
   | { id: string; type: "auth.setApiKey"; payload: { provider: string; apiKey: string } }
@@ -209,6 +210,9 @@ export interface AppSettings {
   autoUpdate: boolean;
   /** 模型行悬浮时显示配额卡片 */
   quickQuota: boolean;
+  /** 停用的供应商与单个模型（模型页开关） */
+  disabledProviders: string[];
+  disabledModels: string[];
   /** 导入的字体文件名（存于 ~/.spcode/fonts/，family 名为展示名） */
   uiFontFile: string;
   monoFontFile: string;
@@ -230,6 +234,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   monoFontFamily: "",
   autoUpdate: true,
   quickQuota: true,
+  disabledProviders: [],
+  disabledModels: [],
   uiFontFile: "",
   monoFontFile: "",
 };

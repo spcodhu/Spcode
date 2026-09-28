@@ -175,6 +175,23 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         respond(id, true, available.map((m) => toModelInfo(m)));
         break;
       }
+      case "models.catalog": {
+        // 全量模型目录（含未配置密钥的厂商），模型设置页用
+        const rt = await getRuntime();
+        const catalog = rt.getProviders().map((p) => ({
+          provider: p.id,
+          name: p.name ?? p.id,
+          configured: rt.hasConfiguredAuth(p.id),
+          models: rt.getModels(p.id).map((m) => ({
+            provider: m.provider,
+            modelId: m.id,
+            displayName: m.name ?? m.id,
+            reasoning: !!m.reasoning,
+          })),
+        }));
+        respond(id, true, catalog);
+        break;
+      }
       case "auth.setApiKey": {
         const rt = await getRuntime();
         await rt.setRuntimeApiKey(cmd.payload.provider, cmd.payload.apiKey);

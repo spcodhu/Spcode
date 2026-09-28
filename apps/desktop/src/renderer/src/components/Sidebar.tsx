@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { formatRelative } from "../format";
 import { useStore, type RegistrySession } from "../store";
 import { Icon } from "./Icon";
@@ -71,7 +71,21 @@ export function Sidebar({ onOpenSettings }: { onOpenSettings: () => void }) {
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         {/* 空间 */}
-        <SectionLabel>空间</SectionLabel>
+        <div className="flex items-center justify-between px-2 pb-1 pt-3">
+          <span className="flex items-center gap-1 text-[11px] font-medium text-text-tertiary">
+            空间
+            <Icon name="chevronDown" size={11} />
+          </span>
+          <SpaceMenu
+            onPickFolder={() => {
+              void (async () => {
+                const dir = await window.spcode.pickDirectory();
+                if (dir) await createSession("project", dir);
+              })();
+            }}
+            onNewChat={() => void createSession("chat")}
+          />
+        </div>
         {spaces.length === 0 && <EmptyHint text="还没有项目空间" />}
         {spaces.map((sp) => {
           const latest = sp.sessions[0];
@@ -189,4 +203,55 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 function EmptyHint({ text }: { text: string }) {
   return <div className="px-2 py-2 text-[12px] text-text-tertiary">{text}</div>;
+}
+
+/** 空间标题右侧的 "…" 菜单：选择文件夹开始… / 创建聊天频道 */
+function SpaceMenu({ onPickFolder, onNewChat }: { onPickFolder: () => void; onNewChat: () => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="rounded p-0.5 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
+        title="空间操作"
+      >
+        <Icon name="dots" size={13} />
+      </button>
+      {open && (
+        <div className="absolute left-0 top-6 z-50 w-44 rounded-xl border border-border bg-bg-elevated p-1 shadow-2xl">
+          <button
+            onClick={() => {
+              setOpen(false);
+              onPickFolder();
+            }}
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] text-text-primary hover:bg-bg-hover"
+          >
+            <Icon name="folder" size={14} className="text-text-tertiary" />
+            选择文件夹开始…
+          </button>
+          <button
+            onClick={() => {
+              setOpen(false);
+              onNewChat();
+            }}
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] text-text-primary hover:bg-bg-hover"
+          >
+            <span className="w-3.5 text-center text-[13px] text-text-tertiary">#</span>
+            创建聊天频道
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
