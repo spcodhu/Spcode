@@ -123,8 +123,157 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
               ))}
             </div>
           </section>
+
+          {/* 厂商配额 */}
+          <QuotaSection />
+
+          {/* Token 用量统计 */}
+          <UsageSection />
         </div>
       </div>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// 厂商配额卡片
+// ---------------------------------------------------------------------------
+
+interface QuotaInfo {
+  provider: string;
+  label: string;
+  configured: boolean;
+  remaining: string | null;
+  total?: string | null;
+  usedPercent?: number | null;
+  plan?: string | null;
+  error?: string;
+}
+
+function QuotaSection() {
+  const [quotas, setQuotas] = useState<QuotaInfo[] | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = () => {
+    setLoading(true);
+    void window.spcode
+      .quotaQuery()
+      .then((q) => setQuotas(q ?? []))
+      .catch(() => setQuotas([]))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(load, []);
+
+  return (
+    <section>
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-text-tertiary">厂商配额</h3>
+        <button onClick={load} className="text-xs text-text-tertiary hover:text-accent">
+          {loading ? "查询中…" : "刷新"}
+        </button>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {(quotas ?? []).map((q) => (
+          <div key={q.provider} className="rounded-lg border border-border bg-bg-main px-3 py-2">
+            <div className="text-xs text-text-secondary">{q.label}</div>
+            <div className="mt-1 text-sm font-semibold text-text-primary">
+              {!q.configured ? (
+                <span className="text-text-tertiary">未配置密钥</span>
+              ) : q.error ? (
+                <span className="text-warning" title={q.error}>查询失败</span>
+              ) : (
+                (q.remaining ?? <span className="text-text-tertiary">—</span>)
+              )}
+            </div>
+            {q.usedPercent != null && (
+              <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-bg-hover">
+                <div
+                  className={`h-full rounded-full ${q.usedPercent > 85 ? "bg-danger" : "bg-accent"}`}
+                  style={{ width: `${Math.min(100, q.usedPercent)}%` }}
+                />
+              </div>
+            )}
+            {q.plan && <div className="mt-1 text-xs text-text-tertiary">{q.plan}</div>}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Token 用量统计
+// ---------------------------------------------------------------------------
+
+interface DailyUsage {
+  date: string;
+  total: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    costTotal: number;
+    count: number;
+  };
+  byModel: Record<string, { input: number; output: number; cacheRead: number; costTotal: number; count: number }>;
+}
+
+function UsageSection() {
+  const [days, setDays] = useState<DailyUsage[] | null>(null);
+
+  useEffect(() => {
+    void window.spcode
+      .usageSummary(7)
+      .then((d) => setDays(d ?? []))
+      .catch(() => setDays([]));
+  }, []);
+
+  const hasData = days?.some((d) => d.total.count > 0);
+
+  return (
+    <section>
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-tertiary">
+        Token 用量（近 7 天）
+      </h3>
+      {!hasData ? (
+        <div className="text-xs text-text-tertiary">还没有用量记录，跑几轮对话后这里会有统计。</div>
+      ) : (
+        <div className="space-y-2">
+          {days
+            ?.filter((d) => d.total.count > 0)
+            .map((d) => {
+              const cacheRate =
+                d.total.input > 0 ? Math.round((d.total.cacheRead / (d.total.input + d.total.cacheRead)) * 100) : 0;
+              return (
+                <div key={d.date} className="rounded-lg border border-border bg-bg-main px-3 py-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-text-secondary">{d.date}</span>
+                    <span className="text-text-tertiary">
+                      {formatTok(d.total.input + d.total.output)} tok · 缓存 {cacheRate}% · $
+                      {d.total.costTotal.toFixed(4)}
+                    </span>
+                  </div>
+                  <div className="mt-1 space-y-0.5">
+                    {Object.entries(d.byModel).map(([model, u]) => (
+                      <div key={model} className="flex items-center justify-between text-xs text-text-tertiary">
+                        <span className="truncate">{model}</span>
+                        <span>
+                          {formatTok(u.input + u.output)} · ${u.costTotal.toFixed(4)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function formatTok(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
 }

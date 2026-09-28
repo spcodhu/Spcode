@@ -173,6 +173,9 @@ export const IPC = {
   /** renderer -> main (invoke)：会话注册表列表/删除 */
   listSessions: "spcode:list-sessions",
   removeSession: "spcode:remove-session",
+  /** renderer -> main (invoke)：用量聚合查询（days 可选）/ 厂商配额查询 */
+  usageSummary: "spcode:usage-summary",
+  quotaQuery: "spcode:quota-query",
   /** renderer -> main (invoke)：选择文件夹，返回路径或 null */
   pickDirectory: "spcode:pick-directory",
   /** renderer -> main (invoke)：读取/写入应用设置 */

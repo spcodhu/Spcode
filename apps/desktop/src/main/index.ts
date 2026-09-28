@@ -6,14 +6,18 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { IPC, type AppSettings, type HostCommand, type HostEvent, type SessionMode } from "@spcode/shared";
 import { AgentBridge } from "./agent-bridge.js";
+import { QuotaService } from "./quota-service.js";
 import { SessionRegistry } from "./session-registry.js";
 import { SettingsStore } from "./settings-store.js";
+import { UsageLedger } from "./usage-ledger.js";
 import { setupAutoUpdater } from "./updater.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const settings = new SettingsStore();
 const registry = new SessionRegistry();
+const ledger = new UsageLedger();
+const quota = new QuotaService();
 const bridge = new AgentBridge({ getPermissionMode: () => settings.get().permissionMode });
 
 let mainWindow: BrowserWindow | null = null;
@@ -59,6 +63,11 @@ function createWindow(): void {
 
 function watchSessionLifecycle(): void {
   bridge.onEvent((event: HostEvent) => {
+    // 用量落账
+    if (event.type === "session.usage") {
+      ledger.append(event.usage);
+      return;
+    }
     if (event.type !== "response" || !event.success) return;
     const data = event.data as
       | { sessionId?: string; sessionFile?: string | null; model?: { provider: string; modelId: string } | null; thinkingLevel?: string }
@@ -117,6 +126,9 @@ function registerIpc(): void {
       .call({ id: `dispose-${id}`, type: "session.dispose", payload: { sessionId: id } })
       .catch(() => {});
   });
+
+  ipcMain.handle(IPC.usageSummary, (_e, days?: number) => ledger.summarize(days ?? 14));
+  ipcMain.handle(IPC.quotaQuery, () => quota.queryAll());
 
   ipcMain.handle(IPC.pickDirectory, async () => {
     if (!mainWindow) return null;

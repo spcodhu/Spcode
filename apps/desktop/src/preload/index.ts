@@ -4,6 +4,8 @@
 import { contextBridge, ipcRenderer } from "electron";
 import { IPC, type AppSettings, type HostCommandInput, type HostEvent } from "@spcode/shared";
 import type { SessionRegistryEntry } from "../main/session-registry.js";
+import type { QuotaInfo } from "../main/quota-service.js";
+import type { DailyUsage } from "../main/usage-ledger.js";
 
 export interface SpcodeApi {
   /** 发送带 id 的宿主命令并等待响应 */
@@ -17,6 +19,9 @@ export interface SpcodeApi {
   /** 会话注册表（跨重启持久化） */
   listSessions(): Promise<SessionRegistryEntry[]>;
   removeSession(id: string): Promise<void>;
+  /** 用量聚合（按日×模型）与厂商配额 */
+  usageSummary(days?: number): Promise<DailyUsage[]>;
+  quotaQuery(): Promise<QuotaInfo[]>;
   /** 选择项目文件夹 */
   pickDirectory(): Promise<string | null>;
   getSettings(): Promise<AppSettings>;
@@ -44,6 +49,12 @@ const api: SpcodeApi = {
   },
   removeSession(id) {
     return ipcRenderer.invoke(IPC.removeSession, id);
+  },
+  usageSummary(days) {
+    return ipcRenderer.invoke(IPC.usageSummary, days);
+  },
+  quotaQuery() {
+    return ipcRenderer.invoke(IPC.quotaQuery);
   },
   pickDirectory() {
     return ipcRenderer.invoke(IPC.pickDirectory);
