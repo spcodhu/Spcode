@@ -1,0 +1,49 @@
+appId: com.spcode.app
+productName: Spcode
+copyright: Copyright © 2026 spcodhu
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - out/**
+  - package.json
+
+# pi 引擎是 ESM，Node 的 ESM loader 不支持 asar 归档，
+# agent-host 入口与全部依赖必须 unpacked（与 Finch 的 app.asar.unpacked 同款做法）
+asarUnpack:
+  - "out/main/agent-host.mjs"
+  - "node_modules/**"
+
+npmRebuild: false
+
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  identity: null # 不签名（自用决策），有证书后改为证书名并配 notarize
+  hardenedRuntime: false
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: zip
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  shortcutName: Spcode
+
+# 自动更新源：建好 GitHub 仓库后填入 owner/repo，
+# 同时把 src/main/updater.ts 的 UPDATE_OWNER/UPDATE_REPO 改掉即可启用
+publish:
+  provider: github
+  owner: TODO-OWNER
+  repo: TODO-REPO
+  releaseType: release

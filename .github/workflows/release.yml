@@ -1,0 +1,48 @@
+# Release 流水线（v1 暂不启用：仓库未建。
+# 建好 GitHub 仓库后，把 electron-builder.yml 与 updater.ts 里的 TODO 占位改掉，
+# 推一个 v0.1.0 的 tag 即可触发本 workflow 产出 macOS/Windows 安装包并发布 Release。）
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Test
+        run: pnpm --filter @spcode/desktop test
+
+      - name: Build
+        run: pnpm --filter @spcode/desktop build
+
+      - name: Package & publish to GitHub Releases
+        working-directory: apps/desktop
+        run: pnpm exec electron-builder --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS 未签名（自用）；接入证书时在此注入 CSC_LINK / CSC_KEY_PASSWORD
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
