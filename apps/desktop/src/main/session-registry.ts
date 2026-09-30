@@ -16,6 +16,10 @@ export interface SessionRegistryEntry {
   thinkingLevel: string;
   /** pi 会话文件路径（用于恢复），创建后回填 */
   sessionFile: string | null;
+  /** 计划模式状态（可选，老条目没有；恢复会话时随 session.open 传给宿主） */
+  planMode?: boolean;
+  /** WritePlan 落盘的 PLAN.md 路径（~/.spcode/plans/<id>.md），删会话时一并清理 */
+  planFile?: string | null;
   createdAt: number;
   updatedAt: number;
 }

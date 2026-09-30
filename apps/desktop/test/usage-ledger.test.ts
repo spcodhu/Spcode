@@ -57,4 +57,14 @@ describe("UsageLedger", () => {
   it("dateOf 按本地日期分桶", () => {
     expect(UsageLedger.dateOf(new Date(2026, 8, 28, 12, 0, 0).getTime())).toBe("2026-09-28");
   });
+
+  it("providerUsage 按厂商聚合近 7 日用量，无记录返回 null", () => {
+    const ledger = new UsageLedger(dir);
+    // 上面用例已写入 deepseek×2 + zai×1
+    const ds = ledger.providerUsage("deepseek");
+    expect(ds?.requests).toBe(2);
+    // 记录1: 100+50+80+20=250；记录2: 100+70+80+20=270
+    expect(ds?.tokens).toBe(520);
+    expect(ledger.providerUsage("kimi-coding")).toBeNull();
+  });
 });

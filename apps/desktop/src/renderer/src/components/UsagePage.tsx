@@ -16,7 +16,12 @@ const RANGE_LABELS: { id: Range; label: string }[] = [
   { id: "all", label: "累计" },
 ];
 
-const CHART_COLORS = ["chart-1", "chart-2", "chart-3", "chart-4", "chart-5", "chart-6"] as const;
+const CHART_COLORS = ["--chart-1", "--chart-2", "--chart-3", "--chart-4", "--chart-5", "--chart-6"] as const;
+
+/** 色板 CSS 变量引用（样式表 :root 里定义，随主题无关） */
+function chartVar(i: number): string {
+  return `var(${CHART_COLORS[i % CHART_COLORS.length]})`;
+}
 
 export function UsagePage() {
   const [range, setRange] = useState<Range>("week");
@@ -70,23 +75,30 @@ export function UsagePage() {
         </div>
       ) : (
         <div className="mt-6 flex gap-5">
-          {/* 左：环形图 + 图例 */}
+          {/* 左：环形图 + 全模型图例 */}
           <div className="w-[380px] shrink-0 rounded-2xl border border-border bg-bg-elevated p-6">
             <div className="flex justify-center">
               <DonutChart models={models} totalTokens={totalTokens} centerText={`${topShare}%`} />
             </div>
-            {top && (
-              <div className="mt-6">
-                <div className="mb-3 flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-[3px] bg-chart-1" />
-                  <span className="text-[14px] font-medium text-text-primary">{shortModelName(top.model)}</span>
+            {/* 每个模型一行：色点与环形图弧段同序号，保证颜色一一对应 */}
+            <div className="mt-6 space-y-1">
+              {models.map((m, i) => (
+                <div key={m.model} className="flex items-center gap-2.5 py-1.5 text-[13px]">
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-[3px]"
+                    style={{ background: chartVar(i) }}
+                  />
+                  <span className="min-w-0 flex-1 truncate font-medium text-text-primary" title={m.model}>
+                    {shortModelName(m.model)}
+                  </span>
+                  <span className="shrink-0 text-text-tertiary">{m.count} 次</span>
+                  <span className="shrink-0 text-text-primary">{formatZh(m.tokens)}</span>
+                  <span className="w-10 shrink-0 text-right text-text-tertiary">
+                    {totalTokens > 0 ? `${Math.round((m.tokens / totalTokens) * 100)}%` : "—"}
+                  </span>
                 </div>
-                <StatRow label="总 Token" value={formatZh(top.tokens)} />
-                <StatRow label="请求数" value={String(top.count)} />
-                <StatRow label="输入 / 缓存" value={`${formatZh(top.input)} / ${formatZh(top.cacheRead)}`} />
-                <StatRow label="输出" value={formatZh(top.output)} last />
-              </div>
-            )}
+              ))}
+            </div>
           </div>
 
           {/* 右：统计卡 */}
@@ -145,26 +157,17 @@ function DonutChart({
           cy="110"
           r={R}
           fill="none"
-          stroke={`var(--color-${CHART_COLORS[i % CHART_COLORS.length]})`}
+          stroke={chartVar(i)}
           strokeWidth="26"
           strokeDasharray={dash}
           strokeDashoffset={o}
           strokeLinecap="butt"
         />
       ))}
-      <text x="110" y="110" textAnchor="middle" dominantBaseline="central" fontSize="30" fontWeight="600" fill="var(--color-chart-1)">
+      <text x="110" y="110" textAnchor="middle" dominantBaseline="central" fontSize="30" fontWeight="600" fill="var(--chart-1)">
         {centerText}
       </text>
     </svg>
-  );
-}
-
-function StatRow({ label, value, last }: { label: string; value: string; last?: boolean }) {
-  return (
-    <div className={`flex items-center justify-between py-2.5 ${last ? "" : "border-b border-border"}`}>
-      <span className="text-[13px] text-text-tertiary">{label}</span>
-      <span className="text-[13px] text-text-primary">{value}</span>
-    </div>
   );
 }
 

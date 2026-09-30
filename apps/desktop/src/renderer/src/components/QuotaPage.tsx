@@ -45,13 +45,13 @@ export function QuotaPage() {
       {/* 快捷展示开关 */}
       <div className="mt-6 flex items-center justify-between border-b border-border pb-5">
         <div>
-          <div className="text-[15px] font-medium text-text-primary">快捷展示配额</div>
-          <div className="mt-0.5 text-[12px] text-text-tertiary">在模型行悬浮时显示配额卡片</div>
+          <div className="text-[15px] font-medium text-text-primary">上下文用量环</div>
+          <div className="mt-0.5 text-[12px] text-text-tertiary">在输入框旁显示当前会话的上下文占用，悬浮查看明细</div>
         </div>
         <Switch
           on={settings?.quickQuota ?? true}
           onChange={(v) => void saveSettings({ quickQuota: v })}
-          label="快捷展示配额"
+          label="上下文用量环"
         />
       </div>
 

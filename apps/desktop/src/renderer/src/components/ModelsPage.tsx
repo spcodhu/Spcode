@@ -144,7 +144,12 @@ function ProviderRow({
       {enabled && provider.configured && (
         <span className="shrink-0 text-[12px] text-text-tertiary">已启用 {enabledCount} 个模型</span>
       )}
-      <Switch on={enabled} onChange={onToggle} label={`${provider.name} 启用`} />
+      {provider.configured ? (
+        <Switch on={enabled} onChange={onToggle} label={`${provider.name} 启用`} />
+      ) : (
+        // 未配置密钥的厂商没有可启停的东西：保存密钥后自动出现可用模型
+        <span className="shrink-0 text-[12px] text-text-tertiary">未配置密钥</span>
+      )}
       <button onClick={onOpen} className="shrink-0 text-text-tertiary hover:text-text-secondary">
         <Icon name="chevronRight" size={15} />
       </button>

@@ -136,6 +136,53 @@ const moonshotAdapter: QuotaAdapter = {
   },
 };
 
+/** Kimi For Coding /v1/usages 响应 → 额度行（导出供单测） */
+export function parseKimiCodingUsages(body: unknown): { plan: string | null; limits: QuotaLimit[] } {
+  const b = body as {
+    usage?: { limit?: string; remaining?: string; resetTime?: string };
+    limits?: { window?: { duration?: number; timeUnit?: string }; detail?: { limit?: string; remaining?: string; resetTime?: string } }[];
+  };
+  const rows: QuotaLimit[] = [];
+  // 滚动窗口额度（如 300 分钟 = 5 小时窗口）
+  for (const l of b?.limits ?? []) {
+    const d = l?.detail;
+    if (!d) continue;
+    const limit = Number(d.limit);
+    const remaining = Number(d.remaining);
+    if (!(limit > 0)) continue;
+    const usedPct = Math.max(0, ((limit - remaining) / limit) * 100);
+    const hours = l.window?.duration && l.window.timeUnit === "TIME_UNIT_MINUTE" ? l.window.duration / 60 : null;
+    rows.push({
+      label: hours ? `${hours} 小时额度` : "窗口额度",
+      usedPercent: usedPct,
+      text: `${Math.round(100 - usedPct)}%`,
+      resetText: d.resetTime ? formatReset(Date.parse(d.resetTime)) : null,
+    });
+  }
+  // 总量额度（每周）
+  const u = b?.usage;
+  if (u && Number(u.limit) > 0) {
+    const usedPct = Math.max(0, ((Number(u.limit) - Number(u.remaining)) / Number(u.limit)) * 100);
+    rows.push({
+      label: "每周额度",
+      usedPercent: usedPct,
+      text: `${Math.round(100 - usedPct)}%`,
+      resetText: u.resetTime ? formatReset(Date.parse(u.resetTime)) : null,
+    });
+  }
+  if (rows.length === 0) throw new Error("无配额信息");
+  return { plan: "Kimi For Coding", limits: rows };
+}
+
+const kimiCodingAdapter: QuotaAdapter = {
+  providerIds: ["kimi-coding"],
+  label: "Kimi For Coding",
+  async fetch(apiKey, signal) {
+    const body = await getJson("https://api.kimi.com/coding/v1/usages", apiKey, signal);
+    return parseKimiCodingUsages(body);
+  },
+};
+
 const zaiAdapter: QuotaAdapter = {
   providerIds: ["zai", "z-ai", "zhipu", "bigmodel", "zai-coding", "zai-coding-cn", "glm"],
   label: "z.ai（GLM Coding Plan）",
@@ -203,7 +250,27 @@ function formatReset(ts: number): string {
   return `${d.getMonth() + 1}月${d.getDate()}日`;
 }
 
-const ADAPTERS: QuotaAdapter[] = [deepseekAdapter, moonshotAdapter, zaiAdapter, dashscopeAdapter];
+const ADAPTERS: QuotaAdapter[] = [deepseekAdapter, moonshotAdapter, kimiCodingAdapter, zaiAdapter, dashscopeAdapter];
+
+/** provider id → 展示名（未接入在线查询的厂商也要有可读名） */
+const PROVIDER_LABELS: Record<string, string> = {
+  "xiaomi-token-plan-cn": "Xiaomi MiMo Token Plan（国内版）",
+  "xiaomi-token-plan-ams": "Xiaomi MiMo Token Plan（阿姆斯特丹）",
+  "xiaomi-token-plan-sgp": "Xiaomi MiMo Token Plan（新加坡）",
+  xiaomi: "Xiaomi MiMo",
+  "kimi-coding": "Kimi For Coding",
+};
+
+/** 本地用量的最小信息（无在线查询时的兜底展示） */
+export interface LocalUsage {
+  tokens: number;
+  requests: number;
+}
+
+function formatTokens(n: number): string {
+  if (n >= 10000) return `${(n / 10000).toFixed(1)}万`;
+  return n.toLocaleString();
+}
 
 // ---------------------------------------------------------------------------
 // 服务入口
@@ -211,29 +278,53 @@ const ADAPTERS: QuotaAdapter[] = [deepseekAdapter, moonshotAdapter, zaiAdapter, 
 
 export class QuotaService {
   private readonly agentDir: string;
+  private readonly localUsage?: (providerId: string) => LocalUsage | null;
 
-  constructor(agentDir?: string) {
+  constructor(agentDir?: string, localUsage?: (providerId: string) => LocalUsage | null) {
     this.agentDir = agentDir ?? join(homedir(), SPCODE_HOME_DIRNAME, "agent");
+    this.localUsage = localUsage;
   }
 
+  /**
+   * 只返回已配置密钥的厂商（未配置的不占位）。
+   * 有在线适配器的查在线额度；没有的（如小米 Token Plan）用本地用量兜底。
+   * QuotaInfo.provider 为真实 provider id，供 Composer 配额圆环精确匹配。
+   */
   async queryAll(): Promise<QuotaInfo[]> {
     const keys = readAuthKeys(this.agentDir);
     const now = Date.now();
     const results: QuotaInfo[] = [];
-    for (const adapter of ADAPTERS) {
-      const apiKey = adapter.providerIds.map((id) => keys[id]).find((k) => !!k);
-      const provider = adapter.providerIds[0] ?? "unknown";
-      if (!apiKey) {
-        results.push({ provider, label: adapter.label, configured: false, plan: null, limits: [], updatedAt: now });
+    for (const [providerId, apiKey] of Object.entries(keys)) {
+      const adapter = ADAPTERS.find((a) => a.providerIds.includes(providerId));
+      const label = adapter?.label ?? PROVIDER_LABELS[providerId] ?? providerId;
+      if (!adapter) {
+        const local = this.localUsage?.(providerId) ?? null;
+        results.push({
+          provider: providerId,
+          label,
+          configured: true,
+          plan: "订阅额度暂不支持在线查询",
+          limits: local
+            ? [
+                {
+                  label: "近 7 日本地用量",
+                  usedPercent: null,
+                  text: `${formatTokens(local.tokens)} tokens · ${local.requests} 次请求`,
+                  resetText: null,
+                },
+              ]
+            : [],
+          updatedAt: now,
+        });
         continue;
       }
       try {
         const { plan, limits } = await adapter.fetch(apiKey);
-        results.push({ provider, label: adapter.label, configured: true, plan, limits, updatedAt: now });
+        results.push({ provider: providerId, label, configured: true, plan, limits, updatedAt: now });
       } catch (err) {
         results.push({
-          provider,
-          label: adapter.label,
+          provider: providerId,
+          label,
           configured: true,
           plan: null,
           limits: [],

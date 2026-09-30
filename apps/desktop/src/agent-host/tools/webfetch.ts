@@ -1,5 +1,7 @@
 /**
- * WebFetch —— 抓取公开 URL → HTML 转 Markdown → 按 prompt 过滤相关段落。
+ * WebFetch —— 抓取公开 URL → 整页 Turndown 转 Markdown → 按 prompt 保留相关段落。
+ * 与 Finch 的抓取实现同路线：整页转换（不猜 main/article 结构）、
+ * 段落级相关性筛选（命中度 top12 + 首尾段保底）、超限按段落截断并标注省略量。
  * 结果缓存 5 分钟，避免重复抓取浪费 token。
  */
 import TurndownService from "turndown";
@@ -16,7 +18,16 @@ type Params = Static<typeof schema>;
 
 const MAX_CHARS = 24000;
 const CACHE_TTL = 5 * 60 * 1000;
-const cache = new Map<string, { at: number; markdown: string }>();
+
+interface PageData {
+  at: number;
+  title?: string;
+  contentType: string;
+  fullText: string;
+}
+
+const cache = new Map<string, PageData>();
+const CACHE_MAX = 200;
 
 const turndown = new TurndownService({
   headingStyle: "atx",
@@ -29,10 +40,91 @@ function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n));
 }
 
-async function fetchMarkdown(url: string, timeoutMs: number, signal?: AbortSignal): Promise<string> {
-  const cached = cache.get(url);
-  if (cached && Date.now() - cached.at < CACHE_TTL) return cached.markdown;
+function extractTitle(html: string): string | undefined {
+  const m = /<title[^>]*>([^<]*)<\/title>/i.exec(html);
+  return m?.[1]?.trim() || undefined;
+}
 
+/** 行级空白归一：压平行内空格、去空行 */
+function normalizeLines(text: string): string {
+  return text
+    .split("\n")
+    .map((l) => l.replace(/[ \t]+/g, " ").trim())
+    .filter((l) => l.length > 0)
+    .join("\n");
+}
+
+/**
+ * 按 prompt 关键词保留相关段落：命中度 top12 + 首尾段保底，保持原顺序。
+ * 段落数 ≤12 或无命中时返回全文（宁可多给也不少给）。导出供单测使用。
+ */
+export function filterByPrompt(markdown: string, prompt: string): string {
+  const paragraphs = markdown
+    .split(/\n{2,}|(?<=[.。!?！？])\s+(?=\S)/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (paragraphs.length <= 12) return markdown;
+  const terms = prompt
+    .toLowerCase()
+    .split(/[\s,，.。;；:：!！?？()（）\[\]【】"'`]+/)
+    .filter((w) => w.length >= 2);
+  if (terms.length === 0) return markdown;
+  const scored = paragraphs
+    .map((p, idx) => {
+      const lower = p.toLowerCase();
+      let score = 0;
+      for (const t of terms) if (lower.includes(t)) score++;
+      return { idx, score };
+    })
+    .filter((s) => s.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 12);
+  if (scored.length === 0) return markdown;
+  // 首尾段通常是结论/摘要，保底保留
+  const keep = new Set<number>([0, 1, paragraphs.length - 1]);
+  for (const s of scored) keep.add(s.idx);
+  return [...keep]
+    .sort((a, b) => a - b)
+    .map((i) => paragraphs[i])
+    .join("\n\n");
+}
+
+/** 按段落边界截断，并标注省略量（模型可见，知道还有内容没读）。导出供单测使用 */
+export function truncateWithNotice(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const paragraphs = text.split(/\n{2,}/);
+  let out = "";
+  for (const p of paragraphs) {
+    if ((out + "\n\n" + p).length > max) break;
+    out = out ? out + "\n\n" + p : p;
+  }
+  if (!out) out = text.slice(0, max);
+  return `${out}\n\n[Output truncated: ${text.length - out.length} chars omitted]`;
+}
+
+function cacheGet(url: string): PageData | undefined {
+  const hit = cache.get(url);
+  if (!hit) return undefined;
+  if (Date.now() - hit.at > CACHE_TTL) {
+    cache.delete(url);
+    return undefined;
+  }
+  // LRU：命中即移到末尾
+  cache.delete(url);
+  cache.set(url, hit);
+  return hit;
+}
+
+function cacheSet(url: string, data: PageData): void {
+  cache.set(url, data);
+  while (cache.size > CACHE_MAX) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+}
+
+async function fetchPage(url: string, timeoutMs: number, signal?: AbortSignal): Promise<PageData> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const onAbort = () => controller.abort();
@@ -50,55 +142,26 @@ async function fetchMarkdown(url: string, timeoutMs: number, signal?: AbortSigna
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const contentType = res.headers.get("content-type") ?? "";
     const body = await res.text();
-    const markdown = contentType.includes("text/html") ? htmlToMarkdown(body) : body.slice(0, MAX_CHARS);
-    cache.set(url, { at: Date.now(), markdown });
-    // 缓存简单清理
-    if (cache.size > 200) {
-      const oldest = [...cache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
-      if (oldest) cache.delete(oldest[0]);
+    if (!contentType.includes("html")) {
+      return { at: Date.now(), contentType: contentType || "unknown", fullText: normalizeLines(body.slice(0, MAX_CHARS * 2)) };
     }
-    return markdown;
+    // 整页转 Markdown：不猜 main/article 容器， Turndown 已剔除 script/style/nav/footer
+    let md: string;
+    try {
+      md = turndown.turndown(body);
+    } catch {
+      md = body.replace(/<[^>]+>/g, " ");
+    }
+    return {
+      at: Date.now(),
+      title: extractTitle(body),
+      contentType: contentType || "unknown",
+      fullText: normalizeLines(md.replace(/\n{3,}/g, "\n\n").trim()),
+    };
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener("abort", onAbort);
   }
-}
-
-function htmlToMarkdown(html: string): string {
-  // 先粗取 main/article 区域，失败则全文
-  const mainMatch =
-    /<main[^>]*>([\s\S]*?)<\/main>/i.exec(html) ?? /<article[^>]*>([\s\S]*?)<\/article>/i.exec(html);
-  const source = mainMatch?.[1] ?? html;
-  let md: string;
-  try {
-    md = turndown.turndown(source);
-  } catch {
-    md = source.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-  }
-  return md.replace(/\n{3,}/g, "\n\n").trim();
-}
-
-/** 按 prompt 关键词保留相关段落（轻量启发式，不调用模型） */
-function filterByPrompt(markdown: string, prompt: string): string {
-  const keywords = prompt
-    .toLowerCase()
-    .split(/[^\p{L}\p{N}]+/u)
-    .filter((w) => w.length >= 3)
-    .slice(0, 12);
-  if (keywords.length === 0 || markdown.length <= MAX_CHARS) return markdown.slice(0, MAX_CHARS);
-  const paragraphs = markdown.split(/\n\n+/);
-  const scored = paragraphs.map((p, i) => {
-    const lower = p.toLowerCase();
-    const hits = keywords.reduce((n, k) => n + (lower.includes(k) ? 1 : 0), 0);
-    return { i, p, hits };
-  });
-  const kept = scored
-    .filter((s) => s.hits > 0)
-    .sort((a, b) => a.i - b.i)
-    .map((s) => s.p)
-    .join("\n\n");
-  const result = kept.length > 400 ? kept : markdown;
-  return result.slice(0, MAX_CHARS);
 }
 
 export function createWebFetchTool(): ToolDefinition {
@@ -116,12 +179,26 @@ export function createWebFetchTool(): ToolDefinition {
       }
       const timeoutMs = clamp(Number(args.timeout ?? 30) * 1000, 5000, 90000);
       try {
-        let markdown = await fetchMarkdown(url, timeoutMs, signal);
-        if (args.prompt) markdown = filterByPrompt(markdown, args.prompt);
-        if (!markdown.trim()) {
+        const cached = cacheGet(url);
+        const page = cached ?? (await fetchPage(url, timeoutMs, signal));
+        if (!cached) cacheSet(url, page);
+
+        const prompt = (args.prompt ?? "").trim();
+        const filtered = prompt ? filterByPrompt(page.fullText, prompt) : page.fullText;
+        const content = truncateWithNotice(filtered, MAX_CHARS);
+        if (!content.trim()) {
           return { content: [{ type: "text", text: "Fetched page but extracted no readable text." }], details: undefined };
         }
-        return { content: [{ type: "text", text: markdown }], details: { url } };
+        // 信封头：来源/标题/长度，方便模型引用与判断是否被截断
+        const header = [
+          `URL: ${url}`,
+          page.title ? `Title: ${page.title}` : undefined,
+          `Content-Type: ${page.contentType}`,
+          `Length: ${content.length} chars${prompt && filtered.length < page.fullText.length ? " [filtered by prompt]" : ""}${cached ? " [cached]" : ""}`,
+        ]
+          .filter((l): l is string => l !== undefined)
+          .join("\n");
+        return { content: [{ type: "text", text: `${header}\n\n${content}` }], details: { url } };
       } catch (err) {
         return {
           content: [{ type: "text", text: `WebFetch failed: ${err instanceof Error ? err.message : String(err)}` }],

@@ -11,7 +11,12 @@
  */
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import {
+  CredentialSynchronizationError,
+  ModelRuntime,
+  SessionManager,
+} from "@earendil-works/pi-coding-agent";
 import type {
   HostCommand,
   HostEvent,
@@ -68,6 +73,44 @@ async function getRuntime(): Promise<ModelRuntime> {
   return modelRuntime;
 }
 
+/**
+ * 持久化 API Key 到 auth.json。
+ *
+ * 主路径用 rt.login("api_key")：内部走 credentials.modify 落盘，
+ * 并同步模型快照/可用性。prompt 回调直接喂 UI 已收集的密钥
+ * （z.ai/Moonshot/DeepSeek/Qwen 等都是 envApiKeyAuth 单 prompt 实现）。
+ *
+ * 兜底：少数 provider 不支持交互式 api_key 登录（纯环境变量/IAM 型），
+ * 直接合并写 auth.json + setRuntimeApiKey 让运行时立即生效。
+ */
+async function persistApiKey(rt: ModelRuntime, provider: string, apiKey: string): Promise<void> {
+  try {
+    await rt.login(provider, "api_key", {
+      prompt: async () => apiKey,
+      notify: () => {},
+    });
+    return;
+  } catch (err) {
+    // 凭证已落盘、仅快照同步失败 → 视为成功
+    if (err instanceof CredentialSynchronizationError) return;
+  }
+  mkdirSync(AGENT_DIR, { recursive: true });
+  const file = join(AGENT_DIR, "auth.json");
+  let data: Record<string, unknown> = {};
+  if (existsSync(file)) {
+    try {
+      data = JSON.parse(readFileSync(file, "utf-8")) as Record<string, unknown>;
+    } catch {
+      data = {};
+    }
+  }
+  data[provider] = { type: "api_key", key: apiKey };
+  const tmp = `${file}.tmp`;
+  writeFileSync(tmp, JSON.stringify(data, null, 2), "utf-8");
+  renameSync(tmp, file);
+  await rt.setRuntimeApiKey(provider, apiKey).catch(() => {});
+}
+
 function getMemoryStore(): MemoryStore {
   if (!memoryStore) memoryStore = new MemoryStore(SPCODE_HOME);
   return memoryStore;
@@ -119,6 +162,9 @@ async function createController(params: {
   model?: ModelRef;
   thinkingLevel?: string;
   sessionFile?: string;
+  /** 恢复会话时的计划模式状态（来自注册表） */
+  planMode?: boolean;
+  noTitleAutomation?: boolean;
 }): Promise<SessionController> {
   const rt = await getRuntime();
   return SessionController.create({
@@ -131,9 +177,14 @@ async function createController(params: {
     modelRef: params.model,
     thinkingLevel: params.thinkingLevel,
     sessionFile: params.sessionFile,
+    planMode: params.planMode,
+    noTitleAutomation: params.noTitleAutomation,
     emitEvent: (event) => emit({ type: "session.event", sessionId: params.sessionId, event }),
     emitUsage: (usage) => emit({ type: "session.usage", sessionId: params.sessionId, usage }),
     emitTodo: (todos) => emit({ type: "session.todo", sessionId: params.sessionId, todos }),
+    emitPlanMode: (enabled) => emit({ type: "session.planmode", sessionId: params.sessionId, enabled }),
+    emitPlan: (path) => emit({ type: "session.plan", sessionId: params.sessionId, path }),
+    onRename: (title) => emit({ type: "session.renamed", sessionId: params.sessionId, title }),
     requestPermission,
     askQuestion,
   });
@@ -194,7 +245,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
       }
       case "auth.setApiKey": {
         const rt = await getRuntime();
-        await rt.setRuntimeApiKey(cmd.payload.provider, cmd.payload.apiKey);
+        await persistApiKey(rt, cmd.payload.provider, cmd.payload.apiKey);
         await rt.refresh({ allowNetwork: false }).catch(() => {});
         respond(id, true);
         break;
@@ -215,6 +266,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
           mode: cmd.payload.mode,
           model: cmd.payload.model,
           thinkingLevel: cmd.payload.thinkingLevel,
+          noTitleAutomation: cmd.payload.noTitleAutomation,
         });
         sessions.set(cmd.payload.sessionId, ctl);
         respond(id, true, ctl.info());
@@ -227,6 +279,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
           // 恢复会话按 cwd 推断模式（聊天会话 cwd 为空）
           mode: cmd.payload.cwd?.trim() ? "project" : "chat",
           sessionFile: cmd.payload.sessionFile,
+          planMode: cmd.payload.planMode,
         });
         sessions.set(cmd.payload.sessionId, ctl);
         // 先回响应，再推历史（渲染进程按序处理）
@@ -267,7 +320,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         const ctl = sessions.get(cmd.payload.sessionId);
         if (!ctl) throw new Error(`Session not found: ${cmd.payload.sessionId}`);
         // prompt 是长任务：立即响应"已接受"，结果通过事件流推送
-        void ctl.prompt(cmd.payload.text).catch((err) => {
+        void ctl.prompt(cmd.payload.text, cmd.payload.images).catch((err) => {
           emit({ type: "host.error", message: `prompt failed: ${String(err?.message ?? err)}` });
         });
         respond(id, true, { accepted: true });
@@ -291,6 +344,13 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         const ctl = sessions.get(cmd.payload.sessionId);
         if (!ctl) throw new Error(`Session not found: ${cmd.payload.sessionId}`);
         ctl.setThinkingLevel(cmd.payload.level);
+        respond(id, true, ctl.info());
+        break;
+      }
+      case "session.setPlanMode": {
+        const ctl = sessions.get(cmd.payload.sessionId);
+        if (!ctl) throw new Error(`Session not found: ${cmd.payload.sessionId}`);
+        await ctl.setPlanMode(cmd.payload.enabled);
         respond(id, true, ctl.info());
         break;
       }

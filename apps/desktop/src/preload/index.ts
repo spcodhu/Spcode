@@ -2,7 +2,7 @@
  * Preload：渲染进程唯一的能力入口，白名单式暴露。
  */
 import { contextBridge, ipcRenderer } from "electron";
-import { IPC, type AppSettings, type HostCommandInput, type HostEvent } from "@spcode/shared";
+import { IPC, type AppSettings, type HostCommandInput, type HostEvent, type ScheduleTask, type ScheduleTaskInput, type SessionSearchResultItem } from "@spcode/shared";
 import type { SessionRegistryEntry } from "../main/session-registry.js";
 import type { QuotaInfo } from "../main/quota-service.js";
 import type { DailyUsage } from "../main/usage-ledger.js";
@@ -19,12 +19,24 @@ export interface SpcodeApi {
   /** 会话注册表（跨重启持久化） */
   listSessions(): Promise<SessionRegistryEntry[]>;
   removeSession(id: string): Promise<void>;
+  /** 会话标题+正文全文搜索 */
+  searchSessions(query: string): Promise<SessionSearchResultItem[]>;
+  /** 定时任务 CRUD 与立即试运行 */
+  scheduleList(): Promise<ScheduleTask[]>;
+  scheduleCreate(input: ScheduleTaskInput): Promise<ScheduleTask>;
+  scheduleUpdate(id: string, patch: Partial<ScheduleTaskInput>): Promise<ScheduleTask | null>;
+  scheduleDelete(id: string): Promise<void>;
+  scheduleRunNow(id: string): Promise<string>;
   /** 用量聚合（按日×模型）与厂商配额 */
   usageSummary(days?: number): Promise<DailyUsage[]>;
   usageAggregate(range: "today" | "week" | "all"): Promise<{ total: import("@spcode/shared").UsageAggregate; byModel: Record<string, import("@spcode/shared").UsageAggregate> }>;
   quotaQuery(): Promise<QuotaInfo[]>;
   /** 选择项目文件夹 */
   pickDirectory(): Promise<string | null>;
+  /** 在 Finder/资源管理器中显示路径 */
+  revealPath(path: string): Promise<void>;
+  /** 选择图片附件（多选，base64 内联） */
+  pickImages(): Promise<{ name: string; mimeType: string; data: string }[]>;
   /** 外观：字体导入/字体数据/主题 JSON 导入 */
   pickFontFile(): Promise<{ file: string; family: string } | null>;
   getFontData(fileName: string): Promise<Uint8Array | null>;
@@ -55,6 +67,24 @@ const api: SpcodeApi = {
   removeSession(id) {
     return ipcRenderer.invoke(IPC.removeSession, id);
   },
+  searchSessions(query) {
+    return ipcRenderer.invoke(IPC.searchSessions, query);
+  },
+  scheduleList() {
+    return ipcRenderer.invoke(IPC.scheduleList);
+  },
+  scheduleCreate(input) {
+    return ipcRenderer.invoke(IPC.scheduleCreate, input);
+  },
+  scheduleUpdate(id, patch) {
+    return ipcRenderer.invoke(IPC.scheduleUpdate, id, patch);
+  },
+  scheduleDelete(id) {
+    return ipcRenderer.invoke(IPC.scheduleDelete, id);
+  },
+  scheduleRunNow(id) {
+    return ipcRenderer.invoke(IPC.scheduleRunNow, id);
+  },
   usageSummary(days) {
     return ipcRenderer.invoke(IPC.usageSummary, days);
   },
@@ -66,6 +96,12 @@ const api: SpcodeApi = {
   },
   pickDirectory() {
     return ipcRenderer.invoke(IPC.pickDirectory);
+  },
+  revealPath(path) {
+    return ipcRenderer.invoke(IPC.revealPath, path);
+  },
+  pickImages() {
+    return ipcRenderer.invoke(IPC.pickImages);
   },
   pickFontFile() {
     return ipcRenderer.invoke(IPC.pickFontFile);

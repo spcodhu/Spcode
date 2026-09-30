@@ -40,7 +40,7 @@ test.describe("Spcode 冒烟 E2E", () => {
 
     // 切到配额页
     await window.getByRole("button", { name: "配额" }).click();
-    await expect(window.getByText("快捷展示配额")).toBeVisible();
+    await expect(window.getByText("上下文用量环")).toBeVisible();
 
     // 切到模型页
     await window.getByRole("button", { name: "模型", exact: true }).click();
@@ -92,6 +92,65 @@ test.describe("Spcode 冒烟 E2E", () => {
     // 用户消息上屏；界面不崩（输入框仍在）
     await expect(window.getByText("你好").first()).toBeVisible();
     await expect(composer).toBeVisible();
+
+    await app.close();
+  });
+
+  test("会话搜索：Cmd+K 与侧栏按钮开合，输入出结果区", async () => {
+    const app = await electron.launch({ args: [".", "--no-sandbox"], cwd: appDir });
+    const window = await app.firstWindow();
+    await expect(window.getByText("Spcode").first()).toBeVisible({ timeout: 15000 });
+
+    // Cmd+K 打开
+    await window.keyboard.press("Meta+KeyK");
+    const input = window.getByPlaceholder(/搜索会话标题与正文/);
+    await expect(input).toBeVisible({ timeout: 5000 });
+
+    // 输入查询出现结果区（无匹配时显示空态）
+    await input.fill("不存在的关键词xyz");
+    await expect(window.getByText("没有匹配的会话")).toBeVisible({ timeout: 5000 });
+
+    // Esc 关闭
+    await window.keyboard.press("Escape");
+    await expect(input).not.toBeVisible();
+
+    // 侧栏搜索按钮打开
+    await window.getByTitle("搜索会话（Cmd+K）").click();
+    await expect(window.getByPlaceholder(/搜索会话标题与正文/)).toBeVisible({ timeout: 5000 });
+    await window.keyboard.press("Escape");
+
+    await app.close();
+  });
+
+  test("定时任务：面板开合 + 创建/删除任务闭环", async () => {
+    const app = await electron.launch({ args: [".", "--no-sandbox"], cwd: appDir });
+    const window = await app.firstWindow();
+    await expect(window.getByText("Spcode").first()).toBeVisible({ timeout: 15000 });
+
+    // 唯一任务名：与历史残留/并行运行隔离
+    const taskName = `E2E任务${Date.now() % 100000}`;
+
+    // 侧栏时钟按钮打开面板
+    await window.getByTitle("定时任务").click();
+    await expect(window.getByRole("button", { name: /新建任务/ })).toBeVisible({ timeout: 5000 });
+
+    // 打开表单并填写
+    await window.getByRole("button", { name: /新建任务/ }).click();
+    await window.getByPlaceholder("如：每日晨报").fill(taskName);
+    await window.getByPlaceholder(/汇总我昨天的用量/).fill("说一句你好");
+
+    // 默认每天 09:00，直接创建
+    await window.getByRole("button", { name: "创建任务" }).click();
+
+    // 列表出现任务行（作用域锁定到本任务，避免同名残留干扰）
+    const row = window.locator("div.rounded-xl", { hasText: taskName }).first();
+    await expect(row).toBeVisible({ timeout: 5000 });
+    await expect(row.getByText(/每天 09:00/)).toBeVisible();
+
+    // 删除（两段确认）清理现场
+    await row.getByTitle("删除", { exact: true }).click();
+    await row.getByText("确认删除？").click();
+    await expect(window.getByText(taskName)).not.toBeVisible();
 
     await app.close();
   });

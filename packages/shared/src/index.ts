@@ -34,6 +34,13 @@ export interface ModelInfo {
 
 export type SessionMode = "chat" | "project";
 
+/** 图片附件（base64 内联，随 prompt 传给引擎；对应 pi 的 ImageContent） */
+export interface ImageAttachment {
+  name: string;
+  mimeType: string;
+  data: string;
+}
+
 export interface SessionMeta {
   id: string;
   mode: SessionMode;
@@ -125,9 +132,10 @@ export interface TodoItem {
 // ---------------------------------------------------------------------------
 
 export type HostCommand =
-  | { id: string; type: "session.create"; payload: { sessionId: string; mode: SessionMode; cwd: string; model?: ModelRef; thinkingLevel?: string } }
-  | { id: string; type: "session.open"; payload: { sessionId: string; sessionFile: string; cwd: string } }
-  | { id: string; type: "session.prompt"; payload: { sessionId: string; text: string } }
+  | { id: string; type: "session.create"; payload: { sessionId: string; mode: SessionMode; cwd: string; model?: ModelRef; thinkingLevel?: string; /** 定时任务等场景：关闭标题自动化（标题由调用方指定） */ noTitleAutomation?: boolean } }
+  | { id: string; type: "session.open"; payload: { sessionId: string; sessionFile: string; cwd: string; /** 注册表里的计划模式状态（主进程注入，用于恢复计划态） */ planMode?: boolean } }
+  | { id: string; type: "session.prompt"; payload: { sessionId: string; text: string; images?: ImageAttachment[] } }
+  | { id: string; type: "session.setPlanMode"; payload: { sessionId: string; enabled: boolean } }
   | { id: string; type: "session.abort"; payload: { sessionId: string } }
   | { id: string; type: "session.setModel"; payload: { sessionId: string; model: ModelRef } }
   | { id: string; type: "session.setThinkingLevel"; payload: { sessionId: string; level: string } }
@@ -149,9 +157,75 @@ export type HostEvent =
   | { type: "session.history"; sessionId: string; messages: unknown[] }
   | { type: "session.usage"; sessionId: string; usage: UsageRecord }
   | { type: "session.todo"; sessionId: string; todos: TodoItem[] }
+  /** AI 通过 RenameSession 工具主动起的会话标题 */
+  | { type: "session.renamed"; sessionId: string; title: string }
+  /** 计划模式开关变化（用户在 Composer 切换 / ExitPlanMode 批准后关闭） */
+  | { type: "session.planmode"; sessionId: string; enabled: boolean }
+  /** WritePlan 工具落盘了计划文件（主进程回填 planFile 用） */
+  | { type: "session.plan"; sessionId: string; path: string }
   | { type: "permission.request"; request: PermissionRequest }
   | { type: "question.request"; request: QuestionRequest }
+  /** 会话注册表发生变化（如定时任务新建会话）：渲染进程应重新拉取列表 */
+  | { type: "sessions.changed" }
+  /** 定时任务触发：已为其创建会话并注入 prompt */
+  | { type: "schedule.fired"; taskId: string; name: string; sessionId: string }
   | { type: "host.error"; message: string };
+
+// ---------------------------------------------------------------------------
+// 会话搜索
+// ---------------------------------------------------------------------------
+
+export interface SessionSearchHit {
+  role: "user" | "assistant";
+  timestamp: number;
+  /** 命中处前后各约 40 字的上下文摘要 */
+  snippet: string;
+}
+
+/** 一条搜索命中（会话级）：标题命中或正文命中；渲染进程按 id 关联本地注册表条目 */
+export interface SessionSearchResultItem {
+  id: string;
+  titleMatch: boolean;
+  hits: SessionSearchHit[];
+}
+
+// ---------------------------------------------------------------------------
+// 定时任务
+// ---------------------------------------------------------------------------
+
+export type ScheduleFrequency = "once" | "hourly" | "daily" | "weekday" | "weekly";
+
+/** 触发目标：新建聊天会话 / 在指定项目目录下新建项目会话 */
+export type ScheduleTarget = { kind: "chat" } | { kind: "project"; cwd: string };
+
+export interface ScheduleTask {
+  id: string;
+  name: string;
+  prompt: string;
+  target: ScheduleTarget;
+  frequency: ScheduleFrequency;
+  /** 0-23（once 不用） */
+  hour: number;
+  /** 0-59 */
+  minute: number;
+  /** 0-6，0=周日（weekly 用） */
+  weekday?: number;
+  /** once 专用：触发时间戳（毫秒） */
+  runAt?: number;
+  enabled: boolean;
+  lastRunAt?: number;
+  lastStatus?: "ok" | "error";
+  lastError?: string;
+  createdAt: number;
+}
+
+/** 新建/编辑定时任务的输入（id/运行状态由系统维护） */
+export type ScheduleTaskInput = Omit<ScheduleTask, "id" | "createdAt" | "lastRunAt" | "lastStatus" | "lastError">;
+
+/** 兜底标题清洗：压平换行/多余空白，截断到 30 字（Finch 同款思路：首条用户消息推导） */
+export function cleanSessionTitle(text: string): string {
+  return text.replace(/\s+/g, " ").trim().slice(0, 30);
+}
 
 /** 分布式 Omit：调用侧构造命令时省略 id（由通道层补发） */
 export type HostCommandInput = HostCommand extends infer C
@@ -184,11 +258,22 @@ export const IPC = {
   pickFontFile: "spcode:pick-font-file",
   getFontData: "spcode:get-font-data",
   pickThemeFile: "spcode:pick-theme-file",
-  /** renderer -> main (invoke)：选择文件夹，返回路径或 null */
+  /** renderer -> main (invoke)：选择项目文件夹 / 图片附件 */
   pickDirectory: "spcode:pick-directory",
+  pickImages: "spcode:pick-images",
+  /** renderer -> main (invoke)：在 Finder/资源管理器中显示路径 */
+  revealPath: "spcode:reveal-path",
   /** renderer -> main (invoke)：读取/写入应用设置 */
   getSettings: "spcode:get-settings",
   setSettings: "spcode:set-settings",
+  /** renderer -> main (invoke)：会话标题+正文全文搜索 */
+  searchSessions: "spcode:search-sessions",
+  /** renderer -> main (invoke)：定时任务 CRUD 与立即试运行 */
+  scheduleList: "spcode:schedule-list",
+  scheduleCreate: "spcode:schedule-create",
+  scheduleUpdate: "spcode:schedule-update",
+  scheduleDelete: "spcode:schedule-delete",
+  scheduleRunNow: "spcode:schedule-run-now",
 } as const;
 
 // ---------------------------------------------------------------------------

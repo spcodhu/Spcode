@@ -5,6 +5,7 @@ import { UsagePage } from "./UsagePage";
 import { QuotaPage } from "./QuotaPage";
 import { ModelsPage } from "./ModelsPage";
 import { Switch } from "./ui/Switch";
+import { Select } from "./ui/Select";
 
 type PageId = "general" | "appearance" | "models" | "usage" | "quota" | "memory" | "about";
 
@@ -115,17 +116,12 @@ function GeneralPage() {
       </div>
 
       <SectionTitle>默认思考强度</SectionTitle>
-      <select
+      <Select
         value={settings?.defaultThinkingLevel ?? "medium"}
-        onChange={(e) => void saveSettings({ defaultThinkingLevel: e.target.value })}
-        className="rounded-lg border border-border bg-bg-elevated px-3 py-2 text-[13px] outline-none"
-      >
-        {["off", "minimal", "low", "medium", "high", "xhigh", "max"].map((lv) => (
-          <option key={lv} value={lv}>
-            {lv}
-          </option>
-        ))}
-      </select>
+        options={["off", "minimal", "low", "medium", "high", "xhigh", "max"].map((v) => ({ value: v }))}
+        onChange={(v) => void saveSettings({ defaultThinkingLevel: v })}
+        className="w-56"
+      />
 
       <SectionTitle>自动更新</SectionTitle>
       <div className="flex items-center justify-between rounded-xl border border-border bg-bg-elevated px-4 py-3">

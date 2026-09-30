@@ -1,7 +1,10 @@
 import { useEffect, useRef } from "react";
-import { useStore } from "../store";
-import { MessageItem } from "./MessageItem";
+import { useStore, groupMessagesForRender, type ChatMessage } from "../store";
+import { AssistantRunItem, MessageItem } from "./MessageItem";
 import { Composer } from "./Composer";
+import { QuestionInline } from "./QuestionCard";
+import { SessionEmptyState } from "./EmptyState";
+import { WorkDrawer } from "./WorkDrawer";
 
 export function ChatView({ sessionId }: { sessionId: string }) {
   const session = useStore((s) => s.sessions[sessionId]);
@@ -14,67 +17,56 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   }, [msgCount, lastLen]);
 
   if (!session) return null;
+  const isEmpty = session.messages.length === 0;
+  const items = groupMessagesForRender(session.messages);
 
   return (
     <div className="flex h-full flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-3xl px-6 py-6">
-          {session.todos.length > 0 && <TodoPanel todos={session.todos} />}
-          {session.messages.length === 0 && (
-            <div className="py-16 text-center text-sm text-text-tertiary">
-              {session.meta.mode === "project" ? (
-                <>
-                  项目目录：<code className="text-text-secondary">{session.meta.cwd}</code>
-                  <br />
-                  <span className="mt-2 inline-block">直接说你要做什么，比如「读懂这个项目，告诉我它是干什么的」</span>
-                </>
-              ) : (
-                "开始对话吧"
-              )}
-            </div>
+        <div
+          className={`mx-auto max-w-3xl px-6 py-6 ${
+            isEmpty ? "relative flex min-h-full flex-col justify-center" : ""
+          }`}
+        >
+          {isEmpty && <SessionEmptyState meta={session.meta} />}
+          {items.map((item, idx) =>
+            item.kind === "user" ? (
+              <MessageItem key={item.key} message={item.message} />
+            ) : (
+              <AssistantRunItem
+                key={item.key}
+                messages={item.messages}
+                active={session.running && idx === items.length - 1}
+              />
+            ),
           )}
-          {session.messages.map((m) => (
-            <MessageItem key={m.id} message={m} />
-          ))}
           <div ref={bottomRef} />
         </div>
       </div>
+      {/* 工作抽屉：悬浮在输入框上方，不随内容滚动（进行中展开、完成后收起） */}
+      {(session.todos.length > 0 || session.planMode) && (
+        <div className="shrink-0 px-6 pb-2">
+          <div className="mx-auto max-w-3xl">
+            <WorkDrawer todos={session.todos} planMode={session.planMode} />
+          </div>
+        </div>
+      )}
+      {/* 当前会话的待回答提问：内嵌在输入框上方，不全局弹窗 */}
+      <QuestionInline sessionId={sessionId} />
       <Composer sessionId={sessionId} />
     </div>
   );
 }
 
-function lastMessageLength(messages: { text: string; thinking: string }[] | undefined): number {
+function lastMessageLength(messages: ChatMessage[] | undefined): number {
   if (!messages || messages.length === 0) return 0;
   const last = messages[messages.length - 1];
-  return last ? last.text.length + last.thinking.length : 0;
+  if (!last) return 0;
+  // 段长度近似：文本/思考按字符数，工具段按调用数+输出长度（驱动自动滚动）
+  return last.segments.reduce((n, s) => {
+    if (s.kind === "tools") return n + s.calls.reduce((m, c) => m + c.output.length + 20, 0);
+    return n + s.text.length;
+  }, 0);
 }
 
-function TodoPanel({ todos }: { todos: import("@spcode/shared").TodoItem[] }) {
-  const done = todos.filter((t) => t.status === "completed").length;
-  return (
-    <div className="mb-4 rounded-lg border border-border bg-bg-elevated px-3 py-2">
-      <div className="mb-1 text-xs font-medium text-text-tertiary">
-        任务清单 · {done}/{todos.length}
-      </div>
-      {todos.map((t, i) => (
-        <div key={i} className="flex items-center gap-2 py-0.5 text-xs">
-          <span
-            className={
-              t.status === "completed"
-                ? "text-success"
-                : t.status === "in_progress"
-                  ? "text-accent"
-                  : "text-text-tertiary"
-            }
-          >
-            {t.status === "completed" ? "✓" : t.status === "in_progress" ? "◐" : "○"}
-          </span>
-          <span className={t.status === "completed" ? "text-text-tertiary line-through" : "text-text-secondary"}>
-            {t.status === "in_progress" && t.activeForm ? t.activeForm : t.content}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
+

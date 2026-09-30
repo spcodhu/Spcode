@@ -24,12 +24,6 @@
   --color-success: #5cb87a;
   --color-user-bubble: #232329;
   --color-thinking: #8b7fc0;
-  --color-chart-1: #f2994a;
-  --color-chart-2: #e56b8c;
-  --color-chart-3: #3fa97b;
-  --color-chart-4: #5b9bd5;
-  --color-chart-5: #b083d8;
-  --color-chart-6: #d9a045;
 }
 
 :root {
@@ -37,6 +31,13 @@
     "PingFang SC", -apple-system, "Segoe UI", "Noto Sans SC", "Helvetica Neue",
     sans-serif;
   --mono-font: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  /* 图表色板：普通 CSS 变量，不依赖 Tailwind 工具类才发射（@theme inline 的 var() 引用不到） */
+  --chart-1: #f2994a;
+  --chart-2: #e56b8c;
+  --chart-3: #3fa97b;
+  --chart-4: #5b9bd5;
+  --chart-5: #b083d8;
+  --chart-6: #d9a045;
 }
 
 html,
@@ -59,6 +60,14 @@ code,
 pre,
 .mono {
   font-family: var(--mono-font);
+}
+
+/* Tailwind 4 起按钮不再有默认 pointer 光标，统一补回桌面应用手感 */
+button:not(:disabled) {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
 }
 
 /* 标题栏拖拽区 */
@@ -85,10 +94,116 @@ pre,
   background: transparent;
 }
 
-/* Markdown 内容 */
+/* Markdown 内容（Codex 风格：简约、紧凑、少装饰） */
 .md-body {
-  line-height: 1.75;
+  line-height: 1.7;
 }
+.md-body > :first-child {
+  margin-top: 0;
+}
+.md-body p {
+  margin: 6px 0;
+}
+
+/* 标题：以字重区分层级，尺寸克制、间距收紧 */
+.md-body h1,
+.md-body h2,
+.md-body h3,
+.md-body h4 {
+  font-weight: 600;
+  line-height: 1.4;
+  margin: 14px 0 4px;
+}
+.md-body h1 {
+  font-size: 16px;
+}
+.md-body h2 {
+  font-size: 15px;
+}
+.md-body h3,
+.md-body h4 {
+  font-size: 14px;
+}
+
+/* 列表：紧凑、marker 弱化（注意：Tailwind preflight 把 list-style 重置为 none，必须显式补回） */
+.md-body ul,
+.md-body ol {
+  padding-left: 20px;
+  margin: 6px 0;
+}
+.md-body ul {
+  list-style: disc;
+}
+.md-body ol {
+  list-style: decimal;
+}
+/* 嵌套层级换 marker 样式，层次可辨 */
+.md-body ul ul {
+  list-style: circle;
+}
+.md-body ul ul ul {
+  list-style: square;
+}
+.md-body ol ol {
+  list-style: lower-alpha;
+}
+.md-body li {
+  margin: 2px 0;
+}
+.md-body li::marker {
+  color: var(--color-text-tertiary);
+}
+
+/* 任务列表复选框（- [ ]）：自绘，避免原生控件样式 */
+.md-body input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 13px;
+  height: 13px;
+  margin: 0 6px 0 0;
+  vertical-align: -2px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 4px;
+  background: var(--color-bg-elevated);
+  cursor: default;
+}
+.md-body input[type="checkbox"]:checked {
+  border-color: var(--color-accent);
+  background: var(--color-accent)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 12l5 5L20 6'/%3E%3C/svg%3E")
+    center/9px no-repeat;
+}
+
+/* 引用与分隔线：细线，无底色 */
+.md-body blockquote {
+  margin: 8px 0;
+  border-left: 2px solid var(--color-border-strong);
+  padding-left: 12px;
+  color: var(--color-text-secondary);
+}
+.md-body hr {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  margin: 14px 0;
+}
+.md-body a {
+  color: var(--color-accent);
+}
+.md-body strong {
+  font-weight: 600;
+}
+
+/* 行内代码 */
+.md-body code:not(pre code) {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 0 4px;
+  font-size: 12.5px;
+  color: var(--color-accent);
+}
+
+/* 代码块 */
 .md-body pre {
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
@@ -97,43 +212,94 @@ pre,
   overflow-x: auto;
   font-size: 12.5px;
 }
-.md-body code:not(pre code) {
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  padding: 1px 5px;
-  font-size: 12.5px;
-  color: var(--color-accent);
+
+/* 表格：去掉 streamdown 自带的容器框/内滚动，仅留横向细分隔线 */
+.md-body [data-streamdown="table-wrapper"] {
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
+  margin: 8px 0;
 }
 .md-body table {
+  width: 100%;
   border-collapse: collapse;
-  margin: 12px 0;
   font-size: 13px;
+  border: none !important;
 }
 .md-body th,
 .md-body td {
-  border: 1px solid var(--color-border);
-  padding: 6px 12px;
+  border: none !important;
+  border-bottom: 1px solid var(--color-border) !important;
+  padding: 6px 10px;
   text-align: left;
+  vertical-align: top;
 }
 .md-body th {
-  background: var(--color-bg-elevated);
+  background: none !important;
   font-weight: 500;
+  color: var(--color-text-secondary);
+  border-bottom-color: var(--color-border-strong) !important;
 }
-.md-body a {
-  color: var(--color-accent);
+.md-body tr:last-child td {
+  border-bottom: none !important;
 }
-.md-body h1,
-.md-body h2,
-.md-body h3 {
-  font-weight: 600;
-  margin: 18px 0 8px;
+
+/* 折叠区动画：grid 行高 0fr↔1fr 过渡，任意内容高度都平滑，无需写死高度 */
+.collapse-grid {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.25s ease;
 }
-.md-body ul,
-.md-body ol {
-  padding-left: 22px;
-  margin: 8px 0;
+.collapse-grid[data-open="true"] {
+  grid-template-rows: 1fr;
 }
-.md-body li {
-  margin: 3px 0;
+.collapse-inner {
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* 思考中 · 流光加载文字（Kimi 风格：灰底上一道亮光扫过） */
+.thinking-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-text-tertiary) 25%,
+    var(--color-text-primary) 50%,
+    var(--color-text-tertiary) 75%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: thinking-shimmer 1.6s linear infinite;
+}
+@keyframes thinking-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* 空会话页入场动画：轻微上浮渐显，配合 animation-delay 做出层次 */
+.fade-up {
+  opacity: 0;
+  animation: fade-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fade-up {
+    animation: none;
+    opacity: 1;
+  }
 }

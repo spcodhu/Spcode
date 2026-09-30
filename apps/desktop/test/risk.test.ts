@@ -9,6 +9,10 @@ describe("classifyToolRisk", () => {
     expect(classifyToolRisk("find", {})).toBe("readonly");
   });
 
+  it("RenameSession 无副作用，只读放行（不弹权限卡）", () => {
+    expect(classifyToolRisk("RenameSession", { title: "x" })).toBe("readonly");
+  });
+
   it("普通 bash 命令为 write", () => {
     expect(classifyToolRisk("bash", { command: "ls -la" })).toBe("write");
     expect(classifyToolRisk("bash", { command: "npm install" })).toBe("write");

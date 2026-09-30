@@ -1,31 +1,43 @@
 import { useEffect, useState } from "react";
-import { useStore } from "./store";
+import { useStore, teardownHostEvents } from "./store";
 import { applyAppearance } from "./theme";
 import { Sidebar } from "./components/Sidebar";
 import { ChatView } from "./components/ChatView";
 import { TopBar } from "./components/TopBar";
 import { PermissionCard } from "./components/PermissionCard";
-import { QuestionCard } from "./components/QuestionCard";
 import { SettingsPage } from "./components/SettingsPage";
+import { SearchPalette } from "./components/SearchPalette";
+import { SchedulePage } from "./components/SchedulePage";
+import { Icon } from "./components/Icon";
 
 export default function App() {
   const ready = useStore((s) => s.ready);
   const lastError = useStore((s) => s.lastError);
+  const notice = useStore((s) => s.notice);
   const activeSessionId = useStore((s) => s.activeSessionId);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
 
   useEffect(() => {
     void useStore.getState().init();
+    // StrictMode 会挂载→卸载→重挂载：卸载时退订，保证任意时刻只有一个事件监听器
+    return () => teardownHostEvents();
   }, []);
 
-  // 快捷键：Cmd+, 开关设置面板，ESC 关闭设置面板
+  // 快捷键：Cmd+, 开关设置面板，Cmd+K 搜索会话，ESC 关闭各浮层
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && (e.key === "," || e.code === "Comma")) {
         e.preventDefault();
         setSettingsOpen((v) => !v);
+      } else if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.code === "KeyK")) {
+        e.preventDefault();
+        setSearchOpen((v) => !v);
       } else if (e.key === "Escape") {
         setSettingsOpen(false);
+        setSearchOpen(false);
+        setScheduleOpen(false);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -45,6 +57,13 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [lastError]);
 
+  // 定时任务触发通知：8 秒自动消失
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => useStore.setState({ notice: null }), 8000);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
   if (!ready) {
     return (
       <div className="flex h-full items-center justify-center text-text-secondary">
@@ -55,7 +74,11 @@ export default function App() {
 
   return (
     <div className="flex h-full">
-      <Sidebar onOpenSettings={() => setSettingsOpen(true)} />
+      <Sidebar
+        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSearch={() => setSearchOpen(true)}
+        onOpenSchedule={() => setScheduleOpen(true)}
+      />
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar />
         <div className="min-h-0 flex-1">
@@ -67,8 +90,30 @@ export default function App() {
         </div>
       </div>
       <PermissionCard />
-      <QuestionCard />
       {settingsOpen && <SettingsPage onClose={() => setSettingsOpen(false)} />}
+      {searchOpen && <SearchPalette onClose={() => setSearchOpen(false)} />}
+      {scheduleOpen && <SchedulePage onClose={() => setScheduleOpen(false)} />}
+      {notice && (
+        <button
+          onClick={() => {
+            if (notice.sessionId) void useStore.getState().openSessionById(notice.sessionId);
+            useStore.setState({ notice: null });
+          }}
+          className="fixed bottom-4 right-4 z-50 flex max-w-md items-start gap-2 rounded-lg border border-accent/40 bg-bg-elevated px-4 py-3 text-left text-sm text-text-primary shadow-xl"
+        >
+          <Icon name="clock" size={15} className="mt-0.5 shrink-0 text-accent" />
+          <span className="flex-1">{notice.text}</span>
+          <span
+            onClick={(e) => {
+              e.stopPropagation();
+              useStore.setState({ notice: null });
+            }}
+            className="shrink-0 text-text-tertiary hover:text-text-primary"
+          >
+            ✕
+          </span>
+        </button>
+      )}
       {lastError && (
         <div className="fixed bottom-4 right-4 z-50 flex max-w-md items-start gap-2 rounded-lg border border-danger/40 bg-bg-elevated px-4 py-3 text-sm text-danger shadow-xl">
           <span className="flex-1">{lastError}</span>

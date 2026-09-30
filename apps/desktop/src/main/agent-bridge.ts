@@ -41,6 +41,11 @@ export class AgentBridge {
     return () => this.listeners.delete(listener);
   }
 
+  /** 主进程本地产生的事件（定时任务触发等）广播给所有监听者与绑定窗口 */
+  emitLocal(event: HostEvent): void {
+    this.broadcast(event);
+  }
+
   private broadcast(event: HostEvent): void {
     for (const l of this.listeners) l(event);
   }

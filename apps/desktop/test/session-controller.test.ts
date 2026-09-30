@@ -35,6 +35,8 @@ describe("SessionController 集成", () => {
       emitEvent: () => {},
       emitUsage: () => {},
       emitTodo: () => {},
+      emitPlanMode: () => {},
+      emitPlan: () => {},
       requestPermission: async () => true,
       askQuestion: async () => ({}),
     });
@@ -44,13 +46,41 @@ describe("SessionController 集成", () => {
 
     // 自研工具已注册进活动工具集
     const toolNames = ctl.session.getActiveToolNames();
-    for (const expected of ["WebSearch", "WebFetch", "TodoWrite", "AskUserQuestion", "Task"]) {
+    for (const expected of ["WebSearch", "WebFetch", "TodoWrite", "AskUserQuestion", "RenameSession", "Task"]) {
       expect(toolNames, `缺少工具 ${expected}`).toContain(expected);
     }
 
-    // 系统提示里应有记忆块（SOUL 播种内容）
+    // 系统提示里应有记忆块（SOUL 播种内容）与标题约定
     expect(ctl.session.systemPrompt).toContain("Spcode Memory");
+    expect(ctl.session.systemPrompt).toContain("会话标题约定");
 
+    await ctl.dispose();
+  }, 60000);
+
+  it("noTitleAutomation：不注入标题约定（定时任务会话用）", async () => {
+    const rt = await ModelRuntime.create({
+      authPath: join(dir, "auth.json"),
+      modelsPath: join(dir, "models.json"),
+      allowModelNetwork: false,
+    });
+    const store = new MemoryStore(join(dir, "home"));
+    const ctl = await SessionController.create({
+      sessionId: "test-scheduled",
+      cwd: join(dir, "scratch"),
+      agentDir: join(dir, "agent"),
+      modelRuntime: rt,
+      memoryStore: store,
+      mode: "chat",
+      noTitleAutomation: true,
+      emitEvent: () => {},
+      emitUsage: () => {},
+      emitTodo: () => {},
+      emitPlanMode: () => {},
+      emitPlan: () => {},
+      requestPermission: async () => true,
+      askQuestion: async () => ({}),
+    });
+    expect(ctl.session.systemPrompt).not.toContain("会话标题约定");
     await ctl.dispose();
   }, 60000);
 });

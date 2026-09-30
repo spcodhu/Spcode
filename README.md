@@ -9,7 +9,11 @@ Renderer(React 19) ←IPC→ Main(Electron) ←结构化克隆→ AgentHost(util
 ## 功能
 
 - **聊天 / 项目双模式**：仅对话，或选择文件夹开始干活
+- **计划模式**：输入框下「计划」开关，模型只读调研并输出完整计划（落盘 `~/.spcode/plans/`），批准卡确认后才恢复写工具执行，执行必建任务清单
 - **完整 Agentic 工具集**：pi 内置 read/write/edit/bash/grep/find/ls + 自研 WebSearch / WebFetch / TodoWrite / AskUserQuestion / Task 子代理
+- **会话标题自动生成**：模型主动命名 + harness 兜底生成双保险，不再只有首条消息截断
+- **会话搜索**：Cmd+K 或侧栏搜索按钮，标题 + 正文全文检索，命中直接恢复会话
+- **定时任务**：侧栏时钟按钮管理，到点自动新建会话执行指令（单次/每小时/每天/工作日/每周）
 - **分层记忆**：SOUL / USER / MEMORY / 每日日志 / 项目记忆 / lessons，会话创建时注入、结束后自动蒸馏（`~/.spcode/`）
 - **Token 统计**：按模型 × 会话 × 日归集，含缓存命中率与成本（`~/.spcode/usage/*.jsonl`）
 - **配额卡片**：z.ai / Moonshot / DeepSeek / Qwen 余额与配额
@@ -54,9 +58,11 @@ xattr -cr /Applications/Spcode.app
 ~/.spcode/
 ├── settings.json      设置（主题/字体/权限模式/默认模型）
 ├── sessions.json      会话注册表
+├── schedules.json     定时任务
 ├── SOUL.md USER.md MEMORY.md   分层记忆（可手改）
 ├── memory/            日志 / lessons / 项目记忆
 ├── usage/*.jsonl      token 用量流水
+├── plans/             计划模式的 PLAN.md（按会话 id 存放，删会话时一并清理）
 ├── fonts/             导入的字体
 ├── agent/             pi 引擎数据（auth.json / 会话文件 / 模型目录）
 └── scratch/           聊天模式工作目录
