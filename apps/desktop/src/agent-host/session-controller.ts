@@ -65,6 +65,14 @@ const DANGEROUS_CMD_PATTERNS: RegExp[] = [
   /\bnpm\s+(uninstall|publish)\b/i,
   /\bdd\s+.*of=\/dev\//i,
   /:\(\)\s*\{.*\};\s*:/, // fork bomb
+  // 解释器内联执行（评审 P0-3）：denylist 天然可绕，至少把 -e/-c 直执钉成 danger
+  /\b(node|deno|bun|python3?|ruby|perl|php)\s+(-[\w.]*\s+)*-(e|eval|c)\b/i,
+  // 进程/定时器级操作
+  /\b(pkill|killall|crontab)\b/i,
+  // 强删分支（-d 仅删已合并、可留 write；-D 强删归 danger）
+  /\bgit\s+branch\s+-[a-z]*D/i,
+  // 写/删敏感配置目录（评审 P0-3）：~/.spcode 被写 = 记忆投毒，~/.ssh 等同理
+  /(?:\b(?:rm|mv|cp|dd|tee|chmod|chown|ln|truncate)\b|>>?|\s--?o(?:utput)?\s)[^|;&]*~?\/\.(?:spcode|ssh|aws|gnupg|config)\b/i,
 ];
 
 function isDangerousCommand(cmd: string): boolean {

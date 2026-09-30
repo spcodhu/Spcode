@@ -69,12 +69,14 @@ export const PLAN_MODE_WRITE_BLOCK_REASON =
 // bash 只读白名单
 // ---------------------------------------------------------------------------
 
-/** 直接只读的命令(首词命中即该段安全) */
+/** 直接只读的命令(首词命中即该段安全)。
+ *  注意:env/less/more 不在列——env 能执行任意程序(env rm -rf x 逃逸),
+ *  less/more 支持 !cmd 交互执行;读环境变量请用 printenv。 */
 const SAFE_BINARIES = new Set([
-  "cat", "head", "tail", "less", "more",
+  "cat", "head", "tail",
   "grep", "egrep", "fgrep", "rg", "ag",
   "find", "fd", "ls", "pwd", "tree", "wc", "file", "stat",
-  "echo", "printf", "env", "printenv", "which", "type",
+  "echo", "printf", "printenv", "which", "type",
   "whoami", "date", "uname", "uptime", "hostname",
   "sort", "uniq", "comm", "diff", "cut", "tr", "jq", "yq",
   "du", "df", "basename", "dirname", "realpath", "readlink",

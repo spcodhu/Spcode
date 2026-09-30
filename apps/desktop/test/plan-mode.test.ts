@@ -61,9 +61,18 @@ describe("isPlanModeSafeCommand:bash 只读白名单", () => {
       "sed -i '' s/a/b/ file",
       "touch newfile",
       "mkdir dir",
+      // 白名单逃逸用例(评审 P0-2 回归):env 能执行任意程序,less/more 支持 !cmd 交互
+      "env rm -rf /tmp/x",
+      "env bash -c 'echo pwned'",
+      "less /etc/passwd",
+      "more ~/.spcode/MEMORY.md",
     ]) {
       expect(isPlanModeSafeCommand(cmd), cmd).toBe(false);
     }
+  });
+
+  it("读环境变量仍可用 printenv", () => {
+    expect(isPlanModeSafeCommand("printenv PATH")).toBe(true);
   });
 });
 
