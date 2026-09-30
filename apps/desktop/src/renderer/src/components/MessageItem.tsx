@@ -1,5 +1,5 @@
 import { createCodePlugin } from "@streamdown/code";
-import { type ReactNode, useEffect, useState } from "react";
+import { memo, type ReactNode, useEffect, useState } from "react";
 import { Streamdown } from "streamdown";
 import { type ChatMessage, flattenSegments, messageText, type ToolCallState } from "../store";
 import { Icon } from "./Icon";
@@ -17,7 +17,7 @@ const SHIKI_THEME: "github-dark" = "github-dark";
 const codePlugin = createCodePlugin({ themes: [SHIKI_THEME, SHIKI_THEME] });
 
 /** 用户消息气泡（含图片附件缩略图，点击放大预览；纯图片消息不渲染空气泡） */
-export function MessageItem({ message }: { message: ChatMessage }) {
+function MessageItemImpl({ message }: { message: ChatMessage }) {
   const text = messageText(message);
   const [previewIdx, setPreviewIdx] = useState<number | null>(null);
   const images = message.images ?? [];
@@ -59,6 +59,9 @@ export function MessageItem({ message }: { message: ChatMessage }) {
   );
 }
 
+/** memo：旧用户消息对象引用不变即跳过渲染（评审 P2-1——流式期间不再整树重渲染） */
+export const MessageItem = memo(MessageItemImpl);
+
 /**
  * 一次任务运行的渲染单元：把运行内所有回合的段拍平成一条时间线，
  * 严格按到达顺序从上往下渲染 —— 正文原位显示，思考/工具是时间线上
@@ -74,7 +77,7 @@ export function MessageItem({ message }: { message: ChatMessage }) {
  * active 由外层传入（会话 running && 最后一个运行）：回合间隙所有消息的
  * streaming 都是 false，若用消息级状态驱动折叠会在回合之间闪合闪开。
  */
-export function AssistantRunItem({ messages, active }: { messages: ChatMessage[]; active: boolean }) {
+function AssistantRunItemImpl({ messages, active }: { messages: ChatMessage[]; active: boolean }) {
   const segments = flattenSegments(messages);
   const toolCount = segments.reduce((n, s) => n + (s.kind === "tools" ? s.calls.length : 0), 0);
   const hasWork = segments.some((s) => s.kind !== "text");
@@ -132,6 +135,18 @@ export function AssistantRunItem({ messages, active }: { messages: ChatMessage[]
     </div>
   );
 }
+
+/**
+ * memo 切断旧运行随流式 delta 的重渲染（评审 P2-1）。
+ * 注意 delta 是原位修改流式消息对象（引用不变），所以激活运行必须每次真渲染；
+ * 旧运行的消息引用逐元素比较全同则跳过。groupMessagesForRender 每次重建 run 数组，
+ * 故不能按数组引用比较。
+ */
+export const AssistantRunItem = memo(AssistantRunItemImpl, (prev, next) => {
+  if (prev.active || next.active) return false;
+  if (prev.messages.length !== next.messages.length) return false;
+  return prev.messages.every((m, i) => m === next.messages[i]);
+});
 
 /** 工作条目（思考/工具行）：随运行头整体显隐，折叠走 grid 行高动画。
  *  注意：这里不能加行间距（pb-*），否则时间线左轨会被切成虚线；

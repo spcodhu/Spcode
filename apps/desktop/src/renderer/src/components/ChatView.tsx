@@ -9,12 +9,30 @@ import { WorkDrawer } from "./WorkDrawer";
 export function ChatView({ sessionId }: { sessionId: string }) {
   const session = useStore((s) => s.sessions[sessionId]);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const _msgCount = session?.messages.length ?? 0;
-  const _lastLen = lastMessageLength(session?.messages);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  /** 用户是否停留在底部附近（上滑回看历史时暂停吸底——评审 P2-1） */
+  const nearBottomRef = useRef(true);
+  const msgCount = session?.messages.length ?? 0;
+  const lastLen = lastMessageLength(session?.messages);
 
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  };
+
+  // 内容增长（新消息/流式 delta）时吸底——仅当用户本来就停在底部附近
+  // biome-ignore lint/correctness/useExhaustiveDependencies: msgCount/lastLen 仅作内容变化信号驱动吸底，effect 体内不直接使用
   useEffect(() => {
+    if (nearBottomRef.current) bottomRef.current?.scrollIntoView({ block: "end" });
+  }, [msgCount, lastLen]);
+
+  // 切换会话时复位吸底状态并滚到底
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 仅在 sessionId 变化时复位
+  useEffect(() => {
+    nearBottomRef.current = true;
     bottomRef.current?.scrollIntoView({ block: "end" });
-  }, []);
+  }, [sessionId]);
 
   if (!session) return null;
   const isEmpty = session.messages.length === 0;
@@ -22,7 +40,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={scrollRef} onScroll={handleScroll} className="min-h-0 flex-1 overflow-y-auto">
         <div
           className={`mx-auto max-w-3xl px-6 py-6 ${isEmpty ? "relative flex min-h-full flex-col justify-center" : ""}`}
         >
