@@ -3,7 +3,7 @@ import { test, _electron as electron } from "@playwright/test";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const appDir = join(dirname(fileURLToPath(import.meta.url)), "..");
+const appDir = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const shotDir = join(appDir, "test-results", "visual");
 
 test("开关截图", async () => {

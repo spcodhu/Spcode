@@ -84,7 +84,7 @@ export function SessionEmptyState({ meta }: { meta: SessionMeta }) {
   const suggestions = isProject ? PROJECT_SUGGESTIONS : CHAT_SUGGESTIONS;
 
   return (
-    <div className="flex flex-col items-center">
+    <div className="flex flex-col items-center" data-testid="empty-state">
       {/* 顶部微光晕：让居中块有呼吸感，不抢视觉 */}
       <div
         aria-hidden

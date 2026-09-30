@@ -6,9 +6,8 @@
  * 密钥从 pi 的 auth.json 读取（只读、脱敏不出进程）。
  */
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
-import { SPCODE_HOME_DIRNAME } from "@spcode/shared";
+import { resolveSpcodeHome } from "@spcode/shared/node";
 
 export interface QuotaLimit {
   /** 行标签：每日额度 / 每周额度 / 余额… */
@@ -281,7 +280,7 @@ export class QuotaService {
   private readonly localUsage?: (providerId: string) => LocalUsage | null;
 
   constructor(agentDir?: string, localUsage?: (providerId: string) => LocalUsage | null) {
-    this.agentDir = agentDir ?? join(homedir(), SPCODE_HOME_DIRNAME, "agent");
+    this.agentDir = agentDir ?? join(resolveSpcodeHome(), "agent");
     this.localUsage = localUsage;
   }
 

@@ -9,7 +9,6 @@
  *
  * 禁止 import "electron" —— 这里只有 Node API + process.parentPort。
  */
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import {
@@ -25,6 +24,7 @@ import type {
   PermissionRequest,
   QuestionRequest,
 } from "@spcode/shared";
+import { resolveSpcodeHome } from "@spcode/shared/node";
 import { MemoryStore } from "./memory-store.js";
 import { SessionController } from "./session-controller.js";
 
@@ -52,7 +52,7 @@ function respond(id: string, success: boolean, data?: unknown, error?: string): 
 // 全局状态
 // ---------------------------------------------------------------------------
 
-const SPCODE_HOME = join(homedir(), ".spcode");
+const SPCODE_HOME = resolveSpcodeHome();
 const AGENT_DIR = join(SPCODE_HOME, "agent");
 
 let modelRuntime: ModelRuntime | null = null;

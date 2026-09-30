@@ -4,10 +4,10 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { IPC, SPCODE_HOME_DIRNAME, baseName, cleanSessionTitle, type AppSettings, type HostCommand, type HostEvent, type ScheduleTask, type ScheduleTaskInput, type SessionMode } from "@spcode/shared";
+import { IPC, baseName, cleanSessionTitle, type AppSettings, type HostCommand, type HostEvent, type ScheduleTask, type ScheduleTaskInput, type SessionMode } from "@spcode/shared";
+import { resolveSpcodeHome } from "@spcode/shared/node";
 import { AgentBridge } from "./agent-bridge.js";
 import { QuotaService } from "./quota-service.js";
 import { Scheduler } from "./scheduler.js";
@@ -237,7 +237,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.removeSession, (_e, id: string) => {
     registry.remove(id);
     // 计划文件（~/.spcode/plans/<id>.md）随会话一并清理
-    rmSync(join(homedir(), SPCODE_HOME_DIRNAME, "plans", `${id}.md`), { force: true });
+    rmSync(join(resolveSpcodeHome(), "plans", `${id}.md`), { force: true });
     // 宿主里的活跃实例也一并释放
     void bridge
       .call({ id: `dispose-${id}`, type: "session.dispose", payload: { sessionId: id } })
@@ -305,7 +305,7 @@ function registerIpc(): void {
     });
     const src = result.canceled ? null : (result.filePaths[0] ?? null);
     if (!src) return null;
-    const fontsDir = join(homedir(), SPCODE_HOME_DIRNAME, "fonts");
+    const fontsDir = join(resolveSpcodeHome(), "fonts");
     mkdirSync(fontsDir, { recursive: true });
     const file = basename(src);
     copyFileSync(src, join(fontsDir, file));
@@ -315,7 +315,7 @@ function registerIpc(): void {
 
   // 字体数据：FontFace 注册用（只允许读 fonts 目录内的文件）
   ipcMain.handle(IPC.getFontData, (_e, fileName: string) => {
-    const fontsDir = join(homedir(), SPCODE_HOME_DIRNAME, "fonts");
+    const fontsDir = join(resolveSpcodeHome(), "fonts");
     const file = join(fontsDir, basename(fileName));
     if (!existsSync(file)) return null;
     return readFileSync(file);

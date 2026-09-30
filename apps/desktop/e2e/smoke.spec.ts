@@ -1,12 +1,9 @@
-import { test, expect, _electron as electron } from "@playwright/test";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-
-const appDir = join(dirname(fileURLToPath(import.meta.url)), "..");
+import { test, expect } from "@playwright/test";
+import { launchApp } from "./helpers";
 
 test.describe("Spcode 冒烟 E2E", () => {
   test("启动 → 首页 → 新建聊天 → 输入框就绪", async () => {
-    const app = await electron.launch({ args: [".", "--no-sandbox"], cwd: appDir });
+    const app = await launchApp();
     const window = await app.firstWindow();
 
     // 首页品牌区
@@ -15,15 +12,15 @@ test.describe("Spcode 冒烟 E2E", () => {
     // 新建聊天（注意：侧边栏提示文本也含"新建聊天"，必须按 role 选按钮）
     await window.getByRole("button", { name: /新建聊天/ }).click();
 
-    // 输入框出现，空会话提示出现
+    // 输入框出现，空会话视图出现（锚定 data-testid，不绑展示文案——评审 N4）
     await expect(window.getByPlaceholder(/说点什么/)).toBeVisible({ timeout: 15000 });
-    await expect(window.getByText("开始对话吧")).toBeVisible();
+    await expect(window.getByTestId("empty-state")).toBeVisible();
 
     await app.close();
   });
 
   test("设置页：导航开合与各页面", async () => {
-    const app = await electron.launch({ args: [".", "--no-sandbox"], cwd: appDir });
+    const app = await launchApp();
     const window = await app.firstWindow();
 
     await window.getByRole("button", { name: /新建聊天/ }).click();
@@ -54,7 +51,7 @@ test.describe("Spcode 冒烟 E2E", () => {
   });
 
   test("快捷键 Cmd+, 开设置，ESC 与点击外部关闭", async () => {
-    const app = await electron.launch({ args: [".", "--no-sandbox"], cwd: appDir });
+    const app = await launchApp();
     const window = await app.firstWindow();
 
     await window.getByRole("button", { name: /新建聊天/ }).click();
@@ -79,7 +76,7 @@ test.describe("Spcode 冒烟 E2E", () => {
   });
 
   test("无模型时发消息不会导致崩溃", async () => {
-    const app = await electron.launch({ args: [".", "--no-sandbox"], cwd: appDir });
+    const app = await launchApp();
     const window = await app.firstWindow();
 
     await window.getByRole("button", { name: /新建聊天/ }).click();
@@ -97,7 +94,7 @@ test.describe("Spcode 冒烟 E2E", () => {
   });
 
   test("会话搜索：Cmd+K 与侧栏按钮开合，输入出结果区", async () => {
-    const app = await electron.launch({ args: [".", "--no-sandbox"], cwd: appDir });
+    const app = await launchApp();
     const window = await app.firstWindow();
     await expect(window.getByText("Spcode").first()).toBeVisible({ timeout: 15000 });
 
@@ -123,7 +120,7 @@ test.describe("Spcode 冒烟 E2E", () => {
   });
 
   test("定时任务：面板开合 + 创建/删除任务闭环", async () => {
-    const app = await electron.launch({ args: [".", "--no-sandbox"], cwd: appDir });
+    const app = await launchApp();
     const window = await app.firstWindow();
     await expect(window.getByText("Spcode").first()).toBeVisible({ timeout: 15000 });
 

@@ -2,9 +2,9 @@
  * 应用设置存储：~/.spcode/settings.json，原子写入。
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_SETTINGS, SPCODE_HOME_DIRNAME, type AppSettings } from "@spcode/shared";
+import { DEFAULT_SETTINGS, type AppSettings } from "@spcode/shared";
+import { resolveSpcodeHome } from "@spcode/shared/node";
 
 export class SettingsStore {
   readonly dir: string;
@@ -12,7 +12,7 @@ export class SettingsStore {
   private cache: AppSettings | null = null;
 
   constructor(baseDir?: string) {
-    this.dir = baseDir ?? join(homedir(), SPCODE_HOME_DIRNAME);
+    this.dir = baseDir ?? resolveSpcodeHome();
     this.file = join(this.dir, "settings.json");
   }
 

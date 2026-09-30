@@ -3,9 +3,9 @@
  * 支持按日/按模型聚合查询。纯 JSONL 本地优先，无原生依赖。
  */
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
-import { SPCODE_HOME_DIRNAME, type UsageAggregate, type UsageRecord } from "@spcode/shared";
+import { type UsageAggregate, type UsageRecord } from "@spcode/shared";
+import { resolveSpcodeHome } from "@spcode/shared/node";
 
 export interface DailyUsage {
   date: string;
@@ -17,7 +17,7 @@ export class UsageLedger {
   private readonly dir: string;
 
   constructor(baseDir?: string) {
-    this.dir = join(baseDir ?? join(homedir(), SPCODE_HOME_DIRNAME), "usage");
+    this.dir = join(baseDir ?? resolveSpcodeHome(), "usage");
     mkdirSync(this.dir, { recursive: true });
   }
 

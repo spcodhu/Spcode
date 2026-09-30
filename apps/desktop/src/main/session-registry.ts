@@ -3,9 +3,9 @@
  * 记录每个会话的元信息与 pi 会话文件路径，支撑跨重启的会话列表与恢复。
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
-import { SPCODE_HOME_DIRNAME, type ModelRef, type SessionMode } from "@spcode/shared";
+import { type ModelRef, type SessionMode } from "@spcode/shared";
+import { resolveSpcodeHome } from "@spcode/shared/node";
 
 export interface SessionRegistryEntry {
   id: string;
@@ -29,7 +29,7 @@ export class SessionRegistry {
   private entries: SessionRegistryEntry[] | null = null;
 
   constructor(baseDir?: string) {
-    const dir = baseDir ?? join(homedir(), SPCODE_HOME_DIRNAME);
+    const dir = baseDir ?? resolveSpcodeHome();
     mkdirSync(dir, { recursive: true });
     this.file = join(dir, "sessions.json");
   }

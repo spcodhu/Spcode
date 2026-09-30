@@ -12,10 +12,10 @@
  * 触发动作由调用方注入（fire）：典型实现是新建会话并注入 prompt。
  */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { SPCODE_HOME_DIRNAME, type ScheduleTask, type ScheduleTaskInput } from "@spcode/shared";
+import { type ScheduleTask, type ScheduleTaskInput } from "@spcode/shared";
+import { resolveSpcodeHome } from "@spcode/shared/node";
 
 const TICK_MS = 30_000;
 
@@ -80,7 +80,7 @@ export class Scheduler {
   private ticking = false;
 
   constructor(private readonly opts: SchedulerOptions) {
-    const dir = join(homedir(), SPCODE_HOME_DIRNAME);
+    const dir = resolveSpcodeHome();
     mkdirSync(dir, { recursive: true });
     this.file = opts.file ?? join(dir, "schedules.json");
   }
