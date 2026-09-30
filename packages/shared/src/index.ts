@@ -335,6 +335,8 @@ export interface AppSettings {
 
 export interface CustomTheme {
   name: string;
+  /** 明暗基底。注意：代码块 shiki 高亮主题钉死在 MessageItem.tsx 的 SHIKI_THEME（当前 github-dark），
+   *  支持浅色基底时需联动切换那里的高亮方案（评审 N3） */
   base: "dark" | "light";
   colors: Record<string, string>;
 }

@@ -7,7 +7,7 @@
  *   全部完成后自动收起成一行摘要；手动开合随时可用
  * - 计划模式提示：开启时面板挂小徽章，腔内显示说明（不再占一条大横幅）
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { TodoItem } from "@spcode/shared";
 import { Icon } from "./Icon";
 
@@ -18,8 +18,15 @@ export function WorkDrawer({ todos, planMode }: { todos: TodoItem[]; planMode: b
   const allDone = hasTodos && done === todos.length;
 
   const [open, setOpen] = useState(!allDone);
-  // 自动行为跟随完成态翻转：进行中→展开，全部完成→收起；中途手动切换不被覆盖
-  useEffect(() => setOpen(!allDone), [allDone]);
+  // 自动跟随完成态翻转：进行中→展开，全部完成→收起。
+  // 但用户手动开合过就不再强制复位（评审 N2：原 effect 在 allDone 每次翻转时都覆盖用户状态）——
+  // 只当当前开合仍等于"上次自动值"（用户没动过）时才跟随。
+  const lastAuto = useRef(!allDone);
+  useEffect(() => {
+    const auto = !allDone;
+    setOpen((cur) => (cur === lastAuto.current ? auto : cur));
+    lastAuto.current = auto;
+  }, [allDone]);
 
   if (!hasTodos && !planMode) return null;
 
