@@ -11,5 +11,10 @@
 ## 不要提交的东西
 
 - `.finch/`（本地权限/工具状态）
-- `apps/desktop/test-results/`（测试截图与报告）
+- `apps/desktop/test-results/`（测试截图与报告）——该目录已在 `.gitignore`，若历史上被跟踪过需 `git rm -r --cached` 清理
 - 临时验证脚本、构建产物（`out/`、`dist/`）、任何密钥/Token
+
+## 测试纪律
+
+- 改动 UI 文案、布局或交互结构后，必须跑 `pnpm --filter @spcode/desktop test:e2e`（至少跑 smoke）；e2e 断言一律锚定 role / placeholder / data-testid，不锚定展示文案。
+- e2e 跑在临时 `SPCODE_HOME` 下，不得读写真实 `~/.spcode/`。
