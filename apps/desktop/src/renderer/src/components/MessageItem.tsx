@@ -1,8 +1,16 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Streamdown } from "streamdown";
+import { createCodePlugin } from "@streamdown/code";
 import { flattenSegments, messageText, type ChatMessage, type ToolCallState } from "../store";
 import { Icon } from "./Icon";
 import { ImageLightbox } from "./ImageLightbox";
+
+/*
+ * 语法高亮插件（shiki）。模块级单例，避免每次渲染重建 highlighter。
+ * 双主题都钉成 github-dark：Tailwind 不扫描 node_modules，streamdown 的 dark: 变体类全部失效，
+ * 若保留默认 github-light 基色，暗色界面上代码会被刷成浅色主题的灰白。
+ */
+const codePlugin = createCodePlugin({ themes: ["github-dark", "github-dark"] });
 
 /** 用户消息气泡（含图片附件缩略图，点击放大预览；纯图片消息不渲染空气泡） */
 export function MessageItem({ message }: { message: ChatMessage }) {
@@ -56,8 +64,10 @@ export function AssistantRunItem({ messages, active }: { messages: ChatMessage[]
   const toolCount = segments.reduce((n, s) => n + (s.kind === "tools" ? s.calls.length : 0), 0);
   const hasWork = segments.some((s) => s.kind !== "text");
   const hasText = segments.some((s) => s.kind === "text");
-  // 最后一个工作段：时间线左轨到这里收尾，不留悬线
-  const lastWorkIdx = segments.reduce((last, s, i) => (s.kind === "text" ? last : i), -1);
+  // 首/尾工作段：左轨从首个圆点画到最后一个圆点，两端不留悬线
+  const workIdxs = segments.map((s, i) => (s.kind === "text" ? -1 : i)).filter((i) => i >= 0);
+  const firstWorkIdx = workIdxs[0] ?? -1;
+  const lastWorkIdx = workIdxs[workIdxs.length - 1] ?? -1;
 
   const [workOpen, setWorkOpen] = useState(active);
   useEffect(() => setWorkOpen(active), [active]);
@@ -89,13 +99,14 @@ export function AssistantRunItem({ messages, active }: { messages: ChatMessage[]
         if (seg.kind === "text") {
           return <Markdown key={seg.id} text={seg.text} />;
         }
+        const railStart = si === firstWorkIdx;
         const railEnd = si === lastWorkIdx;
         return (
           <WorkEntry key={seg.id} open={workOpen}>
             {seg.kind === "thinking" ? (
-              <ThinkingRow text={seg.text} streaming={!seg.done && active} railEnd={railEnd} />
+              <ThinkingRow text={seg.text} streaming={!seg.done && active} railStart={railStart} railEnd={railEnd} />
             ) : (
-              <ToolRowGroup calls={seg.calls} railEnd={railEnd} />
+              <ToolRowGroup calls={seg.calls} railStart={railStart} railEnd={railEnd} />
             )}
           </WorkEntry>
         );
@@ -106,13 +117,13 @@ export function AssistantRunItem({ messages, active }: { messages: ChatMessage[]
   );
 }
 
-/** 工作条目（思考/工具行）：随运行头整体显隐，折叠走 grid 行高动画 */
+/** 工作条目（思考/工具行）：随运行头整体显隐，折叠走 grid 行高动画。
+ *  注意：这里不能加行间距（pb-*），否则时间线左轨会被切成虚线；
+ *  行间节奏由 TimelineEntry 自身的 py 控制，左轨自然连续。 */
 function WorkEntry({ open, children }: { open: boolean; children: ReactNode }) {
   return (
     <div className="collapse-grid" data-open={open}>
-      <div className="collapse-inner">
-        <div className="pb-1">{children}</div>
-      </div>
+      <div className="collapse-inner">{children}</div>
     </div>
   );
 }
@@ -124,6 +135,8 @@ function Markdown({ text }: { text: string }) {
       <Streamdown
         controls={{ table: false, mermaid: false, code: { copy: true, download: false } }}
         tableMaxHeight={0}
+        shikiTheme={["github-dark", "github-dark"]}
+        plugins={{ code: codePlugin }}
       >
         {text}
       </Streamdown>
@@ -161,10 +174,11 @@ function ThinkingHeader({ streaming, open }: { streaming: boolean; open?: boolea
 /**
  * 时间线条目外壳：左轨细线 + 状态圆点 + 可点击行头 + 展开详情区。
  * 左轨跨越行头与详情区，相邻条目首尾相接自动连成一条连续轨道；
- * railEnd（末尾条目）时只画到圆点为止，不留悬线。
+ * 轨道从首个圆点画到最后一个圆点，两端不留悬线。
  */
 function TimelineEntry({
   dot,
+  railStart,
   railEnd,
   open,
   onClick,
@@ -172,6 +186,7 @@ function TimelineEntry({
   detail,
 }: {
   dot: string;
+  railStart?: boolean;
   railEnd?: boolean;
   open: boolean;
   onClick: () => void;
@@ -180,10 +195,14 @@ function TimelineEntry({
 }) {
   return (
     <div className="relative">
-      <span
-        aria-hidden
-        className={`absolute left-[7px] top-0 w-px bg-border ${railEnd ? "h-[13px]" : "h-full"}`}
-      />
+      {!(railStart && railEnd) && (
+        <span
+          aria-hidden
+          className={`absolute left-[7px] w-px bg-border ${
+            railStart ? "top-[13px] bottom-0" : railEnd ? "top-0 h-[13px]" : "inset-y-0"
+          }`}
+        />
+      )}
       <span aria-hidden className={`absolute left-[4px] top-[9px] h-[7px] w-[7px] rounded-full ${dot}`} />
       <button
         onClick={onClick}
@@ -219,7 +238,17 @@ function firstLine(text: string): string {
  * 思考条目：完成后收成一行「思考 · 首行摘要」，点击展开全文；
  * 流式期间行头为「思考中…」流光并实时展开正文；空思考直接不渲染（去重）。
  */
-function ThinkingRow({ text, streaming, railEnd }: { text: string; streaming: boolean; railEnd?: boolean }) {
+function ThinkingRow({
+  text,
+  streaming,
+  railStart,
+  railEnd,
+}: {
+  text: string;
+  streaming: boolean;
+  railStart?: boolean;
+  railEnd?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   if (!streaming && !text.trim()) return null;
   const preview = firstLine(text);
@@ -228,6 +257,7 @@ function ThinkingRow({ text, streaming, railEnd }: { text: string; streaming: bo
   return (
     <TimelineEntry
       dot={streaming ? "bg-thinking animate-pulse" : "bg-thinking/35"}
+      railStart={railStart}
       railEnd={railEnd}
       open={expanded}
       onClick={() => setOpen(!open)}
@@ -258,32 +288,51 @@ function ThinkingRow({ text, streaming, railEnd }: { text: string; streaming: bo
  * 一段连续工具调用：每个调用一行「动作标签 + 参数摘要」（完整轨迹一目了然），
  * 点击行展开完整参数与输出；运行中行头流光，错误行摘要标红。
  */
-function ToolRowGroup({ calls, railEnd }: { calls: ToolCallState[]; railEnd?: boolean }) {
+function ToolRowGroup({ calls, railStart, railEnd }: { calls: ToolCallState[]; railStart?: boolean; railEnd?: boolean }) {
   return (
     <div>
       {calls.map((tc, i) => (
-        <ToolRow key={tc.id} toolCall={tc} railEnd={railEnd && i === calls.length - 1} />
+        <ToolRow
+          key={tc.id}
+          toolCall={tc}
+          railStart={railStart && i === 0}
+          railEnd={railEnd && i === calls.length - 1}
+        />
       ))}
     </div>
   );
 }
 
-function ToolRow({ toolCall, railEnd }: { toolCall: ToolCallState; railEnd?: boolean }) {
+function ToolRow({
+  toolCall,
+  railStart,
+  railEnd,
+}: {
+  toolCall: ToolCallState;
+  railStart?: boolean;
+  railEnd?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const running = toolCall.status === "running";
   const error = toolCall.status === "error";
   const dot = running ? "bg-warning animate-pulse" : error ? "bg-danger" : "bg-border-strong";
-  const summary = summarizeArgs(toolCall.name, toolCall.args) || toolCall.name;
+  const summary = summarizeArgs(toolCall.name, toolCall.args);
 
   return (
     <TimelineEntry
       dot={dot}
+      railStart={railStart}
       railEnd={railEnd}
       open={open}
       onClick={() => setOpen(!open)}
       head={
         <>
-          <span className="w-[52px] shrink-0 text-[11.5px] text-text-tertiary">{toolLabel(toolCall.name)}</span>
+          <span
+            className="min-w-[52px] max-w-[112px] shrink-0 truncate text-[11.5px] text-text-tertiary"
+            title={toolCall.name}
+          >
+            {toolLabel(toolCall.name)}
+          </span>
           <span
             className={`mono min-w-0 flex-1 truncate text-[12px] ${
               running
@@ -332,6 +381,11 @@ const TOOL_LABELS: Record<string, string> = {
   todowrite: "计划",
   askuserquestion: "提问",
   task: "子任务",
+  renamesession: "改标题",
+  writeplan: "写计划",
+  exitplanmode: "计划审批",
+  remember: "记忆",
+  skill: "技能",
 };
 
 function toolLabel(name: string): string {
@@ -365,8 +419,14 @@ function summarizeArgs(name: string, args: unknown): string {
       }
       return "";
     }
-    default:
+    default: {
+      // 未知工具：取第一个有信息量的字符串参数做摘要，避免与标签重复叠字
+      for (const k of ["title", "description", "prompt", "query", "text", "message", "path", "command", "url"]) {
+        const v = pick(k);
+        if (v) return v.slice(0, 120);
+      }
       return "";
+    }
   }
 }
 

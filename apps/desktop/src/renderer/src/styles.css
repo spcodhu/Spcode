@@ -193,7 +193,7 @@ button:disabled {
   font-weight: 600;
 }
 
-/* 行内代码 */
+/* 行内代码：禁止与相邻文字叠压 */
 .md-body code:not(pre code) {
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
@@ -201,16 +201,101 @@ button:disabled {
   padding: 0 4px;
   font-size: 12.5px;
   color: var(--color-accent);
+  white-space: nowrap;
+  vertical-align: baseline;
 }
 
-/* 代码块 */
-.md-body pre {
+/* 代码块：Kimi Work 风格 —— 独立 header 条（语言标签 + 复制按钮）+ 分隔线 + 代码区。
+   注意：Tailwind 不扫描 node_modules，streamdown 自带的 flex/h-8/sticky 等布局类全部失效，
+   这里从头接管 [data-streamdown] 各层的排版 */
+.md-body [data-streamdown="code-block"] {
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
   border-radius: 10px;
+  padding: 0;
+  margin: 10px 0;
+  overflow: hidden;
+  /* 关掉 content-visibility 跳绘：动态内容下会产生文字重影/叠字
+     （它是内联 style，必须 !important 才能覆盖） */
+  content-visibility: visible !important;
+  contain-intrinsic-size: auto !important;
+}
+/* header 条：比代码区稍亮一点的底色 + 底部分隔线 */
+.md-body [data-streamdown="code-block-header"] {
+  display: flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 12px;
+  background: rgba(255, 255, 255, 0.045);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+}
+.md-body [data-streamdown="code-block-header"] span {
+  font-family: var(--mono-font);
+  font-size: 11.5px;
+}
+/* 复制按钮的悬浮轨道（header 与 body 之间那个无 data 属性的 div）：
+   用负 margin 拉回 overlay 到 header 条上，右对齐 */
+.md-body [data-streamdown="code-block-header"] + div {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 34px;
+  margin-top: -34px;
+  padding: 0 8px;
+  position: relative;
+  z-index: 1;
+  pointer-events: none;
+}
+/* 复制按钮外框：去药丸底色/边框/模糊，指回可点 */
+.md-body [data-streamdown="code-block-actions"] {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  padding: 0;
+  pointer-events: auto;
+}
+/* 复制按钮：图标 + 「复制」文字（Kimi 风格） */
+.md-body [data-streamdown="code-block-copy-button"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  color: var(--color-text-tertiary);
+  border-radius: 6px;
+}
+.md-body [data-streamdown="code-block-copy-button"]::after {
+  content: "复制";
+  font-size: 11.5px;
+  font-family: var(--ui-font);
+}
+.md-body [data-streamdown="code-block-copy-button"]:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+/* 代码本体：去内层第二圈框，留白收紧 */
+.md-body [data-streamdown="code-block-body"] {
+  border: none;
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
+}
+/* shiki token 着色：streamdown 靠 text-[var(--sdm-c)] / bg-[var(--sdm-tbg)] 裸值类上色，
+   但这些类没有被 Tailwind 生成，必须在这里直接消费它输出的 CSS 变量 */
+.md-body [data-streamdown="code-block-body"] span {
+  color: var(--sdm-c, inherit);
+  background-color: var(--sdm-tbg, transparent);
+}
+.md-body pre {
+  background: var(--sdm-bg, transparent);
+  border: none;
+  border-radius: 0;
   padding: 12px 14px;
+  margin: 0;
   overflow-x: auto;
   font-size: 12.5px;
+  line-height: 1.65;
 }
 
 /* 表格：去掉 streamdown 自带的容器框/内滚动，仅留横向细分隔线 */
