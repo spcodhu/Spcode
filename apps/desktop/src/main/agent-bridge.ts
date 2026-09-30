@@ -20,6 +20,9 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+/** 权限请求转发渲染进程后的裁决超时：超时按拒绝回执宿主（评审 P1-1） */
+const PERMISSION_TIMEOUT_MS = 10 * 60_000;
+
 type EventListener = (event: HostEvent) => void;
 
 export class AgentBridge {
@@ -27,8 +30,8 @@ export class AgentBridge {
   private readyPromise: Promise<void> | null = null;
   private pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   private listeners = new Set<EventListener>();
-  /** 渲染进程未决的权限请求 */
-  private pendingPermissions = new Map<string, PermissionRequest>();
+  /** 渲染进程未决的权限请求（带超时兜底——评审 P1-1） */
+  private pendingPermissions = new Map<string, { request: PermissionRequest; timer: ReturnType<typeof setTimeout> }>();
   private getPermissionMode: () => PermissionMode;
 
   constructor(opts: { getPermissionMode: () => PermissionMode }) {
@@ -80,6 +83,9 @@ export class AgentBridge {
         const err = new Error(`agent-host exited (code ${code})`);
         for (const p of this.pending.values()) p.reject(err);
         this.pending.clear();
+        // 宿主已死，其内的权限请求随之蒸发；清掉转发记录，避免重启后错配
+        for (const p of this.pendingPermissions.values()) clearTimeout(p.timer);
+        this.pendingPermissions.clear();
         this.broadcast({ type: "host.error", message: err.message });
       });
       child.once("error", (e) => rejectReady(e));
@@ -112,13 +118,20 @@ export class AgentBridge {
       this.post({ type: "permission.reply", payload: { requestId: request.requestId, approved: true } });
       return;
     }
-    this.pendingPermissions.set(request.requestId, request);
+    // 超时兜底：广播到 0 个窗口（关窗的定时任务场景）时按拒绝收尾，工具调用不会永久挂死
+    const timer = setTimeout(() => {
+      this.replyPermission(request.requestId, false);
+    }, PERMISSION_TIMEOUT_MS);
+    this.pendingPermissions.set(request.requestId, { request, timer });
     this.broadcast({ type: "permission.request", request });
   }
 
   /** 渲染进程回复权限确认 */
   replyPermission(requestId: string, approved: boolean): void {
-    if (!this.pendingPermissions.delete(requestId)) return;
+    const p = this.pendingPermissions.get(requestId);
+    if (!p) return;
+    this.pendingPermissions.delete(requestId);
+    clearTimeout(p.timer);
     this.post({ type: "permission.reply", payload: { requestId, approved } });
   }
 
@@ -151,6 +164,10 @@ export class AgentBridge {
   }
 
   bindWindow(wc: WebContents): () => void {
+    // 重播未决权限请求：macOS 关窗不退出，新窗口重建后仍应看到等待中的确认卡片
+    for (const p of this.pendingPermissions.values()) {
+      if (!wc.isDestroyed()) wc.send(IPC.hostEvent, { type: "permission.request", request: p.request });
+    }
     return this.onEvent((event) => {
       if (!wc.isDestroyed()) wc.send(IPC.hostEvent, event);
     });

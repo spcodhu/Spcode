@@ -60,10 +60,22 @@ let memoryStore: MemoryStore | null = null;
 /** 记忆蒸馏总开关（主进程设置页经 memory.setDistillEnabled 下发；宿主重启后由主进程重推） */
 let distillEnabled = true;
 const sessions = new Map<string, SessionController>();
-/** 等待主进程裁决的权限请求 */
-const pendingPermissions = new Map<string, (approved: boolean) => void>();
-/** 等待用户回答的结构化提问 */
-const pendingQuestions = new Map<string, (answers: Record<string, string>) => void>();
+/** 等待主进程裁决的权限请求（带会话归属与超时兜底——评审 P1-1） */
+const pendingPermissions = new Map<string, {
+  sessionId: string;
+  resolve: (approved: boolean) => void;
+  timer: ReturnType<typeof setTimeout>;
+}>();
+/** 等待用户回答的结构化提问（同上） */
+const pendingQuestions = new Map<string, {
+  sessionId: string;
+  resolve: (answers: Record<string, string>) => void;
+  timer: ReturnType<typeof setTimeout>;
+}>();
+
+/** 权限 10 分钟无人裁决按拒绝收尾；提问 30 分钟无人回答按"用户未答"收尾（防工具调用永久挂死） */
+const PERMISSION_TIMEOUT_MS = 10 * 60_000;
+const QUESTION_TIMEOUT_MS = 30 * 60_000;
 
 async function getRuntime(): Promise<ModelRuntime> {
   if (!modelRuntime) {
@@ -144,16 +156,40 @@ function toModelInfo(m: {
 
 function requestPermission(request: PermissionRequest): Promise<boolean> {
   return new Promise((resolve) => {
-    pendingPermissions.set(request.requestId, resolve);
+    const timer = setTimeout(() => {
+      // 超时兜底：主进程掉线/无窗口可答时按拒绝放行，agent 循环收到"用户拒绝"后自然收尾
+      if (pendingPermissions.delete(request.requestId)) resolve(false);
+    }, PERMISSION_TIMEOUT_MS);
+    pendingPermissions.set(request.requestId, { sessionId: request.sessionId, resolve, timer });
     emit({ type: "permission.request", request });
   });
 }
 
 function askQuestion(request: QuestionRequest): Promise<Record<string, string>> {
   return new Promise((resolve) => {
-    pendingQuestions.set(request.requestId, resolve);
+    const timer = setTimeout(() => {
+      // 空答案 = 用户未作答（工具侧渲染为 dismissed），比永久挂死更可恢复
+      if (pendingQuestions.delete(request.requestId)) resolve({});
+    }, QUESTION_TIMEOUT_MS);
+    pendingQuestions.set(request.requestId, { sessionId: request.sessionId, resolve, timer });
     emit({ type: "question.request", request });
   });
+}
+
+/** 会话终结（dispose/abort）时结清其所有待决请求：权限按拒绝、提问按未答 */
+function settlePendingForSession(sessionId: string): void {
+  for (const [rid, p] of pendingPermissions) {
+    if (p.sessionId !== sessionId) continue;
+    pendingPermissions.delete(rid);
+    clearTimeout(p.timer);
+    p.resolve(false);
+  }
+  for (const [rid, q] of pendingQuestions) {
+    if (q.sessionId !== sessionId) continue;
+    pendingQuestions.delete(rid);
+    clearTimeout(q.timer);
+    q.resolve({});
+  }
 }
 
 /** session.create / session.open 公共逻辑 */
@@ -200,18 +236,20 @@ async function createController(params: {
 async function handleCommand(cmd: HostCommand): Promise<void> {
   // 无 id 的命令（permission.reply / shutdown）直接处理
   if (cmd.type === "permission.reply") {
-    const resolve = pendingPermissions.get(cmd.payload.requestId);
-    if (resolve) {
+    const p = pendingPermissions.get(cmd.payload.requestId);
+    if (p) {
       pendingPermissions.delete(cmd.payload.requestId);
-      resolve(cmd.payload.approved);
+      clearTimeout(p.timer);
+      p.resolve(cmd.payload.approved);
     }
     return;
   }
   if (cmd.type === "question.reply") {
-    const resolve = pendingQuestions.get(cmd.payload.requestId);
-    if (resolve) {
+    const q = pendingQuestions.get(cmd.payload.requestId);
+    if (q) {
       pendingQuestions.delete(cmd.payload.requestId);
-      resolve(cmd.payload.answers);
+      clearTimeout(q.timer);
+      q.resolve(cmd.payload.answers);
     }
     return;
   }
@@ -340,6 +378,8 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
       case "session.abort": {
         const ctl = sessions.get(cmd.payload.sessionId);
         if (!ctl) throw new Error(`Session not found: ${cmd.payload.sessionId}`);
+        // abort 后工具调用链被掐断，挂起的权限/提问按拒绝/未答结清
+        settlePendingForSession(cmd.payload.sessionId);
         await ctl.abort();
         respond(id, true);
         break;
@@ -367,6 +407,8 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
       }
       case "session.dispose": {
         const ctl = sessions.get(cmd.payload.sessionId);
+        // 先结清该会话的待决权限/提问，再拆 controller——否则 beforeToolCall 永远悬停（评审 P1-1）
+        settlePendingForSession(cmd.payload.sessionId);
         if (ctl) {
           await ctl.dispose();
           sessions.delete(cmd.payload.sessionId);
