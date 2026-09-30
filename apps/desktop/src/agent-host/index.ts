@@ -301,7 +301,11 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
       case "theme.generate": {
         const rt = await getRuntime();
         const available = await rt.getAvailable();
-        const model = available[0];
+        // 优先用调用方指定的模型（设置页默认模型）；指定模型当前不可用时退回列表首个
+        const want = cmd.payload.model;
+        const model =
+          (want && available.find((m) => m.provider === want.provider && m.id === want.modelId)) ||
+          available[0];
         if (!model) throw new Error("没有可用模型，请先在设置里配置 API Key");
         const prompt = [
           "你是一个桌面应用主题设计师。根据用户的描述生成一个暗色主题 JSON。",

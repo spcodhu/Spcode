@@ -143,7 +143,8 @@ export type HostCommand =
   | { id: string; type: "models.list" }
   | { id: string; type: "models.catalog" }
   | { id: string; type: "memory.read" }
-  | { id: string; type: "theme.generate"; payload: { description: string } }
+  /** AI 生成主题：可选指定模型（默认取设置里的默认模型，缺省退回可用列表首个） */
+  | { id: string; type: "theme.generate"; payload: { description: string; model?: ModelRef } }
   | { type: "memory.setDistillEnabled"; payload: { enabled: boolean } }
   | { id: string; type: "auth.setApiKey"; payload: { provider: string; apiKey: string } }
   | { id: string; type: "auth.listProviders" }

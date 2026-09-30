@@ -183,7 +183,11 @@ function AppearancePage() {
     if (!desc || generating) return;
     setGenerating(true);
     try {
-      const raw = await window.spcode.command({ type: "theme.generate", payload: { description: desc } });
+      // 评审 P2-5：显式带上默认模型，避免宿主误用可用列表首个（可能是最贵模型）
+      const raw = await window.spcode.command({
+        type: "theme.generate",
+        payload: { description: desc, model: settings?.defaultModel ?? undefined },
+      });
       const { normalizeTheme } = await import("../theme.js");
       const theme = normalizeTheme(raw);
       if (!theme) return flash("AI 返回的主题不完整，换个描述再试");
