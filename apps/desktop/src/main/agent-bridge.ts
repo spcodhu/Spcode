@@ -62,6 +62,8 @@ export class AgentBridge {
 
       const onEvent = (event: HostEvent) => {
         if (event.type === "ready") {
+          // ready 也广播给监听者：宿主重启后主进程需要据此重推设置等运行时状态
+          this.broadcast(event);
           resolveReady();
           return;
         }
@@ -127,6 +129,11 @@ export class AgentBridge {
 
   private post(cmd: HostCommand): void {
     this.child?.postMessage(cmd);
+  }
+
+  /** 推送无需响应的命令（fire-and-forget，如设置下发） */
+  push(cmd: HostCommand): void {
+    this.post(cmd);
   }
 
   /** 发送带 id 的命令并等待响应 */

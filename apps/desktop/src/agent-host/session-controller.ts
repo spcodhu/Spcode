@@ -122,6 +122,8 @@ export interface SessionControllerOptions {
   onRename?: (title: string) => void;
   /** 定时任务等场景：关闭标题自动化（不注入标题约定、不跑兜底生成），标题由调用方指定 */
   noTitleAutomation?: boolean;
+  /** 记忆蒸馏总开关（主进程设置页下发，实时读取） */
+  isDistillEnabled?: () => boolean;
   requestPermission: (req: PermissionRequest) => Promise<boolean>;
   askQuestion: (req: QuestionRequest) => Promise<Record<string, string>>;
 }
@@ -265,6 +267,7 @@ export class SessionController {
       isProject,
       agentDir: opts.agentDir,
       modelRuntime: opts.modelRuntime,
+      isEnabled: opts.isDistillEnabled,
     });
     ctl.distiller = distiller;
     session.subscribe((event) => {

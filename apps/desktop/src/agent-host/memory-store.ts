@@ -136,11 +136,16 @@ export class MemoryStore {
     appendFileSync(file, `\n## ${time}\n\n${text.trim()}\n`, "utf-8");
   }
 
-  /** 用蒸馏产物整体替换 MEMORY.md 的 ## Notes 段（容量超限则截断） */
+  /** 用蒸馏产物整体替换 MEMORY.md 的 ## Notes 段（容量超限按行截断，不截在行中间） */
   writeMemoryNotes(notesMarkdown: string): void {
     const file = join(this.home, "MEMORY.md");
-    const body = `# MEMORY.md - 中期记忆\n\n## Notes\n${notesMarkdown.trim()}\n`;
-    writeFileSync(file, body.slice(0, MEMORY_MD_MAX_CHARS), "utf-8");
+    let body = `# MEMORY.md - 中期记忆\n\n## Notes\n${notesMarkdown.trim()}\n`;
+    if (body.length > MEMORY_MD_MAX_CHARS) {
+      const cut = body.slice(0, MEMORY_MD_MAX_CHARS);
+      const lastNl = cut.lastIndexOf("\n");
+      body = (lastNl > 0 ? cut.slice(0, lastNl) : cut) + "\n";
+    }
+    writeFileSync(file, body, "utf-8");
   }
 
   appendProjectMemory(cwd: string, text: string): void {

@@ -123,6 +123,19 @@ function GeneralPage() {
         className="w-56"
       />
 
+      <SectionTitle>记忆</SectionTitle>
+      <div className="flex items-center justify-between rounded-xl border border-border bg-bg-elevated px-4 py-3">
+        <div>
+          <div className="text-[14px] text-text-primary">自动记忆蒸馏</div>
+          <div className="mt-0.5 text-[12px] text-text-tertiary">每轮对话结束后自动整理长期记忆（会消耗少量 token）</div>
+        </div>
+        <Switch
+          on={settings?.memoryDistill ?? true}
+          onChange={(v) => void saveSettings({ memoryDistill: v })}
+          label="自动记忆蒸馏"
+        />
+      </div>
+
       <SectionTitle>自动更新</SectionTitle>
       <div className="flex items-center justify-between rounded-xl border border-border bg-bg-elevated px-4 py-3">
         <div>

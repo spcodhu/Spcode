@@ -144,6 +144,7 @@ export type HostCommand =
   | { id: string; type: "models.catalog" }
   | { id: string; type: "memory.read" }
   | { id: string; type: "theme.generate"; payload: { description: string } }
+  | { type: "memory.setDistillEnabled"; payload: { enabled: boolean } }
   | { id: string; type: "auth.setApiKey"; payload: { provider: string; apiKey: string } }
   | { id: string; type: "auth.listProviders" }
   | { type: "permission.reply"; payload: { requestId: string; approved: boolean } }
@@ -299,6 +300,8 @@ export interface AppSettings {
   monoFontFamily: string;
   /** 自动更新开关（需要已配置更新源） */
   autoUpdate: boolean;
+  /** 自动记忆蒸馏：每轮对话结束后自动整理长期记忆（会消耗少量 token，可关） */
+  memoryDistill: boolean;
   /** 模型行悬浮时显示配额卡片 */
   quickQuota: boolean;
   /** 停用的供应商与单个模型（模型页开关） */
@@ -324,6 +327,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   uiFontFamily: "",
   monoFontFamily: "",
   autoUpdate: true,
+  memoryDistill: true,
   quickQuota: true,
   disabledProviders: [],
   disabledModels: [],

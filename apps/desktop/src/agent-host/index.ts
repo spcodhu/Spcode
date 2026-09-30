@@ -57,6 +57,8 @@ const AGENT_DIR = join(SPCODE_HOME, "agent");
 
 let modelRuntime: ModelRuntime | null = null;
 let memoryStore: MemoryStore | null = null;
+/** 记忆蒸馏总开关（主进程设置页经 memory.setDistillEnabled 下发；宿主重启后由主进程重推） */
+let distillEnabled = true;
 const sessions = new Map<string, SessionController>();
 /** 等待主进程裁决的权限请求 */
 const pendingPermissions = new Map<string, (approved: boolean) => void>();
@@ -187,6 +189,7 @@ async function createController(params: {
     onRename: (title) => emit({ type: "session.renamed", sessionId: params.sessionId, title }),
     requestPermission,
     askQuestion,
+    isDistillEnabled: () => distillEnabled,
   });
 }
 
@@ -215,6 +218,10 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
   if (cmd.type === "shutdown") {
     for (const s of sessions.values()) await s.dispose().catch(() => {});
     process.exit(0);
+  }
+  if (cmd.type === "memory.setDistillEnabled") {
+    distillEnabled = cmd.payload.enabled;
+    return;
   }
 
   const { id } = cmd;

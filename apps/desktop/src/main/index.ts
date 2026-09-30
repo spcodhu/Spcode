@@ -286,7 +286,14 @@ function registerIpc(): void {
   });
 
   ipcMain.handle(IPC.getSettings, () => settings.get());
-  ipcMain.handle(IPC.setSettings, (_e, patch: Partial<AppSettings>) => settings.set(patch));
+  ipcMain.handle(IPC.setSettings, (_e, patch: Partial<AppSettings>) => {
+    const next = settings.set(patch);
+    // 蒸馏开关实时下发宿主（评审 P0-4：静默计费的开关必须即时生效）
+    if ("memoryDistill" in patch) {
+      bridge.push({ type: "memory.setDistillEnabled", payload: { enabled: next.memoryDistill } });
+    }
+    return next;
+  });
 
   // 字体：选择字体文件 → 复制进 ~/.spcode/fonts/，返回 { file, family }
   ipcMain.handle(IPC.pickFontFile, async () => {
@@ -351,6 +358,12 @@ if (!app.requestSingleInstanceLock()) {
   void app.whenReady().then(async () => {
   registerIpc();
   watchSessionLifecycle();
+  // 宿主每次 ready（含崩溃重启后）都重推一次运行时设置
+  bridge.onEvent((event) => {
+    if (event.type === "ready") {
+      bridge.push({ type: "memory.setDistillEnabled", payload: { enabled: settings.get().memoryDistill } });
+    }
+  });
   await bridge.start();
   scheduler.start();
   createWindow();
