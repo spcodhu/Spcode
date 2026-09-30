@@ -288,50 +288,70 @@ export class QuotaService {
    * 只返回已配置密钥的厂商（未配置的不占位）。
    * 有在线适配器的查在线额度；没有的（如小米 Token Plan）用本地用量兜底。
    * QuotaInfo.provider 为真实 provider id，供 Composer 配额圆环精确匹配。
+   *
+   * 评审 P1-9：各厂商并发查询（原串行最坏 12s × N）；结果缓存 60s，
+   * 密钥集合变化自动失效，force 强制刷新。
    */
-  async queryAll(): Promise<QuotaInfo[]> {
+  private cache: { keysSignature: string; at: number; results: QuotaInfo[] } | null = null;
+  private static readonly CACHE_TTL_MS = 60_000;
+
+  async queryAll(opts?: { force?: boolean }): Promise<QuotaInfo[]> {
     const keys = readAuthKeys(this.agentDir);
-    const now = Date.now();
-    const results: QuotaInfo[] = [];
-    for (const [providerId, apiKey] of Object.entries(keys)) {
-      const adapter = ADAPTERS.find((a) => a.providerIds.includes(providerId));
-      const label = adapter?.label ?? PROVIDER_LABELS[providerId] ?? providerId;
-      if (!adapter) {
-        const local = this.localUsage?.(providerId) ?? null;
-        results.push({
-          provider: providerId,
-          label,
-          configured: true,
-          plan: "订阅额度暂不支持在线查询",
-          limits: local
-            ? [
-                {
-                  label: "近 7 日本地用量",
-                  usedPercent: null,
-                  text: `${formatTokens(local.tokens)} tokens · ${local.requests} 次请求`,
-                  resetText: null,
-                },
-              ]
-            : [],
-          updatedAt: now,
-        });
-        continue;
-      }
-      try {
-        const { plan, limits } = await adapter.fetch(apiKey);
-        results.push({ provider: providerId, label, configured: true, plan, limits, updatedAt: now });
-      } catch (err) {
-        results.push({
-          provider: providerId,
-          label,
-          configured: true,
-          plan: null,
-          limits: [],
-          updatedAt: now,
-          error: err instanceof Error ? err.message : String(err),
-        });
-      }
+    const keysSignature = JSON.stringify(keys);
+    const cached = this.cache;
+    if (
+      !opts?.force &&
+      cached &&
+      cached.keysSignature === keysSignature &&
+      Date.now() - cached.at < QuotaService.CACHE_TTL_MS
+    ) {
+      return cached.results;
     }
+    const now = Date.now();
+    const results = await Promise.all(
+      Object.entries(keys).map(([providerId, apiKey]) => this.queryOne(providerId, apiKey, now)),
+    );
+    this.cache = { keysSignature, at: now, results };
     return results;
+  }
+
+  /** 单厂商查询：无在线适配器的用本地用量兜底；失败降级为 error 行 */
+  private async queryOne(providerId: string, apiKey: string, now: number): Promise<QuotaInfo> {
+    const adapter = ADAPTERS.find((a) => a.providerIds.includes(providerId));
+    const label = adapter?.label ?? PROVIDER_LABELS[providerId] ?? providerId;
+    if (!adapter) {
+      const local = this.localUsage?.(providerId) ?? null;
+      return {
+        provider: providerId,
+        label,
+        configured: true,
+        plan: "订阅额度暂不支持在线查询",
+        limits: local
+          ? [
+              {
+                label: "近 7 日本地用量",
+                usedPercent: null,
+                text: `${formatTokens(local.tokens)} tokens · ${local.requests} 次请求`,
+                resetText: null,
+              },
+            ]
+          : [],
+        updatedAt: now,
+      };
+    }
+    try {
+      const { plan, limits } = await adapter.fetch(apiKey);
+      return { provider: providerId, label, configured: true, plan, limits, updatedAt: now };
+    } catch (err) {
+      return {
+        provider: providerId,
+        label,
+        configured: true,
+        plan: null,
+        limits: [],
+        updatedAt: now,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
   }
 }

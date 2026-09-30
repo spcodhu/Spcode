@@ -30,7 +30,7 @@ export interface SpcodeApi {
   /** 用量聚合（按日×模型）与厂商配额 */
   usageSummary(days?: number): Promise<DailyUsage[]>;
   usageAggregate(range: "today" | "week" | "all"): Promise<{ total: import("@spcode/shared").UsageAggregate; byModel: Record<string, import("@spcode/shared").UsageAggregate> }>;
-  quotaQuery(): Promise<QuotaInfo[]>;
+  quotaQuery(force?: boolean): Promise<QuotaInfo[]>;
   /** 选择项目文件夹 */
   pickDirectory(): Promise<string | null>;
   /** 在 Finder/资源管理器中显示路径 */
@@ -91,8 +91,8 @@ const api: SpcodeApi = {
   usageAggregate(range) {
     return ipcRenderer.invoke(IPC.usageAggregate, range);
   },
-  quotaQuery() {
-    return ipcRenderer.invoke(IPC.quotaQuery);
+  quotaQuery(force?: boolean) {
+    return ipcRenderer.invoke(IPC.quotaQuery, force);
   },
   pickDirectory() {
     return ipcRenderer.invoke(IPC.pickDirectory);

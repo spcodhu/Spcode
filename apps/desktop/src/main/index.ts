@@ -253,7 +253,7 @@ function registerIpc(): void {
 
   ipcMain.handle(IPC.usageSummary, (_e, days?: number) => ledger.summarize(days ?? 14));
   ipcMain.handle(IPC.usageAggregate, (_e, range: "today" | "week" | "all") => ledger.aggregateRange(range ?? "week"));
-  ipcMain.handle(IPC.quotaQuery, () => quota.queryAll());
+  ipcMain.handle(IPC.quotaQuery, (_e, force?: boolean) => quota.queryAll({ force: force === true }));
 
   ipcMain.handle(IPC.revealPath, (_e, p: string) => {
     if (typeof p === "string" && p.trim()) shell.showItemInFolder(p);

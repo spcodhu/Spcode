@@ -26,10 +26,10 @@ export function QuotaPage() {
   const [quotas, setQuotas] = useState<QuotaInfo[] | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const load = () => {
+  const load = (force = false) => {
     setLoading(true);
     void window.spcode
-      .quotaQuery()
+      .quotaQuery(force)
       .then((q) => setQuotas((q ?? []) as QuotaInfo[]))
       .catch(() => setQuotas([]))
       .finally(() => setLoading(false));
@@ -56,7 +56,7 @@ export function QuotaPage() {
       </div>
 
       <div className="mb-2 mt-4 flex justify-end">
-        <button onClick={load} className="text-[12px] text-text-tertiary hover:text-accent">
+        <button onClick={() => load(true)} className="text-[12px] text-text-tertiary hover:text-accent">
           {loading ? "查询中…" : "刷新"}
         </button>
       </div>
