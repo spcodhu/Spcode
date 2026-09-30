@@ -44,9 +44,19 @@ function createWindow(): void {
     },
   });
 
+  // 安全：外链一律转外部浏览器打开，不允许新窗口
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url);
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
     return { action: "deny" };
+  });
+
+  // 安全：拦截渲染进程内导航（模型输出的 Markdown 链接同窗点击会导航走本窗口，
+  // 远程页面将继承 preload 能力）。file://（打包后的本地页面）与 dev server 放行。
+  mainWindow.webContents.on("will-navigate", (e, url) => {
+    const devUrl = process.env.ELECTRON_RENDERER_URL;
+    if (url.startsWith("file://") || (devUrl && url.startsWith(devUrl))) return;
+    e.preventDefault();
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
   });
 
   const unbind = bridge.bindWindow(mainWindow.webContents);
@@ -326,18 +336,31 @@ function registerIpc(): void {
 // 生命周期
 // ---------------------------------------------------------------------------
 
-void app.whenReady().then(async () => {
+// 单实例锁：~/.spcode 的 sessions/settings/schedules 都是「读-改-写」内存缓存模型，
+// 双开会让两个实例互相整文件覆盖，必须挡在启动前
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+
+  void app.whenReady().then(async () => {
   registerIpc();
   watchSessionLifecycle();
   await bridge.start();
   scheduler.start();
   createWindow();
-  setupAutoUpdater(() => settings.get().autoUpdate);
+  setupAutoUpdater(() => settings.get().autoUpdate, () => mainWindow);
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
-});
+  });
+}
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
