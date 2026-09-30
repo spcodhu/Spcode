@@ -1,10 +1,16 @@
 /**
  * 应用设置存储：~/.spcode/settings.json，原子写入。
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DEFAULT_SETTINGS, type AppSettings } from "@spcode/shared";
-import { resolveSpcodeHome } from "@spcode/shared/node";
+import { readJsonFile, resolveSpcodeHome } from "@spcode/shared/node";
+
+/** 设置文件只需是普通对象（字段级宽松：合并到 DEFAULT_SETTINGS 之上，未知/多余字段原样保留） */
+function validateSettings(data: unknown): Partial<AppSettings> | null {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+  return data as Partial<AppSettings>;
+}
 
 export class SettingsStore {
   readonly dir: string;
@@ -18,14 +24,8 @@ export class SettingsStore {
 
   get(): AppSettings {
     if (this.cache) return this.cache;
-    let loaded: Partial<AppSettings> = {};
-    if (existsSync(this.file)) {
-      try {
-        loaded = JSON.parse(readFileSync(this.file, "utf-8")) as Partial<AppSettings>;
-      } catch {
-        loaded = {};
-      }
-    }
+    // 坏文件先备份 .corrupt-<ts> 再回退默认设置，不再静默吞掉（评审 P2-4）
+    const loaded = readJsonFile(this.file, validateSettings) ?? {};
     this.cache = { ...DEFAULT_SETTINGS, ...loaded };
     return this.cache;
   }

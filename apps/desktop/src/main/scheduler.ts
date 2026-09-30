@@ -11,11 +11,25 @@
  *
  * 触发动作由调用方注入（fire）：典型实现是新建会话并注入 prompt。
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { type ScheduleTask, type ScheduleTaskInput } from "@spcode/shared";
-import { resolveSpcodeHome } from "@spcode/shared/node";
+import { readJsonFile, resolveSpcodeHome } from "@spcode/shared/node";
+
+/** 任务条目的最低结构要求：关键字段类型正确即收，其余字段宽进 */
+function validateTasks(data: unknown): ScheduleTask[] | null {
+  if (!Array.isArray(data)) return null;
+  const FREQUENCIES = new Set(["once", "hourly", "daily", "weekday", "weekly"]);
+  for (const t of data) {
+    if (!t || typeof t !== "object") return null;
+    const r = t as Record<string, unknown>;
+    if (typeof r.id !== "string" || typeof r.name !== "string" || typeof r.prompt !== "string") return null;
+    if (typeof r.frequency !== "string" || !FREQUENCIES.has(r.frequency)) return null;
+    if (typeof r.hour !== "number" || typeof r.minute !== "number" || typeof r.enabled !== "boolean") return null;
+  }
+  return data as ScheduleTask[];
+}
 
 const TICK_MS = 30_000;
 
@@ -74,16 +88,8 @@ export class Scheduler {
 
   list(): ScheduleTask[] {
     if (this.tasks) return this.tasks;
-    if (!existsSync(this.file)) {
-      this.tasks = [];
-      return this.tasks;
-    }
-    try {
-      const raw = JSON.parse(readFileSync(this.file, "utf-8")) as unknown;
-      this.tasks = Array.isArray(raw) ? (raw as ScheduleTask[]) : [];
-    } catch {
-      this.tasks = [];
-    }
+    // 结构校验：坏文件先备份 .corrupt-<ts> 再按空表重建，不再静默清空（评审 P2-4）
+    this.tasks = readJsonFile(this.file, validateTasks) ?? [];
     return this.tasks;
   }
 

@@ -2,10 +2,10 @@
  * 会话注册表：~/.spcode/sessions.json
  * 记录每个会话的元信息与 pi 会话文件路径，支撑跨重启的会话列表与恢复。
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type ModelRef, type SessionMode } from "@spcode/shared";
-import { resolveSpcodeHome } from "@spcode/shared/node";
+import { readJsonFile, resolveSpcodeHome } from "@spcode/shared/node";
 
 export interface SessionRegistryEntry {
   id: string;
@@ -24,6 +24,19 @@ export interface SessionRegistryEntry {
   updatedAt: number;
 }
 
+/** 注册表条目的最低结构要求：关键字段类型正确即收，其余字段宽进（老版本新增字段不挡路） */
+function validateEntries(data: unknown): SessionRegistryEntry[] | null {
+  if (!Array.isArray(data)) return null;
+  for (const e of data) {
+    if (!e || typeof e !== "object") return null;
+    const r = e as Record<string, unknown>;
+    if (typeof r.id !== "string" || typeof r.title !== "string") return null;
+    if (r.mode !== "chat" && r.mode !== "project") return null;
+    if (typeof r.cwd !== "string" || typeof r.createdAt !== "number" || typeof r.updatedAt !== "number") return null;
+  }
+  return data as SessionRegistryEntry[];
+}
+
 export class SessionRegistry {
   private readonly file: string;
   private entries: SessionRegistryEntry[] | null = null;
@@ -36,16 +49,8 @@ export class SessionRegistry {
 
   list(): SessionRegistryEntry[] {
     if (this.entries) return this.entries;
-    if (!existsSync(this.file)) {
-      this.entries = [];
-      return this.entries;
-    }
-    try {
-      const raw = JSON.parse(readFileSync(this.file, "utf-8")) as unknown;
-      this.entries = Array.isArray(raw) ? (raw as SessionRegistryEntry[]) : [];
-    } catch {
-      this.entries = [];
-    }
+    // 结构校验：坏文件先备份 .corrupt-<ts> 再按空表重建，不再静默清空（评审 P2-4）
+    this.entries = readJsonFile(this.file, validateEntries) ?? [];
     return this.entries;
   }
 
