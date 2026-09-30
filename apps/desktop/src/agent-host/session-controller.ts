@@ -459,24 +459,28 @@ interface UsageLike {
   cost: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
 }
 
-function extractUsage(event: AgentSessionEvent, sessionId: string, model: ModelRef | null): UsageRecord | null {
+/** 从 message_end 事件提取用量记录（导出供单测） */
+export function extractUsage(event: AgentSessionEvent, sessionId: string, model: ModelRef | null): UsageRecord | null {
   if (event.type !== "message_end" || !model) return null;
-  const msg = event.message as { role?: string; usage?: UsageLike };
-  if (msg.role !== "assistant" || !msg.usage) return null;
-  const u = msg.usage;
+  const msg = event.message as { role?: string; usage?: unknown; timestamp?: number };
+  if (msg.role !== "assistant" || !msg.usage || typeof msg.usage !== "object") return null;
+  // 对引擎结构零信任（评审 P1-3）：缺字段按 0 兜底，绝不在事件订阅链上抛异常
+  const u = msg.usage as Partial<UsageLike>;
+  const cost = (u.cost ?? {}) as Partial<UsageLike["cost"]>;
   return {
     sessionId,
     model,
-    timestamp: Date.now(),
-    input: u.input,
-    output: u.output,
-    cacheRead: u.cacheRead,
-    cacheWrite: u.cacheWrite,
-    costInput: u.cost.input,
-    costOutput: u.cost.output,
-    costCacheRead: u.cost.cacheRead,
-    costCacheWrite: u.cost.cacheWrite,
-    costTotal: u.cost.total,
+    // 用消息产生时刻而非事件处理时刻，跨轮统计不漂移
+    timestamp: typeof msg.timestamp === "number" ? msg.timestamp : Date.now(),
+    input: u.input ?? 0,
+    output: u.output ?? 0,
+    cacheRead: u.cacheRead ?? 0,
+    cacheWrite: u.cacheWrite ?? 0,
+    costInput: cost.input ?? 0,
+    costOutput: cost.output ?? 0,
+    costCacheRead: cost.cacheRead ?? 0,
+    costCacheWrite: cost.cacheWrite ?? 0,
+    costTotal: cost.total ?? 0,
   };
 }
 
