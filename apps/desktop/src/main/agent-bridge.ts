@@ -1,9 +1,10 @@
 /**
  * AgentBridge —— 主进程与 agent-host(utilityProcess) 之间的桥。
  *
- * - 负责 spawn/守护宿主进程，崩溃自动重启并上报
- * - 命令-响应按 id 关联（Promise 化）
- * - 权限请求按风险策略就地裁决或转发渲染进程
+ * - 负责 spawn 宿主进程；崩溃后拒绝全部在途命令、广播 fatal host.error，
+ *   下一次 call() 时惰性重启（会话状态随宿主进程存亡，重启不恢复在途会话）
+ * - 命令-响应按 id 关联（Promise 化，默认 30s 超时）
+ * - 权限请求按风险策略就地裁决或转发渲染进程（10 分钟无人裁决自动拒绝）
  * - 会话事件/用量事件广播给所有窗口
  */
 import { utilityProcess, type UtilityProcess, type WebContents } from "electron";
@@ -22,6 +23,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /** 权限请求转发渲染进程后的裁决超时：超时按拒绝回执宿主（评审 P1-1） */
 const PERMISSION_TIMEOUT_MS = 10 * 60_000;
+
+/** 命令-响应默认超时（评审 P1-8）；长调用（如 theme.generate 跑模型）由调用方覆盖 */
+const CALL_TIMEOUT_MS = 30_000;
 
 type EventListener = (event: HostEvent) => void;
 
@@ -86,7 +90,7 @@ export class AgentBridge {
         // 宿主已死，其内的权限请求随之蒸发；清掉转发记录，避免重启后错配
         for (const p of this.pendingPermissions.values()) clearTimeout(p.timer);
         this.pendingPermissions.clear();
-        this.broadcast({ type: "host.error", message: err.message });
+        this.broadcast({ type: "host.error", message: err.message, fatal: true });
       });
       child.once("error", (e) => rejectReady(e));
     });
@@ -149,11 +153,25 @@ export class AgentBridge {
     this.post(cmd);
   }
 
-  /** 发送带 id 的命令并等待响应 */
-  async call<T = unknown>(cmd: Extract<HostCommand, { id: string }>): Promise<T> {
+  /** 发送带 id 的命令并等待响应；默认 30s 超时（宿主卡死时 UI 不再无限转圈——评审 P1-8） */
+  async call<T = unknown>(cmd: Extract<HostCommand, { id: string }>, opts?: { timeoutMs?: number }): Promise<T> {
     await this.start();
+    const timeoutMs = opts?.timeoutMs ?? CALL_TIMEOUT_MS;
     return new Promise<T>((resolve, reject) => {
-      this.pending.set(cmd.id, { resolve: resolve as (v: unknown) => void, reject });
+      const timer = setTimeout(() => {
+        this.pending.delete(cmd.id);
+        reject(new Error(`宿主命令 ${cmd.type} 超过 ${Math.round(timeoutMs / 1000)}s 未响应`));
+      }, timeoutMs);
+      this.pending.set(cmd.id, {
+        resolve: (v) => {
+          clearTimeout(timer);
+          resolve(v as T);
+        },
+        reject: (e) => {
+          clearTimeout(timer);
+          reject(e);
+        },
+      });
       this.post(cmd);
     });
   }

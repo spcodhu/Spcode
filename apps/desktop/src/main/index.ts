@@ -178,6 +178,13 @@ async function fireScheduledTask(task: ScheduleTask): Promise<string> {
 // ---------------------------------------------------------------------------
 
 function registerIpc(): void {
+  // 长调用命令的超时覆盖（bridge.call 默认 30s——评审 P1-8）
+  const CALL_TIMEOUTS: Partial<Record<HostCommand["type"], number>> = {
+    "theme.generate": 120_000, // 要跑一轮模型生成
+    "models.list": 60_000, // 首次初始化 ModelRuntime 可能做网络探测
+    "models.catalog": 60_000,
+  };
+
   ipcMain.handle(IPC.hostCommand, async (_e, cmd: HostCommand) => {
     if (!("id" in cmd)) throw new Error("hostCommand requires id");
 
@@ -211,7 +218,7 @@ function registerIpc(): void {
       cmd.payload.planMode = registry.get(cmd.payload.sessionId)?.planMode ?? false;
     }
 
-    return bridge.call(cmd).then((result) => {
+    return bridge.call(cmd, { timeoutMs: CALL_TIMEOUTS[cmd.type] }).then((result) => {
       backfillSessionFile(cmd, result);
       return result;
     });

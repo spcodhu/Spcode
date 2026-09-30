@@ -976,7 +976,10 @@ export const useStore = create<StoreState>((set, get) => ({
           return { ...s, pendingPermissions: [...s.pendingPermissions, event.request] };
         }
         case "host.error":
-          return { ...s, lastError: event.message, hostReady: false };
+          // fatal=宿主进程退出才影响就绪态；prompt 失败等普通错误只记 lastError（评审 P1-2）
+          return event.fatal
+            ? { ...s, lastError: event.message, hostReady: false }
+            : { ...s, lastError: event.message };
         default:
           return s;
       }

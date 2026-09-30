@@ -171,7 +171,8 @@ export type HostEvent =
   | { type: "sessions.changed" }
   /** 定时任务触发：已为其创建会话并注入 prompt */
   | { type: "schedule.fired"; taskId: string; name: string; sessionId: string }
-  | { type: "host.error"; message: string };
+  /** fatal=true 表示宿主进程已退出（渲染层据此置 hostReady=false）；普通错误（如 prompt 失败）不影响就绪态 */
+  | { type: "host.error"; message: string; fatal?: boolean };
 
 // ---------------------------------------------------------------------------
 // 会话搜索
