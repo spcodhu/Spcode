@@ -8,6 +8,7 @@ import { PermissionCard } from "./components/PermissionCard";
 import { SettingsPage } from "./components/SettingsPage";
 import { SearchPalette } from "./components/SearchPalette";
 import { SchedulePage } from "./components/SchedulePage";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Icon } from "./components/Icon";
 
 export default function App() {
@@ -73,22 +74,26 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-full">
-      <Sidebar
-        onOpenSettings={() => setSettingsOpen(true)}
-        onOpenSearch={() => setSearchOpen(true)}
-        onOpenSchedule={() => setScheduleOpen(true)}
-      />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar />
-        <div className="min-h-0 flex-1">
-          {activeSessionId ? (
-            <ChatView sessionId={activeSessionId} />
-          ) : (
-            <EmptyHome />
-          )}
+    <ErrorBoundary label="应用">
+      <div className="flex h-full">
+        <Sidebar
+          onOpenSettings={() => setSettingsOpen(true)}
+          onOpenSearch={() => setSearchOpen(true)}
+          onOpenSchedule={() => setScheduleOpen(true)}
+        />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <TopBar />
+          <div className="min-h-0 flex-1">
+            {activeSessionId ? (
+              // 会话区单独兜一层：消息渲染炸掉时侧栏/顶栏仍可用（评审 P2-6）
+              <ErrorBoundary label="会话区" key={activeSessionId}>
+                <ChatView sessionId={activeSessionId} />
+              </ErrorBoundary>
+            ) : (
+              <EmptyHome />
+            )}
+          </div>
         </div>
-      </div>
       <PermissionCard />
       {settingsOpen && <SettingsPage onClose={() => setSettingsOpen(false)} />}
       {searchOpen && <SearchPalette onClose={() => setSearchOpen(false)} />}
@@ -126,7 +131,8 @@ export default function App() {
           </button>
         </div>
       )}
-    </div>
+      </div>
+    </ErrorBoundary>
   );
 }
 
