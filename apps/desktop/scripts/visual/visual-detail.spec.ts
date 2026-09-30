@@ -1,7 +1,8 @@
 /** 视觉验证（细节版）：模型菜单弹层 / 模型设置页 / 空间菜单 */
-import { test, _electron as electron } from "@playwright/test";
+
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { _electron as electron, test } from "@playwright/test";
 
 const appDir = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const shotDir = join(appDir, "test-results", "visual");
@@ -20,7 +21,10 @@ test("细节截图", async () => {
   const pill = window.getByRole("button", { name: /选择模型/ });
   await pill.click();
   await window.waitForTimeout(400);
-  await window.screenshot({ path: join(shotDir, "04-model-menu.png"), clip: { x: 700, y: 380, width: 580, height: 460 } });
+  await window.screenshot({
+    path: join(shotDir, "04-model-menu.png"),
+    clip: { x: 700, y: 380, width: 580, height: 460 },
+  });
   await window.keyboard.press("Escape");
   await window.getByPlaceholder(/说点什么/).click();
 

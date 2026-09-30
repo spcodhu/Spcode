@@ -1,7 +1,7 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { Streamdown } from "streamdown";
 import { createCodePlugin } from "@streamdown/code";
-import { flattenSegments, messageText, type ChatMessage, type ToolCallState } from "../store";
+import { type ReactNode, useEffect, useState } from "react";
+import { Streamdown } from "streamdown";
+import { type ChatMessage, flattenSegments, messageText, type ToolCallState } from "../store";
 import { Icon } from "./Icon";
 import { ImageLightbox } from "./ImageLightbox";
 
@@ -26,7 +26,13 @@ export function MessageItem({ message }: { message: ChatMessage }) {
       {images.length > 0 && (
         <div className="flex max-w-[85%] flex-wrap justify-end gap-2">
           {images.map((img, i) => (
-            <button key={i} onClick={() => setPreviewIdx(i)} title={`预览 ${img.name}`} className="cursor-zoom-in">
+            <button
+              type="button"
+              key={`${img.name}-${img.data.length}`}
+              onClick={() => setPreviewIdx(i)}
+              title={`预览 ${img.name}`}
+              className="cursor-zoom-in"
+            >
               <img
                 src={`data:${img.mimeType};base64,${img.data}`}
                 alt={img.name}
@@ -42,7 +48,12 @@ export function MessageItem({ message }: { message: ChatMessage }) {
         </div>
       )}
       {previewIdx !== null && (
-        <ImageLightbox images={images} index={previewIdx} onClose={() => setPreviewIdx(null)} onNavigate={setPreviewIdx} />
+        <ImageLightbox
+          images={images}
+          index={previewIdx}
+          onClose={() => setPreviewIdx(null)}
+          onNavigate={setPreviewIdx}
+        />
       )}
     </div>
   );
@@ -80,6 +91,7 @@ export function AssistantRunItem({ messages, active }: { messages: ChatMessage[]
     <div className="mb-6">
       {hasWork && (
         <button
+          type="button"
           onClick={() => setWorkOpen(!workOpen)}
           className="group mb-1 flex items-center gap-1.5 rounded-md py-0.5 text-[13px]"
         >
@@ -156,9 +168,7 @@ function ThinkingHeader({ streaming, open }: { streaming: boolean; open?: boolea
       {streaming ? (
         <span className="thinking-shimmer">思考中…</span>
       ) : (
-        <span className="text-text-secondary transition-colors group-hover:text-text-primary">
-          思考已完成
-        </span>
+        <span className="text-text-secondary transition-colors group-hover:text-text-primary">思考已完成</span>
       )}
       {open !== undefined && (
         <Icon
@@ -209,6 +219,7 @@ function TimelineEntry({
       )}
       <span aria-hidden className={`absolute left-[4px] top-[9px] h-[7px] w-[7px] rounded-full ${dot}`} />
       <button
+        type="button"
         onClick={onClick}
         className="group flex w-full items-center gap-2 rounded-md py-[3px] pl-6 pr-1 text-left transition-colors hover:bg-bg-hover/50"
       >
@@ -292,7 +303,15 @@ function ThinkingRow({
  * 一段连续工具调用：每个调用一行「动作标签 + 参数摘要」（完整轨迹一目了然），
  * 点击行展开完整参数与输出；运行中行头流光，错误行摘要标红。
  */
-function ToolRowGroup({ calls, railStart, railEnd }: { calls: ToolCallState[]; railStart?: boolean; railEnd?: boolean }) {
+function ToolRowGroup({
+  calls,
+  railStart,
+  railEnd,
+}: {
+  calls: ToolCallState[];
+  railStart?: boolean;
+  railEnd?: boolean;
+}) {
   return (
     <div>
       {calls.map((tc, i) => (
@@ -354,9 +373,7 @@ function ToolRow({
       }
       detail={
         <div className="ml-6 mb-1.5 rounded-lg border border-border bg-bg-elevated/60 px-3 py-2">
-          <pre className="max-h-40 overflow-auto text-xs leading-5 text-text-tertiary">
-            {formatArgs(toolCall.args)}
-          </pre>
+          <pre className="max-h-40 overflow-auto text-xs leading-5 text-text-tertiary">{formatArgs(toolCall.args)}</pre>
           {toolCall.output && (
             <pre className="mt-2 max-h-64 overflow-auto border-t border-border pt-2 text-xs leading-5 text-text-secondary">
               {toolCall.output.slice(0, 4000)}

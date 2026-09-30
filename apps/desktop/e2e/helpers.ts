@@ -5,11 +5,12 @@
  * user-data-dir 同步隔离：单实例锁（P0-5）以 userData 为键，
  * 不隔离时本机正在运行的 dev/生产实例会让 e2e 启动即退出。
  */
-import { _electron as electron, type ElectronApplication } from "@playwright/test";
+
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { type ElectronApplication, _electron as electron } from "@playwright/test";
 
 export const appDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 

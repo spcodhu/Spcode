@@ -132,8 +132,28 @@ export interface TodoItem {
 // ---------------------------------------------------------------------------
 
 export type HostCommand =
-  | { id: string; type: "session.create"; payload: { sessionId: string; mode: SessionMode; cwd: string; model?: ModelRef; thinkingLevel?: string; /** 定时任务等场景：关闭标题自动化（标题由调用方指定） */ noTitleAutomation?: boolean } }
-  | { id: string; type: "session.open"; payload: { sessionId: string; sessionFile: string; cwd: string; /** 注册表里的计划模式状态（主进程注入，用于恢复计划态） */ planMode?: boolean } }
+  | {
+      id: string;
+      type: "session.create";
+      payload: {
+        sessionId: string;
+        mode: SessionMode;
+        cwd: string;
+        model?: ModelRef;
+        thinkingLevel?: string /** 定时任务等场景：关闭标题自动化（标题由调用方指定） */;
+        noTitleAutomation?: boolean;
+      };
+    }
+  | {
+      id: string;
+      type: "session.open";
+      payload: {
+        sessionId: string;
+        sessionFile: string;
+        cwd: string /** 注册表里的计划模式状态（主进程注入，用于恢复计划态） */;
+        planMode?: boolean;
+      };
+    }
   | { id: string; type: "session.prompt"; payload: { sessionId: string; text: string; images?: ImageAttachment[] } }
   | { id: string; type: "session.setPlanMode"; payload: { sessionId: string; enabled: boolean } }
   | { id: string; type: "session.abort"; payload: { sessionId: string } }

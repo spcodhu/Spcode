@@ -4,13 +4,16 @@
  * 段落级相关性筛选（命中度 top12 + 首尾段保底）、超限按段落截断并标注省略量。
  * 结果缓存 5 分钟，避免重复抓取浪费 token。
  */
-import TurndownService from "turndown";
-import { Type, type Static } from "typebox";
+
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import TurndownService from "turndown";
+import { type Static, Type } from "typebox";
 
 const schema = Type.Object({
   url: Type.String({ description: "Absolute URL to fetch (http/https only)" }),
-  prompt: Type.Optional(Type.String({ description: "What you are looking for; used to keep the most relevant sections" })),
+  prompt: Type.Optional(
+    Type.String({ description: "What you are looking for; used to keep the most relevant sections" }),
+  ),
   timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (default 30)" })),
 });
 
@@ -66,7 +69,7 @@ export function filterByPrompt(markdown: string, prompt: string): string {
   if (paragraphs.length <= 12) return markdown;
   const terms = prompt
     .toLowerCase()
-    .split(/[\s,，.。;；:：!！?？()（）\[\]【】"'`]+/)
+    .split(/[\s,，.。;；:：!！?？()（）[\]【】"'`]+/)
     .filter((w) => w.length >= 2);
   if (terms.length === 0) return markdown;
   const scored = paragraphs
@@ -95,8 +98,8 @@ export function truncateWithNotice(text: string, max: number): string {
   const paragraphs = text.split(/\n{2,}/);
   let out = "";
   for (const p of paragraphs) {
-    if ((out + "\n\n" + p).length > max) break;
-    out = out ? out + "\n\n" + p : p;
+    if (`${out}\n\n${p}`.length > max) break;
+    out = out ? `${out}\n\n${p}` : p;
   }
   if (!out) out = text.slice(0, max);
   return `${out}\n\n[Output truncated: ${text.length - out.length} chars omitted]`;
@@ -143,7 +146,11 @@ async function fetchPage(url: string, timeoutMs: number, signal?: AbortSignal): 
     const contentType = res.headers.get("content-type") ?? "";
     const body = await res.text();
     if (!contentType.includes("html")) {
-      return { at: Date.now(), contentType: contentType || "unknown", fullText: normalizeLines(body.slice(0, MAX_CHARS * 2)) };
+      return {
+        at: Date.now(),
+        contentType: contentType || "unknown",
+        fullText: normalizeLines(body.slice(0, MAX_CHARS * 2)),
+      };
     }
     // 整页转 Markdown：不猜 main/article 容器， Turndown 已剔除 script/style/nav/footer
     let md: string;
@@ -175,7 +182,11 @@ export function createWebFetchTool(): ToolDefinition {
     execute: async (_id, args: Params, signal) => {
       const url = (args.url ?? "").trim();
       if (!/^https?:\/\//i.test(url)) {
-        return { content: [{ type: "text", text: "Invalid URL (http/https only)" }], details: undefined, isError: true };
+        return {
+          content: [{ type: "text", text: "Invalid URL (http/https only)" }],
+          details: undefined,
+          isError: true,
+        };
       }
       const timeoutMs = clamp(Number(args.timeout ?? 30) * 1000, 5000, 90000);
       try {
@@ -187,7 +198,10 @@ export function createWebFetchTool(): ToolDefinition {
         const filtered = prompt ? filterByPrompt(page.fullText, prompt) : page.fullText;
         const content = truncateWithNotice(filtered, MAX_CHARS);
         if (!content.trim()) {
-          return { content: [{ type: "text", text: "Fetched page but extracted no readable text." }], details: undefined };
+          return {
+            content: [{ type: "text", text: "Fetched page but extracted no readable text." }],
+            details: undefined,
+          };
         }
         // 信封头：来源/标题/长度，方便模型引用与判断是否被截断
         const header = [

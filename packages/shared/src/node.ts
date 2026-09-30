@@ -7,9 +7,10 @@
  * 下方目录名必须与 index.ts 的 SPCODE_HOME_DIRNAME 保持一致
  *（一致性由 test/spcode-home.test.ts 锁定）。
  */
+
+import { copyFileSync, existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { copyFileSync, existsSync, readFileSync } from "node:fs";
 
 /** 数据根目录名：与 index.ts 的 SPCODE_HOME_DIRNAME 同值 */
 const HOME_DIRNAME = ".spcode";

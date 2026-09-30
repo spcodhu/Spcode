@@ -7,8 +7,8 @@
  */
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { Type, type Static } from "typebox";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { type Static, Type } from "typebox";
 
 const writePlanSchema = Type.Object({
   content: Type.String({ description: "The complete plan in Markdown, written in full (no truncation)" }),
@@ -40,7 +40,7 @@ export function createWritePlanTool(opts: {
       mkdirSync(opts.plansDir, { recursive: true });
       const file = join(opts.plansDir, `${opts.sessionId}.md`);
       const tmp = `${file}.tmp`;
-      writeFileSync(tmp, content + "\n", "utf-8");
+      writeFileSync(tmp, `${content}\n`, "utf-8");
       renameSync(tmp, file);
       opts.onSaved(file);
       return {

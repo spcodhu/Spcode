@@ -11,9 +11,12 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
     "dist": "pnpm --filter @spcode/desktop dist"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.14",
     "typescript": "^5.9.2"
   },
   "pnpm": {

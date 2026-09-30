@@ -25,12 +25,14 @@ export function PermissionCard() {
         </pre>
         <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
           <button
+            type="button"
             onClick={() => reply(request.requestId, false)}
             className="rounded-md border border-border px-4 py-1.5 text-xs text-text-secondary hover:bg-bg-hover"
           >
             拒绝
           </button>
           <button
+            type="button"
             onClick={() => reply(request.requestId, true)}
             className={`rounded-md px-4 py-1.5 text-xs font-medium ${
               danger ? "bg-danger text-white hover:bg-danger/80" : "bg-accent text-bg-root hover:bg-accent-dim"

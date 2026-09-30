@@ -73,26 +73,84 @@ export const PLAN_MODE_WRITE_BLOCK_REASON =
  *  注意:env/less/more 不在列——env 能执行任意程序(env rm -rf x 逃逸),
  *  less/more 支持 !cmd 交互执行;读环境变量请用 printenv。 */
 const SAFE_BINARIES = new Set([
-  "cat", "head", "tail",
-  "grep", "egrep", "fgrep", "rg", "ag",
-  "find", "fd", "ls", "pwd", "tree", "wc", "file", "stat",
-  "echo", "printf", "printenv", "which", "type",
-  "whoami", "date", "uname", "uptime", "hostname",
-  "sort", "uniq", "comm", "diff", "cut", "tr", "jq", "yq",
-  "du", "df", "basename", "dirname", "realpath", "readlink",
-  "cd", "true",
+  "cat",
+  "head",
+  "tail",
+  "grep",
+  "egrep",
+  "fgrep",
+  "rg",
+  "ag",
+  "find",
+  "fd",
+  "ls",
+  "pwd",
+  "tree",
+  "wc",
+  "file",
+  "stat",
+  "echo",
+  "printf",
+  "printenv",
+  "which",
+  "type",
+  "whoami",
+  "date",
+  "uname",
+  "uptime",
+  "hostname",
+  "sort",
+  "uniq",
+  "comm",
+  "diff",
+  "cut",
+  "tr",
+  "jq",
+  "yq",
+  "du",
+  "df",
+  "basename",
+  "dirname",
+  "realpath",
+  "readlink",
+  "cd",
+  "true",
 ]);
 
 /** git 只允许这些只读子命令 */
 const SAFE_GIT_SUBCOMMANDS = new Set([
-  "status", "log", "diff", "show", "branch", "tag", "blame",
-  "rev-parse", "describe", "remote", "ls-files", "ls-tree",
-  "shortlog", "reflog", "grep", "config", "stash", "rev-list",
+  "status",
+  "log",
+  "diff",
+  "show",
+  "branch",
+  "tag",
+  "blame",
+  "rev-parse",
+  "describe",
+  "remote",
+  "ls-files",
+  "ls-tree",
+  "shortlog",
+  "reflog",
+  "grep",
+  "config",
+  "stash",
+  "rev-list",
 ]);
 
 /** npm/pnpm/yarn 只允许这些查询子命令 */
 const SAFE_PKG_SUBCOMMANDS = new Set([
-  "list", "ls", "outdated", "view", "info", "why", "bin", "root", "prefix", "audit",
+  "list",
+  "ls",
+  "outdated",
+  "view",
+  "info",
+  "why",
+  "bin",
+  "root",
+  "prefix",
+  "audit",
 ]);
 
 /** 段分隔符:管道、与或、分号 */
@@ -111,7 +169,7 @@ export function isPlanModeSafeCommand(command: string): boolean {
   if (!cmd) return false;
   // 命令替换 $(...) / `...` 与重定向 > >> 直接拒绝
   if (/`|\$\(/.test(cmd)) return false;
-  if(/(^|\s)>>?/.test(cmd)) return false;
+  if (/(^|\s)>>?/.test(cmd)) return false;
   for (const segment of cmd.split(SEGMENT_SPLIT)) {
     const tokens = segment.trim().split(/\s+/).filter(Boolean);
     if (tokens.length === 0) continue;

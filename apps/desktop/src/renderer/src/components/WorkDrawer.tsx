@@ -7,8 +7,9 @@
  *   全部完成后自动收起成一行摘要；手动开合随时可用
  * - 计划模式提示：开启时面板挂小徽章，腔内显示说明（不再占一条大横幅）
  */
-import { useEffect, useRef, useState } from "react";
+
 import type { TodoItem } from "@spcode/shared";
+import { useEffect, useRef, useState } from "react";
 import { Icon } from "./Icon";
 
 export function WorkDrawer({ todos, planMode }: { todos: TodoItem[]; planMode: boolean }) {
@@ -44,8 +45,9 @@ export function WorkDrawer({ todos, planMode }: { todos: TodoItem[]; planMode: b
             )}
             {hasTodos && (
               <div className="space-y-0.5">
-                {todos.map((t, i) => (
-                  <TaskRow key={i} todo={t} />
+                {todos.map((t) => (
+                  // TodoWrite 每次全量下发且同清单内 content 不重复（重复项渲染完全等价，无内部状态）
+                  <TaskRow key={t.content} todo={t} />
                 ))}
               </div>
             )}
@@ -55,6 +57,7 @@ export function WorkDrawer({ todos, planMode }: { todos: TodoItem[]; planMode: b
 
       {/* 抽屉面板脸：永远贴着输入框，带抓手；点击开合 */}
       <button
+        type="button"
         onClick={() => setOpen(!open)}
         className="group relative flex w-full items-center gap-2.5 px-3.5 pb-2.5 pt-3 text-left"
       >

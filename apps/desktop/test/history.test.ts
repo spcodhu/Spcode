@@ -46,7 +46,13 @@ describe("historyToMessages", () => {
         role: "assistant",
         content: [{ type: "toolCall", id: "t9", name: "bash", arguments: { command: "ls" } }],
       },
-      { role: "toolResult", toolCallId: "t9", toolName: "bash", content: [{ type: "text", text: "boom" }], isError: true },
+      {
+        role: "toolResult",
+        toolCallId: "t9",
+        toolName: "bash",
+        content: [{ type: "text", text: "boom" }],
+        isError: true,
+      },
       { role: "assistant", content: [] },
     ];
     const out = historyToMessages(messages);

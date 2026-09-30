@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
 import type { SessionSearchResultItem } from "@spcode/shared";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { formatRelative } from "../format";
-import { useStore, type RegistrySession } from "../store";
+import { type RegistrySession, useStore } from "../store";
 import { Icon } from "./Icon";
 
 interface Row {
@@ -62,7 +62,7 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
     });
   }, [items, registrySessions]);
 
-  useEffect(() => setSelected(0), [rows.length]);
+  useEffect(() => setSelected(0), []);
 
   const open = (row: Row) => {
     if (sessions[row.entry.id]) setActive(row.entry.id);
@@ -113,6 +113,7 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
           )}
           {rows.map((row, i) => (
             <button
+              type="button"
               key={row.entry.id}
               onClick={() => open(row)}
               onMouseEnter={() => setSelected(i)}
@@ -129,8 +130,8 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
                 <span className="block truncate text-[13px] text-text-primary">
                   <Highlight text={row.entry.title} query={query.trim()} />
                 </span>
-                {row.hits.map((h, j) => (
-                  <span key={j} className="mt-0.5 block truncate text-[12px] text-text-tertiary">
+                {row.hits.map((h) => (
+                  <span key={h.snippet} className="mt-0.5 block truncate text-[12px] text-text-tertiary">
                     <Highlight text={h.snippet} query={query.trim()} />
                   </span>
                 ))}

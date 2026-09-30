@@ -5,9 +5,10 @@
  * 让模型后续 WebFetch 直达原文而不是撞上跳转页。
  * 与模型解耦、零密钥；失败降级为提示文本，绝不炸流。
  */
-import TurndownService from "turndown";
-import { Type, type Static } from "typebox";
+
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import TurndownService from "turndown";
+import { type Static, Type } from "typebox";
 
 const schema = Type.Object({
   query: Type.String({ description: "Search query (natural language, in any script)" }),
@@ -29,7 +30,8 @@ const USER_AGENT =
 
 let turndown: TurndownService | null = null;
 function getTurndown(): TurndownService {
-  return (turndown ??= new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" }));
+  if (!turndown) turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
+  return turndown;
 }
 
 function clamp(n: number, lo: number, hi: number): number {
@@ -45,8 +47,7 @@ export function parseSearchMarkdown(markdown: string, limit: number): SearchResu
   const results: SearchResult[] = [];
   const seen = new Set<string>();
   const HEADING_LINK = /^\s*#{1,6}\s+\[([^\]]{3,})\]\((https?:\/\/[^)]+)\)/gm;
-  let m: RegExpExecArray | null;
-  while ((m = HEADING_LINK.exec(markdown)) !== null) {
+  for (const m of markdown.matchAll(HEADING_LINK)) {
     const rawUrl = (m[2] ?? "").trim();
     const url = decodeBingRedirect(rawUrl) ?? rawUrl;
     if (!/^https?:\/\//i.test(url)) continue;
@@ -67,7 +68,7 @@ export function parseSearchMarkdown(markdown: string, limit: number): SearchResu
 /** Bing 跳转链接解码：…/ck/a?…&u=a1<base64url（真实 URL）> */
 export function decodeBingRedirect(url: string): string | undefined {
   const m = /[?&]u=a1([A-Za-z0-9+/=_-]+)/.exec(url);
-  if (!m || !m[1]) return undefined;
+  if (!m?.[1]) return undefined;
   try {
     const decoded = Buffer.from(m[1], "base64").toString("utf-8");
     if (/^https?:\/\//i.test(decoded)) return decoded;

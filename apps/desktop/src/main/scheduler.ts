@@ -11,10 +11,11 @@
  *
  * 触发动作由调用方注入（fire）：典型实现是新建会话并注入 prompt。
  */
+
+import { randomUUID } from "node:crypto";
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
-import { type ScheduleTask, type ScheduleTaskInput } from "@spcode/shared";
+import type { ScheduleTask, ScheduleTaskInput } from "@spcode/shared";
 import { readJsonFile, resolveSpcodeHome } from "@spcode/shared/node";
 
 /** 任务条目的最低结构要求：关键字段类型正确即收，其余字段宽进 */

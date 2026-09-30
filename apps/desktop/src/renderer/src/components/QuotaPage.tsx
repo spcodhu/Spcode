@@ -56,7 +56,7 @@ export function QuotaPage() {
       </div>
 
       <div className="mb-2 mt-4 flex justify-end">
-        <button onClick={() => load(true)} className="text-[12px] text-text-tertiary hover:text-accent">
+        <button type="button" onClick={() => load(true)} className="text-[12px] text-text-tertiary hover:text-accent">
           {loading ? "查询中…" : "刷新"}
         </button>
       </div>
@@ -86,8 +86,8 @@ function ProviderSection({ info }: { info: QuotaInfo }) {
         </div>
       ) : !info.configured ? null : (
         <div className="mt-3 space-y-3">
-          {info.limits.map((l, i) => (
-            <div key={i} className="flex items-center gap-4">
+          {info.limits.map((l) => (
+            <div key={l.label} className="flex items-center gap-4">
               <span className="w-20 shrink-0 text-[13px] text-text-secondary">{l.label}</span>
               {l.usedPercent != null ? (
                 <>

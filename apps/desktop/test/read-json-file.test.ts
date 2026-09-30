@@ -5,8 +5,8 @@
 import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
 import { readJsonFile } from "@spcode/shared/node";
+import { describe, expect, it } from "vitest";
 
 const asStrings = (data: unknown): string[] | null =>
   Array.isArray(data) && data.every((x) => typeof x === "string") ? (data as string[]) : null;

@@ -7,8 +7,8 @@
  * 用专用工具而不是裸 AskUserQuestion:harness 必须确定性捕获"批准"这一时刻。
  */
 import { randomUUID } from "node:crypto";
-import { Type } from "typebox";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import type { QuestionAnswerer } from "./ask-user.js";
 
 /** 批准卡的问题文案(同时是 answers 的 key,改动要同步解析处) */
@@ -84,7 +84,10 @@ export function createExitPlanModeTool(opts: {
       }
       return {
         content: [
-          { type: "text", text: "用户跳过了确认,仍在计划模式。等待用户进一步指示;若用户表达了执行意愿,再次调用 ExitPlanMode。" },
+          {
+            type: "text",
+            text: "用户跳过了确认,仍在计划模式。等待用户进一步指示;若用户表达了执行意愿,再次调用 ExitPlanMode。",
+          },
         ],
         details: { approved: false },
       };

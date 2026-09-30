@@ -5,9 +5,9 @@
  */
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
 import { SPCODE_HOME_DIRNAME } from "@spcode/shared";
 import { resolveSpcodeHome } from "@spcode/shared/node";
+import { afterEach, describe, expect, it } from "vitest";
 
 describe("resolveSpcodeHome", () => {
   const original = process.env.SPCODE_HOME;

@@ -1,6 +1,6 @@
+import { baseName } from "@spcode/shared";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
-import { baseName } from "@spcode/shared";
 
 export function TopBar() {
   const session = useStore((s) => (s.activeSessionId ? s.sessions[s.activeSessionId] : undefined));
@@ -13,9 +13,7 @@ export function TopBar() {
           <nav className="titlebar-no-drag flex min-w-0 items-center gap-1.5 text-[13px]">
             <span className="flex shrink-0 items-center gap-1.5 text-text-secondary">
               <Icon name={session.meta.mode === "project" ? "folder" : "chat"} size={14} />
-              {session.meta.mode === "project"
-                ? (baseName(session.meta.cwd) || "项目")
-                : "聊天"}
+              {session.meta.mode === "project" ? baseName(session.meta.cwd) || "项目" : "聊天"}
             </span>
             <Icon name="chevronRight" size={12} className="shrink-0 text-text-tertiary" />
             <span className="min-w-0 truncate text-text-primary">{session.meta.title}</span>

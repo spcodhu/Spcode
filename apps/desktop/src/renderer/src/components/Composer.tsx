@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
-import { useStore } from "../store";
-import type { SessionState } from "../store";
 import type { ImageAttachment, ModelInfo, ModelRef } from "@spcode/shared";
+import { useEffect, useRef, useState } from "react";
+import type { SessionState } from "../store";
+import { useStore } from "../store";
 import { Icon } from "./Icon";
 import { ImageLightbox } from "./ImageLightbox";
 
@@ -76,12 +76,15 @@ export function Composer({ sessionId }: { sessionId: string }) {
       <div className="mx-auto max-w-3xl">
         <div
           className={`relative rounded-2xl border bg-bg-elevated shadow-lg transition-colors ${
-            planMode ? "border-accent/40 focus-within:border-accent/70" : "border-border focus-within:border-border-strong"
+            planMode
+              ? "border-accent/40 focus-within:border-accent/70"
+              : "border-border focus-within:border-border-strong"
           }`}
         >
           {/* 计划模式挂签：浮在输入框右上角的标签牌，一眼可见，点击退出 */}
           {planMode && (
             <button
+              type="button"
               onClick={() => void setPlanMode(false)}
               title="计划模式：模型只出计划、不改文件 · 点击退出"
               className="absolute -top-[10px] right-5 z-10 flex items-center gap-1 rounded-full bg-accent px-2.5 py-[3px] text-[11px] font-medium text-white shadow-md transition-colors hover:bg-accent-dim"
@@ -94,8 +97,13 @@ export function Composer({ sessionId }: { sessionId: string }) {
           {attachments.length > 0 && (
             <div className="flex flex-wrap gap-2 px-3.5 pt-3">
               {attachments.map((img, i) => (
-                <div key={i} className="group/chip relative">
-                  <button onClick={() => setPreviewIdx(i)} title={`预览 ${img.name}`} className="cursor-zoom-in">
+                <div key={`${img.name}-${img.data.length}`} className="group/chip relative">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewIdx(i)}
+                    title={`预览 ${img.name}`}
+                    className="cursor-zoom-in"
+                  >
                     <img
                       src={`data:${img.mimeType};base64,${img.data}`}
                       alt={img.name}
@@ -103,6 +111,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
                     />
                   </button>
                   <button
+                    type="button"
                     onClick={() => setAttachments((a) => a.filter((_, j) => j !== i))}
                     title={`移除 ${img.name}`}
                     className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-bg-active text-text-tertiary opacity-0 transition-opacity hover:text-text-primary group-hover/chip:opacity-100"
@@ -136,6 +145,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
 
             {/* 权限模式 */}
             <button
+              type="button"
               onClick={() => void saveSettings({ permissionMode: actMode ? "ask" : "act" })}
               title={actMode ? "行动模式：仅危险命令确认" : "询问模式：写操作/Shell 每次确认"}
               className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] transition-colors ${
@@ -150,12 +160,11 @@ export function Composer({ sessionId }: { sessionId: string }) {
 
             {/* 计划模式 */}
             <button
+              type="button"
               onClick={() => void setPlanMode(!planMode)}
               title={planMode ? "退出计划模式" : "计划模式:模型先出完整计划,你批准后才执行"}
               className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] transition-colors ${
-                planMode
-                  ? "bg-accent/20 text-accent"
-                  : "text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
+                planMode ? "bg-accent/20 text-accent" : "text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
               }`}
             >
               <Icon name={planMode ? "clipboardCheck" : "clipboard"} size={13} />
@@ -166,11 +175,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
 
             {/* 上下文占用环（悬浮看明细） */}
             {settings?.quickQuota && session?.meta.model && (
-              <ContextRing
-                model={session.meta.model}
-                lastUsage={session.lastUsage}
-                models={models}
-              />
+              <ContextRing model={session.meta.model} lastUsage={session.lastUsage} models={models} />
             )}
 
             {/* 模型选择（两级弹出菜单） */}
@@ -186,6 +191,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
             {/* 发送 / 停止 */}
             {running ? (
               <button
+                type="button"
                 onClick={() => void abort()}
                 title="停止"
                 className="flex h-8 w-8 items-center justify-center rounded-full bg-danger/15 text-danger transition-colors hover:bg-danger/25"
@@ -194,6 +200,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
               </button>
             ) : (
               <button
+                type="button"
                 onClick={send}
                 disabled={!canSend}
                 title="发送"
@@ -220,6 +227,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
 function ToolButton({ children, title, onClick }: { children: React.ReactNode; title: string; onClick?: () => void }) {
   return (
     <button
+      type="button"
       title={title}
       onClick={onClick}
       className="flex h-7 w-7 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
@@ -257,14 +265,13 @@ function ContextRing({
   // 上下文占用 = 最近一次请求的 输入 + 缓存读（累计值会爆窗口，不能求和）
   const used = lastUsage ? lastUsage.input + lastUsage.cacheRead : 0;
   const pct = Math.min(100, Math.round((used / window) * 100));
-  const color =
-    pct >= 90 ? "var(--color-danger)" : pct >= 70 ? "var(--color-warning)" : "var(--color-accent)";
+  const color = pct >= 90 ? "var(--color-danger)" : pct >= 70 ? "var(--color-warning)" : "var(--color-accent)";
 
   const R = 7;
   const C = 2 * Math.PI * R;
   return (
     <div className="group relative flex h-7 w-7 items-center justify-center">
-      <svg width="18" height="18" viewBox="0 0 18 18">
+      <svg width="18" height="18" viewBox="0 0 18 18" role="img" aria-label={`上下文占用 ${pct}%`}>
         <circle cx="9" cy="9" r={R} fill="none" stroke="var(--color-bg-hover)" strokeWidth="2.5" />
         <circle
           cx="9"
@@ -356,6 +363,7 @@ function ModelMenu({
     <div ref={rootRef} className="relative">
       {/* 胶囊按钮 */}
       <button
+        type="button"
         onClick={() => {
           setOpen(!open);
           setView("main");
@@ -374,6 +382,7 @@ function ModelMenu({
             <>
               <div className="px-2.5 pb-1 pt-1.5 text-[12px] text-text-tertiary">模型</div>
               <button
+                type="button"
                 onClick={() => setView("models")}
                 className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2.5 hover:bg-bg-hover"
               >
@@ -388,6 +397,7 @@ function ModelMenu({
               </button>
               <div className="my-1.5 border-t border-border" />
               <button
+                type="button"
                 onClick={() => thinkingLevels.length > 0 && setView("levels")}
                 className={`w-full rounded-xl bg-bg-hover/60 px-2.5 py-2.5 ${thinkingLevels.length === 0 ? "opacity-50" : "hover:bg-bg-hover"}`}
               >
@@ -396,7 +406,9 @@ function ModelMenu({
                   <span className="flex-1 text-left text-[14px] text-text-primary">
                     推理强度：{thinkingLevel || "off"}
                   </span>
-                  {thinkingLevels.length > 0 && <Icon name="chevronRight" size={14} className="shrink-0 text-text-tertiary" />}
+                  {thinkingLevels.length > 0 && (
+                    <Icon name="chevronRight" size={14} className="shrink-0 text-text-tertiary" />
+                  )}
                 </span>
               </button>
             </>
@@ -406,11 +418,16 @@ function ModelMenu({
             <>
               <MenuHeader title="选择模型" onBack={() => setView("main")} />
               <div className="max-h-72 overflow-y-auto">
-                {models.length === 0 && <div className="px-3 py-4 text-[12px] text-text-tertiary">未配置模型，请先在设置 → 模型里填 API Key</div>}
+                {models.length === 0 && (
+                  <div className="px-3 py-4 text-[12px] text-text-tertiary">
+                    未配置模型，请先在设置 → 模型里填 API Key
+                  </div>
+                )}
                 {models.map((m) => {
                   const active = value?.provider === m.provider && value?.modelId === m.modelId;
                   return (
                     <button
+                      type="button"
                       key={`${m.provider}/${m.modelId}`}
                       onClick={() => {
                         onChange({ provider: m.provider, modelId: m.modelId });
@@ -437,6 +454,7 @@ function ModelMenu({
                 const active = lv === thinkingLevel;
                 return (
                   <button
+                    type="button"
                     key={lv}
                     onClick={() => {
                       onThinkingChange(lv);
@@ -459,7 +477,11 @@ function ModelMenu({
 
 function MenuHeader({ title, onBack }: { title: string; onBack: () => void }) {
   return (
-    <button onClick={onBack} className="mb-1 flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-[12px] text-text-tertiary hover:bg-bg-hover">
+    <button
+      type="button"
+      onClick={onBack}
+      className="mb-1 flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-[12px] text-text-tertiary hover:bg-bg-hover"
+    >
       <Icon name="chevronRight" size={12} style={{ transform: "rotate(180deg)" }} />
       {title}
     </button>

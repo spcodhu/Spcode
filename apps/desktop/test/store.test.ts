@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  type ChatMessage,
   flattenSegments,
   groupMessagesForRender,
   messageText,
+  type Segment,
   teardownHostEvents,
   useStore,
-  type ChatMessage,
-  type Segment,
 } from "../src/renderer/src/store.js";
 
 /**
@@ -55,9 +55,16 @@ function seedSession(sessionId: string) {
         messages: [],
         running: false,
         usage: {
-          input: 0, output: 0, cacheRead: 0, cacheWrite: 0,
-          costInput: 0, costOutput: 0, costCacheRead: 0, costCacheWrite: 0,
-          costTotal: 0, count: 0,
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          costInput: 0,
+          costOutput: 0,
+          costCacheRead: 0,
+          costCacheWrite: 0,
+          costTotal: 0,
+          count: 0,
         },
         supportedThinkingLevels: [],
         todos: [],
@@ -113,9 +120,16 @@ describe("store.init 宿主事件订阅", () => {
           messages: [],
           running: true,
           usage: {
-            input: 0, output: 0, cacheRead: 0, cacheWrite: 0,
-            costInput: 0, costOutput: 0, costCacheRead: 0, costCacheWrite: 0,
-            costTotal: 0, count: 0,
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            costInput: 0,
+            costOutput: 0,
+            costCacheRead: 0,
+            costCacheWrite: 0,
+            costTotal: 0,
+            count: 0,
           },
           supportedThinkingLevels: [],
           todos: [],
@@ -344,7 +358,11 @@ describe("session.usage 最近用量快照", () => {
       output: 10,
       cacheRead: 100,
       cacheWrite: 0,
-      costInput: 0, costOutput: 0, costCacheRead: 0, costCacheWrite: 0, costTotal: 0,
+      costInput: 0,
+      costOutput: 0,
+      costCacheRead: 0,
+      costCacheWrite: 0,
+      costTotal: 0,
     });
     useStore.getState().applyHostEvent({ type: "session.usage", sessionId: "s-usage", usage: usage(1000) });
     useStore.getState().applyHostEvent({ type: "session.usage", sessionId: "s-usage", usage: usage(2000) });

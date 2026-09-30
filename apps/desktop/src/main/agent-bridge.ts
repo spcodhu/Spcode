@@ -7,17 +7,12 @@
  * - 权限请求按风险策略就地裁决或转发渲染进程（10 分钟无人裁决自动拒绝）
  * - 会话事件/用量事件广播给所有窗口
  */
-import { utilityProcess, type UtilityProcess, type WebContents } from "electron";
+
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  IPC,
-  type HostCommand,
-  type HostEvent,
-  type PermissionRequest,
-  type PermissionMode,
-} from "@spcode/shared";
+import { type HostCommand, type HostEvent, IPC, type PermissionMode, type PermissionRequest } from "@spcode/shared";
+import { type UtilityProcess, utilityProcess, type WebContents } from "electron";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 

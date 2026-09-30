@@ -5,8 +5,8 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
 import type { ScheduleTask } from "@spcode/shared";
+import { afterAll, describe, expect, it } from "vitest";
 import { isDue, Scheduler } from "../src/main/scheduler.js";
 
 let dir = "";
@@ -47,9 +47,13 @@ describe("isDue 到点判定", () => {
     expect(isDue(t, new Date(2026, 8, 28, 10, 45).getTime())).toBe(true);
     expect(isDue(t, new Date(2026, 8, 28, 10, 15).getTime())).toBe(false);
     // 本小时 10:31 已跑过 → 不再跑
-    expect(isDue({ ...t, lastRunAt: new Date(2026, 8, 28, 10, 31).getTime() }, new Date(2026, 8, 28, 10, 45).getTime())).toBe(false);
+    expect(
+      isDue({ ...t, lastRunAt: new Date(2026, 8, 28, 10, 31).getTime() }, new Date(2026, 8, 28, 10, 45).getTime()),
+    ).toBe(false);
     // 上一小时跑的 → 本小时该跑
-    expect(isDue({ ...t, lastRunAt: new Date(2026, 8, 28, 9, 31).getTime() }, new Date(2026, 8, 28, 10, 45).getTime())).toBe(true);
+    expect(
+      isDue({ ...t, lastRunAt: new Date(2026, 8, 28, 9, 31).getTime() }, new Date(2026, 8, 28, 10, 45).getTime()),
+    ).toBe(true);
   });
 
   it("daily：过了今日时刻且今日未跑", () => {
@@ -97,8 +101,19 @@ describe("Scheduler.tick", () => {
   }
 
   it("到点触发一次：标记 lastRunAt、广播通知，同周期再 tick 不重复", async () => {
-    const { sched, fired, notified } = setup(async () => "sess-1", () => MON);
-    sched.create({ name: "晨报", prompt: "早报", target: { kind: "chat" }, frequency: "daily", hour: 9, minute: 0, enabled: true });
+    const { sched, fired, notified } = setup(
+      async () => "sess-1",
+      () => MON,
+    );
+    sched.create({
+      name: "晨报",
+      prompt: "早报",
+      target: { kind: "chat" },
+      frequency: "daily",
+      hour: 9,
+      minute: 0,
+      enabled: true,
+    });
     await sched.tick();
     expect(fired).toHaveLength(1);
     expect(notified).toEqual([`${sched.list()[0].id}:sess-1`]);
@@ -109,8 +124,20 @@ describe("Scheduler.tick", () => {
   });
 
   it("once 触发后自动停用", async () => {
-    const { sched } = setup(async () => "s", () => MON);
-    sched.create({ name: "单次", prompt: "p", target: { kind: "chat" }, frequency: "once", hour: 0, minute: 0, runAt: MON - 1000, enabled: true });
+    const { sched } = setup(
+      async () => "s",
+      () => MON,
+    );
+    sched.create({
+      name: "单次",
+      prompt: "p",
+      target: { kind: "chat" },
+      frequency: "once",
+      hour: 0,
+      minute: 0,
+      runAt: MON - 1000,
+      enabled: true,
+    });
     await sched.tick();
     const t = sched.list()[0];
     expect(t.enabled).toBe(false);
@@ -118,10 +145,21 @@ describe("Scheduler.tick", () => {
   });
 
   it("fire 失败记 error 且当周期不重试（lastRunAt 已占位）", async () => {
-    const { sched, fired } = setup(async () => {
-      throw new Error("引擎炸了");
-    }, () => MON);
-    sched.create({ name: "会失败", prompt: "p", target: { kind: "chat" }, frequency: "daily", hour: 9, minute: 0, enabled: true });
+    const { sched, fired } = setup(
+      async () => {
+        throw new Error("引擎炸了");
+      },
+      () => MON,
+    );
+    sched.create({
+      name: "会失败",
+      prompt: "p",
+      target: { kind: "chat" },
+      frequency: "daily",
+      hour: 9,
+      minute: 0,
+      enabled: true,
+    });
     await sched.tick();
     expect(fired).toHaveLength(1);
     expect(sched.list()[0].lastStatus).toBe("error");
@@ -131,8 +169,19 @@ describe("Scheduler.tick", () => {
   });
 
   it("runNow 手动触发：不影响周期占位，只记状态", async () => {
-    const { sched, fired } = setup(async () => "s-manual", () => MON);
-    const t = sched.create({ name: "手动", prompt: "p", target: { kind: "chat" }, frequency: "daily", hour: 20, minute: 0, enabled: true });
+    const { sched, fired } = setup(
+      async () => "s-manual",
+      () => MON,
+    );
+    const t = sched.create({
+      name: "手动",
+      prompt: "p",
+      target: { kind: "chat" },
+      frequency: "daily",
+      hour: 20,
+      minute: 0,
+      enabled: true,
+    });
     await sched.runNow(t.id);
     expect(fired).toEqual([t.id]);
     // 晚上 20:00 到点时仍应正常触发（runNow 不占周期）
@@ -141,8 +190,19 @@ describe("Scheduler.tick", () => {
   });
 
   it("CRUD 与持久化：更新/删除落盘，新实例能读回", async () => {
-    const { sched, file } = setup(async () => "s", () => MON);
-    const t = sched.create({ name: "A", prompt: "p", target: { kind: "chat" }, frequency: "daily", hour: 9, minute: 0, enabled: true });
+    const { sched, file } = setup(
+      async () => "s",
+      () => MON,
+    );
+    const t = sched.create({
+      name: "A",
+      prompt: "p",
+      target: { kind: "chat" },
+      frequency: "daily",
+      hour: 9,
+      minute: 0,
+      enabled: true,
+    });
     sched.update(t.id, { name: "B", enabled: false });
     const reloaded = new Scheduler({ file, fire: async () => "s" });
     expect(reloaded.list()[0].name).toBe("B");

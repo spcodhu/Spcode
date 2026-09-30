@@ -9,9 +9,9 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { getSupportedThinkingLevels, type Model } from "@earendil-works/pi-ai";
 import type { AgentSession, AgentSessionEvent, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { createAgentSession, DefaultResourceLoader, SessionManager } from "@earendil-works/pi-coding-agent";
-import { getSupportedThinkingLevels, type Model } from "@earendil-works/pi-ai";
 import type {
   ModelRef,
   PermissionRequest,
@@ -25,6 +25,7 @@ import { cleanSessionTitle } from "@spcode/shared";
 import { MemoryDistiller } from "./distill.js";
 import type { MemoryStore } from "./memory-store.js";
 import {
+  isPlanModeSafeCommand,
   NORMAL_MODE_TOOLS,
   PLAN_MODE_BASH_BLOCK_REASON,
   PLAN_MODE_CUSTOM_TYPE,
@@ -32,7 +33,6 @@ import {
   PLAN_MODE_ON_MESSAGE,
   PLAN_MODE_TOOLS,
   PLAN_MODE_WRITE_BLOCK_REASON,
-  isPlanModeSafeCommand,
 } from "./plan-mode.js";
 import { createAskUserQuestionTool } from "./tools/ask-user.js";
 import { createExitPlanModeTool } from "./tools/exit-plan-mode.js";
@@ -44,7 +44,20 @@ import { createWebSearchTool } from "./tools/websearch.js";
 import { createWritePlanTool } from "./tools/write-plan.js";
 
 /** 工具风险分级：只读工具自动放行，写类/Shell 要确认（renamesession 无副作用，只读；writeplan/exitplanmode 只写应用自身目录/只改模式状态，只读） */
-const READONLY_TOOLS = new Set(["read", "grep", "find", "ls", "websearch", "webfetch", "glob", "todowrite", "askuserquestion", "renamesession", "writeplan", "exitplanmode"]);
+const READONLY_TOOLS = new Set([
+  "read",
+  "grep",
+  "find",
+  "ls",
+  "websearch",
+  "webfetch",
+  "glob",
+  "todowrite",
+  "askuserquestion",
+  "renamesession",
+  "writeplan",
+  "exitplanmode",
+]);
 const DANGER_TOOL_NAMES = new Set(["bash", "powershell"]);
 
 /** Bash 命令危险特征（命中即 danger，act 模式下也要确认） */
@@ -161,9 +174,7 @@ export class SessionController {
     const cwd = opts.cwd?.trim() ? opts.cwd : join(opts.agentDir, "..", "scratch");
     mkdirSync(cwd, { recursive: true });
 
-    const model = opts.modelRef
-      ? opts.modelRuntime.getModel(opts.modelRef.provider, opts.modelRef.modelId)
-      : undefined;
+    const model = opts.modelRef ? opts.modelRuntime.getModel(opts.modelRef.provider, opts.modelRef.modelId) : undefined;
 
     // 记忆注入：分层记忆块拼进系统提示尾部
     const isProject = opts.mode === "project";
@@ -444,7 +455,7 @@ export async function generateFallbackTitle(
     .join("");
   // 清洗：压平空白 → 剥引号/结尾标点 → 截断兜底
   const title = cleanSessionTitle(raw)
-    .replace(/^[\s"'「『《〈（(【\[]+|[\s"'」』》〉）)】\]。．.!！?？:：;；,，、…·~—-]+$/g, "")
+    .replace(/^[\s"'「『《〈（(【[]+|[\s"'」』》〉）)】\]。．.!！?？:：;；,，、…·~—-]+$/g, "")
     .slice(0, 20)
     .trim();
   return title || null;

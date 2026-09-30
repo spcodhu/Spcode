@@ -1,0 +1,36 @@
+# CI：push/PR 必跑 lint + typecheck + 单测 + e2e 冒烟（评审 P2-3/N4——
+# e2e 失效曾连续两轮评审无人发现，就是因为没有任何环节自动跑它）。
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm lint
+
+      - run: pnpm typecheck
+
+      - run: pnpm test
+
+      # e2e 需要先出构建产物；macOS runner 自带窗口环境，可直接跑 Electron
+      - run: pnpm --filter @spcode/desktop build
+
+      - run: pnpm --filter @spcode/desktop test:e2e

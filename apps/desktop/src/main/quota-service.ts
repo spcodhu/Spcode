@@ -139,7 +139,10 @@ const moonshotAdapter: QuotaAdapter = {
 export function parseKimiCodingUsages(body: unknown): { plan: string | null; limits: QuotaLimit[] } {
   const b = body as {
     usage?: { limit?: string; remaining?: string; resetTime?: string };
-    limits?: { window?: { duration?: number; timeUnit?: string }; detail?: { limit?: string; remaining?: string; resetTime?: string } }[];
+    limits?: {
+      window?: { duration?: number; timeUnit?: string };
+      detail?: { limit?: string; remaining?: string; resetTime?: string };
+    }[];
   };
   const rows: QuotaLimit[] = [];
   // 滚动窗口额度（如 300 分钟 = 5 小时窗口）
@@ -188,7 +191,14 @@ const zaiAdapter: QuotaAdapter = {
   async fetch(apiKey, signal) {
     const data = (await getJson("https://api.z.ai/api/monitor/usage/quota/limit", apiKey, signal)) as {
       data?: {
-        limits?: { type?: string; usage?: number; currentValue?: number; remaining?: number; percentage?: number; nextResetTime?: number }[];
+        limits?: {
+          type?: string;
+          usage?: number;
+          currentValue?: number;
+          remaining?: number;
+          percentage?: number;
+          nextResetTime?: number;
+        }[];
         level?: string;
       };
     };
@@ -218,7 +228,10 @@ const dashscopeAdapter: QuotaAdapter = {
       signal,
     ).catch(() => null)) as { total_quota?: number; used_quota?: number } | null;
     if (!data || data.total_quota == null) {
-      return { plan: "Token Plan", limits: [{ label: "额度", usedPercent: null, text: "暂不支持在线查询", resetText: null }] };
+      return {
+        plan: "Token Plan",
+        limits: [{ label: "额度", usedPercent: null, text: "暂不支持在线查询", resetText: null }],
+      };
     }
     const used = data.used_quota ?? 0;
     const pct = data.total_quota > 0 ? Math.round((used / data.total_quota) * 100) : null;

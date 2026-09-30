@@ -3,7 +3,7 @@
  */
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { DEFAULT_SETTINGS, type AppSettings } from "@spcode/shared";
+import { type AppSettings, DEFAULT_SETTINGS } from "@spcode/shared";
 import { readJsonFile, resolveSpcodeHome } from "@spcode/shared/node";
 
 /** 设置文件只需是普通对象（字段级宽松：合并到 DEFAULT_SETTINGS 之上，未知/多余字段原样保留） */

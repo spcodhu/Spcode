@@ -9,21 +9,11 @@
  *
  * 禁止 import "electron" —— 这里只有 Node API + process.parentPort。
  */
-import { join } from "node:path";
+
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import {
-  CredentialSynchronizationError,
-  ModelRuntime,
-  SessionManager,
-} from "@earendil-works/pi-coding-agent";
-import type {
-  HostCommand,
-  HostEvent,
-  ModelInfo,
-  ModelRef,
-  PermissionRequest,
-  QuestionRequest,
-} from "@spcode/shared";
+import { join } from "node:path";
+import { CredentialSynchronizationError, ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
+import type { HostCommand, HostEvent, ModelInfo, ModelRef, PermissionRequest, QuestionRequest } from "@spcode/shared";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 import { MemoryStore } from "./memory-store.js";
 import { SessionController } from "./session-controller.js";
@@ -61,17 +51,23 @@ let memoryStore: MemoryStore | null = null;
 let distillEnabled = true;
 const sessions = new Map<string, SessionController>();
 /** 等待主进程裁决的权限请求（带会话归属与超时兜底——评审 P1-1） */
-const pendingPermissions = new Map<string, {
-  sessionId: string;
-  resolve: (approved: boolean) => void;
-  timer: ReturnType<typeof setTimeout>;
-}>();
+const pendingPermissions = new Map<
+  string,
+  {
+    sessionId: string;
+    resolve: (approved: boolean) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }
+>();
 /** 等待用户回答的结构化提问（同上） */
-const pendingQuestions = new Map<string, {
-  sessionId: string;
-  resolve: (answers: Record<string, string>) => void;
-  timer: ReturnType<typeof setTimeout>;
-}>();
+const pendingQuestions = new Map<
+  string,
+  {
+    sessionId: string;
+    resolve: (answers: Record<string, string>) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }
+>();
 
 /** 权限 10 分钟无人裁决按拒绝收尾；提问 30 分钟无人回答按"用户未答"收尾（防工具调用永久挂死） */
 const PERMISSION_TIMEOUT_MS = 10 * 60_000;
@@ -270,7 +266,11 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
       case "models.list": {
         const rt = await getRuntime();
         const available = await rt.getAvailable();
-        respond(id, true, available.map((m) => toModelInfo(m)));
+        respond(
+          id,
+          true,
+          available.map((m) => toModelInfo(m)),
+        );
         break;
       }
       case "models.catalog": {
@@ -358,8 +358,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         // 优先用调用方指定的模型（设置页默认模型）；指定模型当前不可用时退回列表首个
         const want = cmd.payload.model;
         const model =
-          (want && available.find((m) => m.provider === want.provider && m.id === want.modelId)) ||
-          available[0];
+          (want && available.find((m) => m.provider === want.provider && m.id === want.modelId)) || available[0];
         if (!model) throw new Error("没有可用模型，请先在设置里配置 API Key");
         const prompt = [
           "你是一个桌面应用主题设计师。根据用户的描述生成一个暗色主题 JSON。",

@@ -3,11 +3,12 @@
  * 居中 hero + 项目上下文 + 建议卡片（点击预填输入框）+ 键位提示。
  * 交互参考主流 Agentic Code 工具（Cursor / Claude Code）的空态做法。
  */
-import { useState } from "react";
-import { baseName } from "@spcode/shared";
+
 import type { SessionMeta } from "@spcode/shared";
-import { Icon } from "./Icon";
+import { baseName } from "@spcode/shared";
+import { useState } from "react";
 import { prefillComposer } from "./Composer";
+import { Icon } from "./Icon";
 
 interface Suggestion {
   icon: string;
@@ -90,8 +91,7 @@ export function SessionEmptyState({ meta }: { meta: SessionMeta }) {
         aria-hidden
         className="pointer-events-none absolute left-1/2 top-0 h-64 w-[560px] -translate-x-1/2"
         style={{
-          background:
-            "radial-gradient(closest-side, var(--color-accent-soft), transparent)",
+          background: "radial-gradient(closest-side, var(--color-accent-soft), transparent)",
         }}
       />
 
@@ -101,18 +101,23 @@ export function SessionEmptyState({ meta }: { meta: SessionMeta }) {
           aria-hidden
           className="absolute inset-0 rounded-2xl"
           style={{
-            background:
-              "radial-gradient(closest-side, var(--color-accent-soft), transparent 75%)",
+            background: "radial-gradient(closest-side, var(--color-accent-soft), transparent 75%)",
           }}
         />
         <Icon name="zap" size={22} className="relative text-accent" strokeWidth={1.9} />
       </div>
 
       {/* 标题 / 副标题 */}
-      <h1 className="fade-up text-[21px] font-semibold leading-snug text-text-primary" style={{ animationDelay: "50ms" }}>
+      <h1
+        className="fade-up text-[21px] font-semibold leading-snug text-text-primary"
+        style={{ animationDelay: "50ms" }}
+      >
         {greetingOf()}，今天想做点什么？
       </h1>
-      <p className="fade-up mt-1.5 text-center text-[13px] leading-relaxed text-text-tertiary" style={{ animationDelay: "90ms" }}>
+      <p
+        className="fade-up mt-1.5 text-center text-[13px] leading-relaxed text-text-tertiary"
+        style={{ animationDelay: "90ms" }}
+      >
         {isProject ? (
           <>
             在 <span className="text-text-secondary">{baseName(meta.cwd)}</span> 里直接说你要做什么，剩下的交给我
@@ -133,6 +138,7 @@ export function SessionEmptyState({ meta }: { meta: SessionMeta }) {
       <div className="mt-7 grid w-full grid-cols-2 gap-2.5">
         {suggestions.map((s, i) => (
           <button
+            type="button"
             key={s.title}
             onClick={() => prefillComposer(s.prompt)}
             className="fade-up group flex flex-col gap-1.5 rounded-2xl border border-border bg-bg-elevated/60 px-4 py-3.5 text-left transition-colors hover:border-border-strong hover:bg-bg-hover"
@@ -150,7 +156,10 @@ export function SessionEmptyState({ meta }: { meta: SessionMeta }) {
       </div>
 
       {/* 键位提示 */}
-      <div className="fade-up mt-7 flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-[11.5px] text-text-tertiary" style={{ animationDelay: "420ms" }}>
+      <div
+        className="fade-up mt-7 flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-[11.5px] text-text-tertiary"
+        style={{ animationDelay: "420ms" }}
+      >
         <span className="flex items-center gap-1">
           <Kbd>Enter</Kbd> 发送
         </span>
@@ -182,6 +191,7 @@ function CwdChip({ cwd }: { cwd: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
+      type="button"
       title="复制项目路径"
       onClick={() => {
         void navigator.clipboard

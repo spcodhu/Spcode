@@ -3,9 +3,9 @@
  * 用户在 UI 上点选/输入后答案沿 question.reply 回到这里。
  */
 import { randomUUID } from "node:crypto";
-import { Type, type Static } from "typebox";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { QuestionRequest } from "@spcode/shared";
+import { type Static, Type } from "typebox";
 
 const questionSchema = Type.Object({
   questions: Type.Array(

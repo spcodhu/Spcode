@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
-import { UsagePage } from "./UsagePage";
-import { QuotaPage } from "./QuotaPage";
 import { ModelsPage } from "./ModelsPage";
-import { Switch } from "./ui/Switch";
+import { QuotaPage } from "./QuotaPage";
+import { UsagePage } from "./UsagePage";
 import { Select } from "./ui/Select";
+import { Switch } from "./ui/Switch";
 
 type PageId = "general" | "appearance" | "models" | "usage" | "quota" | "memory" | "about";
 
@@ -39,6 +39,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
           <div className="flex-1 overflow-y-auto px-2 py-3">
             {NAV.map((item) => (
               <button
+                type="button"
                 key={item.id}
                 onClick={() => setPage(item.id)}
                 className={`mb-0.5 flex h-9 w-full items-center gap-2.5 rounded-lg px-3 text-[13px] transition-colors ${
@@ -50,14 +51,13 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
               </button>
             ))}
           </div>
-          <div className="border-t border-border px-3 py-2 text-[11px] text-text-tertiary">
-            Esc 或点击外部关闭
-          </div>
+          <div className="border-t border-border px-3 py-2 text-[11px] text-text-tertiary">Esc 或点击外部关闭</div>
         </nav>
 
         {/* 内容区 */}
         <div className="relative min-w-0 flex-1 overflow-y-auto">
           <button
+            type="button"
             onClick={onClose}
             title="关闭设置"
             className="absolute right-4 top-3.5 rounded-lg p-1.5 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
@@ -99,15 +99,16 @@ function GeneralPage() {
           ] as const
         ).map((m) => (
           <button
+            type="button"
             key={m.id}
             onClick={() => void saveSettings({ permissionMode: m.id })}
             className={`flex-1 rounded-xl border px-4 py-3 text-left ${
-              settings?.permissionMode === m.id
-                ? "border-accent/50 bg-accent-soft"
-                : "border-border hover:bg-bg-hover"
+              settings?.permissionMode === m.id ? "border-accent/50 bg-accent-soft" : "border-border hover:bg-bg-hover"
             }`}
           >
-            <div className={`text-[14px] font-medium ${settings?.permissionMode === m.id ? "text-accent" : "text-text-primary"}`}>
+            <div
+              className={`text-[14px] font-medium ${settings?.permissionMode === m.id ? "text-accent" : "text-text-primary"}`}
+            >
               {m.label}
             </div>
             <div className="mt-0.5 text-[12px] text-text-tertiary">{m.desc}</div>
@@ -127,7 +128,9 @@ function GeneralPage() {
       <div className="flex items-center justify-between rounded-xl border border-border bg-bg-elevated px-4 py-3">
         <div>
           <div className="text-[14px] text-text-primary">自动记忆蒸馏</div>
-          <div className="mt-0.5 text-[12px] text-text-tertiary">每轮对话结束后自动整理长期记忆（会消耗少量 token）</div>
+          <div className="mt-0.5 text-[12px] text-text-tertiary">
+            每轮对话结束后自动整理长期记忆（会消耗少量 token）
+          </div>
         </div>
         <Switch
           on={settings?.memoryDistill ?? true}
@@ -142,7 +145,11 @@ function GeneralPage() {
           <div className="text-[14px] text-text-primary">启动时检查更新</div>
           <div className="mt-0.5 text-[12px] text-text-tertiary">需要先在 updater.ts 配置 GitHub 更新源</div>
         </div>
-        <Switch on={settings?.autoUpdate ?? true} onChange={(v) => void saveSettings({ autoUpdate: v })} label="自动更新" />
+        <Switch
+          on={settings?.autoUpdate ?? true}
+          onChange={(v) => void saveSettings({ autoUpdate: v })}
+          label="自动更新"
+        />
       </div>
     </div>
   );
@@ -225,13 +232,14 @@ function AppearancePage() {
         <div className="flex gap-2">
           {settings?.customTheme && (
             <button
+              type="button"
               onClick={() => void saveSettings({ customTheme: null })}
               className="text-[12px] text-text-tertiary hover:text-danger"
             >
               恢复默认
             </button>
           )}
-          <button onClick={() => void importTheme()} className="text-[12px] text-accent hover:underline">
+          <button type="button" onClick={() => void importTheme()} className="text-[12px] text-accent hover:underline">
             导入主题 JSON
           </button>
         </div>
@@ -247,6 +255,7 @@ function AppearancePage() {
           }}
         />
         <button
+          type="button"
           onClick={() => void generateTheme()}
           disabled={!themeDesc.trim() || generating}
           className="shrink-0 rounded-lg bg-accent px-4 py-2 text-[13px] text-white hover:bg-accent-dim disabled:opacity-40"
@@ -257,21 +266,24 @@ function AppearancePage() {
 
       <SectionTitle>字体</SectionTitle>
       <div className="grid grid-cols-2 gap-3">
-        {(
-          [
-            { kind: "ui" as const, label: "界面字体", family: settings?.uiFontFamily },
-            { kind: "mono" as const, label: "等宽字体（代码）", family: settings?.monoFontFamily },
-          ]
-        ).map((f) => (
+        {[
+          { kind: "ui" as const, label: "界面字体", family: settings?.uiFontFamily },
+          { kind: "mono" as const, label: "等宽字体（代码）", family: settings?.monoFontFamily },
+        ].map((f) => (
           <div key={f.kind} className="rounded-xl border border-border bg-bg-elevated px-4 py-3">
             <div className="text-[12px] text-text-tertiary">{f.label}</div>
             <div className="my-1.5 truncate text-[13px] text-text-primary">{f.family || "系统默认"}</div>
             <div className="flex gap-3">
-              <button onClick={() => void importFont(f.kind)} className="text-[12px] text-accent hover:underline">
+              <button
+                type="button"
+                onClick={() => void importFont(f.kind)}
+                className="text-[12px] text-accent hover:underline"
+              >
                 导入字体
               </button>
               {f.family && (
                 <button
+                  type="button"
                   onClick={() =>
                     void saveSettings(
                       f.kind === "ui" ? { uiFontFamily: "", uiFontFile: "" } : { monoFontFamily: "", monoFontFile: "" },
@@ -309,7 +321,10 @@ function MemoryPage() {
 
   return (
     <div>
-      <PageHeader title="记忆" subtitle="分层记忆在会话创建时注入系统提示，结束后蒸馏写回。文件位于 ~/.spcode/，可直接编辑" />
+      <PageHeader
+        title="记忆"
+        subtitle="分层记忆在会话创建时注入系统提示，结束后蒸馏写回。文件位于 ~/.spcode/，可直接编辑"
+      />
       {names.length === 0 ? (
         <div className="text-[13px] text-text-tertiary">读取中…</div>
       ) : (
@@ -317,6 +332,7 @@ function MemoryPage() {
           {names.map((name) => (
             <div key={name} className="rounded-xl border border-border bg-bg-elevated">
               <button
+                type="button"
                 onClick={() => setOpen(open === name ? null : name)}
                 className="flex w-full items-center gap-2 px-4 py-2.5 text-[13px] text-text-secondary"
               >

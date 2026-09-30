@@ -33,6 +33,7 @@ export class ErrorBoundary extends Component<Props, State> {
         <div className="text-[14px] font-medium text-danger">{this.props.label ?? "界面"}渲染出错</div>
         <div className="max-w-md break-all text-[12px] leading-5 text-text-tertiary">{error.message}</div>
         <button
+          type="button"
           onClick={() => this.setState({ error: null })}
           className="rounded-lg border border-border bg-bg-elevated px-4 py-2 text-[13px] text-text-primary hover:bg-bg-hover"
         >

@@ -1,7 +1,8 @@
 /** Switch 组件视觉验证：模型页(全关态) + 配额页(开启态) */
-import { test, _electron as electron } from "@playwright/test";
+
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { _electron as electron, test } from "@playwright/test";
 
 const appDir = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const shotDir = join(appDir, "test-results", "visual");

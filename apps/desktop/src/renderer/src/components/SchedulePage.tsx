@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
 import type { ScheduleFrequency, ScheduleTarget, ScheduleTask, ScheduleTaskInput } from "@spcode/shared";
 import { baseName, describeSchedule } from "@spcode/shared";
+import { useEffect, useMemo, useState } from "react";
 import { formatRelative } from "../format";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
@@ -61,6 +61,7 @@ export function SchedulePage({ onClose }: { onClose: () => void }) {
           <div className="flex items-center gap-2">
             {editing === null && (
               <button
+                type="button"
                 onClick={() => setEditing("new")}
                 className="flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-[12px] text-white hover:bg-accent-dim"
               >
@@ -69,6 +70,7 @@ export function SchedulePage({ onClose }: { onClose: () => void }) {
               </button>
             )}
             <button
+              type="button"
               onClick={onClose}
               title="关闭"
               className="rounded-lg p-1.5 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
@@ -103,12 +105,14 @@ export function SchedulePage({ onClose }: { onClose: () => void }) {
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-[14px] text-text-primary">{t.name}</div>
                       <div className="mt-0.5 text-[12px] text-text-tertiary">
-                        {describeSchedule(t)} · {t.target.kind === "project" ? `项目 ${baseName(t.target.cwd)}` : "新聊天会话"}
+                        {describeSchedule(t)} ·{" "}
+                        {t.target.kind === "project" ? `项目 ${baseName(t.target.cwd)}` : "新聊天会话"}
                         {t.lastStatus === "ok" && t.lastRunAt ? ` · 上次 ${formatRelative(t.lastRunAt)}` : ""}
                         {t.lastStatus === "error" ? ` · 上次失败：${t.lastError ?? "未知错误"}` : ""}
                       </div>
                     </div>
                     <button
+                      type="button"
                       onClick={() => runNow(t)}
                       disabled={runningId === t.id}
                       title="立即运行一次"
@@ -117,6 +121,7 @@ export function SchedulePage({ onClose }: { onClose: () => void }) {
                       {runningId === t.id ? "运行中…" : "立即运行"}
                     </button>
                     <button
+                      type="button"
                       onClick={() => setEditing(t)}
                       title="编辑"
                       className="rounded-lg p-1.5 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
@@ -124,10 +129,13 @@ export function SchedulePage({ onClose }: { onClose: () => void }) {
                       <Icon name="gear" size={14} />
                     </button>
                     <button
+                      type="button"
                       onClick={() => (confirmDelete === t.id ? remove(t.id) : setConfirmDelete(t.id))}
                       title="删除"
                       className={`rounded-lg p-1.5 text-[12px] ${
-                        confirmDelete === t.id ? "text-danger" : "text-text-tertiary hover:bg-bg-hover hover:text-danger"
+                        confirmDelete === t.id
+                          ? "text-danger"
+                          : "text-text-tertiary hover:bg-bg-hover hover:text-danger"
                       }`}
                     >
                       {confirmDelete === t.id ? "确认删除？" : <Icon name="x" size={14} />}
@@ -201,8 +209,14 @@ function TaskForm({
     ];
   }, [registrySessions]);
 
-  const hourOptions = useMemo(() => Array.from({ length: 24 }, (_, h) => ({ value: String(h), label: `${String(h).padStart(2, "0")} 时` })), []);
-  const minuteOptions = useMemo(() => Array.from({ length: 60 }, (_, m) => ({ value: String(m), label: `${String(m).padStart(2, "0")} 分` })), []);
+  const hourOptions = useMemo(
+    () => Array.from({ length: 24 }, (_, h) => ({ value: String(h), label: `${String(h).padStart(2, "0")} 时` })),
+    [],
+  );
+  const minuteOptions = useMemo(
+    () => Array.from({ length: 60 }, (_, m) => ({ value: String(m), label: `${String(m).padStart(2, "0")} 分` })),
+    [],
+  );
 
   const save = async () => {
     if (saving) return;
@@ -244,7 +258,11 @@ function TaskForm({
   return (
     <div>
       <div className="mb-4 flex items-center gap-2">
-        <button onClick={onCancel} className="flex items-center gap-1 text-[13px] text-text-tertiary hover:text-text-primary">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="flex items-center gap-1 text-[13px] text-text-tertiary hover:text-text-primary"
+        >
           <Icon name="chevronRight" size={13} style={{ transform: "rotate(180deg)" }} />
           返回
         </button>
@@ -298,7 +316,9 @@ function TaskForm({
       {(frequency === "daily" || frequency === "weekday" || frequency === "weekly") && (
         <Field label="触发时刻">
           <div className="flex items-center gap-2">
-            {frequency === "weekly" && <Select value={weekday} options={WEEKDAY_OPTIONS} onChange={setWeekday} className="w-28" />}
+            {frequency === "weekly" && (
+              <Select value={weekday} options={WEEKDAY_OPTIONS} onChange={setWeekday} className="w-28" />
+            )}
             <Select value={hour} options={hourOptions} onChange={setHour} className="w-28" />
             <Select value={minute} options={minuteOptions} onChange={setMinute} className="w-28" />
           </div>
@@ -306,10 +326,15 @@ function TaskForm({
       )}
 
       <div className="mt-6 flex justify-end gap-2">
-        <button onClick={onCancel} className="rounded-lg px-4 py-2 text-[13px] text-text-tertiary hover:bg-bg-hover">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-lg px-4 py-2 text-[13px] text-text-tertiary hover:bg-bg-hover"
+        >
           取消
         </button>
         <button
+          type="button"
           onClick={() => void save()}
           disabled={saving}
           className="rounded-lg bg-accent px-4 py-2 text-[13px] text-white hover:bg-accent-dim disabled:opacity-40"

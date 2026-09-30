@@ -135,7 +135,7 @@ function digestTranscript(messages: readonly unknown[], maxChars: number): strin
     let text = "";
     if (Array.isArray(m.content)) {
       for (const b of m.content as { type: string; text?: string }[]) {
-        if (b.type === "text" && b.text) text += b.text + "\n";
+        if (b.type === "text" && b.text) text += `${b.text}\n`;
       }
     }
     if (!text.trim()) continue;
@@ -168,9 +168,13 @@ ${currentNotes}
 <DIARY>
 今天这段对话的一句到三句话工作日志（做了什么、结果如何）。无实质内容写 (无)。
 </DIARY>
-${isProject ? `<PROJECT>
+${
+  isProject
+    ? `<PROJECT>
 这个项目值得记住的技术事实：架构约定、环境坑、设计决策。一两句话，追加式。无则写 (无)。
-</PROJECT>` : ""}
+</PROJECT>`
+    : ""
+}
 <LESSON>
 从本次失败/纠正中学到的一条工具或命令使用规则（一句话）。没有写 (无)。
 </LESSON>`;

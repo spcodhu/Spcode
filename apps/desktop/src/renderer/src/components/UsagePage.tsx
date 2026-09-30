@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
 import type { UsageAggregate } from "@spcode/shared";
+import { useEffect, useMemo, useState } from "react";
 import { formatZh } from "../format";
 import { Icon } from "./Icon";
 
@@ -57,6 +57,7 @@ export function UsagePage() {
         <div className="flex rounded-full bg-bg-elevated p-1">
           {RANGE_LABELS.map((r) => (
             <button
+              type="button"
               key={r.id}
               onClick={() => setRange(r.id)}
               className={`rounded-full px-4 py-1.5 text-[13px] transition-colors ${
@@ -84,10 +85,7 @@ export function UsagePage() {
             <div className="mt-6 space-y-1">
               {models.map((m, i) => (
                 <div key={m.model} className="flex items-center gap-2.5 py-1.5 text-[13px]">
-                  <span
-                    className="h-2.5 w-2.5 shrink-0 rounded-[3px]"
-                    style={{ background: chartVar(i) }}
-                  />
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-[3px]" style={{ background: chartVar(i) }} />
                   <span className="min-w-0 flex-1 truncate font-medium text-text-primary" title={m.model}>
                     {shortModelName(m.model)}
                   </span>
@@ -148,7 +146,7 @@ function DonutChart({
   });
 
   return (
-    <svg width="220" height="220" viewBox="0 0 220 220">
+    <svg width="220" height="220" viewBox="0 0 220 220" role="img" aria-label="按模型的用量占比环图">
       <circle cx="110" cy="110" r={R} fill="none" stroke="var(--color-bg-hover)" strokeWidth="26" />
       {arcs.map(({ seg, i, dash, offset: o }) => (
         <circle
@@ -164,7 +162,15 @@ function DonutChart({
           strokeLinecap="butt"
         />
       ))}
-      <text x="110" y="110" textAnchor="middle" dominantBaseline="central" fontSize="30" fontWeight="600" fill="var(--chart-1)">
+      <text
+        x="110"
+        y="110"
+        textAnchor="middle"
+        dominantBaseline="central"
+        fontSize="30"
+        fontWeight="600"
+        fill="var(--chart-1)"
+      >
         {centerText}
       </text>
     </svg>

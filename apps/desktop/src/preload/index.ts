@@ -1,10 +1,19 @@
 /**
  * Preload：渲染进程唯一的能力入口，白名单式暴露。
  */
+
+import {
+  type AppSettings,
+  type HostCommandInput,
+  type HostEvent,
+  IPC,
+  type ScheduleTask,
+  type ScheduleTaskInput,
+  type SessionSearchResultItem,
+} from "@spcode/shared";
 import { contextBridge, ipcRenderer } from "electron";
-import { IPC, type AppSettings, type HostCommandInput, type HostEvent, type ScheduleTask, type ScheduleTaskInput, type SessionSearchResultItem } from "@spcode/shared";
-import type { SessionRegistryEntry } from "../main/session-registry.js";
 import type { QuotaInfo } from "../main/quota-service.js";
+import type { SessionRegistryEntry } from "../main/session-registry.js";
 import type { DailyUsage } from "../main/usage-ledger.js";
 
 export interface SpcodeApi {
@@ -29,7 +38,10 @@ export interface SpcodeApi {
   scheduleRunNow(id: string): Promise<string>;
   /** 用量聚合（按日×模型）与厂商配额 */
   usageSummary(days?: number): Promise<DailyUsage[]>;
-  usageAggregate(range: "today" | "week" | "all"): Promise<{ total: import("@spcode/shared").UsageAggregate; byModel: Record<string, import("@spcode/shared").UsageAggregate> }>;
+  usageAggregate(range: "today" | "week" | "all"): Promise<{
+    total: import("@spcode/shared").UsageAggregate;
+    byModel: Record<string, import("@spcode/shared").UsageAggregate>;
+  }>;
   quotaQuery(force?: boolean): Promise<QuotaInfo[]>;
   /** 选择项目文件夹 */
   pickDirectory(): Promise<string | null>;

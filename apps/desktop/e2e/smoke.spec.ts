@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { launchApp } from "./helpers";
 
 test.describe("Spcode 冒烟 E2E", () => {

@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { formatRelative } from "../format";
-import { useStore, type RegistrySession } from "../store";
 import { baseName } from "@spcode/shared";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { formatRelative } from "../format";
+import { type RegistrySession, useStore } from "../store";
 import { Icon } from "./Icon";
 
 /** 空间内默认展示的会话数，超出部分折叠进「更多」 */
@@ -50,10 +50,7 @@ export function Sidebar({
   const pendingQuestions = useStore((s) => s.pendingQuestions);
 
   /** 有待回答提问的会话集合（侧栏「?」标记用） */
-  const waitingSessionIds = useMemo(
-    () => new Set(pendingQuestions.map((q) => q.sessionId)),
-    [pendingQuestions],
-  );
+  const waitingSessionIds = useMemo(() => new Set(pendingQuestions.map((q) => q.sessionId)), [pendingQuestions]);
 
   /** 分区折叠状态（空间 / 聊天） */
   const [sectionCollapsed, setSectionCollapsed] = usePersistentState("sections", {
@@ -116,6 +113,7 @@ export function Sidebar({
       {/* 顶部：首页 / 搜索 / 历史（标题栏拖拽区） */}
       <div className="titlebar-drag flex h-12 items-center gap-1 px-3 pl-20">
         <button
+          type="button"
           onClick={() => setActive("")}
           className="titlebar-no-drag flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-text-primary hover:bg-bg-hover"
         >
@@ -124,6 +122,7 @@ export function Sidebar({
         </button>
         <div className="flex-1" />
         <button
+          type="button"
           onClick={onOpenSearch}
           className="titlebar-no-drag rounded-md p-1.5 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
           title="搜索会话（Cmd+K）"
@@ -131,6 +130,7 @@ export function Sidebar({
           <Icon name="search" size={16} />
         </button>
         <button
+          type="button"
           onClick={onOpenSchedule}
           className="titlebar-no-drag rounded-md p-1.5 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
           title="定时任务"
@@ -224,6 +224,7 @@ export function Sidebar({
                         ]}
                       />
                       <button
+                        type="button"
                         onClick={() => void newProjectInSpace(sp.cwd)}
                         title="在该空间新建会话"
                         className="rounded p-0.5 text-text-tertiary hover:text-accent"
@@ -265,6 +266,7 @@ export function Sidebar({
                       ))}
                       {hidden > 0 && (
                         <button
+                          type="button"
                           onClick={() => setSpaceShowAll((m) => ({ ...m, [sp.cwd]: true }))}
                           className="flex h-8 w-full items-center gap-2 rounded-lg pl-8 pr-2 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
                         >
@@ -274,6 +276,7 @@ export function Sidebar({
                       )}
                       {showAll && sp.sessions.length > SPACE_SESSION_LIMIT && (
                         <button
+                          type="button"
                           onClick={() => setSpaceShowAll((m) => ({ ...m, [sp.cwd]: false }))}
                           className="flex h-8 w-full items-center gap-2 rounded-lg pl-8 pr-2 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
                         >
@@ -300,7 +303,14 @@ export function Sidebar({
                 title="聊天操作"
                 items={[
                   { key: "new", icon: "plus", label: "新建聊天", onClick: () => void createSession("chat") },
-                  { key: "clear", icon: "x", label: "清空聊天列表", danger: true, confirm: true, onClick: () => void clearAllChats() },
+                  {
+                    key: "clear",
+                    icon: "x",
+                    label: "清空聊天列表",
+                    danger: true,
+                    confirm: true,
+                    onClick: () => void clearAllChats(),
+                  },
                 ]}
               />
             }
@@ -337,6 +347,7 @@ export function Sidebar({
       {/* 底部：新对话 + 设置 */}
       <div className="flex items-center gap-1 border-t border-border px-2 py-2">
         <button
+          type="button"
           onClick={() => void createSession("chat")}
           className="flex flex-1 items-center gap-2 rounded-lg px-2 py-2 text-[13px] text-text-primary hover:bg-bg-hover"
         >
@@ -344,6 +355,7 @@ export function Sidebar({
           新对话
         </button>
         <button
+          type="button"
           onClick={() => {
             void (async () => {
               const dir = await window.spcode.pickDirectory();
@@ -356,6 +368,7 @@ export function Sidebar({
           <Icon name="folder" size={16} />
         </button>
         <button
+          type="button"
           onClick={onOpenSettings}
           title="设置"
           className="rounded-lg p-2 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
@@ -386,6 +399,7 @@ function SectionHeader({
   return (
     <div className="flex items-center justify-between px-2 pb-1 pt-3">
       <button
+        type="button"
         onClick={onToggle}
         title={collapsed ? `展开${label}` : `收起${label}`}
         className={`-ml-1 flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium transition-colors ${
@@ -435,9 +449,7 @@ function SessionRow({
       onClick={onOpen}
       title={r.title}
     >
-      <span
-        className={`shrink-0 rounded-full ${active ? "h-1.5 w-1.5 bg-accent" : "h-1 w-1 bg-text-tertiary/70"}`}
-      />
+      <span className={`shrink-0 rounded-full ${active ? "h-1.5 w-1.5 bg-accent" : "h-1 w-1 bg-text-tertiary/70"}`} />
       <span className={`min-w-0 flex-1 truncate text-[13px] ${active ? "text-accent" : "text-text-secondary"}`}>
         {r.title}
       </span>
@@ -457,6 +469,7 @@ function SessionRow({
         </span>
       )}
       <button
+        type="button"
         onClick={(e) => {
           e.stopPropagation();
           onDelete();
@@ -511,6 +524,7 @@ function SectionMenu({ title, items }: { title: string; items: SectionMenuItem[]
   return (
     <>
       <button
+        type="button"
         ref={btnRef}
         onClick={() => (open ? setOpen(false) : openMenu())}
         className="rounded p-0.5 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
@@ -528,6 +542,7 @@ function SectionMenu({ title, items }: { title: string; items: SectionMenuItem[]
             const confirming = confirmKey === item.key;
             return (
               <button
+                type="button"
                 key={item.key}
                 onClick={() => {
                   if (item.confirm && !confirming) {

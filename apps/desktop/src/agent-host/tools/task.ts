@@ -6,11 +6,11 @@
  * 防递归：会话深度达到 MAX_TASK_DEPTH 后不再提供 Task 工具
  * （主会话 depth=0 → 子代理 depth=1 可再嵌套一层 → depth=2 起无 Task）。
  */
-import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
+
 import type { Model } from "@earendil-works/pi-ai";
-import { Type, type Static } from "typebox";
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ModelRuntime, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
+import { type Static, Type } from "typebox";
 
 /** 可获得 Task 工具的会话深度上限：0=主会话、1=子代理可嵌套，2 起不再提供 */
 const MAX_TASK_DEPTH = 2;
@@ -50,8 +50,7 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
         thinkingLevel: ctx.thinkingLevel as any,
         sessionManager: SessionManager.inMemory(),
         // 子会话深度 +1；达到上限后子会话不再拿到 Task（评审 P2-5：让条件与头注释同口径）
-        customTools:
-          ctx.depth + 1 < MAX_TASK_DEPTH ? [createTaskTool({ ...ctx, depth: ctx.depth + 1 })] : undefined,
+        customTools: ctx.depth + 1 < MAX_TASK_DEPTH ? [createTaskTool({ ...ctx, depth: ctx.depth + 1 })] : undefined,
       });
       try {
         const onAbort = () => void session.abort();

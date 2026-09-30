@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
 import { Switch } from "./ui/Switch";
@@ -24,17 +24,16 @@ export function ModelsPage() {
   const [catalog, setCatalog] = useState<CatalogProvider[]>([]);
   const [detail, setDetail] = useState<string | null>(null);
 
-  useEffect(() => {
-    void reload();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const reload = () => {
+  const reload = useCallback(() => {
     void window.spcode
       .command<CatalogProvider[]>({ type: "models.catalog" })
       .then((c) => setCatalog(c ?? []))
       .catch(() => setCatalog([]));
-  };
+  }, []);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
 
   const disabledProviders = useMemo(() => new Set(settings?.disabledProviders ?? []), [settings]);
   const disabledModels = useMemo(() => new Set(settings?.disabledModels ?? []), [settings]);
@@ -138,7 +137,11 @@ function ProviderRow({
       <span className="text-text-tertiary" aria-hidden>
         ⠿
       </span>
-      <button onClick={onOpen} className="min-w-0 flex-1 truncate text-left text-[14px] text-text-primary">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="min-w-0 flex-1 truncate text-left text-[14px] text-text-primary"
+      >
         {provider.name}
       </button>
       {enabled && provider.configured && (
@@ -150,7 +153,7 @@ function ProviderRow({
         // 未配置密钥的厂商没有可启停的东西：保存密钥后自动出现可用模型
         <span className="shrink-0 text-[12px] text-text-tertiary">未配置密钥</span>
       )}
-      <button onClick={onOpen} className="shrink-0 text-text-tertiary hover:text-text-secondary">
+      <button type="button" onClick={onOpen} className="shrink-0 text-text-tertiary hover:text-text-secondary">
         <Icon name="chevronRight" size={15} />
       </button>
     </div>
@@ -189,7 +192,11 @@ function ProviderDetail({
 
   return (
     <div>
-      <button onClick={onBack} className="mb-4 flex items-center gap-1.5 text-[13px] text-text-tertiary hover:text-text-primary">
+      <button
+        type="button"
+        onClick={onBack}
+        className="mb-4 flex items-center gap-1.5 text-[13px] text-text-tertiary hover:text-text-primary"
+      >
         <Icon name="chevronRight" size={13} style={{ transform: "rotate(180deg)" }} />
         返回
       </button>
@@ -206,6 +213,7 @@ function ProviderDetail({
           className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-text-tertiary"
         />
         <button
+          type="button"
           onClick={() => void saveKey()}
           disabled={!key.trim()}
           className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-[12px] text-white hover:bg-accent-dim disabled:opacity-40"
@@ -214,7 +222,9 @@ function ProviderDetail({
         </button>
       </div>
 
-      <div className="mb-2 mt-6 text-[13px] font-semibold text-text-secondary">可用模型（{provider.models.length}）</div>
+      <div className="mb-2 mt-6 text-[13px] font-semibold text-text-secondary">
+        可用模型（{provider.models.length}）
+      </div>
       <div className="space-y-1.5">
         {provider.models.length === 0 && <div className="text-[12px] text-text-tertiary">该供应商暂无目录内模型。</div>}
         {provider.models.map((m) => {
@@ -224,7 +234,9 @@ function ProviderDetail({
             <div key={k} className="flex items-center gap-3 rounded-xl border border-border bg-bg-elevated px-4 py-2.5">
               <Icon name="cpu" size={14} className="shrink-0 text-text-tertiary" />
               <span className="min-w-0 flex-1 truncate text-[13px] text-text-primary">{m.displayName}</span>
-              {m.reasoning && <span className="shrink-0 rounded-full bg-thinking/15 px-2 py-0.5 text-[11px] text-thinking">推理</span>}
+              {m.reasoning && (
+                <span className="shrink-0 rounded-full bg-thinking/15 px-2 py-0.5 text-[11px] text-thinking">推理</span>
+              )}
               <Switch on={enabled} onChange={(v) => onToggleModel(k, v)} label={`${m.displayName} 启用`} />
             </div>
           );

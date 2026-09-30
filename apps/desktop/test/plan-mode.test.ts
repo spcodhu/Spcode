@@ -7,11 +7,11 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { afterAll, describe, expect, it } from "vitest";
 import { MemoryStore } from "../src/agent-host/memory-store.js";
 import { isPlanModeSafeCommand } from "../src/agent-host/plan-mode.js";
-import { SessionController, classifyToolRisk } from "../src/agent-host/session-controller.js";
+import { classifyToolRisk, SessionController } from "../src/agent-host/session-controller.js";
 import { createExitPlanModeTool, EXIT_PLAN_QUESTION } from "../src/agent-host/tools/exit-plan-mode.js";
 import { createWritePlanTool } from "../src/agent-host/tools/write-plan.js";
 

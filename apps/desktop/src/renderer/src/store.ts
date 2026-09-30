@@ -8,8 +8,7 @@
  * （浅拷贝后修改），否则 selector 订阅不触发重渲染。消息内容本身可变，
  * 列表组件不做 memo，直接读最新值。
  */
-import { create } from "zustand";
-import { baseName, cleanSessionTitle } from "@spcode/shared";
+
 import type {
   AppSettings,
   HostEvent,
@@ -24,6 +23,8 @@ import type {
   UsageAggregate,
   UsageRecord,
 } from "@spcode/shared";
+import { baseName, cleanSessionTitle } from "@spcode/shared";
+import { create } from "zustand";
 
 // ---------------------------------------------------------------------------
 // UI 消息模型
@@ -82,7 +83,6 @@ export function flattenSegments(messages: ChatMessage[]): Segment[] {
       } else if (s.kind === "tools" && last?.kind === "tools") {
         last.calls = [...last.calls, ...s.calls];
       } else if (s.kind === "text" && !s.text.trim()) {
-        continue;
       } else {
         out.push(s.kind === "tools" ? { ...s, calls: [...s.calls] } : { ...s });
       }
@@ -209,10 +209,7 @@ interface PiContentBlock {
  * 直接按序转段：相邻同类合并，工具调用相邻的并入同一批。
  * toolResults 用于历史回放时回填工具输出。
  */
-function contentToSegments(
-  content: unknown,
-  toolResults?: Map<string, { text: string; isError: boolean }>,
-): Segment[] {
+function contentToSegments(content: unknown, toolResults?: Map<string, { text: string; isError: boolean }>): Segment[] {
   if (!Array.isArray(content)) return [];
   const out: Segment[] = [];
   for (const b of content as PiContentBlock[]) {
@@ -338,14 +335,15 @@ function appendDelta(session: SessionState, kind: "text" | "thinking", delta: st
 /** 消息是否完全没有内容（空占位判定） */
 function isEmptyMessage(m: ChatMessage): boolean {
   return !m.segments.some(
-    (s) => ((s.kind === "text" || s.kind === "thinking") && s.text.trim()) || (s.kind === "tools" && s.calls.length > 0),
+    (s) =>
+      ((s.kind === "text" || s.kind === "thinking") && s.text.trim()) || (s.kind === "tools" && s.calls.length > 0),
   );
 }
 
 /** 收尾悬挂的流式消息：空占位直接丢弃，已有内容则定格（运行结束/出错时调用） */
 function settleStreamingTail(session: SessionState): void {
   const last = session.messages[session.messages.length - 1];
-  if (!last || last.role !== "assistant" || !last.streaming) return;
+  if (last?.role !== "assistant" || !last.streaming) return;
   if (isEmptyMessage(last)) {
     session.messages.pop();
   } else {
@@ -358,8 +356,7 @@ function applySessionEvent(session: SessionState, event: Record<string, unknown>
   const type = event.type as string;
   switch (type) {
     case "message_update": {
-      const ame = (event as { assistantMessageEvent?: { type: string; delta?: string } })
-        .assistantMessageEvent;
+      const ame = (event as { assistantMessageEvent?: { type: string; delta?: string } }).assistantMessageEvent;
       if (!ame) break;
       if (ame.type === "text_delta" && ame.delta) {
         appendDelta(session, "text", ame.delta);
@@ -422,7 +419,7 @@ function applySessionEvent(session: SessionState, event: Record<string, unknown>
 function findToolCall(session: SessionState, id: string): ToolCallState | undefined {
   for (let i = session.messages.length - 1; i >= 0; i--) {
     const m = session.messages[i];
-    if (!m || m.role !== "assistant") continue;
+    if (m?.role !== "assistant") continue;
     for (let j = m.segments.length - 1; j >= 0; j--) {
       const seg = m.segments[j];
       if (seg?.kind === "tools") {
@@ -487,11 +484,7 @@ export function historyToMessages(messages: unknown[]): ChatMessage[] {
 }
 
 /** 浅拷贝 SessionState + messages 数组后再修改，保证引用变化触发渲染 */
-function touchSession(
-  s: StoreState,
-  sessionId: string,
-  mutate: (draft: SessionState) => void,
-): StoreState {
+function touchSession(s: StoreState, sessionId: string, mutate: (draft: SessionState) => void): StoreState {
   const old = s.sessions[sessionId];
   if (!old) return s;
   const draft: SessionState = { ...old, messages: [...old.messages], usage: { ...old.usage } };
@@ -580,7 +573,7 @@ export const useStore = create<StoreState>((set, get) => ({
       id,
       mode,
       cwd: cwd ?? "",
-      title: mode === "chat" ? "新聊天" : (cwd ? baseName(cwd) || "新项目" : "新项目"),
+      title: mode === "chat" ? "新聊天" : cwd ? baseName(cwd) || "新项目" : "新项目",
       model,
       thinkingLevel,
       createdAt: now,

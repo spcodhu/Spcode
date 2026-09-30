@@ -9,7 +9,7 @@
  * 下载完成后不自动重启：弹系统对话框让用户选「立即重启更新 / 稍后」，
  * 避免长任务/定时任务运行中被零感知重启截断。
  */
-import { app, dialog, type BrowserWindow } from "electron";
+import { app, type BrowserWindow, dialog } from "electron";
 import pkg from "electron-updater";
 
 const { autoUpdater } = pkg;

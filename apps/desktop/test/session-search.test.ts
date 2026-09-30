@@ -5,8 +5,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { findHitsInLines, searchSessions } from "../src/main/session-search.js";
 import type { SessionRegistryEntry } from "../src/main/session-registry.js";
+import { findHitsInLines, searchSessions } from "../src/main/session-search.js";
 
 let dir = "";
 
@@ -23,7 +23,17 @@ function jsonlMessage(role: string, text: string, ts = "2026-09-29T10:00:00.000Z
 }
 
 function entry(id: string, title: string, sessionFile: string | null, updatedAt = 0): SessionRegistryEntry {
-  return { id, mode: "chat", cwd: "", title, model: null, thinkingLevel: "medium", sessionFile, createdAt: 0, updatedAt };
+  return {
+    id,
+    mode: "chat",
+    cwd: "",
+    title,
+    model: null,
+    thinkingLevel: "medium",
+    sessionFile,
+    createdAt: 0,
+    updatedAt,
+  };
 }
 
 describe("findHitsInLines", () => {
@@ -49,10 +59,7 @@ describe("findHitsInLines", () => {
   });
 
   it("坏行跳过、每个会话最多 3 条命中", () => {
-    const lines = [
-      "这不是 JSON",
-      ...Array.from({ length: 6 }, (_, i) => jsonlMessage("user", `第 ${i} 条包含关键词`)),
-    ];
+    const lines = ["这不是 JSON", ...Array.from({ length: 6 }, (_, i) => jsonlMessage("user", `第 ${i} 条包含关键词`))];
     const hits = findHitsInLines(lines, "关键词");
     expect(hits).toHaveLength(3);
   });
@@ -62,11 +69,8 @@ describe("searchSessions", () => {
   it("标题命中排正文命中前面；无会话文件的条目只匹配标题", async () => {
     dir = mkdtempSync(join(tmpdir(), "spcode-search-"));
     const file = join(dir, "s1.jsonl");
-    writeFileSync(file, jsonlMessage("user", "聊聊小米手机的品控") + "\n", "utf-8");
-    const entries = [
-      entry("a", "随便聊聊", file, 100),
-      entry("b", "小米手机选购", null, 200),
-    ];
+    writeFileSync(file, `${jsonlMessage("user", "聊聊小米手机的品控")}\n`, "utf-8");
+    const entries = [entry("a", "随便聊聊", file, 100), entry("b", "小米手机选购", null, 200)];
     const results = await searchSessions(entries, "小米");
     expect(results).toHaveLength(2);
     expect(results[0].id).toBe("b"); // 标题命中优先

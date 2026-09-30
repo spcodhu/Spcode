@@ -1,6 +1,6 @@
+import type { QuestionRequest } from "@spcode/shared";
 import { useState } from "react";
 import { useStore } from "../store";
-import type { QuestionRequest } from "@spcode/shared";
 import { Icon } from "./Icon";
 
 /**
@@ -44,9 +44,7 @@ function QuestionCard({ request, queueSize }: { request: QuestionRequest; queueS
   };
 
   const isSelected = (label: string) => (answers[idx] ?? "").split(", ").includes(label);
-  const answeredAny = request.questions.some(
-    (_item, i) => freeText[i]?.trim() || answers[i],
-  );
+  const answeredAny = request.questions.some((_item, i) => freeText[i]?.trim() || answers[i]);
 
   const submit = () => {
     // 协议以问题文本为键（ask-user 工具渲染 Q/A 对）；同文案题后者覆盖前者，属可接受边界
@@ -64,13 +62,12 @@ function QuestionCard({ request, queueSize }: { request: QuestionRequest; queueS
         <div className="min-w-0">
           {q.header && <div className="mb-1 text-[11px] font-medium text-accent">{q.header}</div>}
           <div className="text-[14px] font-semibold leading-5 text-text-primary">{q.question}</div>
-          {queueSize > 1 && (
-            <div className="mt-0.5 text-[11px] text-text-tertiary">还有 {queueSize - 1} 组提问</div>
-          )}
+          {queueSize > 1 && <div className="mt-0.5 text-[11px] text-text-tertiary">还有 {queueSize - 1} 组提问</div>}
         </div>
         {total > 1 && (
           <div className="flex shrink-0 items-center gap-0.5 text-[12px] tabular-nums text-text-tertiary">
             <button
+              type="button"
               disabled={idx === 0}
               onClick={() => setPage(idx - 1)}
               title="上一题"
@@ -82,6 +79,7 @@ function QuestionCard({ request, queueSize }: { request: QuestionRequest; queueS
               {idx + 1}/{total}
             </span>
             <button
+              type="button"
               disabled={idx === total - 1}
               onClick={() => setPage(idx + 1)}
               title="下一题"
@@ -100,6 +98,7 @@ function QuestionCard({ request, queueSize }: { request: QuestionRequest; queueS
             const selected = isSelected(o.label);
             return (
               <button
+                type="button"
                 key={o.label}
                 onClick={() => choose(o.label)}
                 className={`flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors ${
@@ -108,17 +107,13 @@ function QuestionCard({ request, queueSize }: { request: QuestionRequest; queueS
               >
                 <span
                   className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border text-[11px] ${
-                    selected
-                      ? "border-accent/60 bg-accent/15 text-accent"
-                      : "border-border text-text-tertiary"
+                    selected ? "border-accent/60 bg-accent/15 text-accent" : "border-border text-text-tertiary"
                   }`}
                 >
                   {selected && q.multiSelect ? <Icon name="check" size={11} /> : i + 1}
                 </span>
                 <span className="min-w-0">
-                  <span
-                    className={`block text-[13px] leading-5 ${selected ? "text-accent" : "text-text-primary"}`}
-                  >
+                  <span className={`block text-[13px] leading-5 ${selected ? "text-accent" : "text-text-primary"}`}>
                     {o.label}
                   </span>
                   {o.description && (
@@ -147,12 +142,14 @@ function QuestionCard({ request, queueSize }: { request: QuestionRequest; queueS
       {/* 底部：取消 + 发送 */}
       <div className="flex items-center justify-end gap-3 px-4 py-3">
         <button
+          type="button"
           onClick={() => reply(request.requestId, {})}
           className="text-[13px] text-text-tertiary transition-colors hover:text-text-secondary"
         >
           取消
         </button>
         <button
+          type="button"
           onClick={submit}
           title="提交回答"
           className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors ${

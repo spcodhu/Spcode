@@ -4,7 +4,7 @@
  */
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { type UsageAggregate, type UsageRecord } from "@spcode/shared";
+import type { UsageAggregate, UsageRecord } from "@spcode/shared";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 
 export interface DailyUsage {
@@ -35,7 +35,7 @@ export class UsageLedger {
 
   append(record: UsageRecord): void {
     const line = JSON.stringify({ ...record, date: UsageLedger.dateOf(record.timestamp) });
-    appendFileSync(this.fileFor(UsageLedger.dateOf(record.timestamp)), line + "\n", "utf-8");
+    appendFileSync(this.fileFor(UsageLedger.dateOf(record.timestamp)), `${line}\n`, "utf-8");
   }
 
   private readDay(date: string): UsageRecord[] {
@@ -72,8 +72,7 @@ export class UsageLedger {
         const byModel: Record<string, UsageAggregate> = {};
         for (const r of records) {
           foldInto(total, r);
-          const key = `${r.model.provider}/${r.model.modelId}`;
-          foldInto((byModel[key] ??= emptyAgg()), r);
+          foldByModel(byModel, r);
         }
         return { date, total, byModel };
       });
@@ -103,8 +102,7 @@ export class UsageLedger {
     for (const date of picked) {
       for (const r of this.readDay(date)) {
         foldInto(total, r);
-        const key = `${r.model.provider}/${r.model.modelId}`;
-        foldInto((byModel[key] ??= emptyAgg()), r);
+        foldByModel(byModel, r);
       }
     }
     return { total, byModel };
@@ -137,4 +135,15 @@ function foldInto(agg: UsageAggregate, r: UsageRecord): void {
   agg.costCacheWrite += r.costCacheWrite;
   agg.costTotal += r.costTotal;
   agg.count += 1;
+}
+
+/** 按 provider/modelId 分桶聚合（get-or-create 后折叠） */
+function foldByModel(byModel: Record<string, UsageAggregate>, r: UsageRecord): void {
+  const key = `${r.model.provider}/${r.model.modelId}`;
+  let agg = byModel[key];
+  if (!agg) {
+    agg = emptyAgg();
+    byModel[key] = agg;
+  }
+  foldInto(agg, r);
 }

@@ -4,7 +4,7 @@
  */
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type ModelRef, type SessionMode } from "@spcode/shared";
+import type { ModelRef, SessionMode } from "@spcode/shared";
 import { readJsonFile, resolveSpcodeHome } from "@spcode/shared/node";
 
 export interface SessionRegistryEntry {

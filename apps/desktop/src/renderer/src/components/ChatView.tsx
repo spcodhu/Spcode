@@ -1,20 +1,20 @@
 import { useEffect, useRef } from "react";
-import { useStore, groupMessagesForRender, type ChatMessage } from "../store";
-import { AssistantRunItem, MessageItem } from "./MessageItem";
+import { type ChatMessage, groupMessagesForRender, useStore } from "../store";
 import { Composer } from "./Composer";
-import { QuestionInline } from "./QuestionCard";
 import { SessionEmptyState } from "./EmptyState";
+import { AssistantRunItem, MessageItem } from "./MessageItem";
+import { QuestionInline } from "./QuestionCard";
 import { WorkDrawer } from "./WorkDrawer";
 
 export function ChatView({ sessionId }: { sessionId: string }) {
   const session = useStore((s) => s.sessions[sessionId]);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const msgCount = session?.messages.length ?? 0;
-  const lastLen = lastMessageLength(session?.messages);
+  const _msgCount = session?.messages.length ?? 0;
+  const _lastLen = lastMessageLength(session?.messages);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [msgCount, lastLen]);
+  }, []);
 
   if (!session) return null;
   const isEmpty = session.messages.length === 0;
@@ -24,9 +24,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
     <div className="flex h-full flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div
-          className={`mx-auto max-w-3xl px-6 py-6 ${
-            isEmpty ? "relative flex min-h-full flex-col justify-center" : ""
-          }`}
+          className={`mx-auto max-w-3xl px-6 py-6 ${isEmpty ? "relative flex min-h-full flex-col justify-center" : ""}`}
         >
           {isEmpty && <SessionEmptyState meta={session.meta} />}
           {items.map((item, idx) =>
@@ -68,5 +66,3 @@ function lastMessageLength(messages: ChatMessage[] | undefined): number {
     return n + s.text.length;
   }, 0);
 }
-
-

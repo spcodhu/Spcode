@@ -11,7 +11,7 @@
  * 注入发生在会话创建时（appendSystemPrompt）；蒸馏发生在 agent_settled 后，
  * 由 distill.ts 驱动模型把值得长期保留的事实写回 MEMORY.md 与当日日志。
  */
-import { existsSync, mkdirSync, readFileSync, appendFileSync, writeFileSync, readdirSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { baseName } from "@spcode/shared";
 
@@ -63,10 +63,13 @@ export class MemoryStore {
 （暂无。会话结束时蒸馏会自动把值得记住的项目动态写到这里。）
 `,
     );
-    this.seedIfMissing(join("memory", "lessons.md"), `# lessons.md - 教训库
+    this.seedIfMissing(
+      join("memory", "lessons.md"),
+      `# lessons.md - 教训库
 
 （从失败与纠正中学到的工具/命令规则。格式：- [信任分 0-100] 规则）
-`);
+`,
+    );
   }
 
   private seedIfMissing(relPath: string, content: string): void {
@@ -82,7 +85,7 @@ export class MemoryStore {
     if (!existsSync(file)) return "";
     let text = readFileSync(file, "utf-8").trim();
     if (text.length > maxChars) {
-      text = text.slice(0, maxChars) + "\n…（超出容量已截断）";
+      text = `${text.slice(0, maxChars)}\n…（超出容量已截断）`;
     }
     return text;
   }
@@ -107,7 +110,10 @@ export class MemoryStore {
     const memory = this.readCapped("MEMORY.md", MEMORY_MD_MAX_CHARS);
     if (memory) parts.push(`<long-term-memory>\n${memory}\n</long-term-memory>`);
     if (isProject && cwd) {
-      const proj = this.readCapped(join("memory", "projects", `${MemoryStore.projectSlug(cwd)}.md`), PROJECT_MD_MAX_CHARS);
+      const proj = this.readCapped(
+        join("memory", "projects", `${MemoryStore.projectSlug(cwd)}.md`),
+        PROJECT_MD_MAX_CHARS,
+      );
       if (proj) parts.push(`<project-memory project="${cwd}">\n${proj}\n</project-memory>`);
     }
     const lessons = this.readCapped(join("memory", "lessons.md"), 1200);
@@ -143,7 +149,7 @@ export class MemoryStore {
     if (body.length > MEMORY_MD_MAX_CHARS) {
       const cut = body.slice(0, MEMORY_MD_MAX_CHARS);
       const lastNl = cut.lastIndexOf("\n");
-      body = (lastNl > 0 ? cut.slice(0, lastNl) : cut) + "\n";
+      body = `${lastNl > 0 ? cut.slice(0, lastNl) : cut}\n`;
     }
     writeFileSync(file, body, "utf-8");
   }

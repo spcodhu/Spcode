@@ -1,21 +1,32 @@
 /**
  * Spcode 主进程入口：窗口、IPC、会话注册表、定时任务调度、自动更新（未配置更新源时静默跳过）。
  */
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+
+import { randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { IPC, baseName, cleanSessionTitle, type AppSettings, type HostCommand, type HostEvent, type ScheduleTask, type ScheduleTaskInput, type SessionMode } from "@spcode/shared";
+import {
+  type AppSettings,
+  baseName,
+  cleanSessionTitle,
+  type HostCommand,
+  type HostEvent,
+  IPC,
+  type ScheduleTask,
+  type ScheduleTaskInput,
+  type SessionMode,
+} from "@spcode/shared";
 import { resolveSpcodeHome } from "@spcode/shared/node";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { AgentBridge } from "./agent-bridge.js";
 import { QuotaService } from "./quota-service.js";
 import { Scheduler } from "./scheduler.js";
-import { searchSessions } from "./session-search.js";
 import { SessionRegistry } from "./session-registry.js";
+import { searchSessions } from "./session-search.js";
 import { SettingsStore } from "./settings-store.js";
-import { UsageLedger } from "./usage-ledger.js";
 import { setupAutoUpdater } from "./updater.js";
+import { UsageLedger } from "./usage-ledger.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -107,13 +118,15 @@ function isDefaultTitle(title: string, cwd: string): boolean {
 }
 
 /** 会话创建/恢复成功后回填 sessionFile 到注册表（支撑下次恢复） */
-function backfillSessionFile(
-  cmd: HostCommand,
-  result: unknown,
-): void {
+function backfillSessionFile(cmd: HostCommand, result: unknown): void {
   if (cmd.type !== "session.create" && cmd.type !== "session.open") return;
   const data = result as
-    | { sessionId?: string; sessionFile?: string | null; model?: { provider: string; modelId: string } | null; thinkingLevel?: string }
+    | {
+        sessionId?: string;
+        sessionFile?: string | null;
+        model?: { provider: string; modelId: string } | null;
+        thinkingLevel?: string;
+      }
     | undefined;
   if (!data?.sessionId) return;
   const entry = registry.get(data.sessionId);
@@ -167,9 +180,7 @@ async function fireScheduledTask(task: ScheduleTask): Promise<string> {
   });
   const info = await bridge.call(createCmd);
   backfillSessionFile(createCmd, info);
-  await bridge.call(
-    AgentBridge.withId({ type: "session.prompt", payload: { sessionId, text: task.prompt } }),
-  );
+  await bridge.call(AgentBridge.withId({ type: "session.prompt", payload: { sessionId, text: task.prompt } }));
   return sessionId;
 }
 
@@ -195,7 +206,7 @@ function registerIpc(): void {
         id: cmd.payload.sessionId,
         mode: cmd.payload.mode,
         cwd: cmd.payload.cwd,
-        title: cmd.payload.mode === "chat" ? "新聊天" : (baseName(cmd.payload.cwd) || "新项目"),
+        title: cmd.payload.mode === "chat" ? "新聊天" : baseName(cmd.payload.cwd) || "新项目",
         model: cmd.payload.model ?? settings.get().defaultModel,
         thinkingLevel: cmd.payload.thinkingLevel ?? settings.get().defaultThinkingLevel,
         sessionFile: null,
@@ -238,7 +249,9 @@ function registerIpc(): void {
   // 定时任务 CRUD + 立即试运行
   ipcMain.handle(IPC.scheduleList, () => scheduler.list());
   ipcMain.handle(IPC.scheduleCreate, (_e, input: ScheduleTaskInput) => scheduler.create(input));
-  ipcMain.handle(IPC.scheduleUpdate, (_e, id: string, patch: Partial<ScheduleTaskInput>) => scheduler.update(id, patch));
+  ipcMain.handle(IPC.scheduleUpdate, (_e, id: string, patch: Partial<ScheduleTaskInput>) =>
+    scheduler.update(id, patch),
+  );
   ipcMain.handle(IPC.scheduleDelete, (_e, id: string) => scheduler.remove(id));
   ipcMain.handle(IPC.scheduleRunNow, (_e, id: string) => scheduler.runNow(id));
   ipcMain.handle(IPC.removeSession, (_e, id: string) => {
@@ -246,9 +259,7 @@ function registerIpc(): void {
     // 计划文件（~/.spcode/plans/<id>.md）随会话一并清理
     rmSync(join(resolveSpcodeHome(), "plans", `${id}.md`), { force: true });
     // 宿主里的活跃实例也一并释放
-    void bridge
-      .call({ id: `dispose-${id}`, type: "session.dispose", payload: { sessionId: id } })
-      .catch(() => {});
+    void bridge.call({ id: `dispose-${id}`, type: "session.dispose", payload: { sessionId: id } }).catch(() => {});
   });
 
   ipcMain.handle(IPC.usageSummary, (_e, days?: number) => ledger.summarize(days ?? 14));
@@ -363,22 +374,25 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   void app.whenReady().then(async () => {
-  registerIpc();
-  watchSessionLifecycle();
-  // 宿主每次 ready（含崩溃重启后）都重推一次运行时设置
-  bridge.onEvent((event) => {
-    if (event.type === "ready") {
-      bridge.push({ type: "memory.setDistillEnabled", payload: { enabled: settings.get().memoryDistill } });
-    }
-  });
-  await bridge.start();
-  scheduler.start();
-  createWindow();
-  setupAutoUpdater(() => settings.get().autoUpdate, () => mainWindow);
+    registerIpc();
+    watchSessionLifecycle();
+    // 宿主每次 ready（含崩溃重启后）都重推一次运行时设置
+    bridge.onEvent((event) => {
+      if (event.type === "ready") {
+        bridge.push({ type: "memory.setDistillEnabled", payload: { enabled: settings.get().memoryDistill } });
+      }
+    });
+    await bridge.start();
+    scheduler.start();
+    createWindow();
+    setupAutoUpdater(
+      () => settings.get().autoUpdate,
+      () => mainWindow,
+    );
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
   });
 }
 
