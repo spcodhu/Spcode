@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ScheduleFrequency, ScheduleTarget, ScheduleTask, ScheduleTaskInput } from "@spcode/shared";
-import { baseName } from "@spcode/shared";
+import { baseName, describeSchedule } from "@spcode/shared";
 import { formatRelative } from "../format";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
@@ -328,23 +328,4 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       {children}
     </div>
   );
-}
-
-/** 人性化周期描述（与 scheduler.ts 的 describeSchedule 同口径，渲染层本地实现避免跨进程引用） */
-function describeSchedule(t: ScheduleTask): string {
-  const hm = `${String(t.hour).padStart(2, "0")}:${String(t.minute).padStart(2, "0")}`;
-  switch (t.frequency) {
-    case "once":
-      return t.runAt
-        ? `单次 · ${new Date(t.runAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}`
-        : "单次";
-    case "hourly":
-      return `每小时 · 第 ${t.minute} 分`;
-    case "daily":
-      return `每天 ${hm}`;
-    case "weekday":
-      return `工作日 ${hm}`;
-    case "weekly":
-      return `每周${"日一二三四五六"[t.weekday ?? 1]} ${hm}`;
-  }
 }

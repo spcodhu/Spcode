@@ -24,9 +24,10 @@ export function QuestionInline({ sessionId }: { sessionId: string }) {
 
 function QuestionCard({ request, queueSize }: { request: QuestionRequest; queueSize: number }) {
   const reply = useStore((s) => s.replyQuestion);
-  // 每题一个答案；multiSelect 用逗号拼接
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [freeText, setFreeText] = useState<Record<string, string>>({});
+  // 每题一个答案，按题号索引（不按问题文本——同文案两题会互相覆盖，评审 P2-5）；
+  // multiSelect 用逗号拼接
+  const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [freeText, setFreeText] = useState<Record<number, string>>({});
   const [page, setPage] = useState(0);
 
   const total = request.questions.length;
@@ -35,23 +36,24 @@ function QuestionCard({ request, queueSize }: { request: QuestionRequest; queueS
 
   const choose = (label: string) => {
     setAnswers((m) => {
-      if (!q.multiSelect) return { ...m, [q.question]: label };
-      const cur = m[q.question] ? m[q.question]!.split(", ").filter(Boolean) : [];
+      if (!q.multiSelect) return { ...m, [idx]: label };
+      const cur = m[idx] ? m[idx]!.split(", ").filter(Boolean) : [];
       const next = cur.includes(label) ? cur.filter((x) => x !== label) : [...cur, label];
-      return { ...m, [q.question]: next.join(", ") };
+      return { ...m, [idx]: next.join(", ") };
     });
   };
 
-  const isSelected = (label: string) => (answers[q.question] ?? "").split(", ").includes(label);
+  const isSelected = (label: string) => (answers[idx] ?? "").split(", ").includes(label);
   const answeredAny = request.questions.some(
-    (item) => freeText[item.question]?.trim() || answers[item.question],
+    (_item, i) => freeText[i]?.trim() || answers[i],
   );
 
   const submit = () => {
+    // 协议以问题文本为键（ask-user 工具渲染 Q/A 对）；同文案题后者覆盖前者，属可接受边界
     const merged: Record<string, string> = {};
-    for (const item of request.questions) {
-      merged[item.question] = freeText[item.question]?.trim() || answers[item.question] || "";
-    }
+    request.questions.forEach((item, i) => {
+      merged[item.question] = freeText[i]?.trim() || answers[i] || "";
+    });
     reply(request.requestId, merged);
   };
 
@@ -132,8 +134,8 @@ function QuestionCard({ request, queueSize }: { request: QuestionRequest; queueS
       {/* 自由输入：任何题都可以直接打字回答，回车提交 */}
       <div className="px-4 pt-2.5">
         <input
-          value={freeText[q.question] ?? ""}
-          onChange={(e) => setFreeText((m) => ({ ...m, [q.question]: e.target.value }))}
+          value={freeText[idx] ?? ""}
+          onChange={(e) => setFreeText((m) => ({ ...m, [idx]: e.target.value }))}
           onKeyDown={(e) => {
             if (e.key === "Enter") submit();
           }}

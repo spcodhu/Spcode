@@ -225,6 +225,25 @@ export interface ScheduleTask {
 /** 新建/编辑定时任务的输入（id/运行状态由系统维护） */
 export type ScheduleTaskInput = Omit<ScheduleTask, "id" | "createdAt" | "lastRunAt" | "lastStatus" | "lastError">;
 
+/** 人性化周期描述（UI 与通知同口径——评审 P2-5：收敛原 scheduler/SchedulePage 双实现） */
+export function describeSchedule(task: ScheduleTask): string {
+  const hm = `${String(task.hour).padStart(2, "0")}:${String(task.minute).padStart(2, "0")}`;
+  switch (task.frequency) {
+    case "once":
+      return task.runAt
+        ? `单次 · ${new Date(task.runAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}`
+        : "单次";
+    case "hourly":
+      return `每小时 · 第 ${task.minute} 分`;
+    case "daily":
+      return `每天 ${hm}`;
+    case "weekday":
+      return `工作日 ${hm}`;
+    case "weekly":
+      return `每周${"日一二三四五六"[task.weekday ?? 1]} ${hm}`;
+  }
+}
+
 /** 兜底标题清洗：压平换行/多余空白，截断到 30 字（Finch 同款思路：首条用户消息推导） */
 export function cleanSessionTitle(text: string): string {
   return text.replace(/\s+/g, " ").trim().slice(0, 30);

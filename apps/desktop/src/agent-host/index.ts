@@ -96,6 +96,8 @@ async function getRuntime(): Promise<ModelRuntime> {
  *
  * 兜底：少数 provider 不支持交互式 api_key 登录（纯环境变量/IAM 型），
  * 直接合并写 auth.json + setRuntimeApiKey 让运行时立即生效。
+ * 写入结构 { type: "api_key", key } 已核对 pi 的 ApiKeyCredential 类型定义
+ * （pi-ai/dist/auth/types.d.ts），不是盲猜——评审 P2-5。
  */
 async function persistApiKey(rt: ModelRuntime, provider: string, apiKey: string): Promise<void> {
   try {
@@ -305,6 +307,13 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         break;
       }
       case "session.create": {
+        // 同 sessionId 重复 create：先结清并释放旧 controller，避免 AgentSession 泄漏（评审 P2-5）
+        const existing = sessions.get(cmd.payload.sessionId);
+        if (existing) {
+          settlePendingForSession(cmd.payload.sessionId);
+          await existing.dispose().catch(() => {});
+          sessions.delete(cmd.payload.sessionId);
+        }
         const ctl = await createController({
           sessionId: cmd.payload.sessionId,
           cwd: cmd.payload.cwd,
@@ -318,6 +327,13 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         break;
       }
       case "session.open": {
+        // 同 sessionId 重复 open：同 create，先释放旧实例
+        const existing = sessions.get(cmd.payload.sessionId);
+        if (existing) {
+          settlePendingForSession(cmd.payload.sessionId);
+          await existing.dispose().catch(() => {});
+          sessions.delete(cmd.payload.sessionId);
+        }
         const ctl = await createController({
           sessionId: cmd.payload.sessionId,
           cwd: cmd.payload.cwd,
@@ -429,10 +445,6 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
 // ---------------------------------------------------------------------------
 // 启动
 // ---------------------------------------------------------------------------
-
-process.parentPort.once("message", () => {
-  // 占位：确保 parentPort 可用
-});
 
 process.parentPort.on("message", (e: { data: unknown }) => {
   void handleCommand(e.data as HostCommand).catch((err) => {

@@ -3,13 +3,17 @@
  * 只带回结论。这是上下文管理的核心手段——读 50 个文件的脏活让子代理干，
  * 主上下文只留三行结论。
  *
- * 防递归：depth >= 2 时不再提供 Task 工具。
+ * 防递归：会话深度达到 MAX_TASK_DEPTH 后不再提供 Task 工具
+ * （主会话 depth=0 → 子代理 depth=1 可再嵌套一层 → depth=2 起无 Task）。
  */
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
 import type { Model } from "@earendil-works/pi-ai";
 import { Type, type Static } from "typebox";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+
+/** 可获得 Task 工具的会话深度上限：0=主会话、1=子代理可嵌套，2 起不再提供 */
+const MAX_TASK_DEPTH = 2;
 
 const taskSchema = Type.Object({
   description: Type.String({ description: "Short task title (3-8 words) shown to the user" }),
@@ -45,7 +49,9 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         thinkingLevel: ctx.thinkingLevel as any,
         sessionManager: SessionManager.inMemory(),
-        customTools: ctx.depth < 1 ? [createTaskTool({ ...ctx, depth: ctx.depth + 1 })] : undefined,
+        // 子会话深度 +1；达到上限后子会话不再拿到 Task（评审 P2-5：让条件与头注释同口径）
+        customTools:
+          ctx.depth + 1 < MAX_TASK_DEPTH ? [createTaskTool({ ...ctx, depth: ctx.depth + 1 })] : undefined,
       });
       try {
         const onAbort = () => void session.abort();

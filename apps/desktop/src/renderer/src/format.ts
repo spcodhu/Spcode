@@ -4,7 +4,7 @@
 export function formatZh(n: number): string {
   if (n >= 1e8) {
     const v = n / 1e8;
-    return `${trimNum(v, v >= 10 ? 2 : 2)}亿`;
+    return `${trimNum(v, v >= 10 ? 1 : 2)}亿`;
   }
   if (n >= 1e4) {
     const v = n / 1e4;

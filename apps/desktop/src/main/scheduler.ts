@@ -56,23 +56,6 @@ export function isDue(task: ScheduleTask, nowMs: number): boolean {
   return nowMs >= slot.getTime() && last < slot.getTime();
 }
 
-/** 人性化周期描述（UI 展示用，导出供渲染层复用同类文案） */
-export function describeSchedule(task: ScheduleTask): string {
-  const hm = `${String(task.hour).padStart(2, "0")}:${String(task.minute).padStart(2, "0")}`;
-  switch (task.frequency) {
-    case "once":
-      return task.runAt ? `单次 · ${new Date(task.runAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}` : "单次";
-    case "hourly":
-      return `每小时 · 第 ${task.minute} 分`;
-    case "daily":
-      return `每天 ${hm}`;
-    case "weekday":
-      return `工作日 ${hm}`;
-    case "weekly":
-      return `每周${"日一二三四五六"[task.weekday ?? 1]} ${hm}`;
-  }
-}
-
 export class Scheduler {
   private readonly file: string;
   private tasks: ScheduleTask[] | null = null;
