@@ -139,11 +139,7 @@ function TaskRow({ todo }: { todo: TodoItem }) {
       </span>
       <span
         className={`text-[12.5px] leading-5 ${
-          isDone
-            ? "text-text-tertiary line-through decoration-border-strong"
-            : isCurrent
-              ? "text-text-primary"
-              : "text-text-secondary"
+          isDone ? "text-text-tertiary" : isCurrent ? "text-text-primary" : "text-text-secondary"
         }`}
       >
         {isCurrent && todo.activeForm ? todo.activeForm : todo.content}
