@@ -7,7 +7,7 @@ import { basename, dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { IPC, SPCODE_HOME_DIRNAME, cleanSessionTitle, type AppSettings, type HostCommand, type HostEvent, type ScheduleTask, type ScheduleTaskInput, type SessionMode } from "@spcode/shared";
+import { IPC, SPCODE_HOME_DIRNAME, baseName, cleanSessionTitle, type AppSettings, type HostCommand, type HostEvent, type ScheduleTask, type ScheduleTaskInput, type SessionMode } from "@spcode/shared";
 import { AgentBridge } from "./agent-bridge.js";
 import { QuotaService } from "./quota-service.js";
 import { Scheduler } from "./scheduler.js";
@@ -103,7 +103,7 @@ function watchSessionLifecycle(): void {
 
 /** 判断标题是否仍是出厂默认（「新聊天」/「新项目」/目录名），是则允许用首条用户消息兜底 */
 function isDefaultTitle(title: string, cwd: string): boolean {
-  return title === "新聊天" || title === "新项目" || title === (cwd.split("/").pop() ?? "");
+  return title === "新聊天" || title === "新项目" || title === baseName(cwd);
 }
 
 /** 会话创建/恢复成功后回填 sessionFile 到注册表（支撑下次恢复） */
@@ -188,7 +188,7 @@ function registerIpc(): void {
         id: cmd.payload.sessionId,
         mode: cmd.payload.mode,
         cwd: cmd.payload.cwd,
-        title: cmd.payload.mode === "chat" ? "新聊天" : (cmd.payload.cwd.split("/").pop() ?? "新项目"),
+        title: cmd.payload.mode === "chat" ? "新聊天" : (baseName(cmd.payload.cwd) || "新项目"),
         model: cmd.payload.model ?? settings.get().defaultModel,
         thinkingLevel: cmd.payload.thinkingLevel ?? settings.get().defaultThinkingLevel,
         sessionFile: null,

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { formatRelative } from "../format";
 import { useStore, type RegistrySession } from "../store";
+import { baseName } from "@spcode/shared";
 import { Icon } from "./Icon";
 
 /** 空间内默认展示的会话数，超出部分折叠进「更多」 */
@@ -76,7 +77,7 @@ export function Sidebar({
     return [...map.entries()]
       .map(([cwd, list]) => ({
         cwd,
-        name: cwd.split("/").pop() ?? cwd,
+        name: baseName(cwd),
         sessions: list.sort((a, b) => b.updatedAt - a.updatedAt),
       }))
       .sort((a, b) => (b.sessions[0]?.updatedAt ?? 0) - (a.sessions[0]?.updatedAt ?? 0));

@@ -9,7 +9,7 @@
  * 列表组件不做 memo，直接读最新值。
  */
 import { create } from "zustand";
-import { cleanSessionTitle } from "@spcode/shared";
+import { baseName, cleanSessionTitle } from "@spcode/shared";
 import type {
   AppSettings,
   HostEvent,
@@ -580,7 +580,7 @@ export const useStore = create<StoreState>((set, get) => ({
       id,
       mode,
       cwd: cwd ?? "",
-      title: mode === "chat" ? "新聊天" : (cwd?.split("/").pop() ?? "新项目"),
+      title: mode === "chat" ? "新聊天" : (cwd ? baseName(cwd) || "新项目" : "新项目"),
       model,
       thinkingLevel,
       createdAt: now,
@@ -784,7 +784,7 @@ export const useStore = create<StoreState>((set, get) => ({
     // 侧栏标题即时兜底更新（AI RenameSession 之后可覆盖）
     set((s) => ({
       registrySessions: s.registrySessions.map((r) =>
-        r.id === sessionId && (r.title === "新聊天" || r.title === "新项目" || r.title === (r.cwd.split("/").pop() ?? ""))
+        r.id === sessionId && (r.title === "新聊天" || r.title === "新项目" || r.title === baseName(r.cwd))
           ? { ...r, title: cleanSessionTitle(text) || "图片消息", updatedAt: Date.now() }
           : r,
       ),

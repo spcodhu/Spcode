@@ -4,6 +4,7 @@
  * 交互参考主流 Agentic Code 工具（Cursor / Claude Code）的空态做法。
  */
 import { useState } from "react";
+import { baseName } from "@spcode/shared";
 import type { SessionMeta } from "@spcode/shared";
 import { Icon } from "./Icon";
 import { prefillComposer } from "./Composer";
@@ -76,11 +77,6 @@ function greetingOf(): string {
   if (h < 14) return "中午好";
   if (h < 18) return "下午好";
   return "晚上好";
-}
-
-function baseName(cwd: string): string {
-  const parts = cwd.split(/[\\/]/).filter(Boolean);
-  return parts[parts.length - 1] ?? cwd;
 }
 
 export function SessionEmptyState({ meta }: { meta: SessionMeta }) {

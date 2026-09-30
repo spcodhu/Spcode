@@ -227,6 +227,12 @@ export function cleanSessionTitle(text: string): string {
   return text.replace(/\s+/g, " ").trim().slice(0, 30);
 }
 
+/** 取路径最后一段（跨平台：同时认 / 与 \——渲染进程没有 node:path，统一从这里拿） */
+export function baseName(p: string): string {
+  const parts = p.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] ?? p;
+}
+
 /** 分布式 Omit：调用侧构造命令时省略 id（由通道层补发） */
 export type HostCommandInput = HostCommand extends infer C
   ? C extends { id: string }

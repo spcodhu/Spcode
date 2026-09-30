@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ScheduleFrequency, ScheduleTarget, ScheduleTask, ScheduleTaskInput } from "@spcode/shared";
+import { baseName } from "@spcode/shared";
 import { formatRelative } from "../format";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
@@ -102,7 +103,7 @@ export function SchedulePage({ onClose }: { onClose: () => void }) {
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-[14px] text-text-primary">{t.name}</div>
                       <div className="mt-0.5 text-[12px] text-text-tertiary">
-                        {describeSchedule(t)} · {t.target.kind === "project" ? `项目 ${t.target.cwd.split("/").pop()}` : "新聊天会话"}
+                        {describeSchedule(t)} · {t.target.kind === "project" ? `项目 ${baseName(t.target.cwd)}` : "新聊天会话"}
                         {t.lastStatus === "ok" && t.lastRunAt ? ` · 上次 ${formatRelative(t.lastRunAt)}` : ""}
                         {t.lastStatus === "error" ? ` · 上次失败：${t.lastError ?? "未知错误"}` : ""}
                       </div>
@@ -192,7 +193,7 @@ function TaskForm({
   const targetOptions = useMemo(() => {
     const cwds = new Map<string, string>();
     for (const r of registrySessions) {
-      if (r.mode === "project" && r.cwd) cwds.set(r.cwd, r.cwd.split("/").pop() ?? r.cwd);
+      if (r.mode === "project" && r.cwd) cwds.set(r.cwd, baseName(r.cwd));
     }
     return [
       { value: "chat", label: "新聊天会话" },

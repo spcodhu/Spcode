@@ -13,6 +13,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, appendFileSync, writeFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { baseName } from "@spcode/shared";
 
 const MEMORY_MD_MAX_CHARS = 3200; // ≈800 tokens 的中文上限
 const SOUL_MD_MAX_CHARS = 2000;
@@ -88,7 +89,7 @@ export class MemoryStore {
 
   /** 项目目录 → 项目记忆文件名 */
   static projectSlug(cwd: string): string {
-    const base = cwd.replace(/\/+$/, "").split("/").pop() ?? "root";
+    const base = baseName(cwd.replace(/[\\/]+$/, "")) || "root";
     const slug = base
       .replace(/[^\p{L}\p{N}._-]+/gu, "_")
       .replace(/^_+|_+$/g, "")
