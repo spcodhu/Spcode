@@ -3,6 +3,7 @@
  */
 
 import {
+  type AdvancedSearchConfig,
   type AppSettings,
   type HostCommandInput,
   type HostEvent,
@@ -55,6 +56,8 @@ export interface SpcodeApi {
   pickThemeFile(): Promise<string | null>;
   getSettings(): Promise<AppSettings>;
   setSettings(patch: Partial<AppSettings>): Promise<AppSettings>;
+  /** 高级搜索「测试连接」：主进程发真实请求验证配置 */
+  searchTest(config: AdvancedSearchConfig): Promise<{ ok: true; count: number } | { ok: false; error: string }>;
 }
 
 const api: SpcodeApi = {
@@ -129,6 +132,9 @@ const api: SpcodeApi = {
   },
   setSettings(patch) {
     return ipcRenderer.invoke(IPC.setSettings, patch);
+  },
+  searchTest(config) {
+    return ipcRenderer.invoke(IPC.searchTest, config);
   },
 };
 

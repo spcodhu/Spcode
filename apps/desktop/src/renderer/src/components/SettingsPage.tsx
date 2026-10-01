@@ -1,4 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { AdvancedSearchConfig, AdvancedSearchProtocol } from "@spcode/shared";
+import { inferMapping, isAdvancedSearchReady, PRESET_ENDPOINTS } from "@spcode/shared/advanced-search";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
 import { ModelsPage } from "./ModelsPage";
@@ -139,6 +141,9 @@ function GeneralPage() {
         />
       </div>
 
+      <SectionTitle>高级搜索</SectionTitle>
+      <AdvancedSearchSection />
+
       <SectionTitle>自动更新</SectionTitle>
       <div className="flex items-center justify-between rounded-xl border border-border bg-bg-elevated px-4 py-3">
         <div>
@@ -150,6 +155,193 @@ function GeneralPage() {
           onChange={(v) => void saveSettings({ autoUpdate: v })}
           label="自动更新"
         />
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 高级搜索（通用页子区块）
+// ---------------------------------------------------------------------------
+
+const PROTOCOL_OPTIONS: { value: AdvancedSearchProtocol; label: string }[] = [
+  { value: "tavily", label: "Tavily" },
+  { value: "bocha", label: "博查 Bocha" },
+  { value: "custom", label: "自定义（粘贴响应示例）" },
+];
+
+function AdvancedSearchSection() {
+  const settings = useStore((s) => s.settings);
+  const saveSettings = useStore((s) => s.saveSettings);
+  const saved = settings?.advancedSearch ?? null;
+
+  const [protocol, setProtocol] = useState<AdvancedSearchProtocol>(saved?.protocol ?? "tavily");
+  const [baseUrl, setBaseUrl] = useState(saved?.baseUrl ?? PRESET_ENDPOINTS.tavily);
+  const [apiKey, setApiKey] = useState(saved?.apiKey ?? "");
+  const [sample, setSample] = useState(saved?.responseSample ?? "");
+  const [hint, setHint] = useState<{ ok: boolean; text: string } | null>(null);
+  const [testing, setTesting] = useState(false);
+
+  // settings 异步加载完成后回填一次表单（之后用户编辑为准，不再覆盖）
+  const hydrated = useRef(false);
+  useEffect(() => {
+    if (hydrated.current || !settings) return;
+    hydrated.current = true;
+    const s = settings.advancedSearch;
+    if (!s) return;
+    setProtocol(s.protocol);
+    setBaseUrl(s.baseUrl);
+    setApiKey(s.apiKey);
+    setSample(s.responseSample ?? "");
+  }, [settings]);
+
+  const flash = (ok: boolean, text: string) => {
+    setHint({ ok, text });
+    setTimeout(() => setHint(null), 4000);
+  };
+
+  // 自定义协议：实时从示例推断映射（输入即校验）
+  const inferred = protocol === "custom" && sample.trim() ? inferMapping(sample) : null;
+
+  const switchProtocol = (p: AdvancedSearchProtocol) => {
+    setProtocol(p);
+    // 切预设时若 baseUrl 为空或仍是另一个预设的默认值，跟着换成当前预设默认端点
+    const presets = Object.values(PRESET_ENDPOINTS) as string[];
+    if (p !== "custom" && (!baseUrl.trim() || presets.includes(baseUrl.trim()))) {
+      setBaseUrl(PRESET_ENDPOINTS[p]);
+    }
+  };
+
+  /** 表单 → 配置对象；不完整/推断失败返回 null 并通过 onError 报告原因 */
+  const buildConfig = (onError: (msg: string) => void): AdvancedSearchConfig | null => {
+    const url = baseUrl.trim();
+    const key = apiKey.trim();
+    if (!url || !key) {
+      onError("请填写 Base URL 和 API Key");
+      return null;
+    }
+    const config: AdvancedSearchConfig = { protocol, baseUrl: url, apiKey: key };
+    if (protocol === "custom") {
+      if (!inferred) {
+        onError(sample.trim() ? "无法从示例中识别结果列表（需包含带 http 链接的字段）" : "请粘贴该 API 的响应示例 JSON");
+        return null;
+      }
+      config.responseSample = sample;
+      config.mapping = inferred;
+    }
+    return config;
+  };
+
+  const save = async () => {
+    const config = buildConfig((msg) => flash(false, msg));
+    if (!config) return;
+    await saveSettings({ advancedSearch: config });
+    flash(true, "已保存，新会话生效");
+  };
+
+  const disable = async () => {
+    await saveSettings({ advancedSearch: null });
+    flash(true, "已停用，恢复默认 Bing 搜索");
+  };
+
+  const test = async () => {
+    const config = buildConfig((msg) => flash(false, msg));
+    if (!config || testing) return;
+    setTesting(true);
+    try {
+      const result = await window.spcode.searchTest(config);
+      flash(result.ok, result.ok ? `连接成功，返回 ${result.count} 条结果` : `测试失败：${result.error}`);
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const inputCls =
+    "w-full rounded-lg border border-border bg-bg-main px-3 py-2 text-[13px] text-text-primary outline-none focus:border-accent/50";
+
+  return (
+    <div className="rounded-xl border border-border bg-bg-elevated px-4 py-3">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="text-[12px] text-text-tertiary">
+          配置搜索 API 后，模型在需要多信息源或高精度查询时会优先使用；未配置时使用内置 Bing 搜索
+        </div>
+        <div className={`shrink-0 text-[12px] ${isAdvancedSearchReady(saved) ? "text-accent" : "text-text-tertiary"}`}>
+          {isAdvancedSearchReady(saved) ? "● 已配置（新会话生效）" : "○ 未配置"}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-[140px_1fr] items-center gap-x-3 gap-y-2.5">
+        <div className="text-[13px] text-text-secondary">协议</div>
+        <Select value={protocol} options={PROTOCOL_OPTIONS} onChange={(v) => switchProtocol(v as AdvancedSearchProtocol)} />
+
+        <div className="text-[13px] text-text-secondary">Base URL</div>
+        <input
+          value={baseUrl}
+          onChange={(e) => setBaseUrl(e.target.value)}
+          placeholder="搜索 API 端点，如 https://api.tavily.com/search"
+          className={inputCls}
+        />
+
+        <div className="text-[13px] text-text-secondary">API Key</div>
+        <input
+          type="password"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          placeholder="API 密钥（保存在本地 settings.json）"
+          className={inputCls}
+        />
+      </div>
+
+      {protocol === "custom" && (
+        <div className="mt-2.5">
+          <textarea
+            value={sample}
+            onChange={(e) => setSample(e.target.value)}
+            placeholder='粘贴该 API 的真实响应 JSON 示例，如 {"data":{"results":[{"title":"…","url":"https://…","snippet":"…"}]}}'
+            rows={5}
+            className={`${inputCls} resize-y font-mono text-[12px] leading-relaxed`}
+          />
+          {sample.trim() && (
+            <div className={`mt-1.5 text-[12px] ${inferred ? "text-accent" : "text-danger"}`}>
+              {inferred
+                ? `已识别：结果数组 ${inferred.resultsPath || "(顶层)"}，标题 ${inferred.titleField || "无"}，链接 ${inferred.urlField}，摘要 ${inferred.snippetField || "无"}`
+                : "无法从示例中识别结果列表（需要包含带 http 链接字段的对象数组）"}
+            </div>
+          )}
+          <div className="mt-1 text-[12px] text-text-tertiary">
+            自定义协议约定：POST JSON {"{query, count}"} + Bearer 鉴权；响应格式由上面的示例推断
+          </div>
+        </div>
+      )}
+
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => void save()}
+          className="rounded-lg bg-accent px-4 py-1.5 text-[13px] text-white hover:bg-accent-dim"
+        >
+          保存
+        </button>
+        <button
+          type="button"
+          onClick={() => void test()}
+          disabled={testing}
+          className="rounded-lg border border-border px-4 py-1.5 text-[13px] text-text-secondary hover:bg-bg-hover disabled:opacity-40"
+        >
+          {testing ? "测试中…" : "测试连接"}
+        </button>
+        {saved && (
+          <button
+            type="button"
+            onClick={() => void disable()}
+            className="rounded-lg px-3 py-1.5 text-[13px] text-text-tertiary hover:text-danger"
+          >
+            停用
+          </button>
+        )}
+        {hint && (
+          <span className={`text-[12px] ${hint.ok ? "text-accent" : "text-danger"}`}>{hint.text}</span>
+        )}
       </div>
     </div>
   );

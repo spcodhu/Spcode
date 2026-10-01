@@ -13,7 +13,15 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { CredentialSynchronizationError, ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
-import type { HostCommand, HostEvent, ModelInfo, ModelRef, PermissionRequest, QuestionRequest } from "@spcode/shared";
+import type {
+  AdvancedSearchConfig,
+  HostCommand,
+  HostEvent,
+  ModelInfo,
+  ModelRef,
+  PermissionRequest,
+  QuestionRequest,
+} from "@spcode/shared";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 import { MemoryStore } from "./memory-store.js";
 import { SessionController } from "./session-controller.js";
@@ -49,6 +57,8 @@ let modelRuntime: ModelRuntime | null = null;
 let memoryStore: MemoryStore | null = null;
 /** 记忆蒸馏总开关（主进程设置页经 memory.setDistillEnabled 下发；宿主重启后由主进程重推） */
 let distillEnabled = true;
+/** 高级搜索配置（主进程设置页经 search.setAdvancedConfig 下发；宿主重启后由主进程重推） */
+let advancedSearchConfig: AdvancedSearchConfig | null = null;
 const sessions = new Map<string, SessionController>();
 /** 等待主进程裁决的权限请求（带会话归属与超时兜底——评审 P1-1） */
 const pendingPermissions = new Map<
@@ -224,6 +234,7 @@ async function createController(params: {
     requestPermission,
     askQuestion,
     isDistillEnabled: () => distillEnabled,
+    getAdvancedSearchConfig: () => advancedSearchConfig,
   });
 }
 
@@ -257,6 +268,10 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
   }
   if (cmd.type === "memory.setDistillEnabled") {
     distillEnabled = cmd.payload.enabled;
+    return;
+  }
+  if (cmd.type === "search.setAdvancedConfig") {
+    advancedSearchConfig = cmd.payload.config;
     return;
   }
 

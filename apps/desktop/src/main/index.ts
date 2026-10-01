@@ -7,6 +7,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  type AdvancedSearchConfig,
   type AppSettings,
   baseName,
   cleanSessionTitle,
@@ -17,6 +18,7 @@ import {
   type ScheduleTaskInput,
   type SessionMode,
 } from "@spcode/shared";
+import { executeSearch, isAdvancedSearchReady } from "@spcode/shared/advanced-search";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { AgentBridge } from "./agent-bridge.js";
@@ -310,7 +312,22 @@ function registerIpc(): void {
     if ("memoryDistill" in patch) {
       bridge.push({ type: "memory.setDistillEnabled", payload: { enabled: next.memoryDistill } });
     }
+    // 高级搜索配置实时下发宿主（对己创建会话不生效，新会话生效——工具列表创建时固定）
+    if ("advancedSearch" in patch) {
+      bridge.push({ type: "search.setAdvancedConfig", payload: { config: next.advancedSearch } });
+    }
     return next;
+  });
+
+  // 高级搜索「测试连接」：主进程发真实请求，返回成功条数或失败原因（渲染进程直连会撞 CSP/CORS）
+  ipcMain.handle(IPC.searchTest, async (_e, config: AdvancedSearchConfig) => {
+    if (!isAdvancedSearchReady(config)) return { ok: false as const, error: "配置不完整（baseUrl / apiKey / 响应映射）" };
+    try {
+      const results = await executeSearch(config, "test", 3, 15_000);
+      return { ok: true as const, count: results.length };
+    } catch (err) {
+      return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
+    }
   });
 
   // 字体：选择字体文件 → 复制进 ~/.spcode/fonts/，返回 { file, family }
@@ -380,6 +397,7 @@ if (!app.requestSingleInstanceLock()) {
     bridge.onEvent((event) => {
       if (event.type === "ready") {
         bridge.push({ type: "memory.setDistillEnabled", payload: { enabled: settings.get().memoryDistill } });
+        bridge.push({ type: "search.setAdvancedConfig", payload: { config: settings.get().advancedSearch } });
       }
     });
     await bridge.start();

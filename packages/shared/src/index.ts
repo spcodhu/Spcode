@@ -166,6 +166,8 @@ export type HostCommand =
   /** AI 生成主题：可选指定模型（默认取设置里的默认模型，缺省退回可用列表首个） */
   | { id: string; type: "theme.generate"; payload: { description: string; model?: ModelRef } }
   | { type: "memory.setDistillEnabled"; payload: { enabled: boolean } }
+  /** 高级搜索配置下发（设置页变更后推送；宿主就绪时重推） */
+  | { type: "search.setAdvancedConfig"; payload: { config: AdvancedSearchConfig | null } }
   | { id: string; type: "auth.setApiKey"; payload: { provider: string; apiKey: string } }
   | { id: string; type: "auth.listProviders" }
   | { type: "permission.reply"; payload: { requestId: string; approved: boolean } }
@@ -314,6 +316,8 @@ export const IPC = {
   /** renderer -> main (invoke)：读取/写入应用设置 */
   getSettings: "spcode:get-settings",
   setSettings: "spcode:set-settings",
+  /** renderer -> main (invoke)：高级搜索配置测试连接（发真实请求验证） */
+  searchTest: "spcode:search-test",
   /** renderer -> main (invoke)：会话标题+正文全文搜索 */
   searchSessions: "spcode:search-sessions",
   /** renderer -> main (invoke)：定时任务 CRUD 与立即试运行 */
@@ -327,6 +331,29 @@ export const IPC = {
 // ---------------------------------------------------------------------------
 // 应用设置（主进程持久化）
 // ---------------------------------------------------------------------------
+
+/** 高级搜索协议预设：tavily / 博查 bocha / custom（custom 用 responseSample 推断响应映射） */
+export type AdvancedSearchProtocol = "tavily" | "bocha" | "custom";
+
+export interface AdvancedSearchConfig {
+  protocol: AdvancedSearchProtocol;
+  /** 完整端点 URL（预设切换时 UI 自动填默认值） */
+  baseUrl: string;
+  apiKey: string;
+  /** custom 专用：用户粘贴的响应示例 JSON，保存时推断结果数组路径与字段映射 */
+  responseSample?: string;
+  /** custom 专用：从 responseSample 推断出的映射（结果数组点路径 + 字段名），推断失败为空 */
+  mapping?: AdvancedSearchMapping | null;
+}
+
+export interface AdvancedSearchMapping {
+  /** 结果数组的点路径，如 "data.webPages.value"；空字符串表示响应顶层即数组 */
+  resultsPath: string;
+  titleField: string;
+  urlField: string;
+  /** 摘要字段可为空（示例里没有可识别的摘要字段时） */
+  snippetField: string;
+}
 
 export interface AppSettings {
   /** 默认模型 */
@@ -351,6 +378,8 @@ export interface AppSettings {
   /** 导入的字体文件名（存于 ~/.spcode/fonts/，family 名为展示名） */
   uiFontFile: string;
   monoFontFile: string;
+  /** 高级搜索（配置了才对会话生效；未配置时只用内置 Bing WebSearch） */
+  advancedSearch: AdvancedSearchConfig | null;
 }
 
 export interface CustomTheme {
@@ -376,6 +405,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   disabledModels: [],
   uiFontFile: "",
   monoFontFile: "",
+  advancedSearch: null,
 };
 
 /** Spcode 全局数据目录（记忆、设置、用量、会话索引都放在这里） */

@@ -13,6 +13,7 @@ import { getSupportedThinkingLevels, type Model } from "@earendil-works/pi-ai";
 import type { AgentSession, AgentSessionEvent, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { createAgentSession, DefaultResourceLoader, SessionManager } from "@earendil-works/pi-coding-agent";
 import type {
+  AdvancedSearchConfig,
   ModelRef,
   PermissionRequest,
   QuestionRequest,
@@ -22,6 +23,7 @@ import type {
   UsageRecord,
 } from "@spcode/shared";
 import { cleanSessionTitle } from "@spcode/shared";
+import { isAdvancedSearchReady } from "@spcode/shared/advanced-search";
 import { MemoryDistiller } from "./distill.js";
 import type { MemoryStore } from "./memory-store.js";
 import {
@@ -34,6 +36,7 @@ import {
   PLAN_MODE_TOOLS,
   PLAN_MODE_WRITE_BLOCK_REASON,
 } from "./plan-mode.js";
+import { createAdvancedSearchTool } from "./tools/advanced-search.js";
 import { createAskUserQuestionTool } from "./tools/ask-user.js";
 import { createExitPlanModeTool } from "./tools/exit-plan-mode.js";
 import { createRenameSessionTool } from "./tools/rename.js";
@@ -51,6 +54,7 @@ const READONLY_TOOLS = new Set([
   "ls",
   "websearch",
   "webfetch",
+  "advancedsearch",
   "glob",
   "todowrite",
   "askuserquestion",
@@ -137,6 +141,8 @@ export interface SessionControllerOptions {
   noTitleAutomation?: boolean;
   /** 记忆蒸馏总开关（主进程设置页下发，实时读取） */
   isDistillEnabled?: () => boolean;
+  /** 高级搜索配置（主进程设置页下发，实时读取；配置完整才注册 AdvancedSearch 工具） */
+  getAdvancedSearchConfig?: () => AdvancedSearchConfig | null;
   requestPermission: (req: PermissionRequest) => Promise<boolean>;
   askQuestion: (req: QuestionRequest) => Promise<Record<string, string>>;
 }
@@ -209,6 +215,11 @@ export class SessionController {
       sessionManager: opts.sessionFile ? SessionManager.open(opts.sessionFile) : undefined,
       customTools: [
         createWebSearchTool(),
+        // 高级搜索：仅当用户在设置页配置了完整可用的搜索 API 才注册，
+        // 没配置时工具列表里根本没有它（模型无从误调）。配置变更对己创建会话不生效，新会话生效。
+        ...(isAdvancedSearchReady(opts.getAdvancedSearchConfig?.())
+          ? [createAdvancedSearchTool(() => opts.getAdvancedSearchConfig?.() ?? null)]
+          : []),
         createWebFetchTool(),
         createTodoWriteTool(opts.emitTodo),
         createAskUserQuestionTool(opts.sessionId, opts.askQuestion),
