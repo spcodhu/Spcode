@@ -320,6 +320,11 @@ export const IPC = {
   searchTest: "spcode:search-test",
   /** renderer -> main (invoke)：会话标题+正文全文搜索 */
   searchSessions: "spcode:search-sessions",
+  /** renderer -> main (invoke)：远程控制状态/开关/配对/解绑 */
+  remoteStatus: "spcode:remote-status",
+  remoteSetEnabled: "spcode:remote-set-enabled",
+  remoteRegeneratePairing: "spcode:remote-regenerate-pairing",
+  remoteUnpairDevice: "spcode:remote-unpair-device",
   /** renderer -> main (invoke)：定时任务 CRUD 与立即试运行 */
   scheduleList: "spcode:schedule-list",
   scheduleCreate: "spcode:schedule-create",
@@ -355,6 +360,8 @@ export interface AdvancedSearchMapping {
   snippetField: string;
 }
 
+import type { RemoteSettings } from "./remote.js";
+
 export interface AppSettings {
   /** 默认模型 */
   defaultModel: ModelRef | null;
@@ -380,6 +387,8 @@ export interface AppSettings {
   monoFontFile: string;
   /** 高级搜索（配置了才对会话生效；未配置时只用内置 Bing WebSearch） */
   advancedSearch: AdvancedSearchConfig | null;
+  /** 远程控制（手机 PWA）：局域网 HTTP+WS 服务开关与端口（null = 随机端口） */
+  remote: RemoteSettings;
 }
 
 export interface CustomTheme {
@@ -406,7 +415,15 @@ export const DEFAULT_SETTINGS: AppSettings = {
   uiFontFile: "",
   monoFontFile: "",
   advancedSearch: null,
+  remote: { enabled: false, port: null },
 };
 
 /** Spcode 全局数据目录（记忆、设置、用量、会话索引都放在这里） */
 export const SPCODE_HOME_DIRNAME = ".spcode";
+
+// ---------------------------------------------------------------------------
+// 远程控制协议（type-only 再导出：本包在运行时以 TS 源码被 Node 直接加载，
+// 运行时的跨文件相对导入会因 ./x.js → x.ts 解析失败，故只允许 type-only 重导出）
+// ---------------------------------------------------------------------------
+
+export type * from "./remote.js";

@@ -26,7 +26,14 @@ export class SettingsStore {
     if (this.cache) return this.cache;
     // 坏文件先备份 .corrupt-<ts> 再回退默认设置，不再静默吞掉（评审 P2-4）
     const loaded = readJsonFile(this.file, validateSettings) ?? {};
-    this.cache = { ...DEFAULT_SETTINGS, ...loaded };
+    // remote 是嵌套对象：浅合并会让旧 settings.json 缺字段时丢默认值，单独归一化
+    const loadedRemote =
+      loaded.remote && typeof loaded.remote === "object" ? (loaded.remote as Partial<AppSettings["remote"]>) : {};
+    this.cache = {
+      ...DEFAULT_SETTINGS,
+      ...loaded,
+      remote: { ...DEFAULT_SETTINGS.remote, ...loadedRemote },
+    };
     return this.cache;
   }
 

@@ -23,7 +23,9 @@ import { resolveSpcodeHome } from "@spcode/shared/node";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { AgentBridge } from "./agent-bridge.js";
 import { QuotaService } from "./quota-service.js";
+import { RemoteServer } from "./remote/index.js";
 import { Scheduler } from "./scheduler.js";
+import { backfillSessionFile, isDefaultTitle } from "./session-helpers.js";
 import { SessionRegistry } from "./session-registry.js";
 import { searchSessions } from "./session-search.js";
 import { SettingsStore } from "./settings-store.js";
@@ -114,31 +116,7 @@ function watchSessionLifecycle(): void {
   });
 }
 
-/** 判断标题是否仍是出厂默认（「新聊天」/「新项目」/目录名），是则允许用首条用户消息兜底 */
-function isDefaultTitle(title: string, cwd: string): boolean {
-  return title === "新聊天" || title === "新项目" || title === baseName(cwd);
-}
-
-/** 会话创建/恢复成功后回填 sessionFile 到注册表（支撑下次恢复） */
-function backfillSessionFile(cmd: HostCommand, result: unknown): void {
-  if (cmd.type !== "session.create" && cmd.type !== "session.open") return;
-  const data = result as
-    | {
-        sessionId?: string;
-        sessionFile?: string | null;
-        model?: { provider: string; modelId: string } | null;
-        thinkingLevel?: string;
-      }
-    | undefined;
-  if (!data?.sessionId) return;
-  const entry = registry.get(data.sessionId);
-  if (!entry) return;
-  registry.patch(data.sessionId, {
-    sessionFile: data.sessionFile ?? entry.sessionFile,
-    model: data.model ?? entry.model,
-    thinkingLevel: data.thinkingLevel ?? entry.thinkingLevel,
-  });
-}
+/** 判断标题是否仍是出厂默认的逻辑已抽到 session-helpers.ts（远程控制链路复用） */
 
 // ---------------------------------------------------------------------------
 // 定时任务：触发 = 新建会话（标题固定为任务名）+ 注入 prompt
@@ -181,10 +159,16 @@ async function fireScheduledTask(task: ScheduleTask): Promise<string> {
     },
   });
   const info = await bridge.call(createCmd);
-  backfillSessionFile(createCmd, info);
+  backfillSessionFile(createCmd, info, registry);
   await bridge.call(AgentBridge.withId({ type: "session.prompt", payload: { sessionId, text: task.prompt } }));
   return sessionId;
 }
+
+// ---------------------------------------------------------------------------
+// 远程控制（手机 PWA）：复用 settings/bridge/scheduler/registry 单例
+// ---------------------------------------------------------------------------
+
+const remote = new RemoteServer({ settings, bridge, scheduler, registry });
 
 // ---------------------------------------------------------------------------
 // IPC
@@ -232,7 +216,7 @@ function registerIpc(): void {
     }
 
     return bridge.call(cmd, { timeoutMs: CALL_TIMEOUTS[cmd.type] }).then((result) => {
-      backfillSessionFile(cmd, result);
+      backfillSessionFile(cmd, result, registry);
       return result;
     });
   });
@@ -316,8 +300,28 @@ function registerIpc(): void {
     if ("advancedSearch" in patch) {
       bridge.push({ type: "search.setAdvancedConfig", payload: { config: next.advancedSearch } });
     }
+    // 远程控制开关/端口变更：即时启停（改动最小的方式——由 IPC 层显式触发）
+    if ("remote" in patch) {
+      void remote.applySettings();
+    }
     return next;
   });
+
+  // 远程控制：状态查询 / 开关 / 重新生成配对 QR / 解绑设备
+  ipcMain.handle(IPC.remoteStatus, () => remote.status());
+  ipcMain.handle(IPC.remoteSetEnabled, async (_e, enabled: boolean, port?: number | null) => {
+    const cur = settings.get().remote;
+    settings.set({
+      remote: {
+        enabled: enabled === true,
+        port: typeof port === "number" ? port : port === null ? null : cur.port,
+      },
+    });
+    await remote.applySettings();
+    return remote.status();
+  });
+  ipcMain.handle(IPC.remoteRegeneratePairing, () => remote.regeneratePairing());
+  ipcMain.handle(IPC.remoteUnpairDevice, (_e, deviceId: string) => remote.unpairDevice(deviceId));
 
   // 高级搜索「测试连接」：主进程发真实请求，返回成功条数或失败原因（渲染进程直连会撞 CSP/CORS）
   ipcMain.handle(IPC.searchTest, async (_e, config: AdvancedSearchConfig) => {
@@ -402,6 +406,8 @@ if (!app.requestSingleInstanceLock()) {
     });
     await bridge.start();
     scheduler.start();
+    // settings.remote.enabled 时启动局域网 HTTP+WS 服务（未启用则空操作）
+    await remote.applySettings();
     createWindow();
     setupAutoUpdater(
       () => settings.get().autoUpdate,
@@ -419,6 +425,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  void remote.stop();
   void bridge.dispose();
 });
 

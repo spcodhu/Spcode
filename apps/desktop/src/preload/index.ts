@@ -8,6 +8,8 @@ import {
   type HostCommandInput,
   type HostEvent,
   IPC,
+  type RemotePairingInfo,
+  type RemoteStatus,
   type ScheduleTask,
   type ScheduleTaskInput,
   type SessionSearchResultItem,
@@ -58,6 +60,14 @@ export interface SpcodeApi {
   setSettings(patch: Partial<AppSettings>): Promise<AppSettings>;
   /** 高级搜索「测试连接」：主进程发真实请求验证配置 */
   searchTest(config: AdvancedSearchConfig): Promise<{ ok: true; count: number } | { ok: false; error: string }>;
+  /** 远程控制：状态（开关/监听地址/设备列表/当前配对窗口） */
+  remoteStatus(): Promise<RemoteStatus>;
+  /** 远程控制开关（可选同时设置端口；null = 随机端口），返回最新状态 */
+  remoteSetEnabled(enabled: boolean, port?: number | null): Promise<RemoteStatus>;
+  /** 重新生成 OTP 并返回 QR payload（单次有效，5 分钟过期） */
+  remoteRegeneratePairing(): Promise<RemotePairingInfo>;
+  /** 解绑（吊销）已配对设备 */
+  remoteUnpairDevice(deviceId: string): Promise<boolean>;
 }
 
 const api: SpcodeApi = {
@@ -135,6 +145,18 @@ const api: SpcodeApi = {
   },
   searchTest(config) {
     return ipcRenderer.invoke(IPC.searchTest, config);
+  },
+  remoteStatus() {
+    return ipcRenderer.invoke(IPC.remoteStatus);
+  },
+  remoteSetEnabled(enabled, port) {
+    return ipcRenderer.invoke(IPC.remoteSetEnabled, enabled, port);
+  },
+  remoteRegeneratePairing() {
+    return ipcRenderer.invoke(IPC.remoteRegeneratePairing);
+  },
+  remoteUnpairDevice(deviceId) {
+    return ipcRenderer.invoke(IPC.remoteUnpairDevice, deviceId);
   },
 };
 
