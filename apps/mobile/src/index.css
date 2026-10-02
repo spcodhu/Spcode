@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-[#0b0f14] text-slate-200 antialiased;
+  font-family:
+    system-ui,
+    -apple-system,
+    "PingFang SC",
+    "Noto Sans SC",
+    sans-serif;
+  overscroll-behavior: none;
+}
+
+/* 细滚动条（输出流区域） */
+.thin-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+.thin-scroll::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 2px;
+}

@@ -1,0 +1,9 @@
+{
+  "name": "Spcode 远程控制",
+  "short_name": "Spcode",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0b0f14",
+  "theme_color": "#0b0f14",
+  "description": "远程控制桌面 Spcode harness"
+}
