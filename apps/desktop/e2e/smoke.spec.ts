@@ -50,6 +50,40 @@ test.describe("Spcode 冒烟 E2E", () => {
     await app.close();
   });
 
+  test("设置页：远程控制分区——开关与配对码生成", async () => {
+    const app = await launchApp();
+    const window = await app.firstWindow();
+
+    await window.getByRole("button", { name: /新建聊天/ }).click();
+    await expect(window.getByPlaceholder(/说点什么/)).toBeVisible({ timeout: 15000 });
+
+    // 打开设置 → 远程控制分区
+    await window.getByTitle("设置", { exact: true }).click();
+    await window.getByRole("button", { name: "远程控制" }).click();
+    await expect(window.getByRole("heading", { name: "远程控制" })).toBeVisible();
+
+    // 默认关闭：功能简介可见，开关可点（锚定 role/aria-label 与 data-testid）
+    const toggle = window.getByRole("switch", { name: "启用远程控制" });
+    await expect(toggle).toBeVisible();
+    await expect(window.getByTestId("remote-intro")).toBeVisible();
+
+    // 开启：监听地址与配对区出现
+    await toggle.click();
+    await expect(window.getByTestId("remote-urls")).toBeVisible({ timeout: 10000 });
+    await expect(window.getByTestId("remote-pairing")).toBeVisible();
+
+    // 生成配对码：出现 QR 与 8 位 OTP（开启时可能已自动生成，按钮文案两种都匹配）
+    await window.getByRole("button", { name: /配对码/ }).click();
+    await expect(window.getByTestId("remote-qr")).toBeVisible({ timeout: 10000 });
+    await expect(window.getByTestId("remote-otp")).toHaveText(/^\d{8}$/);
+
+    // 关闭：回到简介态
+    await toggle.click();
+    await expect(window.getByTestId("remote-intro")).toBeVisible({ timeout: 10000 });
+
+    await app.close();
+  });
+
   test("快捷键 Cmd+, 开设置，ESC 与点击外部关闭", async () => {
     const app = await launchApp();
     const window = await app.firstWindow();

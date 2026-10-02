@@ -26,6 +26,7 @@
     "electron-updater": "^6.8.9",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "react-qr-code": "^2.0.15",
     "streamdown": "^2.6.0",
     "turndown": "^7.2.0",
     "tweetnacl": "^1.0.3",
