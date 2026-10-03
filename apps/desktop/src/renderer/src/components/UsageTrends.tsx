@@ -327,39 +327,45 @@ const WEEKDAY_LABELS = ["周一", "", "周三", "", "周五", "", ""];
 function Heatmap({ totals }: { totals: Map<string, number> }) {
   const slots = useMemo(() => buildHeatGrid(totals), [totals]);
   return (
-    <div className="overflow-x-auto pb-1">
-      <div className="flex w-max gap-2">
-        {/* 左侧周内日标签（首行给月份标签留高） */}
-        <div className="flex flex-col gap-[3px]">
-          <div className="h-[14px]" />
-          {WEEKDAY_LABELS.map((label, r) => (
-            <div key={r} className="flex h-3 items-center text-[10px] leading-none text-text-tertiary">
-              {label}
+    <div className="w-full">
+      {/* 单一网格拉满卡片宽：第 1 列 = 周内日标签，后 26 列 = 月份行 + 7 天格子（列主序）。
+          列宽 1fr、格子 aspect-square：格子随可用宽度等比放大并保持正方形 */}
+      <div
+        className="grid gap-[3px]"
+        style={{
+          gridAutoFlow: "column",
+          gridTemplateColumns: `auto repeat(${HEAT_WEEKS}, minmax(0, 1fr))`,
+          gridTemplateRows: "14px repeat(7, auto)",
+        }}
+        data-testid="usage-heatmap-grid"
+      >
+        <div />
+        {WEEKDAY_LABELS.map((label, r) => (
+          <div key={r} className="flex items-center justify-end pr-1.5 text-[10px] leading-none text-text-tertiary">
+            {label}
+          </div>
+        ))}
+        {slots.map((slot) =>
+          slot.kind === "month" ? (
+            <div key={slot.id} className="h-[14px] whitespace-nowrap text-[10px] leading-[14px] text-text-tertiary">
+              {slot.label}
             </div>
-          ))}
-        </div>
-        {/* 26 列网格：列为主序，行 = 月份行 + 7 个周内日 */}
-        <div
-          className="grid gap-[3px]"
-          style={{ gridAutoFlow: "column", gridTemplateRows: "14px repeat(7, 12px)" }}
-          data-testid="usage-heatmap-grid"
-        >
-          {slots.map((slot) =>
-            slot.kind === "month" ? (
-              <div key={slot.id} className="h-[14px] whitespace-nowrap text-[10px] leading-[14px] text-text-tertiary">
-                {slot.label}
-              </div>
-            ) : (
-              <div
-                key={slot.id}
-                className={`h-3 w-3 rounded-[2px] ${slot.future ? "bg-transparent" : HEAT_LEVEL_CLASSES[slot.level]}`}
-                title={
-                  slot.future ? undefined : slot.tokens > 0 ? `${slot.date} · ${formatZh(slot.tokens)} tokens` : `${slot.date} · 无用量`
-                }
-              />
-            ),
-          )}
-        </div>
+          ) : (
+            <div
+              key={slot.id}
+              className={`aspect-square w-full rounded-[2px] ${
+                slot.future ? "bg-transparent" : HEAT_LEVEL_CLASSES[slot.level]
+              }`}
+              title={
+                slot.future
+                  ? undefined
+                  : slot.tokens > 0
+                    ? `${slot.date} · ${formatZh(slot.tokens)} tokens`
+                    : `${slot.date} · 无用量`
+              }
+            />
+          ),
+        )}
       </div>
     </div>
   );
