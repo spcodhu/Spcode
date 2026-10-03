@@ -35,6 +35,15 @@ test.describe("Spcode 冒烟 E2E", () => {
     // 默认落在用量页
     await expect(window.getByRole("heading", { name: "用量" })).toBeVisible();
 
+    // 新增区块：趋势曲线与活跃热点图（新鲜安装无数据也要渲染骨架）
+    await expect(window.getByTestId("usage-trend")).toBeVisible();
+    await expect(window.getByTestId("usage-heatmap")).toBeVisible();
+    await expect(window.getByTestId("usage-streak-longest")).toBeVisible();
+
+    // 曲线图区间切换：点「最近 30 天」后图表仍在
+    await window.getByRole("button", { name: "最近 30 天" }).click();
+    await expect(window.getByTestId("usage-trend-chart")).toBeVisible();
+
     // 切到配额页
     await window.getByRole("button", { name: "配额" }).click();
     await expect(window.getByText("上下文用量环")).toBeVisible();

@@ -1,7 +1,9 @@
 import type { UsageAggregate } from "@spcode/shared";
 import { useEffect, useMemo, useState } from "react";
+import { chartVar, shortModelName, tokensOf } from "../chart";
 import { formatZh } from "../format";
 import { Icon } from "./Icon";
+import { type DailyUsage, UsageTrends } from "./UsageTrends";
 
 type Range = "today" | "week" | "all";
 
@@ -16,16 +18,11 @@ const RANGE_LABELS: { id: Range; label: string }[] = [
   { id: "all", label: "累计" },
 ];
 
-const CHART_COLORS = ["--chart-1", "--chart-2", "--chart-3", "--chart-4", "--chart-5", "--chart-6"] as const;
-
-/** 色板 CSS 变量引用（样式表 :root 里定义，随主题无关） */
-function chartVar(i: number): string {
-  return `var(${CHART_COLORS[i % CHART_COLORS.length]})`;
-}
-
 export function UsagePage() {
   const [range, setRange] = useState<Range>("week");
   const [data, setData] = useState<Aggregate | null>(null);
+  /** 按日×模型明细：趋势曲线与热点图用（拉宽到 1000 个活跃日，覆盖 100 天窗口与历史打卡统计） */
+  const [summary, setSummary] = useState<DailyUsage[]>([]);
 
   useEffect(() => {
     void window.spcode
@@ -34,15 +31,22 @@ export function UsagePage() {
       .catch(() => setData(null));
   }, [range]);
 
+  useEffect(() => {
+    void window.spcode
+      .usageSummary(1000)
+      .then((d) => setSummary(d))
+      .catch(() => setSummary([]));
+  }, []);
+
   const models = useMemo(() => {
     if (!data) return [];
     return Object.entries(data.byModel)
-      .map(([model, u]) => ({ model, ...u, tokens: u.input + u.output + u.cacheRead + u.cacheWrite }))
+      .map(([model, u]) => ({ model, ...u, tokens: tokensOf(u) }))
       .sort((a, b) => b.tokens - a.tokens);
   }, [data]);
 
   const total = data?.total;
-  const totalTokens = total ? total.input + total.output + total.cacheRead + total.cacheWrite : 0;
+  const totalTokens = total ? tokensOf(total) : 0;
   const top = models[0];
   const topShare = top && totalTokens > 0 ? Math.round((top.tokens / totalTokens) * 100) : 0;
 
@@ -113,6 +117,9 @@ export function UsagePage() {
           </div>
         </div>
       )}
+
+      {/* 趋势曲线 + 活跃热点图（无数据时也渲染骨架，保留打卡 0 天与空网格） */}
+      <UsageTrends summary={summary} />
     </div>
   );
 }
@@ -192,9 +199,4 @@ function BigStatCard({ icon, value, label, extra }: { icon: string; value: strin
       </div>
     </div>
   );
-}
-
-function shortModelName(model: string): string {
-  const id = model.split("/").pop() ?? model;
-  return id.length > 24 ? `${id.slice(0, 24)}…` : id;
 }
