@@ -78,8 +78,8 @@ export type HeatSlot =
   | { kind: "month"; id: string; label: string | null }
   | { kind: "day"; id: string; date: string; tokens: number; level: number; future: boolean };
 
-/** 热点图默认窗口：最近 26 周（列 = 周，周一为行首） */
-export const HEAT_WEEKS = 26;
+/** 热点图默认窗口：最近 52 周（约一年，列 = 周，周一为行首） */
+export const HEAT_WEEKS = 52;
 
 /**
  * GitHub 风格热点网格：列为主序（每月列先放月份标签，再放 7 个周内日格子）。

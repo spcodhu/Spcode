@@ -1,6 +1,14 @@
 /** chart.ts 纯逻辑单测：日期换算、刻度取整、连续打卡、热点网格 */
 import { describe, expect, it } from "vitest";
-import { addDays, buildHeatGrid, computeStreaks, dateKeyOf, dayNumOf, niceCeil } from "../src/renderer/src/chart.js";
+import {
+  addDays,
+  buildHeatGrid,
+  computeStreaks,
+  dateKeyOf,
+  dayNumOf,
+  HEAT_WEEKS,
+  niceCeil,
+} from "../src/renderer/src/chart.js";
 
 const today = new Date();
 const key = (offset: number) => dateKeyOf(addDays(today, offset));
@@ -49,11 +57,11 @@ describe("computeStreaks", () => {
 });
 
 describe("buildHeatGrid", () => {
-  it("26 周网格 = 26 个月份槽 + 182 个日期槽", () => {
+  it("周数网格 = 周数 × (1 个月份槽 + 7 个日期槽)", () => {
     const slots = buildHeatGrid(new Map());
-    expect(slots).toHaveLength(26 * 8);
-    expect(slots.filter((s) => s.kind === "month")).toHaveLength(26);
-    expect(slots.filter((s) => s.kind === "day")).toHaveLength(182);
+    expect(slots).toHaveLength(HEAT_WEEKS * 8);
+    expect(slots.filter((s) => s.kind === "month")).toHaveLength(HEAT_WEEKS);
+    expect(slots.filter((s) => s.kind === "day")).toHaveLength(HEAT_WEEKS * 7);
   });
 
   it("空数据全为 0 档；今天不是未来，今天之后是未来", () => {
