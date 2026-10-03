@@ -1,5 +1,7 @@
 /** 视觉验证：截取用量页/配额页/主界面三张图，供与原图比对 */
 
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { _electron as electron, test } from "@playwright/test";
@@ -10,7 +12,9 @@ const shotDir = join(appDir, "test-results", "visual");
 test("视觉截图", async () => {
   test.setTimeout(90000);
   const app = await electron.launch({
-    args: [".", "--no-sandbox"],
+    // userData 隔离：单实例锁以 userData 为键，本机 dev 实例在跑时无隔离会启动即退出
+    // （与 e2e/helpers.ts 同理；SPCODE_HOME 不动，用量数据仍取真实 ~/.spcode/）
+    args: [".", "--no-sandbox", `--user-data-dir=${mkdtempSync(join(tmpdir(), "spcode-visual-"))}`],
     cwd: appDir,
   });
   const window = await app.firstWindow();
@@ -30,6 +34,13 @@ test("视觉截图", async () => {
   await window.getByRole("button", { name: "用量" }).waitFor();
   await window.waitForTimeout(600);
   await window.screenshot({ path: join(shotDir, "02-usage.png") });
+
+  // 用量页下半区：趋势曲线 + 活跃热点图（滚到容器底部再截）
+  await window.getByTestId("usage-trend").waitFor({ timeout: 10000 });
+  await window.getByRole("button", { name: "最近 100 天" }).click();
+  await window.getByTestId("usage-heatmap").evaluate((el) => el.scrollIntoView({ block: "end" }));
+  await window.waitForTimeout(400);
+  await window.screenshot({ path: join(shotDir, "02b-usage-trends.png") });
 
   // 设置 → 配额
   await window.getByRole("button", { name: "配额" }).click();
