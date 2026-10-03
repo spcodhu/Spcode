@@ -1,5 +1,5 @@
 import { createCodePlugin } from "@streamdown/code";
-import { memo, type ReactNode, useEffect, useState } from "react";
+import { memo, type ReactNode, useEffect, useRef, useState } from "react";
 import { Streamdown } from "streamdown";
 import { type ChatMessage, flattenSegments, messageText, type ToolCallState } from "../store";
 import { Icon } from "./Icon";
@@ -280,6 +280,21 @@ function ThinkingRow({
   railEnd?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  /** 贴底跟随标记：用户上翻暂停跟随，回滚到底部附近后恢复 */
+  const stickRef = useRef(true);
+
+  // 流式开始时重置贴底状态
+  useEffect(() => {
+    if (streaming) stickRef.current = true;
+  }, [streaming]);
+
+  // 流式期间思考文本增长时自动滚到底（仅在用户未上翻时）
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (streaming && el && stickRef.current) el.scrollTop = el.scrollHeight;
+  }, [text, streaming]);
+
   if (!streaming && !text.trim()) return null;
   const preview = firstLine(text);
   const expanded = streaming || open;
@@ -306,7 +321,14 @@ function ThinkingRow({
         </>
       }
       detail={
-        <div className="ml-6 mb-1.5 max-h-64 overflow-y-auto whitespace-pre-wrap border-l-2 border-thinking/20 pl-3 pr-2 pt-0.5 text-[12px] leading-6 text-text-tertiary">
+        <div
+          ref={bodyRef}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+          }}
+          className="ml-6 mb-1.5 max-h-64 overflow-y-auto whitespace-pre-wrap border-l-2 border-thinking/20 pl-3 pr-2 pt-0.5 text-[12px] leading-6 text-text-tertiary"
+        >
           {text || "…"}
         </div>
       }
