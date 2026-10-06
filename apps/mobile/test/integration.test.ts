@@ -15,6 +15,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { RemoteServer } from "../../desktop/src/main/remote/index.js";
 import { PairingManager } from "../../desktop/src/main/remote/pairing.js";
 import { LanTransport } from "../../desktop/src/main/remote/transport/lan.js";
+import { createRelayServer } from "../../relay/src/index.js";
 import type { RegistryLike } from "../../desktop/src/main/session-helpers.js";
 import type { SessionRegistryEntry } from "../../desktop/src/main/session-registry.js";
 import { type ConnectionState, PairError, pairWithQr, RemoteClient } from "../src/lib/client";
@@ -261,5 +262,188 @@ describe("PWA ↔ 真实桌面 RemoteServer 全链路", () => {
     mobile.start();
     await mobile.waitState("unpaired");
     mobile.stop();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 断线补拉（LAN 通道，复用上面的共享 server）
+// ---------------------------------------------------------------------------
+
+describe("断线补拉：session.output.since ↔ session.output.backfill", () => {
+  it("离线期间的输出 chunk 可按 afterSeq 补拉（升序、只含 > afterSeq）", async () => {
+    const record = await pairWithQr(localQrPayload(), "补拉测试机");
+    const mobile = new MobileTestClient(record);
+    mobile.start();
+
+    let sessionId = "";
+    const emit = (ev: unknown) => {
+      for (const l of bridgeListeners) l({ type: "session.event", sessionId, event: ev } as HostEvent);
+    };
+    try {
+      await mobile.waitState("ready");
+      const created = await mobile.client.command<{ sessionId: string }>({
+        type: "session.create",
+        mode: "chat",
+        prompt: "补拉会话",
+      });
+      sessionId = created.sessionId;
+
+      // 制造 3 个 chunk：kind 切换 + agent_settled 触发聚合器冲刷
+      // seq0 = text AAA；seq1 = thinking BBB；seq2 = text CCC
+      emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "AAA" } });
+      emit({ type: "message_update", assistantMessageEvent: { type: "thinking_delta", delta: "BBB" } });
+      emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "CCC" } });
+      emit({ type: "agent_settled" });
+      await mobile.waitEvent((e) => e.type === "session.output" && e.sessionId === sessionId && e.seq === 2);
+    } finally {
+      mobile.stop();
+    }
+
+    // 离线期间又产生两个 chunk：seq3 = text DDD；seq4 = thinking EEE
+    emit({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "DDD" } });
+    emit({ type: "message_update", assistantMessageEvent: { type: "thinking_delta", delta: "EEE" } });
+    emit({ type: "agent_settled" });
+
+    const mobile2 = new MobileTestClient(record);
+    mobile2.start();
+    try {
+      await mobile2.waitState("ready");
+      const res = await mobile2.client.command<{ count: number }>({
+        type: "session.output.since",
+        sessionId,
+        afterSeq: 2,
+      });
+      expect(res.count).toBe(2);
+      const backfill = (await mobile2.waitEvent(
+        (e) => e.type === "session.output.backfill" && e.sessionId === sessionId,
+        8000,
+        "backfill 事件",
+      )) as Extract<RemoteEvent, { type: "session.output.backfill" }>;
+      expect(backfill.chunks.map((c) => c.seq)).toEqual([3, 4]);
+      expect(backfill.chunks.map((c) => c.chunk)).toEqual(["DDD", "EEE"]);
+      expect(backfill.chunks[1]!.kind).toBe("thinking");
+    } finally {
+      mobile2.stop();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// relay 通道全链路（真实 relay 服务 + 真实 RemoteServer 自建 RelayTransport）
+// ---------------------------------------------------------------------------
+
+describe("PWA ↔ 桌面 RemoteServer 经 relay 全链路", () => {
+  let dir2 = "";
+  let relayPort = 0;
+  let relayClose: (() => Promise<void>) | null = null;
+  let pairing2: PairingManager;
+  let server2: RemoteServer;
+  let transport2: LanTransport;
+  let bridgeListeners2: Set<(e: HostEvent) => void>;
+
+  beforeAll(async () => {
+    dir2 = mkdtempSync(join(tmpdir(), "spcode-mobile-it-relay-"));
+    // 真实哑中继（apps/relay 同源装配，回环 + 随机端口）
+    const relay = createRelayServer({
+      port: 0,
+      staticDir: join(dir2, "no-static"),
+      queueMax: 1000,
+      queueTtlMs: 3600_000,
+      frameMaxBytes: 256 * 1024,
+      ratePerSec: 600,
+    });
+    relayClose = relay.close;
+    await new Promise<void>((resolve) => relay.server.listen(0, "127.0.0.1", resolve));
+    const addr = relay.server.address();
+    relayPort = typeof addr === "object" && addr ? addr.port : 0;
+    expect(relayPort).toBeGreaterThan(0);
+
+    pairing2 = new PairingManager({ baseDir: dir2 });
+    transport2 = new LanTransport({ port: 0, staticDir: join(dir2, "pwa-not-built") });
+    bridgeListeners2 = new Set();
+    const registry: RegistryLike = {
+      list: () => [],
+      get: () => undefined,
+      upsert: () => {},
+      patch: () => {},
+    };
+    const bridge = {
+      onEvent(cb: (e: HostEvent) => void) {
+        bridgeListeners2.add(cb);
+        return () => bridgeListeners2.delete(cb);
+      },
+      async call(_cmd: HostCommand & { id: string }) {
+        return { ok: true };
+      },
+      replyPermission: () => {},
+      replyQuestion: () => {},
+    };
+    const scheduler = {
+      list: (): ScheduleTask[] => [],
+      create: () => {
+        throw new Error("not used");
+      },
+      update: () => null,
+      remove: () => {},
+      runNow: async () => "x",
+    };
+    // relayUrl 非空 → RemoteServer 自建 RelayTransport（host 角色出站连 relay）
+    const settings = {
+      get: () => ({ ...DEFAULT_SETTINGS, remote: { enabled: true, port: 0, relayUrl: `ws://127.0.0.1:${relayPort}` } }),
+    };
+    server2 = new RemoteServer({ settings, bridge, scheduler, registry, pairing: pairing2, transport: transport2 });
+    await server2.start();
+  });
+
+  afterAll(async () => {
+    await server2?.stop();
+    await transport2?.stop();
+    await relayClose?.();
+    if (dir2) rmSync(dir2, { recursive: true, force: true });
+  });
+
+  /** 只含 relay host 的 QR payload（强制走 relay 通道） */
+  function relayQrPayload(): string {
+    const info = server2.regeneratePairing();
+    const hosts = encodeURIComponent(`relay+ws://127.0.0.1:${relayPort}`);
+    const pk = encodeURIComponent(pairing2.getIdentity().publicKey);
+    return `spcode-remote://pair?v=1&hosts=${hosts}&desktop_pk=${pk}&otp=${info.otp}`;
+  }
+
+  it("pair（无 deviceId）→ 重连 auth（带 deviceId）→ 加密命令往返 → 广播事件 → 重连", async () => {
+    // 1) 经 relay 配对（pair 帧无 deviceId，host 走配对临时虚拟连接）
+    const record = await pairWithQr(relayQrPayload(), "relay 测试机");
+    expect(record.desktopPk).toBe(pairing2.getIdentity().publicKey);
+    expect(record.deviceId).toBeTruthy();
+
+    // 2) pair 后重新连接，先 auth（帧外层带 deviceId）再发加密命令
+    const mobile = new MobileTestClient(record);
+    mobile.start();
+    try {
+      await mobile.waitState("ready");
+      await mobile.waitEvent((e) => e.type === "session.snapshot");
+
+      // 3) 加密命令往返（device→host 帧带 deviceId，host 按它分流到虚拟连接）
+      const list = await mobile.client.command<{ sessions: unknown[] }>({ type: "session.list" });
+      expect(list.sessions).toEqual([]);
+
+      // 4) host→device 广播帧带 deviceId 过滤元数据，本设备正常接收
+      for (const l of bridgeListeners2) l({ type: "sessions.changed" });
+      await mobile.waitEvent((e) => e.type === "sessions.changed");
+    } finally {
+      mobile.stop();
+    }
+
+    // 5) relay 重连：重新 auth（入站 seq 校验归零），加密命令继续工作
+    const mobile2 = new MobileTestClient(record);
+    mobile2.start();
+    try {
+      await mobile2.waitState("ready");
+      await mobile2.waitEvent((e) => e.type === "session.snapshot");
+      const list = await mobile2.client.command<{ sessions: unknown[] }>({ type: "session.list" });
+      expect(list.sessions).toEqual([]);
+    } finally {
+      mobile2.stop();
+    }
   });
 });

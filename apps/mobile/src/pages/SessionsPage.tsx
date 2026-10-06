@@ -1,11 +1,13 @@
 /**
  * 会话列表页：状态徽章 + 标题 + 入口；顶部「新任务」表单（聊天/项目模式）；
- * 底部 tab 进定时任务页；长按标题区可解除配对。
+ * 列表项 ⋯ 菜单支持重命名 / 删除（二次确认）；底部 tab 进定时任务页；
+ * 标题栏齿轮进设置（通知开关等）；长按标题区可解除配对。
  */
 
-import type { SessionMode } from "@spcode/shared";
+import type { SessionMode, SessionMeta } from "@spcode/shared";
 import { useMemo, useState } from "react";
-import { createSession, unpair } from "../state/controller";
+import { SettingsSheet } from "../components/SettingsSheet";
+import { createSession, removeSession, renameSession, unpair } from "../state/controller";
 import { type SessionStatus, useAppStore } from "../state/store";
 
 const STATUS_TEXT: Record<SessionStatus, string> = {
@@ -90,11 +92,120 @@ function NewTaskSheet({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** 会话项 ⋯ 菜单：重命名（内联编辑）/ 删除（二次确认） */
+function SessionActionsSheet({ session, onClose }: { session: SessionMeta; onClose: () => void }) {
+  const [mode, setMode] = useState<"menu" | "rename" | "remove">("menu");
+  const [title, setTitle] = useState(session.title);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const run = async (fn: () => Promise<void>) => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await fn();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="absolute inset-0 z-30 flex flex-col justify-end bg-black/60" onClick={onClose}>
+      <div
+        className="rounded-t-2xl border-t border-slate-700 bg-[#11161d] p-5 pb-8"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="truncate text-base font-semibold text-slate-100">{session.title}</div>
+
+        {mode === "menu" && (
+          <div className="mt-4 flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => setMode("rename")}
+              className="w-full rounded-lg bg-slate-800 py-2.5 text-sm text-slate-200"
+            >
+              重命名
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("remove")}
+              className="w-full rounded-lg bg-red-950/70 py-2.5 text-sm text-red-300"
+            >
+              删除会话
+            </button>
+          </div>
+        )}
+
+        {mode === "rename" && (
+          <div className="mt-4">
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              maxLength={60}
+              autoFocus
+              className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500"
+            />
+            <div className="mt-3 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setMode("menu")}
+                className="flex-1 rounded-lg bg-slate-800 py-2.5 text-sm text-slate-400"
+              >
+                返回
+              </button>
+              <button
+                type="button"
+                disabled={busy || !title.trim() || title.trim() === session.title}
+                onClick={() => void run(() => renameSession(session.id, title.trim()))}
+                className="flex-1 rounded-lg bg-sky-600 py-2.5 text-sm font-medium text-white disabled:opacity-40"
+              >
+                {busy ? "保存中…" : "保存"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {mode === "remove" && (
+          <div className="mt-4">
+            <div className="rounded-lg border border-red-900/60 bg-red-950/50 px-3 py-2 text-xs leading-5 text-red-200">
+              删除后桌面端的会话记录与输出一并清除，不可恢复。确定删除「{session.title}」？
+            </div>
+            <div className="mt-3 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setMode("menu")}
+                className="flex-1 rounded-lg bg-slate-800 py-2.5 text-sm text-slate-400"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void run(() => removeSession(session.id))}
+                className="flex-1 rounded-lg bg-red-700 py-2.5 text-sm font-medium text-white disabled:opacity-40"
+              >
+                {busy ? "删除中…" : "确认删除"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {error && <div className="mt-3 text-xs text-red-400">{error}</div>}
+      </div>
+    </div>
+  );
+}
+
 export function SessionsPage() {
   const sessions = useAppStore((s) => s.sessions);
   const connState = useAppStore((s) => s.connState);
   const setRoute = useAppStore((s) => s.setRoute);
   const [showNew, setShowNew] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [actionsFor, setActionsFor] = useState<SessionMeta | null>(null);
   const [confirmUnpair, setConfirmUnpair] = useState(false);
 
   const list = useMemo(() => Object.values(sessions).sort((a, b) => b.updatedAt - a.updatedAt), [sessions]);
@@ -102,7 +213,17 @@ export function SessionsPage() {
   return (
     <div className="relative flex h-full flex-col">
       <header className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
-        <div className="text-base font-bold text-slate-100">会话</div>
+        <div className="flex items-center gap-2">
+          <div className="text-base font-bold text-slate-100">会话</div>
+          <button
+            type="button"
+            onClick={() => setShowSettings(true)}
+            aria-label="设置"
+            className="rounded-lg bg-slate-800 px-2 py-1 text-xs text-slate-400"
+          >
+            ⚙
+          </button>
+        </div>
         <div className="flex gap-2">
           <button
             type="button"
@@ -131,29 +252,37 @@ export function SessionsPage() {
           </div>
         ) : (
           list.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => setRoute({ name: "session", id: s.id })}
-              className="flex w-full items-center gap-3 border-b border-slate-800/60 px-4 py-3 text-left active:bg-slate-800/40"
-            >
-              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] ${STATUS_CLASS[s.status]}`}>
-                {STATUS_TEXT[s.status]}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm text-slate-100">{s.title}</span>
-                <span className="mt-0.5 block truncate text-[11px] text-slate-500">
-                  {s.mode === "project" ? s.cwd : "聊天"} ·{" "}
-                  {new Date(s.updatedAt).toLocaleString("zh-CN", {
-                    month: "numeric",
-                    day: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
+            <div key={s.id} className="flex items-center border-b border-slate-800/60">
+              <button
+                type="button"
+                onClick={() => setRoute({ name: "session", id: s.id })}
+                className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left active:bg-slate-800/40"
+              >
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] ${STATUS_CLASS[s.status]}`}>
+                  {STATUS_TEXT[s.status]}
                 </span>
-              </span>
-              <span className="text-slate-600">›</span>
-            </button>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm text-slate-100">{s.title}</span>
+                  <span className="mt-0.5 block truncate text-[11px] text-slate-500">
+                    {s.mode === "project" ? s.cwd : "聊天"} ·{" "}
+                    {new Date(s.updatedAt).toLocaleString("zh-CN", {
+                      month: "numeric",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActionsFor(s)}
+                aria-label={`会话操作：${s.title}`}
+                className="shrink-0 px-3 py-3 text-slate-500 active:text-slate-300"
+              >
+                ⋯
+              </button>
+            </div>
           ))
         )}
       </div>
@@ -177,6 +306,8 @@ export function SessionsPage() {
       </footer>
 
       {showNew && <NewTaskSheet onClose={() => setShowNew(false)} />}
+      {showSettings && <SettingsSheet onClose={() => setShowSettings(false)} />}
+      {actionsFor && <SessionActionsSheet session={actionsFor} onClose={() => setActionsFor(null)} />}
     </div>
   );
 }

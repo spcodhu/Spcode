@@ -1,0 +1,89 @@
+/**
+ * 设置弹层：通知开关（Web Push，环境不支持时隐藏）+ 配对信息。
+ * 通知默认关，需用户主动开启；开启失败（授权被拒/浏览器不支持订阅）展示原因并维持关闭。
+ */
+
+import { useState } from "react";
+import { disablePushNotifications, enablePushNotifications } from "../state/controller";
+import { isPushEnabledLocally, isPushSupported } from "../lib/push";
+import { useAppStore } from "../state/store";
+
+export function SettingsSheet({ onClose }: { onClose: () => void }) {
+  const pairing = useAppStore((s) => s.pairing);
+  const vapidKey = useAppStore((s) => s.vapidKey);
+  const [enabled, setEnabled] = useState(isPushEnabledLocally);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const pushSupported = isPushSupported();
+
+  const toggle = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      if (enabled) {
+        await disablePushNotifications();
+        setEnabled(false);
+      } else {
+        await enablePushNotifications();
+        setEnabled(true);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="absolute inset-0 z-30 flex flex-col justify-end bg-black/60" onClick={onClose}>
+      <div
+        className="rounded-t-2xl border-t border-slate-700 bg-[#11161d] p-5 pb-8"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="text-base font-semibold text-slate-100">设置</div>
+
+        {pushSupported && (
+          <div className="mt-4 flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-sm text-slate-100">推送通知</div>
+              <div className="mt-0.5 text-[11px] leading-4 text-slate-500">
+                会话待批准 / 提问 / 定时任务触发时收到系统通知（经 relay 通道时也能送达）。
+                {!vapidKey && enabled === false && (
+                  <span className="block text-amber-400/80">等待桌面端下发推送公钥（重连后可用）。</span>
+                )}
+              </div>
+            </div>
+            <button
+              type="button"
+              disabled={busy || (!enabled && !vapidKey)}
+              onClick={() => void toggle()}
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+                enabled ? "bg-emerald-600" : "bg-slate-700"
+              } disabled:opacity-40`}
+              aria-label={enabled ? "关闭通知" : "开启通知"}
+            >
+              <span
+                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${enabled ? "left-[22px]" : "left-0.5"}`}
+              />
+            </button>
+          </div>
+        )}
+        {error && <div className="mt-2 text-xs text-red-400">{error}</div>}
+
+        {pairing && (
+          <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-[11px] leading-5 text-slate-500">
+            <div>
+              本机设备：<span className="text-slate-300">{pairing.deviceName}</span>（id {pairing.deviceId.slice(0, 8)}…）
+            </div>
+            <div>
+              桌面公钥：<span className="font-mono">{pairing.desktopPk.slice(0, 12)}…</span>
+            </div>
+            <div>通道：{pairing.hosts.map((h) => (h.startsWith("relay+") ? "relay" : h)).join("、")}</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

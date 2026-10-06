@@ -1,9 +1,10 @@
 /**
- * 定时任务页（M1：只读列表 + 启停 + 立即执行；创建表单留到 M3）。
+ * 定时任务页：列表（启停 / 立即执行 / 编辑 / 删除）+ 创建与编辑表单（ScheduleEditorSheet）。
  */
 
-import { describeSchedule } from "@spcode/shared";
+import { describeSchedule, type ScheduleTask } from "@spcode/shared";
 import { useState } from "react";
+import { ScheduleEditorSheet } from "../components/ScheduleEditor";
 import { removeSchedule, runScheduleNow, toggleSchedule } from "../state/controller";
 import { useAppStore } from "../state/store";
 
@@ -13,6 +14,8 @@ export function SchedulesPage() {
   const setRoute = useAppStore((s) => s.setRoute);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
+  /** undefined = 关闭；null = 新建；否则编辑该任务 */
+  const [editing, setEditing] = useState<ScheduleTask | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
 
   const run = async (fn: () => Promise<void>, id: string) => {
@@ -28,12 +31,20 @@ export function SchedulesPage() {
   };
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="relative flex h-full flex-col">
       <header className="flex items-center gap-2 border-b border-slate-800 px-3 py-3">
         <button type="button" onClick={() => setRoute({ name: "sessions" })} className="px-1 text-lg text-slate-400">
           ‹
         </button>
         <div className="flex-1 text-base font-bold text-slate-100">定时任务</div>
+        <button
+          type="button"
+          onClick={() => setEditing(null)}
+          disabled={connState !== "ready"}
+          className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
+        >
+          + 新建
+        </button>
       </header>
 
       {error && <div className="bg-red-950/50 px-4 py-1.5 text-xs text-red-300">{error}</div>}
@@ -43,7 +54,7 @@ export function SchedulesPage() {
           <div className="px-6 py-16 text-center text-sm text-slate-500">
             还没有定时任务。
             <br />
-            请在桌面端创建（手机端创建表单后续版本提供）。
+            点右上角「+ 新建」创建。
           </div>
         ) : (
           schedules.map((t) => (
@@ -92,6 +103,14 @@ export function SchedulesPage() {
                 >
                   立即执行
                 </button>
+                <button
+                  type="button"
+                  disabled={connState !== "ready"}
+                  onClick={() => setEditing(t)}
+                  className="rounded-lg bg-slate-800 px-3 py-1 text-xs text-slate-300 disabled:opacity-40"
+                >
+                  编辑
+                </button>
                 {confirmRemoveId === t.id ? (
                   <>
                     <button
@@ -127,6 +146,8 @@ export function SchedulesPage() {
           ))
         )}
       </div>
+
+      {editing !== undefined && <ScheduleEditorSheet task={editing} onClose={() => setEditing(undefined)} />}
     </div>
   );
 }

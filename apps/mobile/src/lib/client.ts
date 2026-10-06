@@ -11,10 +11,12 @@
  * 依赖 crypto.getRandomValues（非安全上下文也可用）。
  */
 
-import type { RemoteCommand, RemoteEncryptedFrame, RemoteEncryptedPayload, RemoteEvent } from "@spcode/shared";
+import type { RemoteCommand, RemoteEncryptedFrame, RemoteEncryptedPayload } from "@spcode/shared";
 import { generateKeyPair, openPayload, pairOpen, pairSeal, SeqCounter, SeqGuard, sealPayload } from "./crypto";
 import type { PairingRecord } from "./db";
+import type { RemoteCommandExt, RemoteEventExt } from "./protocol";
 import { parseQrPayload } from "./qr";
+import { isRelayHost, orderHosts, relayWsUrl } from "./relay";
 
 export type PairErrorCode = "locked" | "expired" | "otp_mismatch" | "bad_payload";
 
@@ -46,6 +48,11 @@ function genFrameId(): string {
 
 function wsUrlOf(host: string): string {
   return `${host.replace(/^http/, "ws").replace(/\/+$/, "")}/ws`;
+}
+
+/** host 项 → 实际 ws url：relay 前缀项走 channel 路径，其余为 LAN 直连 */
+function connectUrlOf(host: string, desktopPk: string): string {
+  return isRelayHost(host) ? relayWsUrl(host, desktopPk) : wsUrlOf(host);
 }
 
 /** 等一帧满足条件的消息；超时或断连即 reject */
@@ -120,16 +127,24 @@ function connectWs(url: string, timeoutMs = 6000): Promise<WebSocket> {
  * 一次性配对流程：解析 QR payload → 逐个 host 尝试 pair 握手 → 返回可持久化的 PairingRecord。
  * OTP 单次有效且错误计数共享，收到确定性的 pair_ack（无论成败）后不再尝试其余 host。
  */
+/**
+ * 一次性配对流程：解析 QR payload → 逐个 host 尝试 pair 握手 → 返回可持久化的 PairingRecord。
+ * OTP 单次有效且错误计数共享，收到确定性的 pair_ack（无论成败）后不再尝试其余 host。
+ *
+ * relay 注意：pair 帧不带 deviceId（此时尚未分配）；pair_ack ok 后桌面即关闭配对用的
+ * 逻辑连接——本函数随后关掉物理连接，业务流量由 RemoteClient 重新连接并先走 auth
+ * （带 deviceId）再发加密帧，符合 relay 契约。
+ */
 export async function pairWithQr(qrText: string, deviceName: string): Promise<PairingRecord> {
   const payload = parseQrPayload(qrText);
   const keyPair = generateKeyPair();
   const c = await pairSeal({ publicKey: keyPair.publicKey, name: deviceName }, payload.otp);
 
   let lastError: Error | null = null;
-  for (const host of payload.hosts) {
+  for (const host of orderHosts(payload.hosts)) {
     let ws: WebSocket | null = null;
     try {
-      ws = await connectWs(wsUrlOf(host));
+      ws = await connectWs(connectUrlOf(host, payload.desktopPk));
       ws.send(JSON.stringify({ t: "pair", otp: payload.otp, c }));
       const ack = (await waitFrame(ws, (f) => (f as { t?: string }).t === "pair_ack", 8000, "等待配对应答")) as
         | { t: "pair_ack"; ok: true; c: string }
@@ -178,7 +193,7 @@ export type ConnectionState =
   | "stopped";
 
 export interface RemoteClientCallbacks {
-  onEvent(event: RemoteEvent): void;
+  onEvent(event: RemoteEventExt): void;
   onState(state: ConnectionState, detail?: string): void;
 }
 
@@ -186,13 +201,25 @@ const BACKOFF_MIN_MS = 1000;
 const BACKOFF_MAX_MS = 30_000;
 const COMMAND_TIMEOUT_MS = 30_000;
 
+export interface RemoteClientOptions {
+  /** 测试用：覆盖重连退避起步值 */
+  backoffMinMs?: number;
+  backoffMaxMs?: number;
+}
+
 export class RemoteClient {
   private ws: WebSocket | null = null;
   private state: ConnectionState = "stopped";
   private stopped = true;
-  private backoff = BACKOFF_MIN_MS;
+  private backoff: number;
+  private readonly backoffMin: number;
+  private readonly backoffMax: number;
   private hostIndex = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 连接尝试顺序：LAN 直连优先，relay 殿后（构造时固化） */
+  private readonly hosts: string[];
+  /** 当前连接是否 relay 通道（决定 deviceId 帧外层封装/过滤与解密失败语义） */
+  private relay = false;
 
   private readonly outSeq = new SeqCounter();
   private readonly inSeq = new SeqGuard();
@@ -209,7 +236,13 @@ export class RemoteClient {
   constructor(
     private readonly record: PairingRecord,
     private readonly cb: RemoteClientCallbacks,
-  ) {}
+    opts: RemoteClientOptions = {},
+  ) {
+    this.hosts = orderHosts(record.hosts);
+    this.backoffMin = opts.backoffMinMs ?? BACKOFF_MIN_MS;
+    this.backoffMax = opts.backoffMaxMs ?? BACKOFF_MAX_MS;
+    this.backoff = this.backoffMin;
+  }
 
   getState(): ConnectionState {
     return this.state;
@@ -218,7 +251,7 @@ export class RemoteClient {
   start(): void {
     if (!this.stopped) return;
     this.stopped = false;
-    this.backoff = BACKOFF_MIN_MS;
+    this.backoff = this.backoffMin;
     void this.connectOnce();
   }
 
@@ -233,7 +266,7 @@ export class RemoteClient {
   }
 
   /** 发送加密命令并等待同 id 响应；非 ready 态立即失败 */
-  command<T = unknown>(cmd: RemoteCommand, timeoutMs = COMMAND_TIMEOUT_MS): Promise<T> {
+  command<T = unknown>(cmd: RemoteCommandExt, timeoutMs = COMMAND_TIMEOUT_MS): Promise<T> {
     const ws = this.ws;
     if (this.state !== "ready" || !ws) {
       return Promise.reject(new Error("未连接到桌面端"));
@@ -245,7 +278,8 @@ export class RemoteClient {
         reject(new Error("命令响应超时"));
       }, timeoutMs);
       this.pending.set(id, { resolve: resolve as (data: unknown) => void, reject, timer });
-      this.sendEncrypted(ws, id, { kind: "command", command: cmd });
+      // RemoteCommandExt 含尚未收敛进 shared 的命令（见 protocol.ts），线上帧格式一致
+      this.sendEncrypted(ws, id, { kind: "command", command: cmd as RemoteCommand });
     });
   }
 
@@ -257,11 +291,12 @@ export class RemoteClient {
   private async connectOnce(): Promise<void> {
     if (this.stopped) return;
     this.setState(this.state === "reconnecting" ? "reconnecting" : "connecting");
-    const host = this.record.hosts[this.hostIndex % this.record.hosts.length]!;
+    const host = this.hosts[this.hostIndex % this.hosts.length]!;
     this.hostIndex++;
+    this.relay = isRelayHost(host);
     let ws: WebSocket;
     try {
-      ws = await connectWs(wsUrlOf(host));
+      ws = await connectWs(connectUrlOf(host, this.record.desktopPk));
     } catch (err) {
       this.scheduleReconnect(err instanceof Error ? err.message : "连接失败");
       return;
@@ -276,13 +311,31 @@ export class RemoteClient {
     });
     ws.addEventListener("error", () => ws.close());
 
-    // auth 握手：每连接重置双向 seq 与早到帧缓冲
+    // auth 握手：每连接重置双向 seq 与早到帧缓冲。
+    // 桌面侧 relay 出站 seq 跨重连不归零（离线队列里可能有高 seq 在途帧），
+    // 但 SeqGuard 重置后接受任意首个合法 seq、随后严格递增，两种语义都兼容。
     this.outSeq.reset();
     this.inSeq.reset();
     this.earlyFrames = [];
     try {
-      ws.send(JSON.stringify({ t: "auth", publicKey: this.record.keyPair.publicKey }));
-      const ack = (await waitFrame(ws, (f) => (f as { t?: string }).t === "auth_ack", 8000, "等待认证应答")) as {
+      // relay 是广播语义：auth 帧外层带 deviceId，host 据此把帧分流到本设备的虚拟连接
+      const hello: { t: "auth"; publicKey: string; deviceId?: string } = {
+        t: "auth",
+        publicKey: this.record.keyPair.publicKey,
+      };
+      if (this.relay) hello.deviceId = this.record.deviceId;
+      ws.send(JSON.stringify(hello));
+      const ack = (await waitFrame(
+        ws,
+        (f) => {
+          const frame = f as { t?: string; deviceId?: string };
+          // relay 广播下可能收到他设备的 auth_ack：带 deviceId 且不匹配的不是给我们的
+          if (frame.t !== "auth_ack") return false;
+          return !this.relay || typeof frame.deviceId !== "string" || frame.deviceId === this.record.deviceId;
+        },
+        8000,
+        "等待认证应答",
+      )) as {
         t: "auth_ack";
         ok: boolean;
         desktopPk?: string;
@@ -300,7 +353,7 @@ export class RemoteClient {
         ws.close();
         return;
       }
-      this.backoff = BACKOFF_MIN_MS;
+      this.backoff = this.backoffMin;
       this.setState("ready");
       // 冲刷握手期间（同一轮事件循环里）先到的加密帧（典型：snapshot 紧随 auth_ack）
       const early = this.earlyFrames;
@@ -316,7 +369,7 @@ export class RemoteClient {
     if (this.stopped || this.reconnectTimer) return;
     this.setState("reconnecting", reason);
     const delay = this.backoff;
-    this.backoff = Math.min(this.backoff * 2, BACKOFF_MAX_MS);
+    this.backoff = Math.min(this.backoff * 2, this.backoffMax);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       void this.connectOnce();
@@ -331,7 +384,11 @@ export class RemoteClient {
     } catch {
       return;
     }
-    const f = frame as Partial<RemoteEncryptedFrame>;
+    const f = frame as { t?: unknown; c?: unknown; id?: unknown; deviceId?: unknown };
+    // relay 控制帧（relay.hello / relay.error）：只与通道有关，业务层忽略
+    if (f.t === "relay.hello" || f.t === "relay.error") return;
+    // relay 广播语义：带 deviceId 且不是本设备的帧廉价丢弃（隔离由逐设备加密兜底）
+    if (this.relay && typeof f.deviceId === "string" && f.deviceId !== this.record.deviceId) return;
     if (f.t !== "encrypted" || typeof f.c !== "string" || typeof f.id !== "string") return;
     if (this.state !== "ready") {
       // 握手阶段的消息由 waitFrame 处理；紧随 ack 到达的加密帧先缓冲，ready 后按序冲刷
@@ -345,13 +402,17 @@ export class RemoteClient {
     const f = frame as Partial<RemoteEncryptedFrame>;
     if (typeof f.c !== "string") return;
 
-    // 防重放：seq 必须严格递增；乱序/解密失败 → 主动断开（桌面同款策略）
-    if (!this.inSeq.accept(f.seq)) {
+    // 先解密鉴帧再动 seq 防重放：relay 广播下无 deviceId 的他设备残留帧（pair 期帧等）
+    // 解不开直接丢弃，不能让它推进/触发本设备的 SeqGuard。
+    const payload = openPayload(f.c, this.record.desktopPk, this.record.keyPair.secretKey);
+    if (!payload) {
+      // LAN 直连不存在串线，解密失败即篡改/密钥错配，主动断开（与桌面行为一致）
+      if (this.relay) return;
       ws.close();
       return;
     }
-    const payload = openPayload(f.c, this.record.desktopPk, this.record.keyPair.secretKey);
-    if (!payload) {
+    // 防重放：seq 必须严格递增；乱序 → 主动断开（桌面同款策略）
+    if (!this.inSeq.accept(f.seq)) {
       ws.close();
       return;
     }
@@ -380,6 +441,8 @@ export class RemoteClient {
       t: "encrypted",
       c: sealPayload(payload, this.record.desktopPk, this.record.keyPair.secretKey),
     };
+    // relay 广播语义：帧外层带 deviceId，host 据此分流到本设备的虚拟连接
+    if (this.relay) frame.deviceId = this.record.deviceId;
     ws.send(JSON.stringify(frame));
   }
 

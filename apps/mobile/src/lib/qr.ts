@@ -5,10 +5,15 @@
  */
 
 import { isValidPublicKey } from "./crypto";
+import { isRelayHost } from "./relay";
 
 export interface QrPayload {
   version: number;
-  /** 桌面 harness 的 base url 列表（http://ip:port），按优先级排序 */
+  /**
+   * 桌面 harness 的地址列表，按优先级排序：
+   * - 普通项：局域网直连 base url（http://ip:port）；
+   * - `relay+wss://…` 前缀项：relay 通道（见 lib/relay.ts）。
+   */
   hosts: string[];
   /** 桌面 X25519 公钥（base64） */
   desktopPk: string;
@@ -39,7 +44,11 @@ export function parseQrPayload(text: string): QrPayload {
     .filter(Boolean);
   if (hosts.length === 0) throw new Error("hosts 为空");
   for (const h of hosts) {
-    if (!/^https?:\/\//.test(h)) throw new Error(`非法的桌面地址：${h}`);
+    if (isRelayHost(h)) {
+      if (!/^relay\+wss?:\/\//.test(h)) throw new Error(`非法的 relay 地址：${h}`);
+    } else if (!/^https?:\/\//.test(h)) {
+      throw new Error(`非法的桌面地址：${h}`);
+    }
   }
 
   const desktopPk = params.get("desktop_pk");

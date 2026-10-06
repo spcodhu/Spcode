@@ -3,10 +3,12 @@
  * 模块级单例（一个 App 一条连接），UI 组件只调这里的函数。
  */
 
-import type { RemoteCommand, RemoteEvent, ScheduleTaskInput, SessionMode } from "@spcode/shared";
+import type { RemoteCommand, ScheduleTask, ScheduleTaskInput, SessionMode } from "@spcode/shared";
 import { RemoteClient } from "../lib/client";
 import { clearPairing, loadPairing, type PairingRecord } from "../lib/db";
-import { useAppStore } from "./store";
+import type { RemoteEventExt } from "../lib/protocol";
+import { isPushEnabledLocally, isPushSupported, setPushEnabledLocally, subscribePush, unsubscribePush } from "../lib/push";
+import { getOutputMaxSeq, useAppStore } from "./store";
 
 let client: RemoteClient | null = null;
 
@@ -39,7 +41,10 @@ function startClient(record: PairingRecord): void {
     onEvent: handleEvent,
     onState: (state, detail) => {
       useAppStore.getState().setConn(state, detail);
-      if (state === "ready") void refreshAll();
+      if (state === "ready") {
+        void refreshAll();
+        void backfillOutputs(); // 断线补拉：auth 成功后按已收到的最大 seq 补缺口
+      }
     },
   });
   store.setConn("connecting");
@@ -69,7 +74,7 @@ export async function unpair(): Promise<void> {
 // 事件 → store
 // ---------------------------------------------------------------------------
 
-function handleEvent(event: RemoteEvent): void {
+function handleEvent(event: RemoteEventExt): void {
   const s = useAppStore.getState();
   switch (event.type) {
     case "session.snapshot":
@@ -81,6 +86,10 @@ function handleEvent(event: RemoteEvent): void {
     case "session.output":
       s.appendOutput(event.sessionId, event.chunk, event.kind ?? "text", event.seq);
       break;
+    case "session.output.backfill":
+      // 断线补拉结果：按 seq 合并进输出流（补齐即消除缺口标记）
+      s.mergeBackfill(event.sessionId, event.chunks);
+      break;
     case "session.todo":
       s.setTodos(event.sessionId, event.todos);
       break;
@@ -90,6 +99,10 @@ function handleEvent(event: RemoteEvent): void {
     case "permission.request":
       s.pushPermission(event.request);
       s.patchSession(event.request.sessionId, { status: "waiting_permission" });
+      break;
+    case "permission.resolved":
+      // 双端撤卡：另一端已批复同一请求，本端卡片直接关闭
+      s.dropPermission(event.requestId);
       break;
     case "question.request":
       s.pushQuestion(event.request);
@@ -102,9 +115,14 @@ function handleEvent(event: RemoteEvent): void {
         .then((data) => s.setSessions((data as { sessions: never[] }).sessions))
         .catch(() => {});
       break;
+    case "remote.hello":
+      // Web Push 契约：auth 成功后桌面下发 VAPID 公钥；已开启通知则（重）上报订阅
+      s.setVapidKey(event.vapidPublicKey);
+      void resubscribePushIfEnabled(event.vapidPublicKey);
+      break;
     case "session.usage":
     case "session.planmode":
-      break; // M1 不展示
+      break; // 暂不展示
   }
 }
 
@@ -112,7 +130,7 @@ function handleEvent(event: RemoteEvent): void {
 // 命令封装（UI 调用）
 // ---------------------------------------------------------------------------
 
-async function send<T = unknown>(cmd: RemoteCommand): Promise<T> {
+async function send<T = unknown>(cmd: Parameters<RemoteClient["command"]>[0]): Promise<T> {
   if (!client) throw new Error("未连接");
   return client.command<T>(cmd);
 }
@@ -129,9 +147,30 @@ async function refreshAll(): Promise<void> {
   await refreshSchedules();
 }
 
+/**
+ * 断线补拉：对「已有输出记录的会话 + 当前打开的会话」发 session.output.since，
+ * 桌面回 session.output.backfill 事件（只含 seq > afterSeq 的 chunk），由 mergeBackfill 合并。
+ */
+async function backfillOutputs(): Promise<void> {
+  const s = useAppStore.getState();
+  const targets = new Set<string>();
+  for (const id of Object.keys(s.outputs)) {
+    if (getOutputMaxSeq(id) !== undefined) targets.add(id);
+  }
+  if (s.route.name === "session") targets.add(s.route.id); // 打开的会话：即使本地无记录也补最近输出
+  for (const sessionId of targets) {
+    const afterSeq = getOutputMaxSeq(sessionId) ?? -1;
+    try {
+      await send({ type: "session.output.since", sessionId, afterSeq });
+    } catch {
+      // 连接抖动等：缺口标记保留，下次重连再补
+    }
+  }
+}
+
 export async function refreshSchedules(): Promise<void> {
   try {
-    const data = await send<{ tasks: import("@spcode/shared").ScheduleTask[] }>({ type: "schedule.list" });
+    const data = await send<{ tasks: ScheduleTask[] }>({ type: "schedule.list" });
     useAppStore.getState().setSchedules(data.tasks);
   } catch {
     // 非 ready 等场景忽略
@@ -147,6 +186,20 @@ export async function createSession(input: { mode: SessionMode; prompt: string; 
   });
   useAppStore.getState().setRoute({ name: "session", id: data.sessionId });
   return data.sessionId;
+}
+
+/** 重命名会话（桌面完成后广播 session.renamed / sessions.changed，此处先本地生效） */
+export async function renameSession(sessionId: string, title: string): Promise<void> {
+  await send({ type: "session.rename", sessionId, title });
+  useAppStore.getState().patchSession(sessionId, { title });
+}
+
+/** 删除会话（桌面完成后广播 sessions.changed；本地立即移除，若正在详情页则退回列表） */
+export async function removeSession(sessionId: string): Promise<void> {
+  await send({ type: "session.remove", sessionId });
+  const s = useAppStore.getState();
+  s.removeSession(sessionId);
+  if (s.route.name === "session" && s.route.id === sessionId) s.setRoute({ name: "sessions" });
 }
 
 export async function sendPrompt(sessionId: string, text: string): Promise<void> {
@@ -168,6 +221,16 @@ export async function replyQuestion(requestId: string, answers: Record<string, s
   await send({ type: "question.reply", requestId, answers }).catch(() => {});
 }
 
+export async function createSchedule(input: ScheduleTaskInput): Promise<void> {
+  await send({ type: "schedule.create", input });
+  await refreshSchedules();
+}
+
+export async function updateSchedule(taskId: string, patch: Partial<ScheduleTaskInput>): Promise<void> {
+  await send({ type: "schedule.update", id: taskId, patch });
+  await refreshSchedules();
+}
+
 export async function toggleSchedule(taskId: string, enabled: boolean): Promise<void> {
   await send({ type: "schedule.update", id: taskId, patch: { enabled } satisfies Partial<ScheduleTaskInput> });
   await refreshSchedules();
@@ -181,4 +244,33 @@ export async function runScheduleNow(taskId: string): Promise<void> {
 export async function removeSchedule(taskId: string): Promise<void> {
   await send({ type: "schedule.remove", id: taskId });
   await refreshSchedules();
+}
+
+// ---------------------------------------------------------------------------
+// Web Push（契约见 lib/protocol.ts 的 TODO(契约收敛)）
+// ---------------------------------------------------------------------------
+
+/** 开启通知：订阅 PushManager 并上报桌面；失败抛错由 UI 展示（开关维持关闭） */
+export async function enablePushNotifications(): Promise<void> {
+  const vapidKey = useAppStore.getState().vapidKey;
+  if (!vapidKey) throw new Error("桌面端尚未下发推送公钥（remote.hello），请确认桌面端已升级到支持推送的版本并重连");
+  const sub = await subscribePush(vapidKey);
+  await send({ type: "push.subscribe", subscription: sub.toJSON() });
+  setPushEnabledLocally(true);
+}
+
+/** 关闭通知：本地退订（桌面侧订阅随连接失效，无需显式下线命令） */
+export async function disablePushNotifications(): Promise<void> {
+  await unsubscribePush();
+}
+
+/** remote.hello 到达时：本地已开启过通知则重新上报订阅（桌面重启后推送路由需重建）；静默降级 */
+async function resubscribePushIfEnabled(vapidKey: string): Promise<void> {
+  if (!isPushSupported() || !isPushEnabledLocally()) return;
+  try {
+    const sub = await subscribePush(vapidKey);
+    await send({ type: "push.subscribe", subscription: sub.toJSON() });
+  } catch {
+    // 订阅失效/授权被收回等：静默，下次 remote.hello 再试
+  }
 }
