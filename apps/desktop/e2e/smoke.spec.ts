@@ -93,6 +93,50 @@ test.describe("Spcode 冒烟 E2E", () => {
     await app.close();
   });
 
+  test("设置页：远程控制分区——relay/推送开关/Tailscale 灰态/隐私说明展开", async () => {
+    const app = await launchApp();
+    const window = await app.firstWindow();
+
+    await window.getByRole("button", { name: /新建聊天/ }).click();
+    await expect(window.getByPlaceholder(/说点什么/)).toBeVisible({ timeout: 15000 });
+
+    await window.getByTitle("设置", { exact: true }).click();
+    await window.getByRole("button", { name: "远程控制" }).click();
+
+    // 隐私说明区始终可见（未开启远程也能读）
+    await expect(window.getByTestId("remote-privacy")).toBeVisible();
+
+    // 开启远程控制：M2/M3 新分区出现（锚 data-testid / role，不绑展示文案——评审 N4）
+    await window.getByRole("switch", { name: "启用远程控制" }).click();
+    await expect(window.getByTestId("remote-relay")).toBeVisible({ timeout: 10000 });
+    await expect(window.getByTestId("remote-relay-input")).toHaveAttribute("placeholder", "wss://relay.example.com");
+    // 未配置 relayUrl → 徽章"未启用"
+    await expect(window.getByTestId("remote-relay-badge")).toHaveText("未启用");
+    await expect(window.getByRole("switch", { name: "Web Push 通知" })).toBeVisible();
+    // e2e 环境无 tailscaled → 灰态
+    await expect(window.getByTestId("remote-tailscale")).toContainText("未检测到 tailscaled");
+
+    // 填 relay 地址并保存 → 触发重连，徽章离开"未启用"
+    await window.getByTestId("remote-relay-input").fill("wss://relay.example.com");
+    await window.getByRole("button", { name: "保存" }).click();
+    await expect(window.getByTestId("remote-relay-badge")).toHaveText(/连接中|已连接/, { timeout: 8000 });
+
+    // 推送开关可切换（开 → 关，验证 IPC 链路不报错）
+    const pushSwitch = window.getByRole("switch", { name: "Web Push 通知" });
+    await pushSwitch.click();
+    await expect(pushSwitch).toHaveAttribute("aria-checked", "true");
+    await pushSwitch.click();
+    await expect(pushSwitch).toHaveAttribute("aria-checked", "false");
+
+    // 隐私说明展开：附录 B 全文，含飞书条款的"后续版本提供"标注
+    await window.getByTestId("remote-privacy-toggle").click();
+    await expect(window.getByTestId("remote-privacy")).toContainText("端到端加密");
+    await expect(window.getByTestId("remote-privacy")).toContainText("中继服务器只存储和转发");
+    await expect(window.getByTestId("remote-privacy")).toContainText("飞书通道将在后续版本提供");
+
+    await app.close();
+  });
+
   test("快捷键 Cmd+, 开设置，ESC 与点击外部关闭", async () => {
     const app = await launchApp();
     const window = await app.firstWindow();

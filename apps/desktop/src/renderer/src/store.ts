@@ -968,6 +968,9 @@ export const useStore = create<StoreState>((set, get) => ({
           if (s.pendingPermissions.some((p) => p.requestId === event.request.requestId)) return s;
           return { ...s, pendingPermissions: [...s.pendingPermissions, event.request] };
         }
+        case "permission.resolved":
+          // 双端撤卡（远程控制 M3）：任一端（含本端）裁决后，撤掉同 requestId 的批准卡
+          return { ...s, pendingPermissions: s.pendingPermissions.filter((p) => p.requestId !== event.requestId) };
         case "host.error":
           // fatal=宿主进程退出才影响就绪态；prompt 失败等普通错误只记 lastError（评审 P1-2）
           return event.fatal

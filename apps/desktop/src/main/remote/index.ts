@@ -1,5 +1,5 @@
 /**
- * RemoteServer：远程控制的 harness 侧入口（M1 局域网 + M2 relay）。
+ * RemoteServer：远程控制的 harness 侧入口（M1 局域网 + M2 relay/Web Push + M3 Tailscale/双端撤卡）。
  *
  * 接线（main/index.ts）：
  *   const remote = new RemoteServer({ settings, bridge, scheduler, registry });
@@ -41,8 +41,10 @@ import { boxDecrypt, boxEncrypt, isValidPublicKey, SeqCounter, SeqGuard } from "
 import { handleRemoteCommand, type RemoteHandlerDeps } from "./handlers.js";
 import { SessionOutputLog } from "./output-log.js";
 import { PairingManager } from "./pairing.js";
+import { PushService } from "./push.js";
 import { LanTransport } from "./transport/lan.js";
 import { deriveChannelId, RelayTransport } from "./transport/relay.js";
+import { TailscaleManager } from "./transport/tailscale.js";
 import type { PeerConnection, RemoteTransport } from "./transport/types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -62,6 +64,10 @@ export interface RemoteServerDeps extends RemoteHandlerDeps {
   relayTransport?: RemoteTransport | null;
   /** 测试注入；缺省自动探测 apps/mobile 构建产物 */
   mobileDistDir?: string;
+  /** 测试注入；缺省 ~/.spcode/remote 下的 VAPID/订阅存储 */
+  push?: PushService;
+  /** 测试注入；缺省真实 tailscale CLI 检测 */
+  tailscale?: TailscaleManager;
 }
 
 /** relayUrl 归一化：空白串按未配置处理 */
@@ -95,6 +101,8 @@ export class RemoteServer {
   private readonly pairing: PairingManager;
   private readonly aggregator: RemoteEventAggregator;
   private readonly outputLog: SessionOutputLog;
+  private readonly push: PushService;
+  private readonly tailscale: TailscaleManager;
   private readonly peers = new Set<PeerState>();
   private lanTransport: RemoteTransport | null;
   private relayTransport: RemoteTransport | null = null;
@@ -103,6 +111,8 @@ export class RemoteServer {
   /** 当前运行对应的配置指纹（端口 / relayUrl 变更后重启） */
   private activeConfigPort: number | null = null;
   private activeRelayUrl: string | null = null;
+  /** tailscale serve 当前映射的 LAN 端口（0 = 未映射），避免重复执行 serve 命令 */
+  private tailscaleServingPort = 0;
 
   constructor(deps: RemoteServerDeps) {
     this.deps = deps;
@@ -111,6 +121,10 @@ export class RemoteServer {
     this.relayTransport = deps.relayTransport ?? null;
     this.outputLog = new SessionOutputLog();
     this.aggregator = new RemoteEventAggregator({ emit: (event) => this.emitRemote(event) });
+    this.push = deps.push ?? new PushService();
+    this.tailscale =
+      deps.tailscale ??
+      new TailscaleManager({ log: (msg, extra) => console.warn(`[remote/tailscale] ${msg}`, extra ?? "") });
   }
 
   /** 按 settings.remote 启停（设置变更后由 IPC 层显式调用） */
@@ -123,6 +137,13 @@ export class RemoteServer {
     } else if (!cfg.enabled && this.running) {
       await this.stop();
     }
+    // tailscale 开关独立同步（映射的是 LAN 端口，无需重启整个服务）
+    await this.syncTailscale();
+  }
+
+  /** 设置页 status 查询前刷新 tailscale 检测（15s 缓存，不频繁 spawn） */
+  async refreshTailscaleDetection(): Promise<void> {
+    await this.tailscale.detect();
   }
 
   async start(): Promise<void> {
@@ -155,8 +176,18 @@ export class RemoteServer {
     }
     this.activeConfigPort = cfg.port;
     this.activeRelayUrl = relayUrl;
-    this.unsubscribeBridge = this.deps.bridge.onEvent((event) => this.aggregator.handle(event));
+    // 首次启用即生成 VAPID 密钥对（remote.hello 携带公钥供设备订阅推送）
+    this.push.ensureVapid();
+    this.unsubscribeBridge = this.deps.bridge.onEvent((event) => {
+      this.aggregator.handle(event);
+      // Web Push 触发点（M2）：无内容提醒；设置关闭或失败都不影响主流程
+      void this.push
+        .notifyForHostEvent(event, this.deps.settings.get().remote.pushEnabled === true)
+        .catch((err) => console.warn("[remote/push] 推送异常", err));
+    });
     this.running = true;
+    // tailscale serve 依赖 LAN 已起（需要实际端口）
+    await this.syncTailscale();
   }
 
   async stop(): Promise<void> {
@@ -167,6 +198,9 @@ export class RemoteServer {
     this.aggregator.dispose();
     for (const state of this.peers) state.peer.close();
     this.peers.clear();
+    // 撤销 tailscale serve 映射（只在我们开启过时执行 off）
+    this.tailscaleServingPort = 0;
+    await this.tailscale.disable();
     // 自建 transport：停掉以便下次用新配置重建；注入的 transport 由调用方管理
     if (!this.deps.transport) {
       const t = this.lanTransport;
@@ -180,6 +214,26 @@ export class RemoteServer {
     }
   }
 
+  /**
+   * tailscale serve 映射同步：开启且运行中 → 映射到当前 LAN 端口（幂等，同端口跳过）；
+   * 其余情况 → 撤销映射。tailscale 不可用 / 命令失败只记日志，不影响主流程。
+   */
+  private async syncTailscale(): Promise<void> {
+    const cfg = this.deps.settings.get().remote;
+    if (this.running && cfg.tailscale === true) {
+      const port = this.lanTransport?.getPort?.() ?? 0;
+      if (port <= 0) return;
+      if (this.tailscaleServingPort === port && this.tailscale.status().enabled) return;
+      const url = await this.tailscale.enable(port);
+      this.tailscaleServingPort = url ? port : 0;
+      return;
+    }
+    if (this.tailscaleServingPort !== 0 || this.tailscale.status().enabled) {
+      this.tailscaleServingPort = 0;
+      await this.tailscale.disable();
+    }
+  }
+
   isRunning(): boolean {
     return this.running;
   }
@@ -189,6 +243,9 @@ export class RemoteServer {
     const urls: string[] = [];
     if (this.lanTransport) urls.push(...this.lanTransport.getAdvertisedUrls());
     if (this.activeRelayUrl && this.relayTransport) urls.push(...this.relayTransport.getAdvertisedUrls());
+    // tailscale 直连项：https://<magicdns>（QR hosts 的普通直连项约定，客户端按 base url 直连）
+    const ts = this.tailscale.status();
+    if (ts.enabled && ts.url) urls.push(ts.url);
     return urls;
   }
 
@@ -205,6 +262,7 @@ export class RemoteServer {
       devices: this.pairing.devices(),
       pairing: this.currentPairingInfo(),
       relay: this.relayState(),
+      tailscale: this.tailscale.status(),
     };
   }
 
@@ -215,10 +273,11 @@ export class RemoteServer {
     return { otp: win.otp, expiresAt: win.expiresAt, qrPayload: this.pairing.buildQrPayload(urls, win), urls };
   }
 
-  /** 吊销设备：落盘删除 + 断开该设备的现存连接 */
+  /** 吊销设备：落盘删除 + 断开该设备的现存连接 + 删除其推送订阅 */
   unpairDevice(deviceId: string): boolean {
     const ok = this.pairing.removeDevice(deviceId);
     if (ok) {
+      this.push.unsubscribeDevice(deviceId);
       for (const state of this.peers) {
         if (state.device?.id === deviceId) state.peer.close();
       }
@@ -301,7 +360,9 @@ export class RemoteServer {
       };
       const c = boxEncrypt(JSON.stringify(inner), result.device.publicKey, this.pairing.getIdentity().secretKey);
       state.peer.send({ t: "pair_ack", ok: true, c });
+      // 先快照后 remote.hello：保持「首个加密帧 = session.snapshot」的既有协议顺序
       this.sendSnapshot(state);
+      this.sendHello(state);
       return;
     }
 
@@ -323,6 +384,7 @@ export class RemoteServer {
       state.inGuard.reset();
       state.peer.send({ t: "auth_ack", ok: true, desktopPk: this.pairing.getIdentity().publicKey });
       this.sendSnapshot(state);
+      this.sendHello(state);
       return;
     }
 
@@ -340,6 +402,18 @@ export class RemoteServer {
       this.sendEncrypted(state, { kind: "response", id: frameId, ok: true, data: { count: chunks.length } });
       return;
     }
+    // Web Push 订阅登记（M2）：按 deviceId 存储；订阅 JSON 不合法时响应 ok:false
+    if (command.type === "push.subscribe") {
+      let response: RemoteEncryptedPayload;
+      try {
+        this.push.subscribe(state.device!.id, command.subscription);
+        response = { kind: "response", id: frameId, ok: true, data: { ok: true } };
+      } catch (err) {
+        response = { kind: "response", id: frameId, ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+      this.sendEncrypted(state, response);
+      return;
+    }
     let response: RemoteEncryptedPayload;
     try {
       const data = await handleRemoteCommand(command, this.deps);
@@ -349,6 +423,14 @@ export class RemoteServer {
       response = { kind: "response", id: frameId, ok: false, error: err instanceof Error ? err.message : String(err) };
     }
     this.sendEncrypted(state, response);
+  }
+
+  /** auth / pair 成功后的首个事件：VAPID 公钥（设备据此订阅 Web Push） */
+  private sendHello(state: PeerState): void {
+    this.sendEncrypted(state, {
+      kind: "event",
+      event: { type: "remote.hello", vapidPublicKey: this.push.vapidPublicKey() },
+    });
   }
 
   private sendSnapshot(state: PeerState): void {

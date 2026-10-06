@@ -19,6 +19,7 @@ import {
 } from "../src/main/remote/crypto.js";
 import { RemoteServer } from "../src/main/remote/index.js";
 import { PairingManager } from "../src/main/remote/pairing.js";
+import { PushService } from "../src/main/remote/push.js";
 import { LanTransport } from "../src/main/remote/transport/lan.js";
 import { deriveChannelId, RelayTransport } from "../src/main/remote/transport/relay.js";
 import type { RegistryLike } from "../src/main/session-helpers.js";
@@ -379,10 +380,22 @@ beforeAll(async () => {
     runNow: async () => "x",
   };
   const settings = {
-    get: () => ({ ...DEFAULT_SETTINGS, remote: { enabled: true, port: 0, relayUrl: relayBase } }),
+    get: () => ({
+      ...DEFAULT_SETTINGS,
+      remote: { enabled: true, port: 0, relayUrl: relayBase, tailscale: false, pushEnabled: false },
+    }),
   };
 
-  server = new RemoteServer({ settings, bridge, scheduler, registry, pairing, transport: lan, relayTransport });
+  server = new RemoteServer({
+    settings,
+    bridge,
+    scheduler,
+    registry,
+    pairing,
+    transport: lan,
+    relayTransport,
+    push: new PushService({ baseDir: dir }),
+  });
   await server.start();
   // relay transport 后台连接，等待首次连上
   await waitUntil(() => relayTransport.getState() === "connected");

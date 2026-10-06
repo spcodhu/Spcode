@@ -308,11 +308,16 @@ function registerIpc(): void {
   });
 
   // 远程控制：状态查询 / 开关 / 重新生成配对 QR / 解绑设备
-  ipcMain.handle(IPC.remoteStatus, () => remote.status());
+  ipcMain.handle(IPC.remoteStatus, async () => {
+    // 设置页展示 tailscale 可用性前刷新一次检测（内部 15s 缓存，不频繁 spawn）
+    await remote.refreshTailscaleDetection();
+    return remote.status();
+  });
   ipcMain.handle(IPC.remoteSetEnabled, async (_e, enabled: boolean, port?: number | null) => {
     const cur = settings.get().remote;
     settings.set({
       remote: {
+        ...cur, // 保留 relayUrl / tailscale / pushEnabled 等其余字段
         enabled: enabled === true,
         port: typeof port === "number" ? port : port === null ? null : cur.port,
         relayUrl: cur.relayUrl ?? null,

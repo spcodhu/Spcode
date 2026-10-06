@@ -404,3 +404,22 @@ describe("groupMessagesForRender 运行归并", () => {
     expect(items.every((i) => i.kind === "user")).toBe(true);
   });
 });
+
+describe("permission.resolved 双端撤卡", () => {
+  it("任一端裁决后撤掉同 requestId 的批准卡；未知 requestId 不影响", () => {
+    stubSpcodeApi();
+    useStore.setState({ pendingPermissions: [] });
+    const req = (id: string) => ({ requestId: id, sessionId: "s1", toolName: "Bash", args: {}, risk: "write" as const });
+    useStore.getState().applyHostEvent({ type: "permission.request", request: req("r1") });
+    useStore.getState().applyHostEvent({ type: "permission.request", request: req("r2") });
+    expect(useStore.getState().pendingPermissions.map((p) => p.requestId)).toEqual(["r1", "r2"]);
+
+    // 远程端裁决了 r1（permission.resolved by="remote"）→ 桌面卡片撤掉
+    useStore.getState().applyHostEvent({ type: "permission.resolved", requestId: "r1", approved: true, by: "remote" });
+    expect(useStore.getState().pendingPermissions.map((p) => p.requestId)).toEqual(["r2"]);
+
+    // 未知 requestId 不影响现有卡片
+    useStore.getState().applyHostEvent({ type: "permission.resolved", requestId: "ghost", approved: true, by: "local" });
+    expect(useStore.getState().pendingPermissions).toHaveLength(1);
+  });
+});

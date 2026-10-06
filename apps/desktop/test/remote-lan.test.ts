@@ -18,6 +18,7 @@ import {
 } from "../src/main/remote/crypto.js";
 import { RemoteServer } from "../src/main/remote/index.js";
 import { PairingManager } from "../src/main/remote/pairing.js";
+import { PushService } from "../src/main/remote/push.js";
 import { LanTransport } from "../src/main/remote/transport/lan.js";
 import type { RegistryLike } from "../src/main/session-helpers.js";
 import type { SessionRegistryEntry } from "../src/main/session-registry.js";
@@ -146,10 +147,21 @@ beforeAll(async () => {
     runNow: async () => "x",
   };
   const settings = {
-    get: () => ({ ...DEFAULT_SETTINGS, remote: { enabled: true, port: 0, relayUrl: null } }),
+    get: () => ({
+      ...DEFAULT_SETTINGS,
+      remote: { enabled: true, port: 0, relayUrl: null, tailscale: false, pushEnabled: false },
+    }),
   };
 
-  server = new RemoteServer({ settings, bridge, scheduler, registry, pairing, transport });
+  server = new RemoteServer({
+    settings,
+    bridge,
+    scheduler,
+    registry,
+    pairing,
+    transport,
+    push: new PushService({ baseDir: dir }),
+  });
   await server.start();
   port = transport.getPort();
   expect(port).toBeGreaterThan(0);

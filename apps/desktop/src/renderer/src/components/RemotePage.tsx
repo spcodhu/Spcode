@@ -1,13 +1,15 @@
 /**
  * 设置页「远程控制」分区（设计文档 4.4）：
- * 总开关 / 监听地址 / 配对二维码 + OTP / 已配对设备管理。
+ * 总开关 / 监听地址 / 配对二维码 + OTP / 已配对设备管理 /
+ * relay 配置（M2）/ Tailscale 直连（M3）/ 通知推送开关（M2）/ 完整隐私说明（附录 B）。
  *
  * 仅渲染进程 UI 与 IPC 调用，协议与配对逻辑全部在 main 进程（src/main/remote/）。
  */
 import { useCallback, useEffect, useState } from "react";
 import QRCode from "react-qr-code";
-import type { PairedDevice, RemoteStatus } from "@spcode/shared";
+import type { PairedDevice, RemoteRelayState, RemoteStatus, RemoteSettings } from "@spcode/shared";
 import { formatRelative, formatTime } from "../format";
+import { useStore } from "../store";
 import { Icon } from "./Icon";
 import { Switch } from "./ui/Switch";
 
@@ -17,6 +19,12 @@ export function RemotePage() {
   const [busy, setBusy] = useState(false);
   /** OTP 倒计时用的当前时间（启用且有配对窗口时每秒刷新） */
   const [now, setNow] = useState(() => Date.now());
+  /** relay 地址输入草稿（null = 未编辑，跟随 settings） */
+  const [relayDraft, setRelayDraft] = useState<string | null>(null);
+  const [privacyOpen, setPrivacyOpen] = useState(false);
+  const settings = useStore((s) => s.settings);
+  const saveSettings = useStore((s) => s.saveSettings);
+  const remoteCfg = settings?.remote ?? null;
 
   const refresh = useCallback(async () => {
     try {
@@ -35,6 +43,13 @@ export function RemotePage() {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, [status?.enabled]);
+
+  // relay 连接是异步的：启用期间每 5s 刷新一次状态徽章 / tailscale URL
+  useEffect(() => {
+    if (!status?.enabled) return;
+    const t = setInterval(() => void refresh(), 5000);
+    return () => clearInterval(t);
+  }, [status?.enabled, refresh]);
 
   const toggle = async (v: boolean) => {
     if (busy) return;
@@ -64,6 +79,31 @@ export function RemotePage() {
     if (!window.confirm(`确定解除与「${d.name}」的配对吗？该设备将无法再连接本机。`)) return;
     await window.spcode.remoteUnpairDevice(d.id);
     await refresh();
+  };
+
+  /** 更新 remote 子设置（relayUrl / tailscale / pushEnabled），随后刷新状态 */
+  const patchRemote = async (patch: Partial<RemoteSettings>) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      // 总开关走 remoteSetEnabled IPC、不经过 settings store，本地 remoteCfg 的
+      // enabled 可能过期——保存前拉最新设置再合并，避免把 enabled 覆盖回 false
+      const fresh = await window.spcode.getSettings();
+      await saveSettings({ remote: { ...fresh.remote, ...patch } });
+      await refresh();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const relayValue = relayDraft ?? remoteCfg?.relayUrl ?? "";
+
+  const saveRelayUrl = async () => {
+    const v = relayValue.trim();
+    await patchRemote({ relayUrl: v || null });
+    setRelayDraft(null);
+    // relay 重连异步进行，稍后再刷一次让徽章反映 connecting → connected
+    setTimeout(() => void refresh(), 1200);
   };
 
   const pairing = status?.pairing ?? null;
@@ -177,14 +217,150 @@ export function RemotePage() {
               </div>
             )}
           </div>
+
+          {/* 公网中继（relay） */}
+          <SectionTitle>公网中继</SectionTitle>
+          <div className="rounded-xl border border-border bg-bg-elevated px-4 py-3" data-testid="remote-relay">
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={relayValue}
+                onChange={(e) => setRelayDraft(e.target.value)}
+                placeholder="wss://relay.example.com"
+                spellCheck={false}
+                data-testid="remote-relay-input"
+                className="mono min-w-0 flex-1 rounded-lg border border-border bg-bg-root px-3 py-1.5 text-[13px] text-text-primary placeholder:text-text-tertiary focus:border-accent focus:outline-none"
+              />
+              <RelayBadge state={status.relay} />
+              <button
+                type="button"
+                onClick={() => void saveRelayUrl()}
+                disabled={busy || !remoteCfg || relayDraft === null}
+                className="shrink-0 rounded-lg bg-accent px-4 py-1.5 text-[13px] text-white hover:bg-accent-dim disabled:opacity-40"
+              >
+                保存
+              </button>
+            </div>
+            <div className="mt-2 text-[12px] leading-5 text-text-tertiary">
+              填入后手机在任意网络下都能连接本机。自建中继只转发密文，看不到代码、提示词与会话内容；留空则仅局域网/Tailscale
+              可达。
+            </div>
+          </div>
+
+          {/* Tailscale 直连 */}
+          <SectionTitle>Tailscale 直连</SectionTitle>
+          <div className="rounded-xl border border-border bg-bg-elevated px-4 py-3" data-testid="remote-tailscale">
+            {status.tailscale.available ? (
+              <div className="flex items-center justify-between">
+                <div className="min-w-0">
+                  <div className="text-[14px] text-text-primary">通过 Tailscale 暴露本机</div>
+                  <div className="mt-0.5 text-[12px] text-text-tertiary">
+                    {status.tailscale.enabled && status.tailscale.url ? (
+                      <>
+                        已开启：
+                        <span className="mono text-text-secondary">{status.tailscale.url}</span>
+                        （仅你的 tailnet 内可达）
+                      </>
+                    ) : (
+                      "开启后执行 tailscale serve，把远程服务映射到 tailnet 的 https 地址"
+                    )}
+                  </div>
+                </div>
+                <Switch
+                  on={status.tailscale.enabled}
+                  onChange={(v) => void patchRemote({ tailscale: v })}
+                  disabled={busy || !remoteCfg}
+                  label="通过 Tailscale 暴露本机"
+                />
+              </div>
+            ) : (
+              <div className="text-[13px] text-text-tertiary">未检测到 tailscaled（安装并登录 Tailscale 后可启用直连）</div>
+            )}
+          </div>
+
+          {/* 通知推送 */}
+          <SectionTitle>通知推送</SectionTitle>
+          <div className="rounded-xl border border-border bg-bg-elevated px-4 py-3" data-testid="remote-push">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-[14px] text-text-primary">Web Push 通知</div>
+                <div className="mt-0.5 text-[12px] text-text-tertiary">
+                  有权限请求、提问或定时任务触发时推送提醒到已配对手机；推送内容不含任何任务数据
+                </div>
+              </div>
+              <Switch
+                on={remoteCfg?.pushEnabled ?? false}
+                onChange={(v) => void patchRemote({ pushEnabled: v })}
+                disabled={busy || !remoteCfg}
+                label="Web Push 通知"
+              />
+            </div>
+          </div>
         </>
       )}
 
-      {/* 隐私说明 */}
-      <p className="mt-6 rounded-xl border border-border bg-bg-elevated px-4 py-3 text-[12px] leading-5 text-text-tertiary">
-        远程通信全程端到端加密；仅局域网可达（公网中继将在后续版本提供）。
-      </p>
+      {/* 隐私说明（附录 B 全文，可展开） */}
+      <div className="mt-6 rounded-xl border border-border bg-bg-elevated px-4 py-3" data-testid="remote-privacy">
+        <button
+          type="button"
+          onClick={() => setPrivacyOpen((v) => !v)}
+          data-testid="remote-privacy-toggle"
+          aria-expanded={privacyOpen}
+          className="flex w-full items-center justify-between text-left"
+        >
+          <span className="text-[13px] font-medium text-text-secondary">远程功能隐私说明</span>
+          <Icon name={privacyOpen ? "chevronDown" : "chevronRight"} size={14} className="text-text-tertiary" />
+        </button>
+        <p className="mt-1.5 text-[12px] leading-5 text-text-tertiary">
+          端到端加密，中继只转发密文；推送不含任务数据。点击展开完整说明。
+        </p>
+        {privacyOpen && (
+          <ol className="mt-3 list-decimal space-y-2 border-t border-border pt-3 pl-5 text-[12px] leading-5 text-text-tertiary">
+            <li>远程功能默认关闭，由您手动开启并扫码配对后才生效。</li>
+            <li>
+              您的手机与电脑之间的所有通信采用端到端加密（X25519 密钥交换 +
+              XSalsa20-Poly1305）。加密密钥仅存储在您的两台设备上，配对通过本机展示的二维码带外完成。
+            </li>
+            <li>
+              为使手机在任意网络下可达您的电脑，消息会经过一台中继服务器（relay）。中继服务器只存储和转发
+              <strong className="text-text-secondary">加密后的数据</strong>
+              ，无法读取其中的代码、提示词、会话内容或定时任务内容。中继服务器可见的信息仅限于：连接时间、数据量等元数据。
+            </li>
+            <li>
+              您可以在设置中将中继服务器替换为自行部署的实例（开源，一键部署），或通过 Tailscale
+              直连；此时您的数据完全不经过我们运营或关联的任何服务器。
+            </li>
+            <li>任务通知推送（如“有权限请求待批准”）通过系统推送通道送达，推送内容不含任何任务数据。</li>
+            <li>
+              【可选通道】飞书机器人通道：您输入的提示词与 agent 返回的内容将以
+              <strong className="text-text-secondary">明文</strong>
+              经过飞书（字节跳动）的服务器，飞书平台理论上可见这些内容。此通道不经过我们运营或关联的任何服务器（连接发生在您的电脑与您自己创建的飞书应用之间）。处理敏感项目时，请改用端到端加密的
+              PWA 通道。飞书通道默认关闭，开启即视为知悉并接受本条。（飞书通道将在后续版本提供）
+            </li>
+            <li>本功能全部代码（桌面端、中继、手机端、飞书通道）开源，欢迎审计。</li>
+            <li>我们不出售、不分析、不训练您的任何数据——架构上我们也做不到。</li>
+          </ol>
+        )}
+      </div>
     </div>
+  );
+}
+
+/** relay 连接状态徽章 */
+function RelayBadge({ state }: { state: RemoteRelayState }) {
+  const styles: Record<RemoteRelayState, { text: string; cls: string }> = {
+    disabled: { text: "未启用", cls: "text-text-tertiary border-border" },
+    connecting: { text: "连接中", cls: "text-warning border-warning/40" },
+    connected: { text: "已连接", cls: "text-accent border-accent/40" },
+  };
+  const s = styles[state];
+  return (
+    <span
+      data-testid="remote-relay-badge"
+      className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] ${s.cls}`}
+    >
+      {s.text}
+    </span>
   );
 }
 

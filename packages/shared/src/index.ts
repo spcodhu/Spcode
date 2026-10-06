@@ -188,6 +188,11 @@ export type HostEvent =
   /** WritePlan 工具落盘了计划文件（主进程回填 planFile 用） */
   | { type: "session.plan"; sessionId: string; path: string }
   | { type: "permission.request"; request: PermissionRequest }
+  /**
+   * 权限请求已在任一端裁决（远程控制 M3 双端撤卡）：另一端据此关闭同 requestId 的批准卡。
+   * by = 裁决来源端（"local" 桌面 / "remote" 远程设备）；由主进程在 replyPermission 成功后广播
+   */
+  | { type: "permission.resolved"; requestId: string; approved: boolean; by: "local" | "remote" }
   | { type: "question.request"; request: QuestionRequest }
   /** 会话注册表发生变化（如定时任务新建会话）：渲染进程应重新拉取列表 */
   | { type: "sessions.changed" }
@@ -415,7 +420,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   uiFontFile: "",
   monoFontFile: "",
   advancedSearch: null,
-  remote: { enabled: false, port: null, relayUrl: null },
+  remote: { enabled: false, port: null, relayUrl: null, tailscale: false, pushEnabled: false },
 };
 
 /** Spcode 全局数据目录（记忆、设置、用量、会话索引都放在这里） */

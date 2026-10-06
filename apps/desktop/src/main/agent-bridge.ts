@@ -125,13 +125,18 @@ export class AgentBridge {
     this.broadcast({ type: "permission.request", request });
   }
 
-  /** 渲染进程回复权限确认 */
-  replyPermission(requestId: string, approved: boolean): void {
+  /**
+   * 渲染进程 / 远程端回复权限确认。
+   * by 标记裁决来源（远程控制 M3 双端撤卡）：成功后广播 permission.resolved，
+   * 另一端据此关闭同 requestId 的批准卡；10 分钟超时兜底走默认 "local"。
+   */
+  replyPermission(requestId: string, approved: boolean, by: "local" | "remote" = "local"): void {
     const p = this.pendingPermissions.get(requestId);
     if (!p) return;
     this.pendingPermissions.delete(requestId);
     clearTimeout(p.timer);
     this.post({ type: "permission.reply", payload: { requestId, approved } });
+    this.emitLocal({ type: "permission.resolved", requestId, approved, by });
   }
 
   /** 渲染进程回复结构化提问（AskUserQuestion 工具） */

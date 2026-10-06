@@ -41,6 +41,12 @@ export type RemoteCommand =
   | { type: "schedule.update"; id: string; patch: Partial<ScheduleTaskInput> }
   | { type: "schedule.remove"; id: string }
   | { type: "schedule.runNow"; id: string }
+  /**
+   * 注册 Web Push 订阅（M2）：浏览器 PushSubscription 的 JSON 形态
+   * （endpoint / keys.p256dh / keys.auth），按 deviceId 存桌面端；
+   * 推送 payload 只含无内容提醒，不含任务数据
+   */
+  | { type: "push.subscribe"; subscription: RemotePushSubscription }
   /** 断线补拉：拉取某会话 seq > afterSeq 的输出 chunk（响应为 session.output.backfill 事件） */
   | { type: "session.output.since"; sessionId: string; afterSeq: number }
   /** 重命名会话（与桌面端同一套注册表逻辑，完成后广播 session.renamed / sessions.changed） */
@@ -50,6 +56,11 @@ export type RemoteCommand =
 
 /** 桌面 → 手机 */
 export type RemoteEvent =
+  /**
+   * auth / pair 成功后的首个服务端事件：携带 VAPID 公钥（Web Push 订阅用；
+   * 未生成时为空串，客户端据此禁用推送开关）
+   */
+  | { type: "remote.hello"; vapidPublicKey: string }
   /** 连接/配对成功后的全量快照 */
   | { type: "session.snapshot"; sessions: SessionMeta[] }
   | { type: "session.status"; sessionId: string; status: "running" | "idle" | "waiting_permission" }
@@ -61,6 +72,11 @@ export type RemoteEvent =
   | { type: "session.planmode"; sessionId: string; enabled: boolean }
   /** 含 risk 级别；danger 级手机端必须强确认 UI */
   | { type: "permission.request"; request: PermissionRequest }
+  /**
+   * 权限请求已在任一端裁决（M3 双端撤卡）：另一端收到后关闭同 requestId 的批准卡。
+   * by = 裁决来源端（"local" 桌面 / "remote" 手机）
+   */
+  | { type: "permission.resolved"; requestId: string; approved: boolean; by: "local" | "remote" }
   | { type: "question.request"; request: QuestionRequest }
   | { type: "schedule.fired"; taskId: string; name: string; sessionId: string }
   | { type: "sessions.changed" }
@@ -185,6 +201,29 @@ export interface RemoteSettings {
    * channelId = SHA-256(桌面 X25519 公钥原始 32 字节) 的 hex 小写。
    */
   relayUrl: string | null;
+  /**
+   * Tailscale 直连（M3，默认 false）：开启且检测到 tailscaled 时，
+   * 执行 tailscale serve 把局域网端口映射到 tailnet https 地址
+   */
+  tailscale: boolean;
+  /** Web Push 通知（M2，默认 false）：权限请求 / 提问 / 定时任务触发时推无内容提醒 */
+  pushEnabled: boolean;
+}
+
+/** 浏览器 PushSubscription 的 JSON 形态（push.subscribe 命令载荷） */
+export interface RemotePushSubscription {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+}
+
+/** Tailscale 通道状态（RemoteStatus 字段） */
+export interface RemoteTailscaleStatus {
+  /** 检测到 tailscaled 可用 */
+  available: boolean;
+  /** 设置开启且 serve 已生效 */
+  enabled: boolean;
+  /** tailnet https 地址（如 https://my-mac.tail1234.ts.net），未生效为 null */
+  url: string | null;
 }
 
 /** 当前有效的配对窗口（OTP 单次有效，5 分钟过期） */
@@ -212,10 +251,12 @@ export type RemoteRelayState = "disabled" | "connecting" | "connected";
 /** getRemoteStatus IPC 的返回结构 */
 export interface RemoteStatus {
   enabled: boolean;
-  /** 可访问地址列表（局域网 http://ip:port + relay+wss://… 前缀项）；未启动时为空 */
+  /** 可访问地址列表（局域网 http://ip:port + relay+wss://… 前缀项 + tailscale https 直连项）；未启动时为空 */
   urls: string[];
   devices: PairedDevice[];
   pairing: RemotePairingInfo | null;
   /** relay 通道连接状态 */
   relay: RemoteRelayState;
+  /** Tailscale 通道状态 */
+  tailscale: RemoteTailscaleStatus;
 }

@@ -5,7 +5,8 @@
  *   text_delta / thinking_delta 按 400ms 窗口聚合成 session.output（每会话单调 seq）；
  *   agent_start / agent_settled 映射为 session.status（running / idle）。
  * - todo / usage / renamed / planmode 等结构化事件直接映射；
- *   permission.request / question.request 原样透传（含 risk 级别）。
+ *   permission.request / question.request 原样透传（含 risk 级别）；
+ *   permission.resolved 透传（双端撤卡，见 4.3 / M3）。
  * - 非文本事件到达前先 flush 挂起的文本缓冲，保证事件时序。
  */
 
@@ -62,6 +63,15 @@ export class RemoteEventAggregator {
         this.flush(event.request.sessionId);
         this.emit({ type: "permission.request", request: event.request });
         this.emit({ type: "session.status", sessionId: event.request.sessionId, status: "waiting_permission" });
+        break;
+      case "permission.resolved":
+        // 双端撤卡：任一端裁决后透传给全部远程端，对端关闭同 requestId 的批准卡
+        this.emit({
+          type: "permission.resolved",
+          requestId: event.requestId,
+          approved: event.approved,
+          by: event.by,
+        });
         break;
       case "question.request":
         this.flush(event.request.sessionId);

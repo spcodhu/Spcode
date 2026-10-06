@@ -22,4 +22,6 @@ export interface RemoteTransport {
   getAdvertisedUrls(): string[];
   /** 连接状态（仅 relay 这类出站长连接 transport 实现；局域网监听型不实现） */
   getState?(): "connecting" | "connected";
+  /** 实际监听端口（仅局域网监听型实现；tailscale serve 回源用） */
+  getPort?(): number;
 }

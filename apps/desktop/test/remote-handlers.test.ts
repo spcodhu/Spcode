@@ -28,7 +28,7 @@ function makeRegistry(): RegistryLike & { entries: Map<string, SessionRegistryEn
 
 function makeDeps() {
   const bridgeCalls: HostCommand[] = [];
-  const permissionReplies: { requestId: string; approved: boolean }[] = [];
+  const permissionReplies: { requestId: string; approved: boolean; by?: "local" | "remote" }[] = [];
   const questionReplies: { requestId: string; answers: Record<string, string> }[] = [];
   const localEvents: HostEvent[] = [];
   const schedulerCalls: string[] = [];
@@ -58,7 +58,7 @@ function makeDeps() {
         }
         return { ok: true };
       },
-      replyPermission: (requestId, approved) => permissionReplies.push({ requestId, approved }),
+      replyPermission: (requestId, approved, by) => permissionReplies.push({ requestId, approved, by }),
       replyQuestion: (requestId, answers) => questionReplies.push({ requestId, answers }),
       emitLocal: (event: HostEvent) => void localEvents.push(event),
     },
@@ -173,10 +173,10 @@ describe("session.prompt / abort / subscribe", () => {
 });
 
 describe("permission / question 回复", () => {
-  it("permission.reply → bridge.replyPermission", async () => {
+  it("permission.reply → bridge.replyPermission（by=\"remote\"，双端撤卡来源标记）", async () => {
     const { deps, permissionReplies } = makeDeps();
     await handleRemoteCommand({ type: "permission.reply", requestId: "r1", approved: true }, deps);
-    expect(permissionReplies).toEqual([{ requestId: "r1", approved: true }]);
+    expect(permissionReplies).toEqual([{ requestId: "r1", approved: true, by: "remote" }]);
   });
 
   it("question.reply → bridge.replyQuestion", async () => {

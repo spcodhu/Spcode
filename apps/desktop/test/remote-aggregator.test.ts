@@ -100,6 +100,17 @@ describe("RemoteEventAggregator", () => {
     ]);
   });
 
+  it("permission.resolved 透传（M3 双端撤卡：by 来源标记一并带出）", () => {
+    const s = setup();
+    agg = s.agg;
+    s.agg.handle({ type: "permission.resolved", requestId: "r1", approved: true, by: "remote" });
+    s.agg.handle({ type: "permission.resolved", requestId: "r2", approved: false, by: "local" });
+    expect(s.events).toEqual([
+      { type: "permission.resolved", requestId: "r1", approved: true, by: "remote" },
+      { type: "permission.resolved", requestId: "r2", approved: false, by: "local" },
+    ]);
+  });
+
   it("question.request / renamed / planmode / usage / schedule.fired / sessions.changed 透传", () => {
     const s = setup();
     agg = s.agg;

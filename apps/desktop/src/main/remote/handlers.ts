@@ -28,7 +28,8 @@ import {
 
 export interface RemoteBridge {
   call<T = unknown>(cmd: Extract<HostCommand, { id: string }>): Promise<T>;
-  replyPermission(requestId: string, approved: boolean): void;
+  /** by 标记裁决来源（默认 "local"）；远程端调用传 "remote"，用于双端撤卡的 permission.resolved 事件 */
+  replyPermission(requestId: string, approved: boolean, by?: "local" | "remote"): void;
   replyQuestion(requestId: string, answers: Record<string, string>): void;
   /** 主进程本地事件广播（session.renamed / sessions.changed）；测试桩可省略 */
   emitLocal?(event: HostEvent): void;
@@ -81,7 +82,8 @@ export async function handleRemoteCommand(cmd: RemoteCommand, deps: RemoteHandle
       // M1：所有 RemoteEvent 本就广播给全部已配对设备，订阅无需登记
       return { ok: true };
     case "permission.reply":
-      deps.bridge.replyPermission(cmd.requestId, cmd.approved);
+      // by="remote"：AgentBridge 据此广播 permission.resolved，桌面端批准卡同步撤销（M3 双端撤卡）
+      deps.bridge.replyPermission(cmd.requestId, cmd.approved, "remote");
       return { ok: true };
     case "question.reply":
       deps.bridge.replyQuestion(cmd.requestId, cmd.answers);
