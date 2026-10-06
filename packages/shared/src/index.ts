@@ -330,6 +330,8 @@ export const IPC = {
   remoteSetEnabled: "spcode:remote-set-enabled",
   remoteRegeneratePairing: "spcode:remote-regenerate-pairing",
   remoteUnpairDevice: "spcode:remote-unpair-device",
+  /** renderer -> main (invoke)：飞书通道解绑授权用户（open_id） */
+  remoteFeishuUnbind: "spcode:remote-feishu-unbind",
   /** renderer -> main (invoke)：定时任务 CRUD 与立即试运行 */
   scheduleList: "spcode:schedule-list",
   scheduleCreate: "spcode:schedule-create",
@@ -420,7 +422,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
   uiFontFile: "",
   monoFontFile: "",
   advancedSearch: null,
-  remote: { enabled: false, port: null, relayUrl: null, tailscale: false, pushEnabled: false },
+  remote: {
+    enabled: false,
+    port: null,
+    relayUrl: null,
+    tailscale: false,
+    pushEnabled: false,
+    feishu: { enabled: false, appId: "", appSecret: "" },
+  },
 };
 
 /** Spcode 全局数据目录（记忆、设置、用量、会话索引都放在这里） */

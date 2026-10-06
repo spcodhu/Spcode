@@ -328,6 +328,8 @@ function registerIpc(): void {
   });
   ipcMain.handle(IPC.remoteRegeneratePairing, () => remote.regeneratePairing());
   ipcMain.handle(IPC.remoteUnpairDevice, (_e, deviceId: string) => remote.unpairDevice(deviceId));
+  // 飞书通道（M4）：解绑授权用户；状态/绑定验证码走 remoteStatus，配置走 setSettings(remote.feishu)
+  ipcMain.handle(IPC.remoteFeishuUnbind, (_e, openId: string) => remote.unbindFeishuUser(openId));
 
   // 高级搜索「测试连接」：主进程发真实请求，返回成功条数或失败原因（渲染进程直连会撞 CSP/CORS）
   ipcMain.handle(IPC.searchTest, async (_e, config: AdvancedSearchConfig) => {

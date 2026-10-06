@@ -29,10 +29,19 @@ export class SettingsStore {
     // remote 是嵌套对象：浅合并会让旧 settings.json 缺字段时丢默认值，单独归一化
     const loadedRemote =
       loaded.remote && typeof loaded.remote === "object" ? (loaded.remote as Partial<AppSettings["remote"]>) : {};
+    // remote.feishu 再嵌套一层，同理归一化（旧配置缺 appSecret 等字段时补默认）
+    const loadedFeishu =
+      loadedRemote.feishu && typeof loadedRemote.feishu === "object"
+        ? (loadedRemote.feishu as Partial<AppSettings["remote"]["feishu"]>)
+        : {};
     this.cache = {
       ...DEFAULT_SETTINGS,
       ...loaded,
-      remote: { ...DEFAULT_SETTINGS.remote, ...loadedRemote },
+      remote: {
+        ...DEFAULT_SETTINGS.remote,
+        ...loadedRemote,
+        feishu: { ...DEFAULT_SETTINGS.remote.feishu, ...loadedFeishu },
+      },
     };
     return this.cache;
   }

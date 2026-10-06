@@ -37,6 +37,7 @@ import type {
   RemoteStatus,
 } from "@spcode/shared";
 import { RemoteEventAggregator } from "./aggregator.js";
+import { FeishuChannel, type FeishuApi } from "./channel/feishu.js";
 import { boxDecrypt, boxEncrypt, isValidPublicKey, SeqCounter, SeqGuard } from "./crypto.js";
 import { handleRemoteCommand, type RemoteHandlerDeps } from "./handlers.js";
 import { SessionOutputLog } from "./output-log.js";
@@ -68,6 +69,10 @@ export interface RemoteServerDeps extends RemoteHandlerDeps {
   push?: PushService;
   /** 测试注入；缺省真实 tailscale CLI 检测 */
   tailscale?: TailscaleManager;
+  /** 测试注入（M4）：飞书通道的窄 API 实现；缺省 LarkFeishuApi（真实长连接） */
+  feishuApi?: FeishuApi;
+  /** 测试注入（M4）：feishu.json 白名单存储的基准目录；缺省 ~/.spcode */
+  feishuBaseDir?: string;
 }
 
 /** relayUrl 归一化：空白串按未配置处理 */
@@ -113,6 +118,10 @@ export class RemoteServer {
   private activeRelayUrl: string | null = null;
   /** tailscale serve 当前映射的 LAN 端口（0 = 未映射），避免重复执行 serve 命令 */
   private tailscaleServingPort = 0;
+  /** 飞书机器人通道（M4）；生命周期独立于 remote.enabled 总开关 */
+  private feishuChannel: FeishuChannel | null = null;
+  /** 当前飞书通道对应的配置指纹（appId+appSecret 变更后重建） */
+  private activeFeishuKey: string | null = null;
 
   constructor(deps: RemoteServerDeps) {
     this.deps = deps;
@@ -139,6 +148,8 @@ export class RemoteServer {
     }
     // tailscale 开关独立同步（映射的是 LAN 端口，无需重启整个服务）
     await this.syncTailscale();
+    // 飞书通道独立同步（M4：feishu.enabled 不要求 remote.enabled，自带事件订阅与长连接）
+    await this.syncFeishu();
   }
 
   /** 设置页 status 查询前刷新 tailscale 检测（15s 缓存，不频繁 spawn） */
@@ -191,6 +202,13 @@ export class RemoteServer {
   }
 
   async stop(): Promise<void> {
+    // 飞书通道随整体 stop 一并关闭（before-quit 路径）；applySettings 内随 syncFeishu 重建
+    if (this.feishuChannel) {
+      const ch = this.feishuChannel;
+      this.feishuChannel = null;
+      this.activeFeishuKey = null;
+      await ch.stop();
+    }
     if (!this.running) return;
     this.running = false;
     this.unsubscribeBridge?.();
@@ -234,6 +252,41 @@ export class RemoteServer {
     }
   }
 
+  /**
+   * 飞书通道同步（M4）：settings.remote.feishu.enabled && appId && appSecret 时启动长连接；
+   * 配置指纹（appId+appSecret）变更时重建。独立于 remote.enabled 总开关。
+   */
+  private async syncFeishu(): Promise<void> {
+    const feishu = this.deps.settings.get().remote.feishu;
+    const configured = feishu?.enabled === true && !!feishu.appId && !!feishu.appSecret;
+    const key = configured ? `${feishu.appId}\n${feishu.appSecret}` : null;
+    if (key && this.feishuChannel && this.activeFeishuKey === key) return;
+    if (this.feishuChannel) {
+      const ch = this.feishuChannel;
+      this.feishuChannel = null;
+      this.activeFeishuKey = null;
+      await ch.stop();
+    }
+    if (key) {
+      const ch = new FeishuChannel({
+        bridge: this.deps.bridge,
+        scheduler: this.deps.scheduler,
+        registry: this.deps.registry,
+        settings: this.deps.settings,
+        api: this.deps.feishuApi,
+        baseDir: this.deps.feishuBaseDir,
+      });
+      this.feishuChannel = ch;
+      this.activeFeishuKey = key;
+      await ch.start({ appId: feishu.appId, appSecret: feishu.appSecret });
+    }
+  }
+
+  /** 设置页白名单管理：解绑飞书授权用户 */
+  unbindFeishuUser(openId: string): boolean {
+    return this.feishuChannel?.unbind(openId) ?? false;
+  }
+
   isRunning(): boolean {
     return this.running;
   }
@@ -256,6 +309,7 @@ export class RemoteServer {
 
   status(): RemoteStatus {
     const cfg = this.deps.settings.get().remote;
+    const feishuConfigured = !!(cfg.feishu?.appId && cfg.feishu?.appSecret);
     return {
       enabled: cfg.enabled,
       urls: this.urls(),
@@ -263,6 +317,14 @@ export class RemoteServer {
       pairing: this.currentPairingInfo(),
       relay: this.relayState(),
       tailscale: this.tailscale.status(),
+      // 飞书分区脱敏透出：只回传 configured 标记，不回传 appId/appSecret
+      feishu: this.feishuChannel?.getStatus(feishuConfigured) ?? {
+        state: "disabled",
+        configured: feishuConfigured,
+        pendingBindCode: null,
+        allowlistCount: 0,
+        allowlist: [],
+      },
     };
   }
 

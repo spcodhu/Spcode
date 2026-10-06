@@ -68,6 +68,8 @@ export interface SpcodeApi {
   remoteRegeneratePairing(): Promise<RemotePairingInfo>;
   /** 解绑（吊销）已配对设备 */
   remoteUnpairDevice(deviceId: string): Promise<boolean>;
+  /** 飞书通道：解绑授权用户（open_id） */
+  remoteFeishuUnbind(openId: string): Promise<boolean>;
 }
 
 const api: SpcodeApi = {
@@ -157,6 +159,9 @@ const api: SpcodeApi = {
   },
   remoteUnpairDevice(deviceId) {
     return ipcRenderer.invoke(IPC.remoteUnpairDevice, deviceId);
+  },
+  remoteFeishuUnbind(openId) {
+    return ipcRenderer.invoke(IPC.remoteFeishuUnbind, openId);
   },
 };
 

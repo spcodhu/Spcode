@@ -208,6 +208,19 @@ export interface RemoteSettings {
   tailscale: boolean;
   /** Web Push 通知（M2，默认 false）：权限请求 / 提问 / 定时任务触发时推无内容提醒 */
   pushEnabled: boolean;
+  /** 飞书机器人通道（M4，默认关闭；明文过飞书服务器，非 E2E——见设计文档 4.8） */
+  feishu: RemoteFeishuSettings;
+}
+
+/**
+ * 飞书机器人通道配置（设计文档 4.8，BYO-app：用户自建企业应用）。
+ * appSecret 存 ~/.spcode/settings.json（与 auth.json 同级风险，可接受）；
+ * RemoteStatus 透出时脱敏，只回传 configured: boolean。
+ */
+export interface RemoteFeishuSettings {
+  enabled: boolean;
+  appId: string;
+  appSecret: string;
 }
 
 /** 浏览器 PushSubscription 的 JSON 形态（push.subscribe 命令载荷） */
@@ -248,6 +261,28 @@ export interface RemotePairingInfo {
 /** relay 通道连接状态：disabled = 未配置 relayUrl / 远程未启用 */
 export type RemoteRelayState = "disabled" | "connecting" | "connected";
 
+/** 飞书通道连接状态：disabled = 未启用 / 未配置 appId+appSecret；error = 建连失败（详情见主进程日志） */
+export type RemoteFeishuState = "disabled" | "connecting" | "connected" | "error";
+
+/** 飞书授权用户（open_id）记录，持久化在 ~/.spcode/remote/feishu.json */
+export interface RemoteFeishuAllowedUser {
+  openId: string;
+  boundAt: number;
+}
+
+/** RemoteStatus 的飞书分区：脱敏透出（不回传 appId/appSecret，只有 configured 标记） */
+export interface RemoteFeishuStatus {
+  state: RemoteFeishuState;
+  /** appId 与 appSecret 均已填写 */
+  configured: boolean;
+  /** 当前有效的绑定验证码（6 位，5 分钟有效，单次）；通道未连接时为 null */
+  pendingBindCode: string | null;
+  /** 白名单用户数 */
+  allowlistCount: number;
+  /** 白名单明细（设置页管理用；open_id 是飞书公开标识，非敏感字段） */
+  allowlist: RemoteFeishuAllowedUser[];
+}
+
 /** getRemoteStatus IPC 的返回结构 */
 export interface RemoteStatus {
   enabled: boolean;
@@ -259,4 +294,6 @@ export interface RemoteStatus {
   relay: RemoteRelayState;
   /** Tailscale 通道状态 */
   tailscale: RemoteTailscaleStatus;
+  /** 飞书机器人通道状态（M4） */
+  feishu: RemoteFeishuStatus;
 }
