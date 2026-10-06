@@ -2,8 +2,11 @@
  * RemoteCommand 分发单测：用 mock bridge/scheduler/registry 验证调用契约，
  * 重点是 session.create 链路顺序（upsert → create → backfill → 标题兜底 → prompt）。
  */
-import { DEFAULT_SETTINGS, type HostCommand, type ScheduleTask, type ScheduleTaskInput } from "@spcode/shared";
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { DEFAULT_SETTINGS, type HostCommand, type HostEvent, type ScheduleTask, type ScheduleTaskInput } from "@spcode/shared";
+import { afterEach, describe, expect, it } from "vitest";
 import { handleRemoteCommand, type RemoteHandlerDeps } from "../src/main/remote/handlers.js";
 import type { RegistryLike } from "../src/main/session-helpers.js";
 import type { SessionRegistryEntry } from "../src/main/session-registry.js";
@@ -19,6 +22,7 @@ function makeRegistry(): RegistryLike & { entries: Map<string, SessionRegistryEn
       const cur = entries.get(id);
       if (cur) entries.set(id, { ...cur, ...patch, id, updatedAt: Date.now() });
     },
+    remove: (id) => void entries.delete(id),
   };
 }
 
@@ -26,6 +30,7 @@ function makeDeps() {
   const bridgeCalls: HostCommand[] = [];
   const permissionReplies: { requestId: string; approved: boolean }[] = [];
   const questionReplies: { requestId: string; answers: Record<string, string> }[] = [];
+  const localEvents: HostEvent[] = [];
   const schedulerCalls: string[] = [];
   const registry = makeRegistry();
   const task: ScheduleTask = {
@@ -55,6 +60,7 @@ function makeDeps() {
       },
       replyPermission: (requestId, approved) => permissionReplies.push({ requestId, approved }),
       replyQuestion: (requestId, answers) => questionReplies.push({ requestId, answers }),
+      emitLocal: (event: HostEvent) => void localEvents.push(event),
     },
     scheduler: {
       list: () => {
@@ -84,7 +90,7 @@ function makeDeps() {
       }),
     },
   };
-  return { deps, bridgeCalls, permissionReplies, questionReplies, schedulerCalls, registry, task };
+  return { deps, bridgeCalls, permissionReplies, questionReplies, schedulerCalls, registry, task, localEvents };
 }
 
 describe("session.create 链路", () => {
@@ -211,5 +217,80 @@ describe("schedule.* 分发", () => {
     await expect(handleRemoteCommand({ type: "schedule.update", id: "nope", patch: {} }, deps)).rejects.toThrow(
       "任务不存在",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// session.rename / session.remove：与 IPC 链路共用 session-helpers 的契约
+// ---------------------------------------------------------------------------
+
+function seedEntry(registry: ReturnType<typeof makeRegistry>, id: string, title = "旧标题") {
+  registry.entries.set(id, {
+    id,
+    mode: "chat",
+    cwd: "",
+    title,
+    model: null,
+    thinkingLevel: "medium",
+    sessionFile: null,
+    createdAt: 0,
+    updatedAt: 0,
+  });
+}
+
+describe("session.rename", () => {
+  it("写注册表标题并广播 session.renamed（渲染进程与远程端借此同步）", async () => {
+    const { deps, registry, localEvents } = makeDeps();
+    seedEntry(registry, "s1");
+    const r = await handleRemoteCommand({ type: "session.rename", sessionId: "s1", title: "  新标题  " }, deps);
+    expect(r).toEqual({ ok: true });
+    expect(registry.entries.get("s1")?.title).toBe("新标题"); // 归一化：去首尾空白
+    expect(localEvents).toEqual([{ type: "session.renamed", sessionId: "s1", title: "新标题" }]);
+  });
+
+  it("会话不存在 / 空标题 → 抛错（由 RemoteServer 转为 ok:false 响应）", async () => {
+    const { deps, registry, localEvents } = makeDeps();
+    await expect(handleRemoteCommand({ type: "session.rename", sessionId: "nope", title: "x" }, deps)).rejects.toThrow(
+      "会话不存在",
+    );
+    seedEntry(registry, "s1");
+    await expect(handleRemoteCommand({ type: "session.rename", sessionId: "s1", title: "   " }, deps)).rejects.toThrow();
+    expect(localEvents).toEqual([]);
+  });
+});
+
+describe("session.remove", () => {
+  let home = "";
+  afterEach(() => {
+    if (home) rmSync(home, { recursive: true, force: true });
+    home = "";
+    delete process.env.SPCODE_HOME;
+  });
+
+  it("注册表移除 + 计划文件清理 + 宿主 dispose + sessions.changed 广播（与 IPC removeSession 同一套）", async () => {
+    home = mkdtempSync(join(tmpdir(), "spcode-remote-rm-"));
+    process.env.SPCODE_HOME = home;
+    mkdirSync(join(home, "plans"), { recursive: true });
+    writeFileSync(join(home, "plans", "s1.md"), "# plan");
+
+    const { deps, registry, bridgeCalls, localEvents } = makeDeps();
+    seedEntry(registry, "s1");
+    const r = await handleRemoteCommand({ type: "session.remove", sessionId: "s1" }, deps);
+    expect(r).toEqual({ ok: true });
+    expect(registry.entries.has("s1")).toBe(false);
+    expect(existsSync(join(home, "plans", "s1.md"))).toBe(false);
+    expect(bridgeCalls).toEqual([{ id: "dispose-s1", type: "session.dispose", payload: { sessionId: "s1" } }]);
+    expect(localEvents).toEqual([{ type: "sessions.changed" }]);
+  });
+
+  it("幂等：会话不存在时仍做清理并不抛错", async () => {
+    home = mkdtempSync(join(tmpdir(), "spcode-remote-rm-"));
+    process.env.SPCODE_HOME = home;
+    const { deps, bridgeCalls, localEvents } = makeDeps();
+    await expect(handleRemoteCommand({ type: "session.remove", sessionId: "ghost" }, deps)).resolves.toEqual({
+      ok: true,
+    });
+    expect(bridgeCalls[0]).toMatchObject({ type: "session.dispose", payload: { sessionId: "ghost" } });
+    expect(localEvents).toEqual([{ type: "sessions.changed" }]);
   });
 });

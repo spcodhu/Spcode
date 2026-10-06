@@ -20,4 +20,6 @@ export interface RemoteTransport {
   onConnection(cb: (peer: PeerConnection) => void): void;
   /** 对外可访问的 base url 列表（如 http://192.168.1.5:8123）；未启动时为空 */
   getAdvertisedUrls(): string[];
+  /** 连接状态（仅 relay 这类出站长连接 transport 实现；局域网监听型不实现） */
+  getState?(): "connecting" | "connected";
 }

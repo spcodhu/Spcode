@@ -119,6 +119,7 @@ beforeAll(async () => {
       const cur = registryEntries.get(id);
       if (cur) registryEntries.set(id, { ...cur, ...patch, id, updatedAt: Date.now() });
     },
+    remove: (id) => void registryEntries.delete(id),
   };
   const bridge = {
     onEvent(cb: (e: HostEvent) => void) {
@@ -144,7 +145,9 @@ beforeAll(async () => {
     remove: () => {},
     runNow: async () => "x",
   };
-  const settings = { get: () => ({ ...DEFAULT_SETTINGS, remote: { enabled: true, port: 0 } }) };
+  const settings = {
+    get: () => ({ ...DEFAULT_SETTINGS, remote: { enabled: true, port: 0, relayUrl: null } }),
+  };
 
   server = new RemoteServer({ settings, bridge, scheduler, registry, pairing, transport });
   await server.start();

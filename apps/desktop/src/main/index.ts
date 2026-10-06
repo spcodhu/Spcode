@@ -3,7 +3,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -25,7 +25,11 @@ import { AgentBridge } from "./agent-bridge.js";
 import { QuotaService } from "./quota-service.js";
 import { RemoteServer } from "./remote/index.js";
 import { Scheduler } from "./scheduler.js";
-import { backfillSessionFile, isDefaultTitle } from "./session-helpers.js";
+import {
+  backfillSessionFile,
+  isDefaultTitle,
+  removeSession as removeSessionEverywhere,
+} from "./session-helpers.js";
 import { SessionRegistry } from "./session-registry.js";
 import { searchSessions } from "./session-search.js";
 import { SettingsStore } from "./settings-store.js";
@@ -240,13 +244,9 @@ function registerIpc(): void {
   );
   ipcMain.handle(IPC.scheduleDelete, (_e, id: string) => scheduler.remove(id));
   ipcMain.handle(IPC.scheduleRunNow, (_e, id: string) => scheduler.runNow(id));
-  ipcMain.handle(IPC.removeSession, (_e, id: string) => {
-    registry.remove(id);
-    // 计划文件（~/.spcode/plans/<id>.md）随会话一并清理
-    rmSync(join(resolveSpcodeHome(), "plans", `${id}.md`), { force: true });
-    // 宿主里的活跃实例也一并释放
-    void bridge.call({ id: `dispose-${id}`, type: "session.dispose", payload: { sessionId: id } }).catch(() => {});
-  });
+  ipcMain.handle(IPC.removeSession, (_e, id: string) =>
+    removeSessionEverywhere({ registry, bridge, events: bridge }, id),
+  );
 
   ipcMain.handle(IPC.usageSummary, (_e, days?: number) => ledger.summarize(days ?? 14));
   ipcMain.handle(IPC.usageAggregate, (_e, range: "today" | "week" | "all") => ledger.aggregateRange(range ?? "week"));
@@ -315,6 +315,7 @@ function registerIpc(): void {
       remote: {
         enabled: enabled === true,
         port: typeof port === "number" ? port : port === null ? null : cur.port,
+        relayUrl: cur.relayUrl ?? null,
       },
     });
     await remote.applySettings();

@@ -12,17 +12,26 @@ import {
   baseName,
   cleanSessionTitle,
   type HostCommand,
+  type HostEvent,
   type RemoteCommand,
   type ScheduleTask,
   type ScheduleTaskInput,
   type SessionMode,
 } from "@spcode/shared";
-import { backfillSessionFile, isDefaultTitle, type RegistryLike } from "../session-helpers.js";
+import {
+  backfillSessionFile,
+  isDefaultTitle,
+  type RegistryLike,
+  removeSession,
+  renameSession,
+} from "../session-helpers.js";
 
 export interface RemoteBridge {
   call<T = unknown>(cmd: Extract<HostCommand, { id: string }>): Promise<T>;
   replyPermission(requestId: string, approved: boolean): void;
   replyQuestion(requestId: string, answers: Record<string, string>): void;
+  /** 主进程本地事件广播（session.renamed / sessions.changed）；测试桩可省略 */
+  emitLocal?(event: HostEvent): void;
 }
 
 export interface RemoteScheduler {
@@ -91,6 +100,16 @@ export async function handleRemoteCommand(cmd: RemoteCommand, deps: RemoteHandle
       return { ok: true };
     case "schedule.runNow":
       return { sessionId: await deps.scheduler.runNow(cmd.id) };
+    case "session.rename": {
+      // 与桌面端同一套注册表逻辑；session.renamed 事件同步渲染进程与各远程端
+      const ok = renameSession({ registry: deps.registry, events: deps.bridge }, cmd.sessionId, cmd.title);
+      if (!ok) throw new Error(`会话不存在或标题为空：${cmd.sessionId}`);
+      return { ok: true };
+    }
+    case "session.remove":
+      // 与 IPC removeSession 同一套清理：注册表 + 计划文件 + 宿主实例 + sessions.changed 广播
+      await removeSession({ registry: deps.registry, bridge: deps.bridge, events: deps.bridge }, cmd.sessionId);
+      return { ok: true };
     default:
       throw new Error(`未知远程命令：${(cmd as { type: string }).type}`);
   }

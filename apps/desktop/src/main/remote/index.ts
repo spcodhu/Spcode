@@ -1,5 +1,5 @@
 /**
- * RemoteServer：远程控制 M1 的 harness 侧入口。
+ * RemoteServer：远程控制的 harness 侧入口（M1 局域网 + M2 relay）。
  *
  * 接线（main/index.ts）：
  *   const remote = new RemoteServer({ settings, bridge, scheduler, registry });
@@ -9,9 +9,14 @@
  * - WS 首帧必须是 hello：pair（OTP 握手，单次有效）或 auth（已配对设备公钥）；
  *   未知公钥直接断开；
  * - 配对完成后业务帧一律为 {id, seq, t:"encrypted", c}（NaCl box 密文），
- *   seq 每连接每方向单调递增，重放/乱序即断开；
+ *   seq 绑定逻辑连接（LAN = 每条 TCP 连接；relay = 每设备虚拟连接，重 auth 重置入站），
+ *   重放/乱序即断开；
  * - 事件流由 RemoteEventAggregator 把 bridge 的全量 HostEvent 映射为 RemoteEvent，
- *   广播给所有处于 ready 态的连接（逐连接独立加密）。
+ *   广播给所有处于 ready 态的连接（逐连接独立加密）；
+ *   session.output 同时写入 SessionOutputLog 环形缓冲，供断线补拉（session.output.since）。
+ *
+ * Transport：局域网（LanTransport，HTTP+WS 同端口）恒随 enabled 启停；
+ * settings.remote.relayUrl 非空时额外启动 RelayTransport（出站 wss + 指数退避重连）。
  */
 
 import { randomUUID } from "node:crypto";
@@ -28,13 +33,16 @@ import type {
   RemoteEncryptedPayload,
   RemoteEvent,
   RemotePairingInfo,
+  RemoteRelayState,
   RemoteStatus,
 } from "@spcode/shared";
 import { RemoteEventAggregator } from "./aggregator.js";
 import { boxDecrypt, boxEncrypt, isValidPublicKey, SeqCounter, SeqGuard } from "./crypto.js";
 import { handleRemoteCommand, type RemoteHandlerDeps } from "./handlers.js";
+import { SessionOutputLog } from "./output-log.js";
 import { PairingManager } from "./pairing.js";
 import { LanTransport } from "./transport/lan.js";
+import { deriveChannelId, RelayTransport } from "./transport/relay.js";
 import type { PeerConnection, RemoteTransport } from "./transport/types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -50,8 +58,16 @@ export interface RemoteServerDeps extends RemoteHandlerDeps {
   pairing?: PairingManager;
   /** 测试注入；缺省按设置创建 LanTransport */
   transport?: RemoteTransport;
+  /** 测试注入；缺省在 relayUrl 非空时创建 RelayTransport（null = 强制不启用 relay） */
+  relayTransport?: RemoteTransport | null;
   /** 测试注入；缺省自动探测 apps/mobile 构建产物 */
   mobileDistDir?: string;
+}
+
+/** relayUrl 归一化：空白串按未配置处理 */
+function normalizeRelayUrl(url: string | null | undefined): string | null {
+  const trimmed = typeof url === "string" ? url.trim() : "";
+  return trimmed || null;
 }
 
 interface PeerState {
@@ -78,24 +94,30 @@ export class RemoteServer {
   private readonly deps: RemoteServerDeps;
   private readonly pairing: PairingManager;
   private readonly aggregator: RemoteEventAggregator;
+  private readonly outputLog: SessionOutputLog;
   private readonly peers = new Set<PeerState>();
-  private transport: RemoteTransport | null;
+  private lanTransport: RemoteTransport | null;
+  private relayTransport: RemoteTransport | null = null;
   private unsubscribeBridge: (() => void) | null = null;
   private running = false;
-  /** 当前监听对应的配置端口（用于检测端口变更后重启） */
+  /** 当前运行对应的配置指纹（端口 / relayUrl 变更后重启） */
   private activeConfigPort: number | null = null;
+  private activeRelayUrl: string | null = null;
 
   constructor(deps: RemoteServerDeps) {
     this.deps = deps;
     this.pairing = deps.pairing ?? new PairingManager();
-    this.transport = deps.transport ?? null;
-    this.aggregator = new RemoteEventAggregator({ emit: (event) => this.broadcast(event) });
+    this.lanTransport = deps.transport ?? null;
+    this.relayTransport = deps.relayTransport ?? null;
+    this.outputLog = new SessionOutputLog();
+    this.aggregator = new RemoteEventAggregator({ emit: (event) => this.emitRemote(event) });
   }
 
   /** 按 settings.remote 启停（设置变更后由 IPC 层显式调用） */
   async applySettings(): Promise<void> {
     const cfg = this.deps.settings.get().remote;
-    if (cfg.enabled && (!this.running || this.activeConfigPort !== cfg.port)) {
+    const relayUrl = normalizeRelayUrl(cfg.relayUrl);
+    if (cfg.enabled && (!this.running || this.activeConfigPort !== cfg.port || this.activeRelayUrl !== relayUrl)) {
       await this.stop();
       await this.start();
     } else if (!cfg.enabled && this.running) {
@@ -106,15 +128,33 @@ export class RemoteServer {
   async start(): Promise<void> {
     if (this.running) return;
     const cfg = this.deps.settings.get().remote;
-    if (!this.transport) {
-      this.transport = new LanTransport({
+    const relayUrl = normalizeRelayUrl(cfg.relayUrl);
+    if (!this.lanTransport) {
+      this.lanTransport = new LanTransport({
         port: cfg.port ?? 0,
         staticDir: resolveMobileDistDir(this.deps.mobileDistDir),
       });
     }
-    this.transport.onConnection((peer) => this.acceptPeer(peer));
-    await this.transport.start();
+    if (relayUrl && !this.relayTransport) {
+      this.relayTransport = new RelayTransport({
+        url: relayUrl,
+        channelId: deriveChannelId(this.pairing.getIdentity().publicKey),
+        log: (msg, extra) => console.warn(`[remote/relay] ${msg}`, extra ?? ""),
+      });
+    }
+    // relayUrl 被清空：停掉自建的 relay transport（注入的由调用方管理）
+    if (!relayUrl && this.relayTransport && this.deps.relayTransport === undefined) {
+      const t = this.relayTransport;
+      this.relayTransport = null;
+      await t.stop();
+    }
+    const transports = [this.lanTransport, ...(relayUrl && this.relayTransport ? [this.relayTransport] : [])];
+    for (const t of transports) {
+      t.onConnection((peer) => this.acceptPeer(peer));
+      await t.start();
+    }
     this.activeConfigPort = cfg.port;
+    this.activeRelayUrl = relayUrl;
     this.unsubscribeBridge = this.deps.bridge.onEvent((event) => this.aggregator.handle(event));
     this.running = true;
   }
@@ -127,11 +167,16 @@ export class RemoteServer {
     this.aggregator.dispose();
     for (const state of this.peers) state.peer.close();
     this.peers.clear();
+    // 自建 transport：停掉以便下次用新配置重建；注入的 transport 由调用方管理
     if (!this.deps.transport) {
-      // 自建 transport：停掉以便下次用新端口重建；注入的 transport 由调用方管理
-      const t = this.transport;
-      this.transport = null;
+      const t = this.lanTransport;
+      this.lanTransport = null;
       await t?.stop();
+    }
+    if (this.relayTransport && this.deps.relayTransport === undefined) {
+      const t = this.relayTransport;
+      this.relayTransport = null;
+      await t.stop();
     }
   }
 
@@ -140,7 +185,16 @@ export class RemoteServer {
   }
 
   urls(): string[] {
-    return this.running && this.transport ? this.transport.getAdvertisedUrls() : [];
+    if (!this.running) return [];
+    const urls: string[] = [];
+    if (this.lanTransport) urls.push(...this.lanTransport.getAdvertisedUrls());
+    if (this.activeRelayUrl && this.relayTransport) urls.push(...this.relayTransport.getAdvertisedUrls());
+    return urls;
+  }
+
+  relayState(): RemoteRelayState {
+    if (!this.activeRelayUrl || !this.relayTransport || !this.running) return "disabled";
+    return this.relayTransport.getState?.() ?? "connecting";
   }
 
   status(): RemoteStatus {
@@ -150,6 +204,7 @@ export class RemoteServer {
       urls: this.urls(),
       devices: this.pairing.devices(),
       pairing: this.currentPairingInfo(),
+      relay: this.relayState(),
     };
   }
 
@@ -191,6 +246,13 @@ export class RemoteServer {
 
   private handleFrame(state: PeerState, frame: unknown): void {
     if (!state.device) {
+      this.handleHello(state, frame);
+      return;
+    }
+    // relay 场景：设备重连后会在原逻辑连接上重新 auth（= 新设备连接，入站 seq 归零），
+    // 握手帧任何时候都走 hello 分支；hello 内做同公钥校验，身份切换直接断开
+    const maybeHello = frame as { t?: string } | null;
+    if (maybeHello && (maybeHello.t === "pair" || maybeHello.t === "auth")) {
       this.handleHello(state, frame);
       return;
     }
@@ -250,6 +312,13 @@ export class RemoteServer {
         state.peer.close();
         return;
       }
+      // 已绑定的逻辑连接不允许中途换设备身份（防串号）
+      if (state.device && state.device.publicKey !== hello.publicKey) {
+        state.peer.close();
+        return;
+      }
+      // 重新 auth = 对端新连接：入站 seq 归零重新校验；出站 seq 保持单调（relay 离线
+      // 队列里可能还有高 seq 的在途帧，归零会让对端把新帧误判为重放）
       state.device = device;
       state.inGuard.reset();
       state.peer.send({ t: "auth_ack", ok: true, desktopPk: this.pairing.getIdentity().publicKey });
@@ -261,9 +330,20 @@ export class RemoteServer {
   }
 
   private async executeCommand(state: PeerState, frameId: string, command: RemoteCommand): Promise<void> {
+    // 断线补拉：结果以 session.output.backfill 事件下发（按 seq 升序，只含 > afterSeq 的）
+    if (command.type === "session.output.since") {
+      const chunks = this.outputLog.since(command.sessionId, command.afterSeq);
+      this.sendEncrypted(state, {
+        kind: "event",
+        event: { type: "session.output.backfill", sessionId: command.sessionId, chunks },
+      });
+      this.sendEncrypted(state, { kind: "response", id: frameId, ok: true, data: { count: chunks.length } });
+      return;
+    }
     let response: RemoteEncryptedPayload;
     try {
       const data = await handleRemoteCommand(command, this.deps);
+      if (command.type === "session.remove") this.outputLog.drop(command.sessionId);
       response = { kind: "response", id: frameId, ok: true, data };
     } catch (err) {
       response = { kind: "response", id: frameId, ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -276,6 +356,14 @@ export class RemoteServer {
       kind: "event",
       event: { type: "session.snapshot", sessions: this.deps.registry.list() },
     });
+  }
+
+  /** 聚合器出口：session.output 先落补拉环形缓冲再广播 */
+  private emitRemote(event: RemoteEvent): void {
+    if (event.type === "session.output") {
+      this.outputLog.append(event.sessionId, { seq: event.seq, kind: event.kind ?? "text", chunk: event.chunk });
+    }
+    this.broadcast(event);
   }
 
   private broadcast(event: RemoteEvent): void {

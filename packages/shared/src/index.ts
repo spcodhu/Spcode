@@ -387,7 +387,7 @@ export interface AppSettings {
   monoFontFile: string;
   /** 高级搜索（配置了才对会话生效；未配置时只用内置 Bing WebSearch） */
   advancedSearch: AdvancedSearchConfig | null;
-  /** 远程控制（手机 PWA）：局域网 HTTP+WS 服务开关与端口（null = 随机端口） */
+  /** 远程控制（手机 PWA）：局域网 HTTP+WS 服务开关/端口（null = 随机端口）与 relay 地址 */
   remote: RemoteSettings;
 }
 
@@ -415,7 +415,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   uiFontFile: "",
   monoFontFile: "",
   advancedSearch: null,
-  remote: { enabled: false, port: null },
+  remote: { enabled: false, port: null, relayUrl: null },
 };
 
 /** Spcode 全局数据目录（记忆、设置、用量、会话索引都放在这里） */
