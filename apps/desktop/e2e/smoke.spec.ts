@@ -128,11 +128,49 @@ test.describe("Spcode 冒烟 E2E", () => {
     await pushSwitch.click();
     await expect(pushSwitch).toHaveAttribute("aria-checked", "false");
 
-    // 隐私说明展开：附录 B 全文，含飞书条款的"后续版本提供"标注
+    // 隐私说明展开：附录 B 全文，含飞书通道条款
     await window.getByTestId("remote-privacy-toggle").click();
     await expect(window.getByTestId("remote-privacy")).toContainText("端到端加密");
     await expect(window.getByTestId("remote-privacy")).toContainText("中继服务器只存储和转发");
-    await expect(window.getByTestId("remote-privacy")).toContainText("飞书通道将在后续版本提供");
+    await expect(window.getByTestId("remote-privacy")).toContainText("飞书机器人通道");
+
+    await app.close();
+  });
+
+  test("设置页：远程控制分区——飞书机器人分区开关与隐私提示", async () => {
+    const app = await launchApp();
+    const window = await app.firstWindow();
+
+    await window.getByRole("button", { name: /新建聊天/ }).click();
+    await expect(window.getByPlaceholder(/说点什么/)).toBeVisible({ timeout: 15000 });
+
+    await window.getByTitle("设置", { exact: true }).click();
+    await window.getByRole("button", { name: "远程控制" }).click();
+
+    // 飞书分区独立于远程控制总开关，未开启远程也可见（锚 data-testid / role，不绑文案——评审 N4）
+    await expect(window.getByTestId("remote-feishu")).toBeVisible();
+    const feishuSwitch = window.getByRole("switch", { name: "启用飞书机器人通道" });
+    await expect(feishuSwitch).toBeVisible();
+    await expect(feishuSwitch).toHaveAttribute("aria-checked", "false");
+
+    // 开启：明文隐私提示（warning 色块）、凭证输入框与授权用户列表出现
+    await feishuSwitch.click();
+    await expect(feishuSwitch).toHaveAttribute("aria-checked", "true");
+    await expect(window.getByTestId("remote-feishu-privacy-warning")).toBeVisible();
+    await expect(window.getByTestId("remote-feishu-appid")).toBeVisible();
+    await expect(window.getByTestId("remote-feishu-appsecret")).toBeVisible();
+    await expect(window.getByTestId("remote-feishu-allowlist")).toBeVisible();
+
+    // 接入教程展开/收起
+    await window.getByTestId("remote-feishu-guide-toggle").click();
+    await expect(window.getByTestId("remote-feishu-guide")).toBeVisible();
+    await window.getByTestId("remote-feishu-guide-toggle").click();
+    await expect(window.getByTestId("remote-feishu-guide")).not.toBeVisible();
+
+    // 关闭：提示与凭证区收起
+    await feishuSwitch.click();
+    await expect(feishuSwitch).toHaveAttribute("aria-checked", "false");
+    await expect(window.getByTestId("remote-feishu-privacy-warning")).not.toBeVisible();
 
     await app.close();
   });
