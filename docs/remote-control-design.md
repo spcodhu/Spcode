@@ -1,6 +1,6 @@
 # Spcode Harness 远程控制设计方案
 
-> 版本：v0.2（设计稿）  日期：2026-10-03（v0.2：新增飞书机器人补充通道 4.8 / M4 里程碑、鸿蒙 PWA 兼容性结论、隐私边界双通道表述）
+> 版本：v1.0  日期：2026-10-06（v0.2：飞书补充通道 4.8 / M4 / 鸿蒙 PWA 结论；v1.0：M1–M4 全部实现，新增第 6 节实施状态与实现遗留清单）
 > 目标：让用户在手机上远程操控电脑上的 Spcode harness——查看任务状态、输入提示词启动新任务（含中断后重新输入）、布置定时任务、远程批准权限确认。
 > 硬性要求：**端到端加密、数据不经过开发者服务器（或经过但服务器零知识不可读）、全程开源**。
 
@@ -315,40 +315,53 @@ harness Main 进程 ──出站 WebSocket 长连接──> 飞书开放平台 �
 
 ## 6. 分期实施计划
 
-### M1：局域网版（1–1.5 周）—— 验证控制面，零合规风险
-- [ ] `remote/` 模块骨架 + Transport 接口 + `lan` 实现（http 静态服务 + ws + mDNS）
-- [ ] 配对 v1（局域网内 QR + OTP，X25519 + NaCl box 全套加密先上，协议不返工）
-- [ ] RemoteCommand 全量 handler（会话 CRUD/prompt/abort、scheduler CRUD、permission/question reply）
-- [ ] 事件聚合器 + 手机端 PWA 最小可用版（会话列表、输出流、输入、批准卡）
-- [ ] 设置页"远程控制"分区（开关、QR、设备列表）
-- [ ] 单测：crypto 往返、aggregator 节流、handlers 对 bridge 的调用契约；e2e：模拟 WS 客户端跑通"建会话→prompt→abort→再 prompt"全链路
+> 实施状态（2026-10-06 更新）：**M1–M4 已全部实现并合并**。M1=`d1cddba`+`fc7581b`+`2496004`；M2=`ddecf71`+`e420343`+`26b85ec`+`dea263e`；M3=`dea263e`+`26b85ec`；M4=`ecddbef`+`a15343c`。测试基线：desktop 232 单测 + 9 e2e、mobile 34、relay 21，typecheck/build 全绿。遗留项见文末「实现遗留清单」。
 
-### M2：relay 版（1.5–2 周）—— 公网可达
-- [ ] relay 服务（路由 + 离线队列 + TTL）+ Dockerfile + 自托管文档
-- [ ] `transport/relay.ts`：出站 wss、自动重连、离线补拉
-- [ ] 配对 QR 携带 relay 地址；relay 托管 PWA 静态资源
-- [ ] Web Push（VAPID，无内容 payload）
-- [ ] 官方社区 relay 上线（README 显著位置写隐私边界表 + 自托管指引）
+### M1：局域网版（1–1.5 周）—— 验证控制面，零合规风险 ✅
+- [x] `remote/` 模块骨架 + Transport 接口 + `lan` 实现（http 静态服务 + ws + mDNS）
+- [x] 配对 v1（局域网内 QR + OTP，X25519 + NaCl box 全套加密先上，协议不返工）
+- [x] RemoteCommand 全量 handler（会话 CRUD/prompt/abort、scheduler CRUD、permission/question reply）
+- [x] 事件聚合器 + 手机端 PWA 最小可用版（会话列表、输出流、输入、批准卡）
+- [x] 设置页"远程控制"分区（开关、QR、设备列表）
+- [x] 单测：crypto 往返、aggregator 节流、handlers 对 bridge 的调用契约；e2e：模拟 WS 客户端跑通"建会话→prompt→abort→再 prompt"全链路
 
-### M3：加固与体验（1–2 周，可与 M2 并行排期）
-- [ ] 传输层可插拔收尾：`tailscale.ts`（检测 tailscaled + 引导 `tailscale serve`）
-- [ ] 定时任务移动端完整管理 UI（含 runNow）
-- [ ] 权限批准双端同步撤销（一端回答后另一端卡片消失）
-- [ ] 设备管理（多手机、吊销、设备指纹核对 UI）
-- [ ] 安全审计自查清单：私钥 0600、OTP 单次有效、seq 防重放、relay 不记明文日志、依赖审计（tweetnacl 锁定版本）
-- [ ] 《远程功能隐私说明》随应用内置 + README 链接
+### M2：relay 版（1.5–2 周）—— 公网可达 ✅（官方社区 relay 尚未部署，见风险表 #1）
+- [x] relay 服务（路由 + 离线队列 + TTL）+ Dockerfile + 自托管文档（`apps/relay`，21 测试）
+- [x] `transport/relay.ts`：出站 wss、自动重连、离线补拉（含多设备虚拟连接路由与 seq 绑定连接的语义决策）
+- [x] 配对 QR 携带 relay 地址（`relay+wss://` 前缀）；relay 托管 PWA 静态资源（STATIC_DIR）
+- [x] Web Push（VAPID，无内容 payload；桌面生成密钥对、404/410 订阅自动清理）
+- [ ] 官方社区 relay 上线（README 显著位置写隐私边界表 + 自托管指引）——relay 代码与自托管文档已就绪，官方实例部署待定
 
-### M4：飞书机器人通道（1–1.5 周，M2 之后排期；已确认要做）
-- [ ] `transport/feishu.ts`（或 `channel/feishu.ts`）：接入 `@larksuiteoapi/node-sdk` 长连接模式，实现 Transport 接口
-- [ ] 飞书消息 ↔ `RemoteCommand`/`RemoteEvent` 双向映射：斜杠指令（`/new`、`/abort`、`/schedules`…）+ 会话绑定
-- [ ] 权限批准卡片（批准/拒绝按钮 + danger 级二次确认 + 完整命令展示）；流式输出卡片节流更新
-- [ ] 授权用户白名单 + 首条消息 6 位验证码绑定流程
-- [ ] 设置页飞书分区：App ID/Secret 录入、连接状态、白名单管理、**开启时的明文提示**（"此通道消息对飞书平台可见"）
-- [ ] 用户接入图文教程（含权限批量导入 JSON）；隐私说明补充飞书条款
-- [ ] e2e：模拟飞书事件回调跑通"建会话→prompt→批准→abort"全链路
+### M3：加固与体验（1–2 周，可与 M2 并行排期）✅
+- [x] 传输层可插拔收尾：`tailscale.ts`（检测 tailscaled + 引导 `tailscale serve`；实现为 serve 映射管理而非独立 Transport）
+- [x] 定时任务移动端完整管理 UI（含创建/编辑表单与 runNow）
+- [x] 权限批准双端同步撤销（`permission.resolved{requestId,approved,by}` 广播，桌面与手机互撤卡片）
+- [x] 设备管理（多手机、吊销；设备指纹核对 UI 未做，列入遗留）
+- [x] 安全审计自查清单：见 `docs/remote-security-checklist.md`（28 项，逐项标注实现位置与验证测试）
+- [x] 《远程功能隐私说明》随应用内置（设置页可展开区）+ README 链接
+
+### M4：飞书机器人通道（1–1.5 周，M2 之后排期；已确认要做）✅
+- [x] `channel/feishu.ts`：接入 `@larksuiteoapi/node-sdk` 长连接模式（Channel 适配器，与 transport/ 平级；FeishuApi 窄接口便于测试注入）
+- [x] 飞书消息 ↔ `RemoteCommand`/`RemoteEvent` 双向映射：斜杠指令（`/new`、`/use`、`/abort`、`/sessions`、`/schedules`、`/run`、`/bind`、`/help`）+ 会话归属绑定
+- [x] 权限批准卡片（批准/拒绝按钮 + danger 级强提示；任一端回答后原卡片更新为终态）；输出采用"完成摘要"方案避免卡片限频
+- [x] 授权用户白名单 + 首条消息 6 位验证码绑定流程（5 分钟单次有效，feishu.json 原子写 0600）
+- [x] 设置页飞书分区：App ID/Secret 录入、连接状态、白名单管理、**开启时的明文提示**（"此通道消息对飞书平台可见"）
+- [x] 用户接入教程 `docs/feishu-setup.md`（含权限批量导入 JSON）；隐私说明含飞书条款
+- [x] 测试：FakeFeishuApi 跑通绑定/指令/权限卡片全链路（27 用例；真实长连接未对真机验证，列入遗留）
 
 ### 远期（不在本期承诺）
 - 原生 App（Expo，参考 Happy）、WebRTC P2P 直连加速层、微信小程序（届时建议个体工商户主体）、更多 IM 通道（Telegram /  Discord / 企业微信，复用 M4 的 channel 抽象）
+
+### 实现遗留清单（M1–M4 合并后盘点）
+| # | 事项 | 出处 |
+|---|---|---|
+| L1 | 官方社区 relay 实例未部署；Docker 镜像未实机构建验证 | M2 / relay 代理 |
+| L2 | mobile `src/lib/protocol.ts` 本地类型待收敛到 `@spcode/shared` | R2a |
+| L3 | 协议无 `push.unsubscribe`，退订依赖桌面侧 404/410 清理 | R2a |
+| L4 | 飞书 LarkFeishuApi 真实长连接未真机验证；`card.action.trigger` 类型断言待 SDK 升级复查 | R3a |
+| L5 | 飞书 question 多题/多选降级为文本引导；完成摘要只发会话归属用户 | R3a |
+| L6 | 设备指纹核对 UI、relay 状态事件驱动刷新（现为 5s 轮询） | M3/R2b |
+| L7 | `tailscale serve --bg` 写入节点持久配置，卸载应用不自动撤销（已记入安全清单） | R2b |
 
 ---
 
