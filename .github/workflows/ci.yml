@@ -1,11 +1,9 @@
-# CI：push/PR 必跑 lint + typecheck + 单测 + e2e 冒烟（评审 P2-3/N4——
-# e2e 失效曾连续两轮评审无人发现，就是因为没有任何环节自动跑它）。
+# CI：lint + typecheck + 单测 + e2e 冒烟，仅手动触发
+# （Actions 页面选 CI workflow → Run workflow），push/PR 不自动跑。
 name: CI
 
 on:
-  push:
-    branches: [master, main]
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   check:
@@ -14,8 +12,6 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - uses: actions/setup-node@v4
         with:
