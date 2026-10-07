@@ -8,6 +8,13 @@
 - 主题说清"做了什么"；修复类提交在 body 里写根因和关键改动点（每条一行，`- ` 开头）。
 - push 到当前分支对应的远程分支；本地分支没建跟踪时用 `git push -u origin <branch>`。
 
+## 发布策略
+
+- 日常功能 / 修复提交一律不触发发布：不打 tag、不碰版本号，安安静静提交即可（CI 为手动触发，push 不会自动跑 workflow）。
+- 只有用户明确要求"发布版本"时才走发布流程；发布前**必须主动询问本次是测试版还是稳定版**。
+- 发布动作：推进 `apps/desktop/package.json` 的 `version`（测试版加 `-beta.N` 后缀）→ 提交 → 打同名 `v*` tag → 推 tag 触发 release.yml。测试版在 GitHub 上是 Pre-release，不影响稳定版用户。
+- 发布前先在本地跑 `pnpm --filter @spcode/desktop test`（2026-10 曾因改名后没跑测试导致 beta 流水线双平台挂掉）。
+
 ## 不要提交的东西
 
 - `.finch/`（本地权限/工具状态）
