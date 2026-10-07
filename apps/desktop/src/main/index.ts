@@ -38,6 +38,12 @@ import { UsageLedger } from "./usage-ledger.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+// 开发模式没有 bundle 图标：macOS Dock / Windows 任务栏会退回 Electron 默认图标，
+// 这里运行时指向 build/icon.png 补上；打包后图标来自 Info.plist 的 icon.icns 与
+// exe 资源，该路径在包内不存在，自动跳过
+const devIconPath = join(__dirname, "../../build/icon.png");
+const devIcon = !app.isPackaged && existsSync(devIconPath) ? devIconPath : undefined;
+
 const settings = new SettingsStore();
 const registry = new SessionRegistry();
 const ledger = new UsageLedger();
@@ -52,7 +58,8 @@ function createWindow(): void {
     height: 840,
     minWidth: 900,
     minHeight: 600,
-    title: "Spcode",
+    title: "Spcod",
+    ...(devIcon ? { icon: devIcon } : {}),
     backgroundColor: "#0b0f14",
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 14, y: 14 },
@@ -403,6 +410,8 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   void app.whenReady().then(async () => {
+    // dev 模式 Dock 图标运行时设置（打包版由 bundle 自带，无需也不该走这里）
+    if (process.platform === "darwin" && devIcon) app.dock?.setIcon(devIcon);
     registerIpc();
     watchSessionLifecycle();
     // 宿主每次 ready（含崩溃重启后）都重推一次运行时设置

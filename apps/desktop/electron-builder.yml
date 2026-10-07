@@ -1,5 +1,5 @@
 appId: com.spcode.app
-productName: Spcode
+productName: Spcod
 copyright: Copyright © 2026 spcodhu
 
 directories:
@@ -38,7 +38,7 @@ win:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
-  shortcutName: Spcode
+  shortcutName: Spcod
 
 # 自动更新源：建好 GitHub 仓库后填入 owner/repo，
 # 同时把 src/main/updater.ts 的 UPDATE_OWNER/UPDATE_REPO 改掉即可启用
