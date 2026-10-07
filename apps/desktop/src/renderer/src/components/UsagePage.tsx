@@ -55,7 +55,7 @@ export function UsagePage() {
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-[22px] font-semibold text-text-primary">用量</h1>
-          <p className="mt-1 text-[13px] text-text-tertiary">查看 Spcode 本地 token 使用统计和模型订阅额度</p>
+          <p className="mt-1 text-[13px] text-text-tertiary">查看 Spcod 本地 token 使用统计和模型订阅额度</p>
         </div>
         {/* 区间切换 */}
         <div className="flex rounded-full bg-bg-elevated p-1">

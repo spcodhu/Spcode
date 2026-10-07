@@ -69,11 +69,11 @@ export function isValidSubscription(v: unknown): v is RemotePushSubscription {
 function payloadFor(event: HostEvent): { title: string; body: string } | null {
   switch (event.type) {
     case "permission.request":
-      return { title: "Spcode", body: "有权限请求待处理" };
+      return { title: "Spcod", body: "有权限请求待处理" };
     case "question.request":
-      return { title: "Spcode", body: "有提问待回复" };
+      return { title: "Spcod", body: "有提问待回复" };
     case "schedule.fired":
-      return { title: "Spcode", body: "定时任务已触发" };
+      return { title: "Spcod", body: "定时任务已触发" };
     default:
       return null;
   }

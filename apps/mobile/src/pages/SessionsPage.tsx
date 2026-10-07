@@ -300,7 +300,7 @@ export function SessionsPage() {
           </span>
         ) : (
           <button type="button" className="text-[11px] text-slate-600" onClick={() => setConfirmUnpair(true)}>
-            Spcode 远程控制 · 端到端加密 · 解除配对
+            Spcod 远程控制 · 端到端加密 · 解除配对
           </button>
         )}
       </footer>

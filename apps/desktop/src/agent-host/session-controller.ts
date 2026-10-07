@@ -330,7 +330,7 @@ export class SessionController {
         risk,
       });
       if (approved) return undefined;
-      return { block: true, reason: "User denied this tool call in Spcode permission dialog." };
+      return { block: true, reason: "User denied this tool call in Spcod permission dialog." };
     };
 
     return ctl;

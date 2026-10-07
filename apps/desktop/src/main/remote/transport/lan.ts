@@ -33,7 +33,7 @@ const MIME: Record<string, string> = {
 const PLACEHOLDER_HTML = `<!doctype html>
 <html lang="zh-CN">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Spcode 远程控制</title></head>
+<title>Spcod 远程控制</title></head>
 <body style="font-family:system-ui;background:#0b0f14;color:#dbe4ee;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0">
 <div style="max-width:560px;padding:24px;line-height:1.7">
 <h2>远程控制服务已启动 ✅</h2>

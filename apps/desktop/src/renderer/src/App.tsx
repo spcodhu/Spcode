@@ -66,7 +66,7 @@ export default function App() {
   }, [notice]);
 
   if (!ready) {
-    return <div className="flex h-full items-center justify-center text-text-secondary">Spcode 启动中…</div>;
+    return <div className="flex h-full items-center justify-center text-text-secondary">Spcod 启动中…</div>;
   }
 
   return (
@@ -141,7 +141,7 @@ function EmptyHome() {
     <div className="flex h-full flex-col items-center justify-center gap-6">
       <div className="text-center">
         <div className="mb-2 text-4xl">🐦</div>
-        <h1 className="text-xl font-semibold text-text-primary">Spcode</h1>
+        <h1 data-testid="brand" className="text-xl font-semibold text-text-primary">Spcod</h1>
         <p className="mt-1 text-sm text-text-secondary">以 Pi 为引擎的 Agentic Code 工作台</p>
       </div>
       <div className="flex gap-3">

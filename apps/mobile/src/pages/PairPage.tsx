@@ -79,7 +79,7 @@ export function PairPage() {
 
   return (
     <div className="flex h-full flex-col overflow-y-auto px-5 py-8">
-      <h1 className="text-xl font-bold text-slate-100">连接到桌面 Spcode</h1>
+      <h1 className="text-xl font-bold text-slate-100">连接到桌面 Spcod</h1>
       <p className="mt-2 text-sm leading-6 text-slate-400">
         在桌面端「设置 → 远程控制」开启服务并展示配对二维码，然后用下方任一方式完成配对。 配对为端到端加密（X25519 +
         NaCl box），配对码 5 分钟内有效、仅可使用一次。

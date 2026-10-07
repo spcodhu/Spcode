@@ -5,7 +5,7 @@
  */
 
 self.addEventListener("push", (event) => {
-  let title = "Spcode 远程控制";
+  let title = "Spcod 远程控制";
   let body = "";
   if (event.data) {
     try {

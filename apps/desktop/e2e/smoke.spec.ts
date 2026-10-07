@@ -7,7 +7,7 @@ test.describe("Spcode 冒烟 E2E", () => {
     const window = await app.firstWindow();
 
     // 首页品牌区
-    await expect(window.getByText("Spcode").first()).toBeVisible({ timeout: 15000 });
+    await expect(window.getByTestId("brand")).toBeVisible({ timeout: 15000 });
 
     // 新建聊天（注意：侧边栏提示文本也含"新建聊天"，必须按 role 选按钮）
     await window.getByRole("button", { name: /新建聊天/ }).click();
@@ -221,7 +221,7 @@ test.describe("Spcode 冒烟 E2E", () => {
   test("会话搜索：Cmd+K 与侧栏按钮开合，输入出结果区", async () => {
     const app = await launchApp();
     const window = await app.firstWindow();
-    await expect(window.getByText("Spcode").first()).toBeVisible({ timeout: 15000 });
+    await expect(window.getByTestId("brand")).toBeVisible({ timeout: 15000 });
 
     // Cmd+K 打开
     await window.keyboard.press("Meta+KeyK");
@@ -247,7 +247,7 @@ test.describe("Spcode 冒烟 E2E", () => {
   test("定时任务：面板开合 + 创建/删除任务闭环", async () => {
     const app = await launchApp();
     const window = await app.firstWindow();
-    await expect(window.getByText("Spcode").first()).toBeVisible({ timeout: 15000 });
+    await expect(window.getByTestId("brand")).toBeVisible({ timeout: 15000 });
 
     // 唯一任务名：与历史残留/并行运行隔离
     const taskName = `E2E任务${Date.now() % 100000}`;

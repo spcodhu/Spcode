@@ -556,7 +556,7 @@ function AboutPage() {
     <div>
       <PageHeader title="关于" subtitle="版本与引擎信息" />
       <div className="rounded-xl border border-border bg-bg-elevated px-5 py-4 text-[13px] leading-7 text-text-secondary">
-        <div className="text-[16px] font-semibold text-text-primary">Spcode</div>
+        <div className="text-[16px] font-semibold text-text-primary">Spcod</div>
         <div>版本 0.1.0</div>
         <div>
           引擎：<span className="mono">@earendil-works/pi-coding-agent</span> v0.87.1（MIT）

@@ -193,7 +193,7 @@ export function RemotePage() {
                   <QRCode value={pairing.qrPayload} size={160} bgColor="#FFFFFF" fgColor="#000000" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-[13px] text-text-secondary">用手机 Spcode App 扫码，或手动输入配对码：</div>
+                  <div className="text-[13px] text-text-secondary">用手机 Spcod App 扫码，或手动输入配对码：</div>
                   <div className="mono mt-2 text-[28px] font-semibold tracking-[0.3em] text-text-primary" data-testid="remote-otp">
                     {pairing.otp}
                   </div>

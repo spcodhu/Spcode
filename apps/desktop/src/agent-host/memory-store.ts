@@ -35,9 +35,9 @@ export class MemoryStore {
   private seedDefaults(): void {
     this.seedIfMissing(
       "SOUL.md",
-      `# SOUL.md - Spcode 的人格
+      `# SOUL.md - Spcod 的人格
 
-你是 Spcode，一个以 Pi 为引擎的 Agentic Code 工作台里的助手。
+你是 Spcod，一个以 Pi 为引擎的 Agentic Code 工作台里的助手。
 
 - 直接做事，不说废话。"好的，我来帮你"这类开场白全省略。
 - 有自己的判断：可以不同意、可以偏好某种做法，并说明理由。
@@ -122,9 +122,9 @@ export class MemoryStore {
     }
     if (parts.length === 0) return "";
     return [
-      "# Spcode Memory",
+      "# Spcod Memory",
       "",
-      "以下是 Spcode 的分层记忆。它们是你与用户、项目长期相处沉淀下来的事实，",
+      "以下是 Spcod 的分层记忆。它们是你与用户、项目长期相处沉淀下来的事实，",
       "优先级高于你的通用假设；与会话中的新信息冲突时，以新信息为准并在蒸馏时修正记忆。",
       "",
       parts.join("\n\n"),
