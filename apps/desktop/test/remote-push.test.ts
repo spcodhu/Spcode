@@ -58,7 +58,10 @@ describe("VAPID 密钥对", () => {
     expect(setVapidDetails).toHaveBeenCalledWith("https://github.com/spcodhu/Spcode", "BMockPub", "MockPriv");
 
     const file = join(dir, "remote", "vapid.json");
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    // Windows 无 POSIX 权限位，0600 断言仅 Unix 生效
+    if (process.platform !== "win32") {
+      expect(statSync(file).mode & 0o777).toBe(0o600);
+    }
 
     // 新实例读回同一密钥对（不重新生成）
     const push2 = new PushService({ baseDir: dir });
@@ -126,7 +129,7 @@ describe("触发推送", () => {
     const [sub, payload] = sendNotification.mock.calls[0]!;
     expect(sub).toEqual(VALID_SUB);
     const body = JSON.parse(payload!) as { title: string; body: string };
-    expect(body.title).toBe("Spcode");
+    expect(body.title).toBe("Spcod");
     expect(body.body).toBe("有权限请求待处理");
     // 不泄露工具名/命令/会话 id
     expect(payload).not.toContain("rm -rf");

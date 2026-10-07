@@ -35,7 +35,10 @@ describe("设备密钥对", () => {
     expect(pm.getIdentity()).toEqual(id1);
 
     const keyFile = join((pm as unknown as { dir: string }).dir, "device.key");
-    expect(statSync(keyFile).mode & 0o777).toBe(0o600);
+    // Windows 无 POSIX 权限位，0600 断言仅 Unix 生效
+    if (process.platform !== "win32") {
+      expect(statSync(keyFile).mode & 0o777).toBe(0o600);
+    }
 
     // 新实例（同目录）应读回同一密钥
     const pm2 = new PairingManager({ baseDir: join((pm as unknown as { dir: string }).dir, "..") });
@@ -75,7 +78,9 @@ describe("OTP 配对窗口", () => {
 
     // 持久化：原子写后 tmp 不残留，新实例读回
     const devicesFile = join((pm as unknown as { devicesFile: string }).devicesFile);
-    expect(statSync(devicesFile).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") {
+      expect(statSync(devicesFile).mode & 0o777).toBe(0o600);
+    }
     expect(JSON.parse(readFileSync(devicesFile, "utf-8"))).toHaveLength(1);
     const baseDir = join((pm as unknown as { dir: string }).dir, "..");
     expect(new PairingManager({ baseDir }).devices()).toHaveLength(1);

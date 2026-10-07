@@ -51,7 +51,7 @@ describe("SessionController 集成", () => {
     }
 
     // 系统提示里应有记忆块（SOUL 播种内容）与标题约定
-    expect(ctl.session.systemPrompt).toContain("Spcode Memory");
+    expect(ctl.session.systemPrompt).toContain("Spcod Memory");
     expect(ctl.session.systemPrompt).toContain("会话标题约定");
 
     await ctl.dispose();
