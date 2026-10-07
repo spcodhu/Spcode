@@ -40,10 +40,9 @@ nsis:
   allowToChangeInstallationDirectory: true
   shortcutName: Spcod
 
-# 自动更新源：建好 GitHub 仓库后填入 owner/repo，
-# 同时把 src/main/updater.ts 的 UPDATE_OWNER/UPDATE_REPO 改掉即可启用
+# 自动更新源：GitHub Releases（updater.ts 的 UPDATE_OWNER/UPDATE_REPO 与此保持一致）
 publish:
   provider: github
-  owner: TODO-OWNER
-  repo: TODO-REPO
+  owner: spcodhu
+  repo: Spcode
   releaseType: release

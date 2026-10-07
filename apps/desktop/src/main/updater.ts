@@ -1,9 +1,8 @@
 /**
  * 自动更新：electron-updater 轮询 GitHub Releases。
  *
- * 当前未创建远程仓库（v1 纯本地构建决策）：
- * UPDATE_OWNER/UPDATE_REPO 为占位值时直接跳过，建好仓库后改这两个常量
- * 并推送 tag 即可启用（配合 .github/workflows/release.yml）。
+ * 更新源为 spcodhu/Spcode 的 GitHub Releases（配合 .github/workflows/release.yml，
+ * 推送 v* tag 即发布新版本）。UPDATE_OWNER/UPDATE_REPO 为占位值时直接跳过检查。
  *
  * isEnabled 读取设置页的「启动时检查更新」开关（每次检查时实时读，关掉即刻生效）。
  * 下载完成后不自动重启：弹系统对话框让用户选「立即重启更新 / 稍后」，
@@ -14,8 +13,8 @@ import pkg from "electron-updater";
 
 const { autoUpdater } = pkg;
 
-const UPDATE_OWNER = "TODO-OWNER";
-const UPDATE_REPO = "TODO-REPO";
+const UPDATE_OWNER = "spcodhu";
+const UPDATE_REPO = "Spcode";
 
 export function setupAutoUpdater(
   isEnabled: () => boolean = () => true,
