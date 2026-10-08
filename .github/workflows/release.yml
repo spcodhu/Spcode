@@ -1,6 +1,7 @@
-# Release 流水线（v1 暂不启用：仓库未建。
-# 建好 GitHub 仓库后，把 electron-builder.yml 与 updater.ts 里的 TODO 占位改掉，
-# 推一个 v0.1.0 的 tag 即可触发本 workflow 产出 macOS/Windows 安装包并发布 Release。）
+# Release 流水线：推 v* tag 触发。
+# 结构：build（mac/win 并行，只打包不发布）→ publish（单 job 汇总上传建 Release）。
+# 不让两个平台 job 各自 electron-builder --publish always：并发创建同一 tag 的
+# Release 没有幂等保护，后到者 422 中断发布（v0.1.0-beta.1 曾因此丢掉全部 mac 产物）。
 name: Release
 
 on:
@@ -37,10 +38,40 @@ jobs:
       - name: Build
         run: pnpm --filter @spcode/desktop build
 
-      - name: Package & publish to GitHub Releases
+      - name: Package（不发布）
         working-directory: apps/desktop
-        run: pnpm exec electron-builder --publish always
+        run: pnpm exec electron-builder --publish never
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # macOS 未签名（自用）；接入证书时在此注入 CSC_LINK / CSC_KEY_PASSWORD
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: 上传安装包产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.os }}
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/*.yml
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: 汇总两个平台的产物
+        uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          merge-multiple: true
+          path: dist
+
+      - name: 创建/更新 GitHub Release 并上传全部产物
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          # 版本号带 -beta.N 等后缀时标为 Pre-release，不占 Latest 位
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true

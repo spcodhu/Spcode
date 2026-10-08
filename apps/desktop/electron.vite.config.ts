@@ -3,9 +3,15 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { resolve } from "node:path";
 
+// @spcode/shared 是导出 TS 源码的 workspace 包，必须内联编译进产物——
+// 若 externalize，打包后它以真实目录落在 app.asar/node_modules 下，
+// Node 类型剥离拒绝加载 node_modules 里的 .ts（ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING），
+// 主进程启动即崩。dev/测试走 pnpm symlink（真实路径不在 node_modules）所以只有安装包会炸。
+const inlineWorkspace = externalizeDepsPlugin({ exclude: ["@spcode/shared"] });
+
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [inlineWorkspace],
     build: {
       rollupOptions: {
         input: {
@@ -21,7 +27,7 @@ export default defineConfig({
     },
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [inlineWorkspace],
   },
   renderer: {
     plugins: [react(), tailwindcss()],
