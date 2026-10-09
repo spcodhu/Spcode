@@ -221,8 +221,8 @@ function registerIpc(): void {
       }
     }
 
-    // 恢复会话：把注册表里的计划模式状态捎带给宿主（渲染进程不感知这个字段）
-    if (cmd.type === "session.open") {
+    // 恢复/唤醒会话：把注册表里的计划模式状态捎带给宿主（渲染进程不感知这个字段）
+    if (cmd.type === "session.open" || cmd.type === "session.activate") {
       cmd.payload.planMode = registry.get(cmd.payload.sessionId)?.planMode ?? false;
     }
 

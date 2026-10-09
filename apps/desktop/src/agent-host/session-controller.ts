@@ -379,6 +379,11 @@ export class SessionController {
     return [...this.session.messages];
   }
 
+  /** 是否正在运行（含引擎流式中）：宿主休眠/安全释放的前置检查 */
+  isRunning(): boolean {
+    return this.running || this.session.isStreaming;
+  }
+
   private currentModelRef(): ModelRef | null {
     const m = this.session.model;
     return m ? { provider: m.provider, modelId: m.id } : null;

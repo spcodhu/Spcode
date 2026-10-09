@@ -160,6 +160,18 @@ export type HostCommand =
   | { id: string; type: "session.setModel"; payload: { sessionId: string; model: ModelRef } }
   | { id: string; type: "session.setThinkingLevel"; payload: { sessionId: string; level: string } }
   | { id: string; type: "session.dispose"; payload: { sessionId: string } }
+  | {
+      id: string;
+      /** 非活动会话宿主侧休眠：宽限期后释放 AgentSession；运行中的会话会被拒绝 */
+      type: "session.hibernate";
+      payload: { sessionId: string };
+    }
+  | {
+      id: string;
+      /** 唤醒（幂等）：宿主已有实例直接返回 info，否则按 sessionFile 恢复并回放历史 */
+      type: "session.activate";
+      payload: { sessionId: string; sessionFile: string; cwd: string; planMode?: boolean };
+    }
   | { id: string; type: "models.list" }
   | { id: string; type: "models.catalog" }
   | { id: string; type: "memory.read" }

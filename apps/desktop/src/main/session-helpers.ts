@@ -34,9 +34,9 @@ export function isDefaultTitle(title: string, cwd: string): boolean {
   return title === "新聊天" || title === "新项目" || title === baseName(cwd);
 }
 
-/** 会话创建/恢复成功后回填 sessionFile 等到注册表（支撑下次恢复） */
+/** 会话创建/恢复/唤醒成功后回填 sessionFile 等到注册表（支撑下次恢复） */
 export function backfillSessionFile(cmd: HostCommand, result: unknown, registry: RegistryLike): void {
-  if (cmd.type !== "session.create" && cmd.type !== "session.open") return;
+  if (cmd.type !== "session.create" && cmd.type !== "session.open" && cmd.type !== "session.activate") return;
   const data = result as
     | {
         sessionId?: string;

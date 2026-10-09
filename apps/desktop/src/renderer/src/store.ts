@@ -132,8 +132,21 @@ export interface SessionState {
   todos: TodoItem[];
   /** 计划模式：模型只读调研并出计划，批准后才执行（持久化在主进程注册表） */
   planMode: boolean;
+  /** pi 会话文件路径（宿主休眠后凭它唤醒；来自 create/open/activate 响应） */
+  sessionFile?: string | null;
+  /** 宿主侧是否有活跃 AgentSession；false = 已休眠，激活时需 session.activate 唤醒 */
+  hostAwake?: boolean;
   /** 草稿会话：仅本地占位，不进注册表；首次发送消息时才真正创建（Finch 式懒创建） */
   draft?: boolean;
+}
+
+/** 宿主 session.create/open/activate 响应（ctl.info() 的渲染进程侧镜像） */
+interface HostSessionInfo {
+  sessionFile?: string | null;
+  model: ModelRef | null;
+  thinkingLevel: string;
+  supportedThinkingLevels: string[];
+  planMode?: boolean;
 }
 
 /** 主进程注册表里的持久化会话条目（镜像 SessionRegistryEntry） */
@@ -548,7 +561,10 @@ export const useStore = create<StoreState>((set, get) => ({
   async openSessionById(id) {
     const existing = get().sessions[id];
     if (existing) {
+      const prev = get().activeSessionId;
       set((s) => ({ activeSessionId: id, ...pruneDrafts(s, id) }));
+      if (prev && prev !== id) hibernateIfIdle(prev);
+      void ensureAwake(id);
       return;
     }
     const entry = get().registrySessions.find((r) => r.id === id);
@@ -592,6 +608,7 @@ export const useStore = create<StoreState>((set, get) => ({
       draft: true,
     };
     // 草稿只进内存、不进注册表：侧栏不出现，发送第一条消息时才真正创建（materializeDraft）
+    const prevActive = get().activeSessionId;
     set((s) => {
       const pruned = pruneDrafts(s, id);
       return {
@@ -600,6 +617,8 @@ export const useStore = create<StoreState>((set, get) => ({
         activeSessionId: id,
       };
     });
+    // 新草稿上位后被切走的会话进休眠宽限
+    if (prevActive && prevActive !== id) hibernateIfIdle(prevActive);
     return id;
   },
 
@@ -607,12 +626,7 @@ export const useStore = create<StoreState>((set, get) => ({
     const draft = get().sessions[draftId];
     if (!draft?.draft) return draftId;
     const id = crypto.randomUUID();
-    const info = await window.spcode.command<{
-      model: ModelRef | null;
-      thinkingLevel: string;
-      supportedThinkingLevels: string[];
-      planMode?: boolean;
-    }>({
+    const info = await window.spcode.command<HostSessionInfo>({
       type: "session.create",
       payload: {
         sessionId: id,
@@ -630,6 +644,8 @@ export const useStore = create<StoreState>((set, get) => ({
       sessions[id] = {
         ...draft,
         draft: undefined,
+        hostAwake: true,
+        sessionFile: info.sessionFile ?? null,
         meta: { ...draft.meta, id, model: info.model, thinkingLevel: info.thinkingLevel, updatedAt: now },
         supportedThinkingLevels: info.supportedThinkingLevels ?? draft.supportedThinkingLevels,
       };
@@ -667,7 +683,10 @@ export const useStore = create<StoreState>((set, get) => ({
   async openSession(entry) {
     // 已激活的会话直接切换
     if (get().sessions[entry.id]) {
+      const prev = get().activeSessionId;
       set((s) => ({ activeSessionId: entry.id, ...pruneDrafts(s, entry.id) }));
+      if (prev && prev !== entry.id) hibernateIfIdle(prev);
+      void ensureAwake(entry.id);
       return;
     }
     if (!entry.sessionFile) {
@@ -679,12 +698,8 @@ export const useStore = create<StoreState>((set, get) => ({
       await get().createSession(entry.mode, entry.cwd?.trim() ? entry.cwd : undefined);
       return;
     }
-    const info = await window.spcode.command<{
-      model: ModelRef | null;
-      thinkingLevel: string;
-      supportedThinkingLevels: string[];
-      planMode?: boolean;
-    }>({
+    const prevActive = get().activeSessionId;
+    const info = await window.spcode.command<HostSessionInfo>({
       type: "session.open",
       payload: { sessionId: entry.id, sessionFile: entry.sessionFile, cwd: entry.cwd },
     });
@@ -706,6 +721,8 @@ export const useStore = create<StoreState>((set, get) => ({
       supportedThinkingLevels: info.supportedThinkingLevels ?? [],
       todos: [],
       planMode: info.planMode ?? entry.planMode ?? false,
+      sessionFile: info.sessionFile ?? entry.sessionFile,
+      hostAwake: true,
     };
     // 历史消息由随后的 session.history 事件填充
     set((s) => {
@@ -716,6 +733,8 @@ export const useStore = create<StoreState>((set, get) => ({
         activeSessionId: entry.id,
       };
     });
+    // 之前激活的会话进休眠宽限（放在 open 成功之后，失败则不动旧会话）
+    if (prevActive && prevActive !== entry.id) hibernateIfIdle(prevActive);
   },
 
   async deleteSession(id) {
@@ -734,8 +753,12 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   setActive(id) {
+    const prev = get().activeSessionId;
     // 切换时丢弃未发送的空草稿（保留目标会话本身）
     set((s) => ({ activeSessionId: id, ...pruneDrafts(s, id || null) }));
+    // 宿主侧联动：切走的空闲会话进休眠宽限，目标会话若已休眠则唤醒
+    if (prev && prev !== id) hibernateIfIdle(prev);
+    if (id) void ensureAwake(id);
   },
 
   async sendPrompt(text, images) {
@@ -982,3 +1005,58 @@ export const useStore = create<StoreState>((set, get) => ({
     });
   },
 }));
+
+// ---------------------------------------------------------------------------
+// 会话切换的宿主侧休眠/唤醒联动
+// ---------------------------------------------------------------------------
+
+/**
+ * 被切走的空闲会话请求宿主休眠（宿主 30s 宽限，运行中会被拒）。
+ * 乐观标记 hostAwake=false：命令失败回滚，成功则由宿主在宽限期后释放实例；
+ * 期间任何命令（prompt 等）到达宿主都会自动取消休眠/按墓碑唤醒，语义自洽。
+ */
+function hibernateIfIdle(sessionId: string): void {
+  const s = useStore.getState().sessions[sessionId];
+  if (!s || s.draft || s.running || s.hostAwake !== true || !s.sessionFile) return;
+  useStore.setState((st) =>
+    touchSession(st, sessionId, (d) => {
+      d.hostAwake = false;
+    }),
+  );
+  void window.spcode.command({ type: "session.hibernate", payload: { sessionId } }).catch(() => {
+    // 命令没送达：回滚标记，避免激活路径对一个其实还醒着的会话空转
+    useStore.setState((st) =>
+      touchSession(st, sessionId, (d) => {
+        d.hostAwake = true;
+      }),
+    );
+  });
+}
+
+/** 激活目标会话时按需唤醒宿主实例（幂等；响应落地时用户又切走则补一次休眠） */
+async function ensureAwake(sessionId: string): Promise<void> {
+  const s = useStore.getState().sessions[sessionId];
+  if (!s || s.draft || s.hostAwake !== false || !s.sessionFile) return;
+  try {
+    const info = await window.spcode.command<HostSessionInfo>({
+      type: "session.activate",
+      payload: { sessionId, sessionFile: s.sessionFile, cwd: s.meta.cwd },
+    });
+    useStore.setState((st) =>
+      touchSession(st, sessionId, (d) => {
+        d.hostAwake = true;
+        d.sessionFile = info.sessionFile ?? d.sessionFile;
+        d.meta = {
+          ...d.meta,
+          model: info.model ?? d.meta.model,
+          thinkingLevel: info.thinkingLevel ?? d.meta.thinkingLevel,
+        };
+        d.supportedThinkingLevels = info.supportedThinkingLevels ?? d.supportedThinkingLevels;
+        if (typeof info.planMode === "boolean") d.planMode = info.planMode;
+      }),
+    );
+    if (useStore.getState().activeSessionId !== sessionId) hibernateIfIdle(sessionId);
+  } catch {
+    // 唤醒失败保持 asleep 标记，下次激活重试（宿主侧命令幂等，重复激活无害）
+  }
+}

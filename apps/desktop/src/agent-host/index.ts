@@ -23,6 +23,7 @@ import type {
   QuestionRequest,
 } from "@spcode/shared";
 import { resolveSpcodeHome } from "@spcode/shared/node";
+import { HibernationManager } from "./hibernation.js";
 import { MemoryStore } from "./memory-store.js";
 import { SessionController } from "./session-controller.js";
 
@@ -60,6 +61,10 @@ let distillEnabled = true;
 /** 高级搜索配置（主进程设置页经 search.setAdvancedConfig 下发；宿主重启后由主进程重推） */
 let advancedSearchConfig: AdvancedSearchConfig | null = null;
 const sessions = new Map<string, SessionController>();
+/** 会话创建时的原始 cwd（chat 为 ""），休眠墓碑据此推断恢复模式 */
+const sessionCwd = new Map<string, string>();
+/** 已休眠会话的墓碑：凭 sessionFile 可在任意 session.* 命令到达时自动唤醒 */
+const hibernated = new Map<string, { sessionFile: string; cwd: string; planMode: boolean }>();
 /** 等待主进程裁决的权限请求（带会话归属与超时兜底——评审 P1-1） */
 const pendingPermissions = new Map<
   string,
@@ -200,6 +205,67 @@ function settlePendingForSession(sessionId: string): void {
   }
 }
 
+// ---------------------------------------------------------------------------
+// 非活动会话休眠
+// ---------------------------------------------------------------------------
+
+/** 休眠宽限期：切走后 30s 内切回不重建引擎实例（重读会话文件很贵） */
+const HIBERNATE_GRACE_MS = 30_000;
+
+/** 到期真正释放一个会话：留墓碑（供任意命令自动唤醒），结清待决，dispose 实例 */
+async function sleepSession(sessionId: string): Promise<void> {
+  const ctl = sessions.get(sessionId);
+  if (!ctl) return;
+  if (ctl.isRunning()) return; // 宽限期内又跑起来了，放弃本次休眠
+  const info = ctl.info();
+  if (info.sessionFile) {
+    hibernated.set(sessionId, {
+      sessionFile: info.sessionFile,
+      cwd: sessionCwd.get(sessionId) ?? "",
+      planMode: info.planMode,
+    });
+  }
+  settlePendingForSession(sessionId);
+  await ctl.dispose().catch(() => {});
+  sessions.delete(sessionId);
+  sessionCwd.delete(sessionId);
+}
+
+const hibernation = new HibernationManager({
+  graceMs: HIBERNATE_GRACE_MS,
+  canSleep: (sessionId) => {
+    const ctl = sessions.get(sessionId);
+    return !!ctl && !ctl.isRunning();
+  },
+  sleep: sleepSession,
+});
+
+/**
+ * 取活跃控制器；已休眠的按墓碑自动唤醒（远程 prompt / 定时任务等链路无感）。
+ * 返回 null = 会话从未创建且无休眠墓碑（调用方按不存在报错）。
+ */
+async function getOrRevive(sessionId: string): Promise<SessionController | null> {
+  const existing = sessions.get(sessionId);
+  if (existing) {
+    hibernation.cancel(sessionId);
+    return existing;
+  }
+  const tomb = hibernated.get(sessionId);
+  if (!tomb) return null;
+  hibernated.delete(sessionId);
+  const ctl = await createController({
+    sessionId,
+    cwd: tomb.cwd,
+    mode: tomb.cwd.trim() ? "project" : "chat",
+    sessionFile: tomb.sessionFile,
+    planMode: tomb.planMode,
+  });
+  sessions.set(sessionId, ctl);
+  // 唤醒后回放历史：渲染进程只在本地为空时采用（session.history 处理器有 guard）
+  emit({ type: "session.history", sessionId, messages: ctl.history() });
+  return ctl;
+}
+
 /** session.create / session.open 公共逻辑 */
 async function createController(params: {
   sessionId: string;
@@ -213,6 +279,7 @@ async function createController(params: {
   noTitleAutomation?: boolean;
 }): Promise<SessionController> {
   const rt = await getRuntime();
+  sessionCwd.set(params.sessionId, params.cwd ?? "");
   return SessionController.create({
     sessionId: params.sessionId,
     cwd: params.cwd,
@@ -263,6 +330,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
     return;
   }
   if (cmd.type === "shutdown") {
+    hibernation.disposeAll();
     for (const s of sessions.values()) await s.dispose().catch(() => {});
     process.exit(0);
   }
@@ -323,6 +391,8 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
       }
       case "session.create": {
         // 同 sessionId 重复 create：先结清并释放旧 controller，避免 AgentSession 泄漏（评审 P2-5）
+        hibernation.cancel(cmd.payload.sessionId);
+        hibernated.delete(cmd.payload.sessionId);
         const existing = sessions.get(cmd.payload.sessionId);
         if (existing) {
           settlePendingForSession(cmd.payload.sessionId);
@@ -343,6 +413,8 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
       }
       case "session.open": {
         // 同 sessionId 重复 open：同 create，先释放旧实例
+        hibernation.cancel(cmd.payload.sessionId);
+        hibernated.delete(cmd.payload.sessionId);
         const existing = sessions.get(cmd.payload.sessionId);
         if (existing) {
           settlePendingForSession(cmd.payload.sessionId);
@@ -360,6 +432,34 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         sessions.set(cmd.payload.sessionId, ctl);
         // 先回响应，再推历史（渲染进程按序处理）
         respond(id, true, ctl.info());
+        emit({ type: "session.history", sessionId: cmd.payload.sessionId, messages: ctl.history() });
+        break;
+      }
+      case "session.hibernate": {
+        // 渲染进程切换会话后请求休眠：进入宽限期计时；运行中/不存在则拒睡
+        const scheduled = hibernation.request(cmd.payload.sessionId);
+        respond(id, true, { scheduled, already: hibernated.has(cmd.payload.sessionId) });
+        break;
+      }
+      case "session.activate": {
+        // 幂等唤醒：已有活跃实例直接回 info；已休眠清墓碑按 sessionFile 恢复
+        hibernation.cancel(cmd.payload.sessionId);
+        const existing = sessions.get(cmd.payload.sessionId);
+        if (existing) {
+          respond(id, true, existing.info());
+          break;
+        }
+        hibernated.delete(cmd.payload.sessionId);
+        const ctl = await createController({
+          sessionId: cmd.payload.sessionId,
+          cwd: cmd.payload.cwd,
+          mode: cmd.payload.cwd?.trim() ? "project" : "chat",
+          sessionFile: cmd.payload.sessionFile,
+          planMode: cmd.payload.planMode,
+        });
+        sessions.set(cmd.payload.sessionId, ctl);
+        respond(id, true, ctl.info());
+        // 历史回放：渲染进程只在本地消息为空时采用（重复激活不会刷掉现有消息）
         emit({ type: "session.history", sessionId: cmd.payload.sessionId, messages: ctl.history() });
         break;
       }
@@ -396,7 +496,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         break;
       }
       case "session.prompt": {
-        const ctl = sessions.get(cmd.payload.sessionId);
+        const ctl = await getOrRevive(cmd.payload.sessionId);
         if (!ctl) throw new Error(`Session not found: ${cmd.payload.sessionId}`);
         // prompt 是长任务：立即响应"已接受"，结果通过事件流推送
         void ctl.prompt(cmd.payload.text, cmd.payload.images).catch((err) => {
@@ -406,39 +506,45 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         break;
       }
       case "session.abort": {
+        // 已休眠的会话没有可中止的运行：取消待决休眠并按成功收尾（幂等）
+        hibernation.cancel(cmd.payload.sessionId);
         const ctl = sessions.get(cmd.payload.sessionId);
-        if (!ctl) throw new Error(`Session not found: ${cmd.payload.sessionId}`);
-        // abort 后工具调用链被掐断，挂起的权限/提问按拒绝/未答结清
-        settlePendingForSession(cmd.payload.sessionId);
-        await ctl.abort();
+        if (ctl) {
+          // abort 后工具调用链被掐断，挂起的权限/提问按拒绝/未答结清
+          settlePendingForSession(cmd.payload.sessionId);
+          await ctl.abort();
+        }
         respond(id, true);
         break;
       }
       case "session.setModel": {
-        const ctl = sessions.get(cmd.payload.sessionId);
+        const ctl = await getOrRevive(cmd.payload.sessionId);
         if (!ctl) throw new Error(`Session not found: ${cmd.payload.sessionId}`);
         await ctl.setModel(cmd.payload.model);
         respond(id, true, ctl.info());
         break;
       }
       case "session.setThinkingLevel": {
-        const ctl = sessions.get(cmd.payload.sessionId);
+        const ctl = await getOrRevive(cmd.payload.sessionId);
         if (!ctl) throw new Error(`Session not found: ${cmd.payload.sessionId}`);
         ctl.setThinkingLevel(cmd.payload.level);
         respond(id, true, ctl.info());
         break;
       }
       case "session.setPlanMode": {
-        const ctl = sessions.get(cmd.payload.sessionId);
+        const ctl = await getOrRevive(cmd.payload.sessionId);
         if (!ctl) throw new Error(`Session not found: ${cmd.payload.sessionId}`);
         await ctl.setPlanMode(cmd.payload.enabled);
         respond(id, true, ctl.info());
         break;
       }
       case "session.dispose": {
-        const ctl = sessions.get(cmd.payload.sessionId);
         // 先结清该会话的待决权限/提问，再拆 controller——否则 beforeToolCall 永远悬停（评审 P1-1）
+        hibernation.cancel(cmd.payload.sessionId);
+        hibernated.delete(cmd.payload.sessionId);
+        sessionCwd.delete(cmd.payload.sessionId);
         settlePendingForSession(cmd.payload.sessionId);
+        const ctl = sessions.get(cmd.payload.sessionId);
         if (ctl) {
           await ctl.dispose();
           sessions.delete(cmd.payload.sessionId);
