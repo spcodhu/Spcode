@@ -18,6 +18,10 @@ asarUnpack:
 
 npmRebuild: false
 
+# mac 无开发者证书（自用）：identity: null 跳过官方签名，改由 afterPack 钩子
+# adhoc 重签——不重签会留下密封失效的 Electron 旧签名，下载的副本被 Gatekeeper 判「已损坏」
+afterPack: "./build/afterPack.mjs"
+
 mac:
   category: public.app-category.developer-tools
   target:
