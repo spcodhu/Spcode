@@ -297,6 +297,7 @@ function registerIpc(): void {
   });
 
   ipcMain.handle(IPC.getSettings, () => settings.get());
+  ipcMain.handle(IPC.getAppVersion, () => app.getVersion());
   ipcMain.handle(IPC.setSettings, (_e, patch: Partial<AppSettings>) => {
     const next = settings.set(patch);
     // 蒸馏开关实时下发宿主（评审 P0-4：静默计费的开关必须即时生效）
@@ -429,6 +430,7 @@ if (!app.requestSingleInstanceLock()) {
     setupAutoUpdater(
       () => settings.get().autoUpdate,
       () => mainWindow,
+      () => settings.get().betaUpdates,
     );
 
     app.on("activate", () => {

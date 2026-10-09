@@ -58,6 +58,8 @@ export interface SpcodeApi {
   pickThemeFile(): Promise<string | null>;
   getSettings(): Promise<AppSettings>;
   setSettings(patch: Partial<AppSettings>): Promise<AppSettings>;
+  /** 应用版本号（设置页更新通道开关展示默认值用） */
+  getAppVersion(): Promise<string>;
   /** 高级搜索「测试连接」：主进程发真实请求验证配置 */
   searchTest(config: AdvancedSearchConfig): Promise<{ ok: true; count: number } | { ok: false; error: string }>;
   /** 远程控制：状态（开关/监听地址/设备列表/当前配对窗口） */
@@ -141,6 +143,9 @@ const api: SpcodeApi = {
   },
   getSettings() {
     return ipcRenderer.invoke(IPC.getSettings);
+  },
+  getAppVersion() {
+    return ipcRenderer.invoke(IPC.getAppVersion);
   },
   setSettings(patch) {
     return ipcRenderer.invoke(IPC.setSettings, patch);

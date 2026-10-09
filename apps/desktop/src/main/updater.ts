@@ -10,6 +10,7 @@
  */
 import { app, type BrowserWindow, dialog } from "electron";
 import pkg from "electron-updater";
+import { resolveAllowPrerelease } from "@spcode/shared";
 
 const { autoUpdater } = pkg;
 
@@ -19,6 +20,8 @@ const UPDATE_REPO = "Spcode";
 export function setupAutoUpdater(
   isEnabled: () => boolean = () => true,
   getWindow: () => BrowserWindow | null = () => null,
+  /** 设置页「接收测试版更新」：undefined = 跟随当前版本形态（beta 版收 beta） */
+  getBetaUpdates: () => boolean | undefined = () => undefined,
 ): void {
   if (!app.isPackaged) return;
   if (UPDATE_OWNER.startsWith("TODO")) {
@@ -27,6 +30,10 @@ export function setupAutoUpdater(
   }
   autoUpdater.setFeedURL({ provider: "github", owner: UPDATE_OWNER, repo: UPDATE_REPO });
   autoUpdater.autoDownload = true;
+  /** 每次检查前重读通道设置：用户在设置页切换后无需重启即生效 */
+  const applyChannel = () => {
+    autoUpdater.allowPrerelease = resolveAllowPrerelease(getBetaUpdates(), app.getVersion());
+  };
   autoUpdater.on("update-downloaded", (info) => {
     const win = getWindow();
     const opts = {
@@ -44,6 +51,7 @@ export function setupAutoUpdater(
   });
   const check = () => {
     if (!isEnabled()) return;
+    applyChannel();
     void autoUpdater.checkForUpdates().catch((e) => {
       console.warn("[updater] check failed", e);
     });

@@ -91,6 +91,15 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
 function GeneralPage() {
   const settings = useStore((s) => s.settings);
   const saveSettings = useStore((s) => s.saveSettings);
+  // 当前版本号：推导更新通道开关的默认值（beta 版默认收 beta，稳定版默认只收稳定）
+  const [appVersion, setAppVersion] = useState("");
+  useEffect(() => {
+    window.spcode
+      .getAppVersion()
+      .then(setAppVersion)
+      .catch(() => {});
+  }, []);
+  const betaUpdatesOn = settings?.betaUpdates ?? appVersion.includes("-");
 
   return (
     <div>
@@ -157,6 +166,19 @@ function GeneralPage() {
           on={settings?.autoUpdate ?? true}
           onChange={(v) => void saveSettings({ autoUpdate: v })}
           label="自动更新"
+        />
+      </div>
+      <div className="mt-2 flex items-center justify-between rounded-xl border border-border bg-bg-elevated px-4 py-3">
+        <div>
+          <div className="text-[14px] text-text-primary">接收测试版更新</div>
+          <div className="mt-0.5 text-[12px] text-text-tertiary">
+            开启后包含 beta 预发布版；关闭则只跟踪稳定版{settings?.betaUpdates === undefined ? "（当前跟随版本形态自动判断）" : ""}
+          </div>
+        </div>
+        <Switch
+          on={betaUpdatesOn}
+          onChange={(v) => void saveSettings({ betaUpdates: v })}
+          label="接收测试版更新"
         />
       </div>
     </div>

@@ -333,6 +333,8 @@ export const IPC = {
   /** renderer -> main (invoke)：读取/写入应用设置 */
   getSettings: "spcode:get-settings",
   setSettings: "spcode:set-settings",
+  /** 应用版本号（设置页更新通道开关展示默认值用） */
+  getAppVersion: "spcode:get-app-version",
   /** renderer -> main (invoke)：高级搜索配置测试连接（发真实请求验证） */
   searchTest: "spcode:search-test",
   /** renderer -> main (invoke)：会话标题+正文全文搜索 */
@@ -394,6 +396,8 @@ export interface AppSettings {
   monoFontFamily: string;
   /** 自动更新开关（需要已配置更新源） */
   autoUpdate: boolean;
+  /** 接收测试版更新；undefined = 跟随当前版本形态（beta 版收 beta，稳定版只收稳定） */
+  betaUpdates?: boolean;
   /** 自动记忆蒸馏：每轮对话结束后自动整理长期记忆（会消耗少量 token，可关） */
   memoryDistill: boolean;
   /** 模型行悬浮时显示配额卡片 */
@@ -446,6 +450,18 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
 /** Spcode 全局数据目录（记忆、设置、用量、会话索引都放在这里） */
 export const SPCODE_HOME_DIRNAME = ".spcode";
+
+/**
+ * 更新通道裁决（electron-updater 的 allowPrerelease 取值）：
+ * 显式设置优先；未设置时跟随当前版本形态——当前是 beta 版就收 beta 更新，
+ * 当前是稳定版就只收稳定版（与 electron-updater 内置默认一致）。
+ */
+export function resolveAllowPrerelease(pref: boolean | undefined | null, currentVersion: string): boolean {
+  if (typeof pref === "boolean") return pref;
+  // 去掉 v 前缀与构建元数据（+sha 等），核心版本号后带 -xxx 即预发布
+  const core = currentVersion.replace(/^v/i, "").split("+")[0] ?? "";
+  return /^\d+\.\d+\.\d+-[0-9A-Za-z.-]+$/.test(core);
+}
 
 // ---------------------------------------------------------------------------
 // 远程控制协议（type-only 再导出：本包在运行时以 TS 源码被 Node 直接加载，
