@@ -34,6 +34,17 @@ export class SettingsStore {
       loadedRemote.feishu && typeof loadedRemote.feishu === "object"
         ? (loadedRemote.feishu as Partial<AppSettings["remote"]["feishu"]>)
         : {};
+    // sandbox 同理：旧配置缺 sandbox 段或段内缺 network/filesystem 字段时补默认
+    const loadedSandbox =
+      loaded.sandbox && typeof loaded.sandbox === "object" ? (loaded.sandbox as Partial<AppSettings["sandbox"]>) : {};
+    const loadedSandboxNetwork =
+      loadedSandbox.network && typeof loadedSandbox.network === "object"
+        ? (loadedSandbox.network as Partial<AppSettings["sandbox"]["network"]>)
+        : {};
+    const loadedSandboxFilesystem =
+      loadedSandbox.filesystem && typeof loadedSandbox.filesystem === "object"
+        ? (loadedSandbox.filesystem as Partial<AppSettings["sandbox"]["filesystem"]>)
+        : {};
     this.cache = {
       ...DEFAULT_SETTINGS,
       ...loaded,
@@ -41,6 +52,12 @@ export class SettingsStore {
         ...DEFAULT_SETTINGS.remote,
         ...loadedRemote,
         feishu: { ...DEFAULT_SETTINGS.remote.feishu, ...loadedFeishu },
+      },
+      sandbox: {
+        ...DEFAULT_SETTINGS.sandbox,
+        ...loadedSandbox,
+        network: { ...DEFAULT_SETTINGS.sandbox.network, ...loadedSandboxNetwork },
+        filesystem: { ...DEFAULT_SETTINGS.sandbox.filesystem, ...loadedSandboxFilesystem },
       },
     };
     return this.cache;

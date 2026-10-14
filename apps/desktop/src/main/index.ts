@@ -308,6 +308,10 @@ function registerIpc(): void {
     if ("advancedSearch" in patch) {
       bridge.push({ type: "search.setAdvancedConfig", payload: { config: next.advancedSearch } });
     }
+    // 沙盒设置实时下发宿主（对已创建会话不生效，新会话生效——bash 工具注册在会话创建时固定）
+    if ("sandbox" in patch) {
+      bridge.push({ type: "sandbox.setConfig", payload: { config: next.sandbox } });
+    }
     // 远程控制开关/端口变更：即时启停（改动最小的方式——由 IPC 层显式触发）
     if ("remote" in patch) {
       void remote.applySettings();
@@ -420,6 +424,7 @@ if (!app.requestSingleInstanceLock()) {
       if (event.type === "ready") {
         bridge.push({ type: "memory.setDistillEnabled", payload: { enabled: settings.get().memoryDistill } });
         bridge.push({ type: "search.setAdvancedConfig", payload: { config: settings.get().advancedSearch } });
+        bridge.push({ type: "sandbox.setConfig", payload: { config: settings.get().sandbox } });
       }
     });
     await bridge.start();

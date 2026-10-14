@@ -10,7 +10,10 @@
 import type { Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
+import type { SandboxSettings } from "@spcode/shared";
 import { type Static, Type } from "typebox";
+import { createSandboxedBashTool } from "../sandbox/bash-tool.js";
+import { getSandboxService } from "../sandbox/manager.js";
 
 /** 可获得 Task 工具的会话深度上限：0=主会话、1=子代理可嵌套，2 起不再提供 */
 const MAX_TASK_DEPTH = 2;
@@ -29,6 +32,8 @@ export interface TaskToolContext {
   model: Model<never> | undefined;
   thinkingLevel: string;
   depth: number;
+  /** 沙盒设置 getter（主会话透传；子代理 bash 与主会话同边界） */
+  getSandboxSettings?: () => SandboxSettings;
 }
 
 export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
@@ -41,6 +46,15 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
     parameters: taskSchema,
     executionMode: "parallel",
     execute: async (_id, args: Params, signal) => {
+      // 子代理与主会话同一沙盒边界：服务是进程级单例，主会话创建时已 configure
+      const sandbox = getSandboxService();
+      if (ctx.getSandboxSettings) sandbox.configure(ctx.getSandboxSettings());
+      const sandboxState = await sandbox.ensureReady();
+      const customTools: ToolDefinition[] = [
+        ...(sandboxState.state === "active" ? [createSandboxedBashTool(ctx.cwd)] : []),
+        // 子会话深度 +1；达到上限后子会话不再拿到 Task（评审 P2-5：让条件与头注释同口径）
+        ...(ctx.depth + 1 < MAX_TASK_DEPTH ? [createTaskTool({ ...ctx, depth: ctx.depth + 1 })] : []),
+      ];
       const { session } = await createAgentSession({
         cwd: ctx.cwd,
         agentDir: ctx.agentDir,
@@ -49,8 +63,7 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         thinkingLevel: ctx.thinkingLevel as any,
         sessionManager: SessionManager.inMemory(),
-        // 子会话深度 +1；达到上限后子会话不再拿到 Task（评审 P2-5：让条件与头注释同口径）
-        customTools: ctx.depth + 1 < MAX_TASK_DEPTH ? [createTaskTool({ ...ctx, depth: ctx.depth + 1 })] : undefined,
+        customTools: customTools.length > 0 ? customTools : undefined,
       });
       try {
         const onAbort = () => void session.abort();

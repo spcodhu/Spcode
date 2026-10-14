@@ -21,7 +21,9 @@ import type {
   ModelRef,
   PermissionRequest,
   QuestionRequest,
+  SandboxSettings,
 } from "@spcode/shared";
+import { DEFAULT_SANDBOX_SETTINGS } from "@spcode/shared";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 import { HibernationManager } from "./hibernation.js";
 import { MemoryStore } from "./memory-store.js";
@@ -60,6 +62,8 @@ let memoryStore: MemoryStore | null = null;
 let distillEnabled = true;
 /** 高级搜索配置（主进程设置页经 search.setAdvancedConfig 下发；宿主重启后由主进程重推） */
 let advancedSearchConfig: AdvancedSearchConfig | null = null;
+/** 沙盒设置（主进程设置页经 sandbox.setConfig 下发；未下发前用默认值） */
+let sandboxSettings: SandboxSettings = DEFAULT_SANDBOX_SETTINGS;
 const sessions = new Map<string, SessionController>();
 /** 会话创建时的原始 cwd（chat 为 ""），休眠墓碑据此推断恢复模式 */
 const sessionCwd = new Map<string, string>();
@@ -302,6 +306,7 @@ async function createController(params: {
     askQuestion,
     isDistillEnabled: () => distillEnabled,
     getAdvancedSearchConfig: () => advancedSearchConfig,
+    getSandboxSettings: () => sandboxSettings,
   });
 }
 
@@ -340,6 +345,10 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
   }
   if (cmd.type === "search.setAdvancedConfig") {
     advancedSearchConfig = cmd.payload.config;
+    return;
+  }
+  if (cmd.type === "sandbox.setConfig") {
+    sandboxSettings = cmd.payload.config;
     return;
   }
 

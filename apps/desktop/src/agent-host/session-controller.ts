@@ -17,6 +17,7 @@ import type {
   ModelRef,
   PermissionRequest,
   QuestionRequest,
+  SandboxSettings,
   SessionMode,
   TodoItem,
   ToolRisk,
@@ -26,6 +27,8 @@ import { cleanSessionTitle } from "@spcode/shared";
 import { isAdvancedSearchReady } from "@spcode/shared/advanced-search";
 import { MemoryDistiller } from "./distill.js";
 import type { MemoryStore } from "./memory-store.js";
+import { createSandboxedBashTool } from "./sandbox/bash-tool.js";
+import { getSandboxService } from "./sandbox/manager.js";
 import {
   isPlanModeSafeCommand,
   NORMAL_MODE_TOOLS,
@@ -143,6 +146,8 @@ export interface SessionControllerOptions {
   isDistillEnabled?: () => boolean;
   /** 高级搜索配置（主进程设置页下发，实时读取；配置完整才注册 AdvancedSearch 工具） */
   getAdvancedSearchConfig?: () => AdvancedSearchConfig | null;
+  /** 沙盒设置（主进程设置页下发，实时读取；enabled 且平台可用时 bash 走 OS 级沙盒） */
+  getSandboxSettings?: () => SandboxSettings;
   requestPermission: (req: PermissionRequest) => Promise<boolean>;
   askQuestion: (req: QuestionRequest) => Promise<Record<string, string>>;
 }
@@ -198,6 +203,11 @@ export class SessionController {
     // RenameSession 触发探针：模型主动改名后置位，兜底生成器据此让位
     const renameProbe = { fired: false };
 
+    // 沙盒：下发设置并惰性初始化；active 时注册同名 bash 覆盖内置（pi 注册表 customTools 同名覆盖语义）
+    const sandbox = getSandboxService();
+    if (opts.getSandboxSettings) sandbox.configure(opts.getSandboxSettings());
+    const sandboxState = await sandbox.ensureReady();
+
     // ExitPlanMode 的批准回调晚绑定：工具注册早于 controller 构造（同 renameProbe 模式）
     const exitPlanCtx: { isOn: () => boolean; onApproved: () => Promise<void> } = {
       isOn: () => false,
@@ -214,6 +224,8 @@ export class SessionController {
       resourceLoader,
       sessionManager: opts.sessionFile ? SessionManager.open(opts.sessionFile) : undefined,
       customTools: [
+        // 沙盒化 bash：active 时同名覆盖内置 bash；不可用/关闭时不注册，pi 用内置实现
+        ...(sandboxState.state === "active" ? [createSandboxedBashTool(cwd)] : []),
         createWebSearchTool(),
         // 高级搜索：仅当用户在设置页配置了完整可用的搜索 API 才注册，
         // 没配置时工具列表里根本没有它（模型无从误调）。配置变更对己创建会话不生效，新会话生效。
@@ -245,6 +257,7 @@ export class SessionController {
           model: model as Model<never> | undefined,
           thinkingLevel: opts.thinkingLevel ?? "medium",
           depth: 0,
+          getSandboxSettings: opts.getSandboxSettings,
         }),
       ],
     });

@@ -180,6 +180,8 @@ export type HostCommand =
   | { type: "memory.setDistillEnabled"; payload: { enabled: boolean } }
   /** 高级搜索配置下发（设置页变更后推送；宿主就绪时重推） */
   | { type: "search.setAdvancedConfig"; payload: { config: AdvancedSearchConfig | null } }
+  /** 沙盒设置下发（设置页变更后推送；宿主就绪时重推）。对已创建会话不生效，新会话生效 */
+  | { type: "sandbox.setConfig"; payload: { config: SandboxSettings } }
   | { id: string; type: "auth.setApiKey"; payload: { provider: string; apiKey: string } }
   | { id: string; type: "auth.listProviders" }
   | { type: "permission.reply"; payload: { requestId: string; approved: boolean } }
@@ -412,7 +414,69 @@ export interface AppSettings {
   advancedSearch: AdvancedSearchConfig | null;
   /** 远程控制（手机 PWA）：局域网 HTTP+WS 服务开关/端口（null = 随机端口）与 relay 地址 */
   remote: RemoteSettings;
+  /** 命令沙盒：bash 命令在 OS 级边界内执行（macOS Seatbelt / Linux bubblewrap） */
+  sandbox: SandboxSettings;
 }
+
+/**
+ * 命令沙盒设置。语义对齐 @anthropic-ai/sandbox-runtime 的配置模型：
+ * 文件系统写是 allow-only（只有 cwd/临时目录/缓存与 extraAllowWrite 可写），
+ * 网络是 allow-only（只有 allowedDomains 放行）。
+ */
+export interface SandboxSettings {
+  /** 总开关；关掉则回退到纯审批网关（每条写类命令都弹窗） */
+  enabled: boolean;
+  /** 沙盒内 readonly/write 级命令免审批；danger/outward 级仍然弹窗 */
+  autoAllow: boolean;
+  network: {
+    /** 放行的域名（支持 *.example.com 与 example.com:443 端口语法） */
+    allowedDomains: string[];
+    /** 显式拒绝的域名（优先于 allowedDomains） */
+    deniedDomains: string[];
+  };
+  filesystem: {
+    /** 额外允许写入的绝对路径（开发缓存之外的特殊需求） */
+    extraAllowWrite: string[];
+    /** 额外禁止读取的路径（在默认敏感清单之上追加） */
+    extraDenyRead: string[];
+    /** 额外禁止写入的路径（只对工作目录等可写区域内有意义） */
+    extraDenyWrite: string[];
+  };
+}
+
+/** 默认网络白名单：覆盖 JS/Python/Rust/Go/JVM 包管理与 GitHub */
+export const DEFAULT_SANDBOX_ALLOWED_DOMAINS: string[] = [
+  "github.com",
+  "*.github.com",
+  "*.githubusercontent.com",
+  "registry.npmjs.org",
+  "*.npmjs.org",
+  "registry.yarnpkg.com",
+  "pypi.org",
+  "*.pypi.org",
+  "files.pythonhosted.org",
+  "crates.io",
+  "*.crates.io",
+  "proxy.golang.org",
+  "sum.golang.org",
+  "repo.maven.apache.org",
+  "plugins.gradle.org",
+  "services.gradle.org",
+];
+
+export const DEFAULT_SANDBOX_SETTINGS: SandboxSettings = {
+  enabled: true,
+  autoAllow: true,
+  network: {
+    allowedDomains: DEFAULT_SANDBOX_ALLOWED_DOMAINS,
+    deniedDomains: [],
+  },
+  filesystem: {
+    extraAllowWrite: [],
+    extraDenyRead: [],
+    extraDenyWrite: [],
+  },
+};
 
 export interface CustomTheme {
   name: string;
@@ -438,6 +502,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   uiFontFile: "",
   monoFontFile: "",
   advancedSearch: null,
+  sandbox: DEFAULT_SANDBOX_SETTINGS,
   remote: {
     enabled: false,
     port: null,
