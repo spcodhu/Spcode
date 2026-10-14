@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { formatTime } from "../format";
 import { useStore } from "../store";
+import { Icon } from "./Icon";
 import { Switch } from "./ui/Switch";
 
 interface QuotaLimit {
@@ -39,8 +40,21 @@ export function QuotaPage() {
 
   return (
     <div>
-      <h1 className="text-[22px] font-semibold text-text-primary">配额</h1>
-      <p className="mt-1 text-[13px] text-text-tertiary">当前模型供应商的订阅额度与余额</p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-[22px] font-semibold text-text-primary">配额</h1>
+          <p className="mt-1 text-[13px] text-text-tertiary">当前模型供应商的订阅额度与余额</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => load(true)}
+          disabled={loading}
+          className="mt-1 flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-[12.5px] text-text-secondary transition-colors hover:border-border-strong hover:text-text-primary disabled:opacity-50"
+        >
+          <Icon name="refresh" size={13} className={loading ? "animate-spin" : ""} />
+          {loading ? "查询中…" : "刷新"}
+        </button>
+      </div>
 
       {/* 快捷展示开关 */}
       <div className="mt-6 flex items-center justify-between border-b border-border pb-5">
@@ -55,11 +69,7 @@ export function QuotaPage() {
         />
       </div>
 
-      <div className="mb-2 mt-4 flex justify-end">
-        <button type="button" onClick={() => load(true)} className="text-[12px] text-text-tertiary hover:text-accent">
-          {loading ? "查询中…" : "刷新"}
-        </button>
-      </div>
+      <div className="mb-2 mt-4" />
 
       {(quotas ?? []).map((q) => (
         <ProviderSection key={q.provider} info={q} />
@@ -87,23 +97,7 @@ function ProviderSection({ info }: { info: QuotaInfo }) {
       ) : !info.configured ? null : (
         <div className="mt-3 space-y-3">
           {info.limits.map((l) => (
-            <div key={l.label} className="flex items-center gap-4">
-              <span className="w-20 shrink-0 text-[13px] text-text-secondary">{l.label}</span>
-              {l.usedPercent != null ? (
-                <>
-                  <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-bg-hover">
-                    <div
-                      className={`h-full rounded-full transition-all ${l.usedPercent > 85 ? "bg-danger" : "bg-accent"}`}
-                      style={{ width: `${Math.min(100, Math.max(0, l.usedPercent))}%` }}
-                    />
-                  </div>
-                  <span className="shrink-0 text-[13px] font-semibold text-text-primary">{l.text ?? "—"}</span>
-                </>
-              ) : (
-                <span className="text-[13px] text-text-primary">{l.text ?? "—"}</span>
-              )}
-              {l.resetText && <span className="shrink-0 text-[12px] text-text-tertiary">{l.resetText}</span>}
-            </div>
+            <LimitRow key={l.label} limit={l} />
           ))}
         </div>
       )}
@@ -112,5 +106,44 @@ function ProviderSection({ info }: { info: QuotaInfo }) {
         <div className="mt-3 text-right text-[11px] text-text-tertiary">更新于 {formatTime(info.updatedAt)}</div>
       )}
     </section>
+  );
+}
+
+/**
+ * 单行额度：进度条表示已消耗占比，右侧同时标出「剩余 / 已用」两个口径，
+ * 避免只剩一个数字时分不清是余量还是消耗量。
+ */
+function LimitRow({ limit: l }: { limit: QuotaLimit }) {
+  if (l.usedPercent == null) {
+    return (
+      <div className="flex items-center gap-4">
+        <span className="w-20 shrink-0 text-[13px] text-text-secondary">{l.label}</span>
+        <span className="text-[13px] text-text-primary">{l.text ?? "—"}</span>
+        {l.resetText && <span className="shrink-0 text-[12px] text-text-tertiary">{l.resetText}</span>}
+      </div>
+    );
+  }
+  const usedPct = Math.round(Math.min(100, Math.max(0, l.usedPercent)));
+  const remainPct = 100 - usedPct;
+  return (
+    <div className="flex items-center gap-4">
+      <span className="w-20 shrink-0 text-[13px] text-text-secondary">{l.label}</span>
+      <div
+        className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-bg-hover"
+        title={`已用 ${usedPct}% · 剩余 ${remainPct}%`}
+      >
+        <div
+          className={`h-full rounded-full transition-all ${usedPct > 85 ? "bg-danger" : "bg-accent"}`}
+          style={{ width: `${usedPct}%` }}
+        />
+      </div>
+      <span className="shrink-0 text-[13px] font-semibold text-text-primary">剩余 {remainPct}%</span>
+      <span className="shrink-0 text-[12px] text-text-tertiary">已用 {usedPct}%</span>
+      {l.resetText && (
+        <span className="shrink-0 text-[12px] text-text-tertiary" title="额度重置时间">
+          {l.resetText}
+        </span>
+      )}
+    </div>
   );
 }
