@@ -629,6 +629,19 @@ function SandboxSection() {
           当前平台暂不支持沙盒（Windows 支持规划中），命令仅靠审批网关约束。
         </div>
       )}
+      {!sandbox.enabled && (
+        <div
+          data-testid="sandbox-disabled-warning"
+          className="rounded-xl border border-danger/50 bg-danger/10 px-4 py-3"
+        >
+          <div className="text-[13px] font-semibold text-danger">⚠ 沙盒已关闭：命令将以你的完整权限直接执行</div>
+          <div className="mt-1 text-[12px] leading-5 text-danger/80">
+            关闭后，AI 执行的命令不再受内核级边界约束：可以读写本机任意文件（包括 ~/.ssh 密钥、
+            ~/.spcode 记忆与配置）、可自由访问网络。届时唯一防线只剩审批弹窗——而黑名单可被绕过、
+            逐条审批容易疲劳误点。除非你明确知道在做什么，否则不建议关闭。
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between rounded-xl border border-border bg-bg-elevated px-4 py-3">
         <div>
           <div className="text-[14px] text-text-primary">启用命令沙盒</div>

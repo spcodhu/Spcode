@@ -69,13 +69,16 @@ test.describe("Spcode 冒烟 E2E", () => {
     const section = window.getByTestId("sandbox-settings");
     await expect(section).toBeVisible();
 
-    // 总开关默认开；切一次关再开（断言 aria-checked 跟随）
+    // 总开关默认开；关闭时出现红色风险警告，重开后消失
     const toggle = section.getByRole("switch", { name: "启用命令沙盒" });
     await expect(toggle).toHaveAttribute("aria-checked", "true");
+    await expect(section.getByTestId("sandbox-disabled-warning")).not.toBeVisible();
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-checked", "false");
+    await expect(section.getByTestId("sandbox-disabled-warning")).toBeVisible();
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-checked", "true");
+    await expect(section.getByTestId("sandbox-disabled-warning")).not.toBeVisible();
 
     // 域名白名单编辑器：追加一条并失焦保存
     const domains = section.getByTestId("sandbox-allowed-domains");
