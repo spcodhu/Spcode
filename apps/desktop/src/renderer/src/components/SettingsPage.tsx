@@ -153,6 +153,9 @@ function GeneralPage() {
         />
       </div>
 
+      <SectionTitle>沙盒</SectionTitle>
+      <SandboxSection />
+
       <SectionTitle>高级搜索</SectionTitle>
       <AdvancedSearchSection />
 
@@ -604,4 +607,107 @@ function PageHeader({ title, subtitle }: { title: string; subtitle: string }) {
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return <h2 className="mb-2 mt-6 text-[13px] font-semibold text-text-secondary first:mt-0">{children}</h2>;
+}
+
+/**
+ * 沙盒设置：总开关/自动放行/网络白名单/额外路径。
+ * 列表用「每行一条」的 textarea 编辑，失焦保存（空行与 # 注释行忽略）。
+ */
+function SandboxSection() {
+  const settings = useStore((s) => s.settings);
+  const saveSettings = useStore((s) => s.saveSettings);
+  const sandbox = settings?.sandbox;
+  if (!sandbox) return null;
+  const platformSupported = window.navigator.userAgent.includes("Mac") || window.navigator.userAgent.includes("Linux");
+
+  const patch = (p: Partial<typeof sandbox>) => void saveSettings({ sandbox: { ...sandbox, ...p } });
+
+  return (
+    <div className="space-y-3" data-testid="sandbox-settings">
+      {!platformSupported && (
+        <div className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-[12px] text-warning">
+          当前平台暂不支持沙盒（Windows 支持规划中），命令仅靠审批网关约束。
+        </div>
+      )}
+      <div className="flex items-center justify-between rounded-xl border border-border bg-bg-elevated px-4 py-3">
+        <div>
+          <div className="text-[14px] text-text-primary">启用命令沙盒</div>
+          <div className="mt-0.5 text-[12px] text-text-tertiary">
+            bash 命令在 OS 级边界内执行：写入限工作目录与缓存，~/.ssh 等敏感路径禁读，网络按白名单放行。对新会话生效
+          </div>
+        </div>
+        <Switch on={sandbox.enabled} onChange={(v) => patch({ enabled: v })} label="启用命令沙盒" />
+      </div>
+
+      <div className="flex items-center justify-between rounded-xl border border-border bg-bg-elevated px-4 py-3">
+        <div>
+          <div className="text-[14px] text-text-primary">沙盒内安全命令免审批</div>
+          <div className="mt-0.5 text-[12px] text-text-tertiary">
+            内核边界已兜底时可跳过弹窗；危险命令与对外动作（git push、发布等）仍然会询问
+          </div>
+        </div>
+        <Switch on={sandbox.autoAllow} onChange={(v) => patch({ autoAllow: v })} label="沙盒内安全命令免审批" />
+      </div>
+
+      <SandboxListEditor
+        title="网络白名单"
+        hint="沙盒内命令可访问的域名，每行一条；支持 *.example.com 与 example.com:443。未列入的域名首次访问会弹窗询问"
+        testId="sandbox-allowed-domains"
+        values={sandbox.network.allowedDomains}
+        onSave={(list) => patch({ network: { ...sandbox.network, allowedDomains: list } })}
+      />
+      <SandboxListEditor
+        title="额外禁读路径"
+        hint="在默认敏感清单（~/.ssh、~/.aws、应用密钥等）之上追加，每行一个绝对路径"
+        testId="sandbox-extra-deny-read"
+        values={sandbox.filesystem.extraDenyRead}
+        onSave={(list) => patch({ filesystem: { ...sandbox.filesystem, extraDenyRead: list } })}
+      />
+      <SandboxListEditor
+        title="额外允许写路径"
+        hint="工作目录/临时目录/开发缓存之外的写权限，每行一个绝对路径。请谨慎：放开 bin 目录等于开逃逸通道"
+        testId="sandbox-extra-allow-write"
+        values={sandbox.filesystem.extraAllowWrite}
+        onSave={(list) => patch({ filesystem: { ...sandbox.filesystem, extraAllowWrite: list } })}
+      />
+    </div>
+  );
+}
+
+function SandboxListEditor({
+  title,
+  hint,
+  values,
+  testId,
+  onSave,
+}: {
+  title: string;
+  hint: string;
+  values: string[];
+  testId: string;
+  onSave: (list: string[]) => void;
+}) {
+  const [text, setText] = useState(values.join("\n"));
+  // 外部值变化（远端同步等）时同步本地编辑态
+  useEffect(() => setText(values.join("\n")), [values]);
+  return (
+    <div className="rounded-xl border border-border bg-bg-elevated px-4 py-3">
+      <div className="text-[14px] text-text-primary">{title}</div>
+      <div className="mt-0.5 text-[12px] text-text-tertiary">{hint}</div>
+      <textarea
+        data-testid={testId}
+        className="mono mt-2 h-24 w-full resize-y rounded-lg border border-border bg-bg-root px-3 py-2 text-[12px] text-text-primary outline-none focus:border-accent/50"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => {
+          const list = text
+            .split("\n")
+            .map((l) => l.trim())
+            .filter((l) => l && !l.startsWith("#"));
+          onSave(list);
+        }}
+        spellCheck={false}
+      />
+    </div>
+  );
 }

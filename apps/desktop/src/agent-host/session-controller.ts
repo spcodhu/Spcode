@@ -191,6 +191,8 @@ export class SessionController {
     private readonly runtime: ModelRuntime,
     private readonly emitEvent: (e: AgentSessionEvent) => void,
     private readonly emitPlanMode: (enabled: boolean) => void,
+    /** 会话创建时的沙盒状态（与 bash 工具注册同生命周期，中途不变） */
+    private readonly sandboxInfo: { state: string; reason?: string },
     private readonly titleCtx: {
       onRename?: (title: string) => void;
       /** 模型调用 RenameSession 后由工具回调置位（共享探针，创建时序早于 controller） */
@@ -291,6 +293,7 @@ export class SessionController {
       opts.modelRuntime,
       opts.emitEvent,
       opts.emitPlanMode,
+      sandboxState.state === "unavailable" ? { state: sandboxState.state, reason: sandboxState.reason } : { state: sandboxState.state },
       {
         onRename: opts.onRename,
         renamedByAgent: renameProbe,
@@ -387,6 +390,7 @@ export class SessionController {
       sessionId: this.sessionId,
       sessionFile: this.sessionFile,
       planMode: this.planMode,
+      sandbox: this.sandboxInfo,
       model: model ? { provider: model.provider, modelId: model.id } : null,
       thinkingLevel: this.session.thinkingLevel,
       supportedThinkingLevels: model ? getSupportedThinkingLevels(model as Model<never>) : [],

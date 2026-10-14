@@ -134,6 +134,8 @@ export interface SessionState {
   planMode: boolean;
   /** pi 会话文件路径（宿主休眠后凭它唤醒；来自 create/open/activate 响应） */
   sessionFile?: string | null;
+  /** 沙盒状态（创建时确定；Composer 状态 chip 用） */
+  sandbox?: { state: "active" | "disabled" | "unavailable"; reason?: string };
   /** 宿主侧是否有活跃 AgentSession；false = 已休眠，激活时需 session.activate 唤醒 */
   hostAwake?: boolean;
   /** 草稿会话：仅本地占位，不进注册表；首次发送消息时才真正创建（Finch 式懒创建） */
@@ -147,6 +149,8 @@ interface HostSessionInfo {
   thinkingLevel: string;
   supportedThinkingLevels: string[];
   planMode?: boolean;
+  /** 沙盒状态：active=内核边界生效；disabled=用户关闭；unavailable=平台/依赖不满足 */
+  sandbox?: { state: "active" | "disabled" | "unavailable"; reason?: string };
 }
 
 /** 主进程注册表里的持久化会话条目（镜像 SessionRegistryEntry） */
@@ -646,6 +650,7 @@ export const useStore = create<StoreState>((set, get) => ({
         draft: undefined,
         hostAwake: true,
         sessionFile: info.sessionFile ?? null,
+        sandbox: info.sandbox,
         meta: { ...draft.meta, id, model: info.model, thinkingLevel: info.thinkingLevel, updatedAt: now },
         supportedThinkingLevels: info.supportedThinkingLevels ?? draft.supportedThinkingLevels,
       };
@@ -704,6 +709,7 @@ export const useStore = create<StoreState>((set, get) => ({
       payload: { sessionId: entry.id, sessionFile: entry.sessionFile, cwd: entry.cwd },
     });
     const session: SessionState = {
+      sandbox: info.sandbox,
       meta: {
         id: entry.id,
         mode: entry.mode,
@@ -1046,6 +1052,7 @@ async function ensureAwake(sessionId: string): Promise<void> {
       touchSession(st, sessionId, (d) => {
         d.hostAwake = true;
         d.sessionFile = info.sessionFile ?? d.sessionFile;
+        if (info.sandbox) d.sandbox = info.sandbox;
         d.meta = {
           ...d.meta,
           model: info.model ?? d.meta.model,

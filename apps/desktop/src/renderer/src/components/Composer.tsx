@@ -158,6 +158,26 @@ export function Composer({ sessionId }: { sessionId: string }) {
               {actMode ? "行动" : "询问"}
             </button>
 
+            {/* 沙盒状态：active=命令在内核边界内跑；unavailable/disabled=仅靠审批网关 */}
+            {session?.sandbox && (
+              <span
+                data-testid="sandbox-status-chip"
+                title={
+                  session.sandbox.state === "active"
+                    ? "沙盒已启用：命令写入限工作目录，网络按白名单放行"
+                    : session.sandbox.state === "unavailable"
+                      ? `沙盒不可用：${session.sandbox.reason ?? "未知原因"}（命令仅靠审批约束）`
+                      : "沙盒已关闭：命令仅靠审批约束（设置 → 沙盒 可开启）"
+                }
+                className={`flex cursor-default items-center gap-1 rounded-full px-2.5 py-1 text-[12px] ${
+                  session.sandbox.state === "active" ? "bg-accent/15 text-accent" : "bg-warning/10 text-warning"
+                }`}
+              >
+                <Icon name="shield" size={13} />
+                {session.sandbox.state === "active" ? "沙盒" : "无沙盒"}
+              </span>
+            )}
+
             {/* 计划模式 */}
             <button
               type="button"

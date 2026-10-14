@@ -71,6 +71,8 @@ describe.skipIf(!isMac)("沙盒内核行为（macOS seatbelt 真跑）", () => {
     const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
     const cfg = buildSandboxRuntimeConfig({ cwd: workDir, spcodeHome: fakeSpcodeHome, settings });
     await SandboxManager.initialize(cfg);
+    // 等网络代理就绪，避免首个请求撞上代理启动窗口
+    await SandboxManager.waitForNetworkInitialization();
     wrap = (cmd: string) => SandboxManager.wrapWithSandbox(cmd);
   }, 30_000);
 
@@ -103,15 +105,15 @@ describe.skipIf(!isMac)("沙盒内核行为（macOS seatbelt 真跑）", () => {
     expect(r.stdout).toContain("exit=1");
   });
 
-  it("未授权域名不可达；授权域名可解析", async () => {
+  it("未授权域名被代理拦截；授权域名不被代理拦截", async () => {
     // 未授权域名：代理 CONNECT 直接回 403（sandbox-runtime 代理层拦截）
     const blocked = await runSandboxed("curl -sS -m 8 https://example-not-allowed-xyz.com 2>&1; echo exit=$?");
     expect(blocked.stdout).toMatch(/403|denied|Could not/i);
     expect(blocked.stdout).not.toContain("exit=0");
-    const allowed = await runSandboxed("curl -sS -m 10 -o /dev/null -w '%{http_code}' https://github.com 2>&1 | tail -1");
-    // 代理放行则应拿到 HTTP 状态码（2xx/3xx/4xx 都算网络通了）
-    expect(allowed.stdout.trim()).toMatch(/^[234]\d\d/);
-  }, 30_000);
+    // 授权域名：代理不拦（具体是否可达取决于外网环境，只断言「代理未拒绝」）
+    const allowed = await runSandboxed("curl -sS -m 15 -o /dev/null https://registry.npmjs.org 2>&1");
+    expect(allowed.stdout).not.toMatch(/CONNECT tunnel failed|403|denied/i);
+  }, 40_000);
 
   it("SPCODE_HOME 敏感文件禁写（记忆投毒防线）", async () => {
     const soul = join(fakeSpcodeHome, "SOUL.md");

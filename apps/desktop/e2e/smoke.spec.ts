@@ -59,6 +59,40 @@ test.describe("Spcode 冒烟 E2E", () => {
     await app.close();
   });
 
+  test("设置页：沙盒分区——开关与列表编辑器", async () => {
+    const app = await launchApp();
+    const window = await app.firstWindow();
+
+    await window.getByTitle("设置", { exact: true }).click();
+    // 沙盒区块在「通用」页
+    await window.getByRole("button", { name: "通用" }).click();
+    const section = window.getByTestId("sandbox-settings");
+    await expect(section).toBeVisible();
+
+    // 总开关默认开；切一次关再开（断言 aria-checked 跟随）
+    const toggle = section.getByRole("switch", { name: "启用命令沙盒" });
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
+
+    // 域名白名单编辑器：追加一条并失焦保存
+    const domains = section.getByTestId("sandbox-allowed-domains");
+    await domains.click();
+    await domains.fill("github.com\nexample.e2e-test.com");
+    await domains.blur();
+
+    // 重开设置页验证持久化（settings.json 已写入临时 SPCODE_HOME）
+    await window.getByTitle("关闭设置").click();
+    await window.getByTitle("设置", { exact: true }).click();
+    await window.getByRole("button", { name: "通用" }).click();
+    const domains2 = window.getByTestId("sandbox-settings").getByTestId("sandbox-allowed-domains");
+    await expect(domains2).toHaveValue(/example\.e2e-test\.com/);
+
+    await app.close();
+  });
+
   test("设置页：远程控制分区——开关与配对码生成", async () => {
     const app = await launchApp();
     const window = await app.firstWindow();

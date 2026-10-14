@@ -11,6 +11,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { CredentialSynchronizationError, ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
 import type {
@@ -27,6 +28,7 @@ import { DEFAULT_SANDBOX_SETTINGS } from "@spcode/shared";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 import { HibernationManager } from "./hibernation.js";
 import { MemoryStore } from "./memory-store.js";
+import { getSandboxService } from "./sandbox/manager.js";
 import { SessionController } from "./session-controller.js";
 
 // ---------------------------------------------------------------------------
@@ -212,6 +214,23 @@ function settlePendingForSession(sessionId: string): void {
 // ---------------------------------------------------------------------------
 // 非活动会话休眠
 // ---------------------------------------------------------------------------
+
+// 沙盒网络域名审批：代理回调无法归因到具体会话，走应用级权限弹窗；
+// 同意后仅本次运行生效（永久放行需用户在设置页加白名单），文案里说清这点
+getSandboxService().setNetworkAskHandler((host, port) =>
+  requestPermission({
+    requestId: randomUUID(),
+    sessionId: "",
+    toolName: "network",
+    args: {
+      command: `网络访问 ${host}${typeof port === "number" ? `:${port}` : ""}\n（本次运行内有效；永久放行请到 设置 → 沙盒 → 网络白名单 添加）`,
+      host,
+      port,
+    },
+    risk: "outward",
+    sandboxed: true,
+  }),
+);
 
 /** 休眠宽限期：切走后 30s 内切回不重建引擎实例（重读会话文件很贵） */
 const HIBERNATE_GRACE_MS = 30_000;

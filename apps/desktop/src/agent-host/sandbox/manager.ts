@@ -36,6 +36,15 @@ class SandboxService {
   private initialized = false;
   private initFailedReason: string | null = null;
   private initPromise: Promise<void> | null = null;
+  /** 网络域名交互审批（agent-host 注入；未注入时未知域名一律拒） */
+  private networkAskHandler: ((host: string, port: number | undefined) => Promise<boolean>) | null = null;
+  /** 本次运行内用户已放行的域名（应用级；永久放行需用户写进设置白名单） */
+  private sessionAllowedHosts = new Set<string>();
+
+  /** 注入网络域名审批回调（弹窗通道）。须在 initialize 之前调用才生效 */
+  setNetworkAskHandler(handler: (host: string, port: number | undefined) => Promise<boolean>): void {
+    this.networkAskHandler = handler;
+  }
 
   /** 设置下发（main 经 sandbox.setConfig 推送；未下发前视为 disabled 之外的默认配置不可用） */
   configure(settings: SandboxSettings): void {
@@ -101,7 +110,19 @@ class SandboxService {
           return;
         }
       }
-      await SandboxManager.initialize(this.baseNetworkOnlyConfig(settings));
+      await SandboxManager.initialize(
+        this.baseNetworkOnlyConfig(settings),
+        // 未知域名：会话内已放行 → 直接过；否则弹窗问用户（同意则记入会话放行集）
+        async ({ host, port }) => {
+          if (this.sessionAllowedHosts.has(host)) return true;
+          if (!this.networkAskHandler) return false;
+          const approved = await this.networkAskHandler(host, port);
+          if (approved) this.sessionAllowedHosts.add(host);
+          return approved;
+        },
+        // macOS 违规归因需要 seatbelt 日志监视器（否则 violations() 恒空）
+        true,
+      );
       this.initialized = true;
     } catch (err) {
       this.initFailedReason = `沙盒初始化失败：${err instanceof Error ? err.message : String(err)}`;
@@ -163,6 +184,11 @@ class SandboxService {
     } catch {
       return [];
     }
+  }
+
+  /** 测试/诊断用：会话级已放行域名快照 */
+  approvedHostsSnapshot(): string[] {
+    return [...this.sessionAllowedHosts];
   }
 }
 
