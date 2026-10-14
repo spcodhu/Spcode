@@ -19,7 +19,8 @@ Renderer(React 19) ←IPC→ Main(Electron) ←结构化克隆→ AgentHost(util
 - **配额卡片**：z.ai / Moonshot / DeepSeek / Qwen 余额与配额
 - **思考强度**：off ~ max 七档，引擎 compat 层翻译成各家 API 的真实参数
 - **外观**：默认暗色主题「雀羽 · 墨」，主题 JSON 导入 / AI 生成，本地字体导入
-- **权限网关**：ask / act 双模式，危险命令（rm -rf、sudo、git reset --hard…）永远确认
+- **权限网关**：ask / act 双模式，危险命令（rm -rf、sudo、git reset --hard…）与对外动作（git push、发布…）永远确认
+- **命令沙盒**：bash 命令在 OS 级边界内执行（macOS Seatbelt / Linux bubblewrap），写入限工作目录、敏感路径禁读、网络按域名白名单放行；详见 [docs/sandbox.md](docs/sandbox.md)
 - **长程任务**：引擎自带自动压缩 / 溢出恢复 / 可中断重试，运行中可 steer 插话
 
 ## 开发

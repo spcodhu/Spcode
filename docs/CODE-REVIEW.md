@@ -146,7 +146,7 @@ mainWindow.webContents.on("will-navigate", (e, url) => {
 
 ---
 
-### P0-3 · 行动模式（act）依赖危险命令 denylist，天然可绕过 　【R2：❌ 未修】
+### P0-3 · 行动模式（act）依赖危险命令 denylist，天然可绕过 　【R2：❌ 未修 → 2026-10 沙盒落地后：✅ 根因已解】
 
 **位置**：`apps/desktop/src/agent-host/session-controller.ts:40-58` + `agent-bridge.ts` 的 `adjudicate`
 
@@ -158,6 +158,11 @@ act 模式下 `write` 风险自动放行，只有正则命中 denylist 的 bash 
 1. act 模式下 bash 走"一次性会话级放行"：同一会话第一次 bash 前弹一次确认，之后放行；
 2. denylist 扩成"对 `~/.spcode/`、`~/.ssh`、`~/.aws` 等敏感路径的写操作永远 danger"；
 3. 长期方向：per-project trust（类似 Claude Code 的信任目录模型）。
+
+> **2026-10 更新（沙盒 M1-M3 落地）**：bash 命令现默认在 OS 级沙盒内执行（见 [sandbox.md](sandbox.md)）。
+> 写权限内核级 allow-only（cwd+tmp+缓存），`~/.spcode` 敏感项与 `~/.ssh` 等凭据由 Seatbelt/bwrap 强制隔离——
+> denylist 可绕过的问题不再是主要防线依赖（denylist 降级为「沙盒内语义级风险」的辅助层）。
+> 记忆投毒入口（bash 写 SOUL.md/MEMORY.md）已被内核拒绝覆盖（test/sandbox-exec.test.ts 断言）。
 
 ---
 
