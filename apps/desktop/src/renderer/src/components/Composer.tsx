@@ -64,6 +64,17 @@ export function Composer({ sessionId }: { sessionId: string }) {
     if (imgs.length) setAttachments((a) => [...a, ...imgs]);
   };
 
+  // Cmd/Ctrl+V 粘贴剪贴板图片（截图等）：读成 base64 附件；无图片则走默认文本粘贴
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(e.clipboardData?.items ?? [])
+      .filter((it) => it.kind === "file" && it.type.startsWith("image/"))
+      .map((it) => it.getAsFile())
+      .filter((f): f is File => !!f && f.size <= 10 * 1024 * 1024);
+    if (files.length === 0) return;
+    e.preventDefault();
+    void Promise.all(files.map(fileToAttachment)).then((imgs) => setAttachments((a) => [...a, ...imgs]));
+  };
+
   const actMode = settings?.permissionMode === "act";
   const enabledModels = models.filter(
     (m) =>
@@ -126,6 +137,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
             ref={textareaRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
+            onPaste={handlePaste}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
@@ -242,6 +254,23 @@ export function Composer({ sessionId }: { sessionId: string }) {
       )}
     </div>
   );
+}
+
+/** 剪贴板图片 File → ImageAttachment（>10MB 已在上游过滤，与主进程 pickImages 对齐） */
+function fileToAttachment(file: File): Promise<ImageAttachment> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = String(reader.result ?? "");
+      const comma = url.indexOf(",");
+      if (comma < 0) return reject(new Error("图片读取失败"));
+      const ext = file.type.split("/")[1]?.toLowerCase() || "png";
+      // 剪贴板文件的 name 通常是 "image.png" 这类占位名，统一换可读名
+      resolve({ name: `pasted-${Date.now()}.${ext}`, mimeType: file.type, data: url.slice(comma + 1) });
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("图片读取失败"));
+    reader.readAsDataURL(file);
+  });
 }
 
 function ToolButton({ children, title, onClick }: { children: React.ReactNode; title: string; onClick?: () => void }) {
