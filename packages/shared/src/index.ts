@@ -83,7 +83,7 @@ export interface UsageAggregate extends UsageSample {
 // 权限
 // ---------------------------------------------------------------------------
 
-export type ToolRisk = "readonly" | "write" | "danger";
+export type ToolRisk = "readonly" | "write" | "outward" | "danger";
 
 export type PermissionMode = "ask" | "act";
 
@@ -93,6 +93,8 @@ export interface PermissionRequest {
   toolName: string;
   args: unknown;
   risk: ToolRisk;
+  /** 该命令是否将在 OS 沙盒内执行（渲染层据此标注「沙盒内」；false/缺省 = 无沙盒兜底） */
+  sandboxed?: boolean;
 }
 
 // ---------------------------------------------------------------------------

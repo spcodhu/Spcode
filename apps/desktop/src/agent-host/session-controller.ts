@@ -67,6 +67,27 @@ const READONLY_TOOLS = new Set([
 ]);
 const DANGER_TOOL_NAMES = new Set(["bash", "powershell"]);
 
+/**
+ * 对外动作特征（命中即 outward）：把影响推出本机的操作。
+ * 即使沙盒可用也永远弹窗——沙盒管得住文件和网络，管不住「推出去」的语义后果
+ * （SOUL 约定：对外动作先问）。注意 git push --force 已被 danger 表捕获，
+ * 这里兜普通 push；danger 判定优先于 outward。
+ */
+const OUTWARD_CMD_PATTERNS: RegExp[] = [
+  /\bgit\s+push\b/i,
+  // npm publish 已被 danger 表捕获（优先级更高），这里兜 pnpm/yarn/bun
+  /\b(pnpm|yarn|bun)\s+publish\b/i,
+  // 词首不能是 . 或 /：排除 ~/.ssh、./ssh-keygen 这类路径误伤
+  /(?<![\w./])(ssh|scp|sftp|rsync)\s/i,
+  /\bgh\s+(release\s+create|pr\s+create|pr\s+merge|issue\s+create|repo\s+create)\b/i,
+  /\bcurl\b[^|]*\s(-X\s*(POST|PUT|DELETE|PATCH)|--data|-d\s)/i,
+  /\b(npx\s+)?vercel\s+(deploy|--prod)|\bnetlify\s+deploy\b/i,
+];
+
+function isOutwardCommand(cmd: string): boolean {
+  return OUTWARD_CMD_PATTERNS.some((p) => p.test(cmd));
+}
+
 /** Bash 命令危险特征（命中即 danger，act 模式下也要确认） */
 const DANGEROUS_CMD_PATTERNS: RegExp[] = [
   /\brm\s+(-[a-z]*\s+)*-[a-z]*[rf][a-z]*\b/i, // rm -rf / rm -fr / rm -r / rm -f
@@ -104,6 +125,7 @@ export function classifyToolRisk(toolName: string, args: unknown): ToolRisk {
   if (DANGER_TOOL_NAMES.has(name)) {
     const cmd = extractCommand(args);
     if (cmd && isDangerousCommand(cmd)) return "danger";
+    if (cmd && isOutwardCommand(cmd)) return "outward";
     return "write";
   }
   if (READONLY_TOOLS.has(name)) return "readonly";
@@ -335,12 +357,22 @@ export class SessionController {
       }
       const risk = classifyToolRisk(ctx.toolCall.name, ctx.toolCall.arguments);
       if (risk === "readonly") return undefined;
+      // 沙盒联动（创建时固定，与工具注册同生命周期）：
+      // - 仅 bash/powershell 受沙盒约束；edit/write 等进程内文件工具不享受自动放行
+      // - 沙盒内 write 级命令在 autoAllow 开启时免审批（内核边界已兜底）
+      // - outward（对外动作）/danger 仍弹窗——沙盒管不住语义级后果
+      const sandboxed = sandboxState.state === "active";
+      const isShellTool = DANGER_TOOL_NAMES.has(ctx.toolCall.name.toLowerCase());
+      if (sandboxed && isShellTool && risk === "write" && opts.getSandboxSettings?.().autoAllow) {
+        return undefined;
+      }
       const approved = await opts.requestPermission({
         requestId: randomUUID(),
         sessionId: opts.sessionId,
         toolName: ctx.toolCall.name,
         args: ctx.toolCall.arguments,
         risk,
+        sandboxed: sandboxed && isShellTool,
       });
       if (approved) return undefined;
       return { block: true, reason: "User denied this tool call in Spcod permission dialog." };

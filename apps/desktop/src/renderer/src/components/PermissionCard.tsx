@@ -7,16 +7,23 @@ export function PermissionCard() {
   if (!request) return null;
 
   const danger = request.risk === "danger";
+  const outward = request.risk === "outward";
+  const title = danger ? "危险操作，确认执行？" : outward ? "对外动作（影响将推出本机），确认执行？" : "Agent 请求执行操作";
+  const headerTone = danger || outward ? "text-danger" : "text-warning";
+  const headerBg = danger || outward ? "bg-danger/10" : "bg-warning/10";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="w-[480px] rounded-xl border border-border bg-bg-elevated shadow-2xl">
-        <div className={`rounded-t-xl px-4 py-3 ${danger ? "bg-danger/10" : "bg-warning/10"}`}>
-          <div className={`text-sm font-semibold ${danger ? "text-danger" : "text-warning"}`}>
-            {danger ? "危险操作，确认执行？" : "Agent 请求执行操作"}
-          </div>
+        <div className={`rounded-t-xl px-4 py-3 ${headerBg}`}>
+          <div className={`text-sm font-semibold ${headerTone}`}>{title}</div>
           <div className="mt-0.5 text-xs text-text-tertiary">
             工具：<code className="mono text-text-secondary">{request.toolName}</code>
+            {request.sandboxed ? (
+              <span data-testid="permission-sandboxed-badge" className="ml-2 rounded bg-accent/15 px-1.5 py-0.5 text-accent">
+                沙盒内
+              </span>
+            ) : null}
             {pending.length > 1 ? `（还有 ${pending.length - 1} 个待确认）` : ""}
           </div>
         </div>
@@ -35,7 +42,7 @@ export function PermissionCard() {
             type="button"
             onClick={() => reply(request.requestId, true)}
             className={`rounded-md px-4 py-1.5 text-xs font-medium ${
-              danger ? "bg-danger text-white hover:bg-danger/80" : "bg-accent text-bg-root hover:bg-accent-dim"
+              danger || outward ? "bg-danger text-white hover:bg-danger/80" : "bg-accent text-bg-root hover:bg-accent-dim"
             }`}
           >
             允许执行

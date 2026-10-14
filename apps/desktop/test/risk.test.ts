@@ -40,6 +40,27 @@ describe("classifyToolRisk", () => {
     expect(classifyToolRisk("bash", { command: "cat ~/.spcode/settings.json" })).toBe("write");
   });
 
+  it("对外动作为 outward（沙盒内也仍弹窗）", () => {
+    expect(classifyToolRisk("bash", { command: "git push origin master" })).toBe("outward");
+    expect(classifyToolRisk("bash", { command: "git push" })).toBe("outward");
+    // npm publish 是 danger（已有规则：不可逆公开发布）；pnpm publish 归 outward
+    expect(classifyToolRisk("bash", { command: "npm publish" })).toBe("danger");
+    expect(classifyToolRisk("bash", { command: "pnpm publish ./pkg" })).toBe("outward");
+    expect(classifyToolRisk("bash", { command: "ssh user@host ls" })).toBe("outward");
+    expect(classifyToolRisk("bash", { command: "rsync -a ./dist user@host:/srv" })).toBe("outward");
+    expect(classifyToolRisk("bash", { command: "gh release create v1.0" })).toBe("outward");
+    expect(classifyToolRisk("bash", { command: "curl -X POST https://api.example.com/hook -d '{}'" })).toBe("outward");
+  });
+
+  it("danger 优先于 outward；普通命令不误伤", () => {
+    // git push --force 是 danger（不可逆），不只是 outward
+    expect(classifyToolRisk("bash", { command: "git push --force origin master" })).toBe("danger");
+    // curl 下载到 stdout、GET 请求不算对外动作
+    expect(classifyToolRisk("bash", { command: "curl -s https://example.com" })).toBe("write");
+    expect(classifyToolRisk("bash", { command: "gh pr list" })).toBe("write");
+    expect(classifyToolRisk("bash", { command: "git fetch origin" })).toBe("write");
+  });
+
   it("写文件类工具为 write", () => {
     expect(classifyToolRisk("write", { path: "a.ts", content: "" })).toBe("write");
     expect(classifyToolRisk("edit", { path: "a.ts" })).toBe("write");
