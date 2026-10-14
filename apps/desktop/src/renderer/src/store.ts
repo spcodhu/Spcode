@@ -20,6 +20,7 @@ import type {
   SessionMeta,
   SessionMode,
   TodoItem,
+  UpdateState,
   UsageAggregate,
   UsageRecord,
 } from "@spcode/shared";
@@ -182,6 +183,8 @@ interface StoreState {
   lastError: string | null;
   /** 轻量通知（定时任务触发等）：自动消失，点击可跳到对应会话 */
   notice: { text: string; sessionId?: string } | null;
+  /** 更新状态机（主进程推送；idle 时侧栏不显示更新按钮） */
+  updateState: UpdateState;
 
   init(): Promise<void>;
   createSession(mode: SessionMode, cwd?: string): Promise<string>;
@@ -309,11 +312,14 @@ const nextMsgId = () => `m${++msgSeq}`;
  * 订阅必须幂等，否则每个 HostEvent 被应用两遍（回复气泡重复、用量翻倍）。
  */
 let unsubscribeHostEvents: (() => void) | null = null;
+let unsubscribeUpdateState: (() => void) | null = null;
 
 /** 解除宿主事件订阅（App 卸载 / StrictMode 重挂载清理时调用） */
 export function teardownHostEvents(): void {
   unsubscribeHostEvents?.();
   unsubscribeHostEvents = null;
+  unsubscribeUpdateState?.();
+  unsubscribeUpdateState = null;
 }
 
 /** 找到或创建当前正在流式输出的 assistant 消息 */
@@ -535,12 +541,16 @@ export const useStore = create<StoreState>((set, get) => ({
   pendingPermissions: [],
   lastError: null,
   notice: null,
+  updateState: { status: "idle" },
 
   async init() {
     // 订阅放在任何 await 之前并保持幂等：两次 init 交错时也只会有一个监听器
     if (!unsubscribeHostEvents) {
       unsubscribeHostEvents = window.spcode.onEvent((event) => get().applyHostEvent(event));
+      unsubscribeUpdateState = window.spcode.onUpdateState((s) => set({ updateState: s }));
     }
+    // 启动时补拉一次更新状态：错过启动早期的推送也不丢
+    void window.spcode.updateGetState().then((s) => set({ updateState: s })).catch(() => {});
     const settings = await window.spcode.getSettings();
     set({ settings });
     await get().refreshModels();

@@ -356,7 +356,42 @@ export const IPC = {
   scheduleUpdate: "spcode:schedule-update",
   scheduleDelete: "spcode:schedule-delete",
   scheduleRunNow: "spcode:schedule-run-now",
+  /** main -> renderer：更新状态机变化推送（UpdateState） */
+  updateState: "spcode:update-state",
+  /** renderer -> main (invoke)：更新状态查询 / 手动下载 / 重启安装 / 忽略版本 */
+  updateGetState: "spcode:update-get-state",
+  updateDownload: "spcode:update-download",
+  updateInstall: "spcode:update-install",
+  updateIgnore: "spcode:update-ignore",
 } as const;
+
+// ---------------------------------------------------------------------------
+// 自动更新（Finch 式：不自动下载，状态机推送渲染进程，用户主导下载与重启）
+// ---------------------------------------------------------------------------
+
+/**
+ * 更新状态机（主进程持有，变化时推送渲染进程）：
+ * idle → available（发现新版本，附发布说明）→ downloading（进度）→ downloaded（待重启）
+ * 任何阶段出错进 error（渲染进程可据此前重试下载）；忽略版本/无更新回 idle。
+ */
+export type UpdateState =
+  | { status: "idle" }
+  | { status: "available"; version: string; releaseNotes: string }
+  | { status: "downloading"; version: string; percent: number }
+  | { status: "downloaded"; version: string }
+  | { status: "error"; message: string };
+
+/** electron-updater 的 releaseNotes 有三种形态（字符串/数组/空），统一归一为展示用纯文本 */
+export function normalizeReleaseNotes(
+  notes: string | { version?: string; note?: string | null }[] | null | undefined,
+): string {
+  if (!notes) return "";
+  if (typeof notes === "string") return notes.trim();
+  return notes
+    .map((n) => n.note?.trim() ?? "")
+    .filter(Boolean)
+    .join("\n\n");
+}
 
 // ---------------------------------------------------------------------------
 // 应用设置（主进程持久化）
@@ -402,6 +437,8 @@ export interface AppSettings {
   autoUpdate: boolean;
   /** 接收测试版更新；undefined = 跟随当前版本形态（beta 版收 beta，稳定版只收稳定） */
   betaUpdates?: boolean;
+  /** 在更新弹窗里点了「忽略此版本」的版本号；该版本不再提示，更高版本仍会提示 */
+  ignoredUpdateVersion?: string;
   /** 自动记忆蒸馏：每轮对话结束后自动整理长期记忆（会消耗少量 token，可关） */
   memoryDistill: boolean;
   /** 模型行悬浮时显示配额卡片 */

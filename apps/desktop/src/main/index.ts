@@ -33,7 +33,7 @@ import {
 import { SessionRegistry } from "./session-registry.js";
 import { searchSessions } from "./session-search.js";
 import { SettingsStore } from "./settings-store.js";
-import { setupAutoUpdater } from "./updater.js";
+import { setupAutoUpdater, downloadUpdate, getUpdateState, ignoreVersion, installUpdate } from "./updater.js";
 import { UsageLedger } from "./usage-ledger.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -298,6 +298,15 @@ function registerIpc(): void {
 
   ipcMain.handle(IPC.getSettings, () => settings.get());
   ipcMain.handle(IPC.getAppVersion, () => app.getVersion());
+
+  // 更新：状态查询 / 手动下载 / 重启安装 / 忽略版本（状态推送见 setupAutoUpdater 的 onState）
+  ipcMain.handle(IPC.updateGetState, () => getUpdateState());
+  ipcMain.handle(IPC.updateDownload, () => downloadUpdate());
+  ipcMain.handle(IPC.updateInstall, () => installUpdate());
+  ipcMain.handle(IPC.updateIgnore, (_e, version: string) => {
+    settings.set({ ignoredUpdateVersion: version });
+    ignoreVersion();
+  });
   ipcMain.handle(IPC.setSettings, (_e, patch: Partial<AppSettings>) => {
     const next = settings.set(patch);
     // 蒸馏开关实时下发宿主（评审 P0-4：静默计费的开关必须即时生效）
@@ -432,11 +441,16 @@ if (!app.requestSingleInstanceLock()) {
     // settings.remote.enabled 时启动局域网 HTTP+WS 服务（未启用则空操作）
     await remote.applySettings();
     createWindow();
-    setupAutoUpdater(
-      () => settings.get().autoUpdate,
-      () => mainWindow,
-      () => settings.get().betaUpdates,
-    );
+    setupAutoUpdater({
+      isEnabled: () => settings.get().autoUpdate,
+      getBetaUpdates: () => settings.get().betaUpdates,
+      getIgnoredVersion: () => settings.get().ignoredUpdateVersion,
+      onState: (s) => {
+        if (mainWindow && !mainWindow.webContents.isDestroyed()) {
+          mainWindow.webContents.send(IPC.updateState, s);
+        }
+      },
+    });
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();

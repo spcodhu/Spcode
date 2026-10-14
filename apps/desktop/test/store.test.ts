@@ -27,6 +27,8 @@ function stubSpcodeApi() {
   vi.stubGlobal("window", {
     spcode: {
       onEvent,
+      onUpdateState: vi.fn(() => () => {}),
+      updateGetState: vi.fn(async () => ({ status: "idle" })),
       getSettings: vi.fn(async () => ({})),
       listSessions: vi.fn(async () => []),
       command: vi.fn(async () => []),

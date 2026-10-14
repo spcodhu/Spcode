@@ -13,6 +13,7 @@ import {
   type ScheduleTask,
   type ScheduleTaskInput,
   type SessionSearchResultItem,
+  type UpdateState,
 } from "@spcode/shared";
 import { contextBridge, ipcRenderer } from "electron";
 import type { QuotaInfo } from "../main/quota-service.js";
@@ -72,6 +73,12 @@ export interface SpcodeApi {
   remoteUnpairDevice(deviceId: string): Promise<boolean>;
   /** 飞书通道：解绑授权用户（open_id） */
   remoteFeishuUnbind(openId: string): Promise<boolean>;
+  /** 更新：状态查询与订阅 / 手动下载 / 重启安装 / 忽略版本 */
+  updateGetState(): Promise<UpdateState>;
+  onUpdateState(cb: (state: UpdateState) => void): () => void;
+  updateDownload(): Promise<void>;
+  updateInstall(): Promise<void>;
+  updateIgnore(version: string): Promise<void>;
 }
 
 const api: SpcodeApi = {
@@ -167,6 +174,23 @@ const api: SpcodeApi = {
   },
   remoteFeishuUnbind(openId) {
     return ipcRenderer.invoke(IPC.remoteFeishuUnbind, openId);
+  },
+  updateGetState() {
+    return ipcRenderer.invoke(IPC.updateGetState);
+  },
+  onUpdateState(cb) {
+    const listener = (_e: unknown, state: UpdateState) => cb(state);
+    ipcRenderer.on(IPC.updateState, listener);
+    return () => ipcRenderer.removeListener(IPC.updateState, listener);
+  },
+  updateDownload() {
+    return ipcRenderer.invoke(IPC.updateDownload);
+  },
+  updateInstall() {
+    return ipcRenderer.invoke(IPC.updateInstall);
+  },
+  updateIgnore(version) {
+    return ipcRenderer.invoke(IPC.updateIgnore, version);
   },
 };
 

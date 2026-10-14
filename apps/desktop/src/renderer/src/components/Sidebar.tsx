@@ -3,6 +3,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { formatRelative } from "../format";
 import { type RegistrySession, useStore } from "../store";
 import { Icon } from "./Icon";
+import { UpdateButton } from "./UpdateButton";
 
 /** 空间内默认展示的会话数，超出部分折叠进「更多」 */
 const SPACE_SESSION_LIMIT = 5;
@@ -354,6 +355,8 @@ export function Sidebar({
           <Icon name="plus" size={16} className="text-text-secondary" />
           新对话
         </button>
+        {/* 更新入口：仅在有更新动作时出现（available/downloading/downloaded/error） */}
+        <UpdateButton />
         <button
           type="button"
           onClick={() => {
