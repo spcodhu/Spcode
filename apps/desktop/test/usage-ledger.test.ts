@@ -67,4 +67,37 @@ describe("UsageLedger", () => {
     expect(ds?.tokens).toBe(520);
     expect(ledger.providerUsage("kimi-coding")).toBeNull();
   });
+
+  it("aggregateRange：week 是近 7 个自然日而非最近 7 个活跃日", () => {
+    const ledger = new UsageLedger(mkdtempSync(join(tmpdir(), "spcode-usage-range-")));
+    const dayMs = 86_400_000;
+    // 三个时间点：16 天前（窗口外）、3 天前（窗口内）、今天
+    ledger.append(rec({ timestamp: Date.now() - 16 * dayMs, input: 1000 }));
+    ledger.append(rec({ timestamp: Date.now() - 3 * dayMs, input: 100 }));
+    ledger.append(rec({ input: 10 }));
+
+    const week = ledger.aggregateRange("week");
+    expect(week.total.count).toBe(2);
+    expect(week.total.input).toBe(110);
+
+    const all = ledger.aggregateRange("all");
+    expect(all.total.count).toBe(3);
+    expect(all.total.input).toBe(1110);
+
+    const today = ledger.aggregateRange("today");
+    expect(today.total.count).toBe(1);
+    expect(today.total.input).toBe(10);
+  });
+
+  it("providerUsage：近 7 日是自然日窗口，窗口外的旧记录不计入", () => {
+    const ledger = new UsageLedger(mkdtempSync(join(tmpdir(), "spcode-usage-provider-")));
+    const dayMs = 86_400_000;
+    ledger.append(rec({ timestamp: Date.now() - 16 * dayMs, input: 1000 }));
+    ledger.append(rec({ input: 10 }));
+
+    const ds = ledger.providerUsage("deepseek");
+    expect(ds?.requests).toBe(1);
+    // 只有窗口内那条：10+50+80+20=160
+    expect(ds?.tokens).toBe(160);
+  });
 });
