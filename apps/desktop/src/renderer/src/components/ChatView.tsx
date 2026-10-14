@@ -40,7 +40,9 @@ export function ChatView({ sessionId }: { sessionId: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      <div ref={scrollRef} onScroll={handleScroll} className="min-h-0 flex-1 overflow-y-auto">
+      {/* overflow-x-hidden：兜底拦住任何横向溢出（长串无断行文本等），
+          页面级横滚条会破坏布局并出现在输入框上方 */}
+      <div ref={scrollRef} onScroll={handleScroll} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
         <div
           className={`mx-auto max-w-3xl px-6 py-6 ${isEmpty ? "relative flex min-h-full flex-col justify-center" : ""}`}
         >

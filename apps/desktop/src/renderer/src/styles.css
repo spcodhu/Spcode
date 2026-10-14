@@ -298,13 +298,21 @@ button:disabled {
   line-height: 1.65;
 }
 
-/* 表格：去掉 streamdown 自带的容器框/内滚动，仅留横向细分隔线 */
+/* 表格：去掉 streamdown 自带的容器框，仅留横向细分隔线 */
 .md-body [data-streamdown="table-wrapper"] {
   border: none !important;
   border-radius: 0 !important;
   background: transparent !important;
   padding: 0 !important;
   margin: 8px 0;
+  max-width: 100%;
+}
+/* 内层滚动容器：streamdown 靠 Tailwind 的 overflow-x-auto 类实现横向滚动，
+   但 Tailwind 不扫描 node_modules，类从未生成——超宽表格会把整列撑出页面级横滚条。
+   这里直接接管，让滚动条只出现在表格底部 */
+.md-body [data-streamdown="table-wrapper"] > div {
+  overflow-x: auto;
+  max-width: 100%;
 }
 .md-body table {
   width: 100%;
