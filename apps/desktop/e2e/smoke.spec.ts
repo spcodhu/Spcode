@@ -16,6 +16,9 @@ test.describe("Spcode 冒烟 E2E", () => {
     await expect(window.getByPlaceholder(/说点什么/)).toBeVisible({ timeout: 15000 });
     await expect(window.getByTestId("empty-state")).toBeVisible();
 
+    // 沙盒状态不再占用输入框工具栏（开关在设置页；chip 已移除）
+    await expect(window.getByTestId("sandbox-status-chip")).toHaveCount(0);
+
     await app.close();
   });
 
@@ -79,6 +82,13 @@ test.describe("Spcode 冒烟 E2E", () => {
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-checked", "true");
     await expect(section.getByTestId("sandbox-disabled-warning")).not.toBeVisible();
+
+    // 新增控件：逃生舱开关 / 本地端口开关默认开；沙盒外白名单编辑器可见
+    await expect(section.getByRole("switch", { name: "允许沙盒外重试" })).toHaveAttribute("aria-checked", "true");
+    await expect(section.getByRole("switch", { name: "允许监听本地端口" })).toHaveAttribute("aria-checked", "true");
+    await expect(section.getByTestId("sandbox-excluded-commands")).toBeVisible();
+    // 免审批规则管理区（权限模式分区，默认空）
+    await expect(window.getByTestId("permission-rules")).toBeVisible();
 
     // 域名白名单编辑器：追加一条并失焦保存
     const domains = section.getByTestId("sandbox-allowed-domains");

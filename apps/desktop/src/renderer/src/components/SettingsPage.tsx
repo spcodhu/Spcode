@@ -130,6 +130,8 @@ function GeneralPage() {
         ))}
       </div>
 
+      <PermissionRulesSection />
+
       <SectionTitle>默认思考强度</SectionTitle>
       <Select
         value={settings?.defaultThinkingLevel ?? "medium"}
@@ -618,7 +620,44 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * 沙盒设置：总开关/自动放行/网络白名单/额外路径。
+ * 免审批规则管理：权限卡「总允许」沉淀的命令前缀列表。
+ * 命中规则的 bash/powershell 命令（write/outward 级）不再弹窗；danger 级永远不免。
+ */
+function PermissionRulesSection() {
+  const settings = useStore((s) => s.settings);
+  const saveSettings = useStore((s) => s.saveSettings);
+  const rules = settings?.permissionRules ?? [];
+  if (!settings) return null;
+  return (
+    <div className="mt-3 rounded-xl border border-border bg-bg-elevated px-4 py-3" data-testid="permission-rules">
+      <div className="text-[14px] text-text-primary">免审批规则</div>
+      <div className="mt-0.5 text-[12px] text-text-tertiary">
+        权限卡点「总允许」后，以这些前缀开头的命令不再询问；危险命令（rm -rf 等）永远会询问
+      </div>
+      {rules.length === 0 ? (
+        <div className="mt-2 text-[12px] text-text-tertiary">暂无规则</div>
+      ) : (
+        <div className="mt-2 space-y-1">
+          {rules.map((rule) => (
+            <div key={rule} className="flex items-center justify-between rounded-lg bg-bg-main px-3 py-1.5">
+              <code className="mono text-[12px] text-text-secondary">{rule} …</code>
+              <button
+                type="button"
+                onClick={() => void saveSettings({ permissionRules: rules.filter((r) => r !== rule) })}
+                className="text-[12px] text-text-tertiary hover:text-danger"
+              >
+                移除
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 沙盒设置：总开关/自动放行/逃生舱/本地端口/网络白名单/沙盒外白名单/额外路径。
  * 列表用「每行一条」的 textarea 编辑，失焦保存（空行与 # 注释行忽略）。
  */
 function SandboxSection() {
@@ -670,12 +709,47 @@ function SandboxSection() {
         <Switch on={sandbox.autoAllow} onChange={(v) => patch({ autoAllow: v })} label="沙盒内安全命令免审批" />
       </div>
 
+      <div className="flex items-center justify-between rounded-xl border border-border bg-bg-elevated px-4 py-3">
+        <div>
+          <div className="text-[14px] text-text-primary">允许沙盒外重试（逃生舱）</div>
+          <div className="mt-0.5 text-[12px] text-text-tertiary">
+            命令与沙盒根本冲突（启动 GUI/Electron 应用、访问钥匙串等）时，允许模型申请沙盒外重试——每次都会弹窗确认；关闭则一律拒绝（严格模式）
+          </div>
+        </div>
+        <Switch
+          on={sandbox.allowUnsandboxedCommands}
+          onChange={(v) => patch({ allowUnsandboxedCommands: v })}
+          label="允许沙盒外重试"
+        />
+      </div>
+
+      <div className="flex items-center justify-between rounded-xl border border-border bg-bg-elevated px-4 py-3">
+        <div>
+          <div className="text-[14px] text-text-primary">允许监听本地端口</div>
+          <div className="mt-0.5 text-[12px] text-text-tertiary">
+            沙盒内命令可绑定 localhost 端口（dev server、playwright 等开发场景需要）
+          </div>
+        </div>
+        <Switch
+          on={sandbox.network.allowLocalBinding}
+          onChange={(v) => patch({ network: { ...sandbox.network, allowLocalBinding: v } })}
+          label="允许监听本地端口"
+        />
+      </div>
+
       <SandboxListEditor
         title="网络白名单"
         hint="沙盒内命令可访问的域名，每行一条；支持 *.example.com 与 example.com:443。未列入的域名首次访问会弹窗询问"
         testId="sandbox-allowed-domains"
         values={sandbox.network.allowedDomains}
         onSave={(list) => patch({ network: { ...sandbox.network, allowedDomains: list } })}
+      />
+      <SandboxListEditor
+        title="沙盒外命令白名单"
+        hint="命中的命令不经沙盒直接执行（前缀匹配，如 git push、pnpm test:e2e），仍走权限审批；权限卡「总允许」逃生舱请求时会自动写入"
+        testId="sandbox-excluded-commands"
+        values={sandbox.excludedCommands}
+        onSave={(list) => patch({ excludedCommands: list })}
       />
       <SandboxListEditor
         title="额外禁读路径"
