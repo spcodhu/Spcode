@@ -19,7 +19,9 @@ async function exec(
   return (await tool.execute("t1", args as any, undefined, undefined, {} as any)) as ToolResultLike;
 }
 
-describe("WebSearch 真网", () => {
+// 真网连通性测试只在本地跑：CI runner 出口地区与本机不同，Bing 对中文查询可能返回空结果
+// （beta.10 流水线曾因此双平台 Test 失败）；离线夹具测试不受影响，CI 全量跑。
+describe.skipIf(process.env.CI)("WebSearch 真网", () => {
   it("中文查询能拿到结果", async () => {
     const tool = createWebSearchTool();
     const res = await exec(tool, { query: "杭州 天气", numResults: 5 });
