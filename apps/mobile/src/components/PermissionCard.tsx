@@ -13,12 +13,14 @@ import { useAppStore } from "../state/store";
 const RISK_TEXT: Record<ToolRisk, string> = {
   readonly: "只读操作",
   write: "写入操作",
+  outward: "对外动作",
   danger: "危险操作",
 };
 
 const RISK_CLASS: Record<ToolRisk, string> = {
   readonly: "bg-slate-800 text-slate-300",
   write: "bg-amber-900/70 text-amber-300",
+  outward: "bg-orange-900/70 text-orange-300",
   danger: "bg-red-900/80 text-red-200",
 };
 
@@ -77,6 +79,8 @@ function HoldToApproveButton({ onConfirm }: { onConfirm: () => void }) {
 export function PermissionCard({ request }: { request: PermissionRequest }) {
   const session = useAppStore((s) => s.sessions[request.sessionId]);
   const danger = request.risk === "danger";
+  const bypass = request.bypass === true;
+  const severe = danger || bypass;
   const [busy, setBusy] = useState(false);
 
   const reply = (approved: boolean) => {
@@ -86,10 +90,10 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
   };
 
   return (
-    <div className={`absolute inset-0 z-40 flex flex-col ${danger ? "bg-[#1a0b0b]" : "bg-[#0b0f14f2]"}`}>
+    <div className={`absolute inset-0 z-40 flex flex-col ${severe ? "bg-[#1a0b0b]" : "bg-[#0b0f14f2]"}`}>
       <div className="px-5 pt-10">
-        <div className={`text-lg font-bold ${danger ? "text-red-300" : "text-amber-200"}`}>
-          {danger ? "⚠️ 危险操作待批准" : "操作待批准"}
+        <div className={`text-lg font-bold ${severe ? "text-red-300" : "text-amber-200"}`}>
+          {danger ? "⚠️ 危险操作待批准" : bypass ? "⚠️ 将在沙盒外执行" : "操作待批准"}
         </div>
         <div className="mt-1 text-xs text-slate-400">会话：{session?.title ?? request.sessionId}</div>
       </div>
@@ -107,6 +111,11 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
         {danger && (
           <div className="mt-3 rounded-lg border border-red-800 bg-red-950/60 px-3 py-2 text-xs leading-5 text-red-200">
             此操作风险级别为 danger，可能造成不可逆影响。请完整核对上方参数；确认无误后<strong>长按</strong>批准按钮。
+          </div>
+        )}
+        {bypass && !danger && (
+          <div className="mt-3 rounded-lg border border-red-800 bg-red-950/60 px-3 py-2 text-xs leading-5 text-red-200">
+            此命令申请在沙盒外执行：将以你的完整权限运行，不受文件/网络边界约束。请确认其必要性。
           </div>
         )}
       </div>

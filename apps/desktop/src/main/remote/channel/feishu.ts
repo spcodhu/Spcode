@@ -175,17 +175,26 @@ function button(text: string, type: string, value: Record<string, unknown>): Rec
   return { tag: "button", text: { tag: "plain_text", content: text }, type, value };
 }
 
-const RISK_LABEL: Record<string, string> = { readonly: "🟦 只读", write: "🟧 写入", danger: "🟥 危险" };
-const RISK_TEMPLATE: Record<string, string> = { readonly: "blue", write: "orange", danger: "red" };
+const RISK_LABEL: Record<string, string> = {
+  readonly: "🟦 只读",
+  write: "🟧 写入",
+  outward: "🟨 对外",
+  danger: "🟥 危险",
+};
+const RISK_TEMPLATE: Record<string, string> = { readonly: "blue", write: "orange", outward: "orange", danger: "red" };
 
 function permissionCard(request: PermissionRequest): Record<string, unknown> {
   const danger = request.risk === "danger";
-  const argsText = truncateArgs(request.args, danger ? ARGS_FULL_MAX : ARGS_SUMMARY_MAX);
-  const md = `**工具**：\`${request.toolName}\`\n**风险**：${RISK_LABEL[request.risk] ?? request.risk}\n**参数**：\n\`\`\`\n${argsText}\n\`\`\``;
-  return mdCard(`权限请求：${request.toolName}`, RISK_TEMPLATE[request.risk] ?? "blue", md, [
+  // 逃生舱请求（沙盒外执行）等同高危呈现：红头 + 完整参数 + 警示文案
+  const bypass = request.bypass === true;
+  const severe = danger || bypass;
+  const argsText = truncateArgs(request.args, severe ? ARGS_FULL_MAX : ARGS_SUMMARY_MAX);
+  const bypassNote = bypass ? "\n**⚠️ 此命令申请在沙盒外执行：以完整权限运行，不受文件/网络边界约束。**\n" : "\n";
+  const md = `**工具**：\`${request.toolName}\`\n**风险**：${RISK_LABEL[request.risk] ?? request.risk}${bypassNote}**参数**：\n\`\`\`\n${argsText}\n\`\`\``;
+  return mdCard(`权限请求：${request.toolName}`, severe ? "red" : (RISK_TEMPLATE[request.risk] ?? "blue"), md, [
     button(
-      danger ? "确认允许危险操作" : "批准",
-      danger ? "danger" : "primary",
+      danger ? "确认允许危险操作" : bypass ? "确认沙盒外执行" : "批准",
+      severe ? "danger" : "primary",
       { action: "permission", requestId: request.requestId, approved: true },
     ),
     button("拒绝", "default", { action: "permission", requestId: request.requestId, approved: false }),
