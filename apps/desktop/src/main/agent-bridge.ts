@@ -24,6 +24,54 @@ const CALL_TIMEOUT_MS = 30_000;
 
 type EventListener = (event: HostEvent) => void;
 
+/** 权限裁决结果：auto-approve=就地放行（不回渲染进程）；ask=弹窗等用户裁决 */
+export type PermissionDecision = "auto-approve" | "ask";
+
+/** 从工具参数里提取 shell 命令文本（bash/powershell 的 args.command） */
+function extractShellCommand(args: unknown): string | null {
+  if (args && typeof args === "object" && "command" in args) {
+    const c = (args as { command?: unknown }).command;
+    if (typeof c === "string") return c;
+  }
+  return null;
+}
+
+/**
+ * 免审批规则匹配（权限卡「总允许」沉淀，Finch 式）：仅 bash/powershell 参与；
+ * 前缀匹配且要求 token 边界（规则 "git push" 命中 "git push origin"，不命中 "git pushback"）。
+ * 多行/复合命令取首条管道段判断——后续段另由 risk 分类与弹窗兜底。
+ */
+export function matchesPermissionRule(command: string, rule: string): boolean {
+  // 取首条管道段并压平连续空白，再按 token 边界做前缀匹配
+  const cmd = (command.split(/[|;&\n]/)[0] ?? "").trim().replace(/\s+/g, " ");
+  const r = rule.trim().replace(/\s+/g, " ");
+  if (!cmd || !r) return false;
+  return cmd === r || (cmd.startsWith(r) && cmd[r.length] === " ");
+}
+
+/**
+ * 权限裁决（纯函数，导出供单测）：
+ * - danger 永远弹窗，免审批规则不适用（不可逆操作没有「总允许」）
+ * - outward（对外动作/网络域名询问）两种权限模式都弹窗
+ * - write 在 ask 模式弹窗、act 模式放行；readonly 不会到达这里
+ * - 免审批规则命中（仅 bash/powershell 的 write/outward）时免弹窗
+ */
+export function decidePermission(
+  request: PermissionRequest,
+  mode: PermissionMode,
+  rules: string[],
+): PermissionDecision {
+  if (request.risk === "danger") return "ask";
+  const isShell = request.toolName === "bash" || request.toolName === "powershell";
+  if (isShell && (request.risk === "write" || request.risk === "outward")) {
+    const cmd = extractShellCommand(request.args);
+    if (cmd && rules.some((r) => matchesPermissionRule(cmd, r))) return "auto-approve";
+  }
+  if (request.risk === "outward") return "ask";
+  if (request.risk === "write" && mode === "ask") return "ask";
+  return "auto-approve";
+}
+
 export class AgentBridge {
   private child: UtilityProcess | null = null;
   private readyPromise: Promise<void> | null = null;
@@ -32,9 +80,11 @@ export class AgentBridge {
   /** 渲染进程未决的权限请求（带超时兜底——评审 P1-1） */
   private pendingPermissions = new Map<string, { request: PermissionRequest; timer: ReturnType<typeof setTimeout> }>();
   private getPermissionMode: () => PermissionMode;
+  private getPermissionRules: () => string[];
 
-  constructor(opts: { getPermissionMode: () => PermissionMode }) {
+  constructor(opts: { getPermissionMode: () => PermissionMode; getPermissionRules?: () => string[] }) {
     this.getPermissionMode = opts.getPermissionMode;
+    this.getPermissionRules = opts.getPermissionRules ?? (() => []);
   }
 
   /** 订阅宿主事件（session.event / usage / host.error 等） */
@@ -109,11 +159,9 @@ export class AgentBridge {
     this.broadcast(event);
   }
 
-  /** 权限策略：write 在 ask 模式询问、act 模式放行；danger 永远询问 */
+  /** 权限策略：danger 与 outward 永远询问；write 在 ask 模式询问、act 模式放行；免审批规则命中的 shell 命令放行 */
   private adjudicate(request: PermissionRequest): void {
-    const mode = this.getPermissionMode();
-    const needsAsk = request.risk === "danger" || (request.risk === "write" && mode === "ask");
-    if (!needsAsk) {
+    if (decidePermission(request, this.getPermissionMode(), this.getPermissionRules()) === "auto-approve") {
       this.post({ type: "permission.reply", payload: { requestId: request.requestId, approved: true } });
       return;
     }

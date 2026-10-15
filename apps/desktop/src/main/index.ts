@@ -48,7 +48,10 @@ const settings = new SettingsStore();
 const registry = new SessionRegistry();
 const ledger = new UsageLedger();
 const quota = new QuotaService(undefined, (providerId) => ledger.providerUsage(providerId));
-const bridge = new AgentBridge({ getPermissionMode: () => settings.get().permissionMode });
+const bridge = new AgentBridge({
+  getPermissionMode: () => settings.get().permissionMode,
+  getPermissionRules: () => settings.get().permissionRules,
+});
 
 let mainWindow: BrowserWindow | null = null;
 
