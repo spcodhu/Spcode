@@ -95,6 +95,8 @@ export interface PermissionRequest {
   risk: ToolRisk;
   /** 该命令是否将在 OS 沙盒内执行（渲染层据此标注「沙盒内」；false/缺省 = 无沙盒兜底） */
   sandboxed?: boolean;
+  /** 逃生舱请求：模型申请在沙盒外执行（dangerouslyDisableSandbox）。渲染层据此强警示——不受文件/网络边界约束 */
+  bypass?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -455,6 +457,11 @@ export interface AppSettings {
   remote: RemoteSettings;
   /** 命令沙盒：bash 命令在 OS 级边界内执行（macOS Seatbelt / Linux bubblewrap） */
   sandbox: SandboxSettings;
+  /**
+   * 免审批规则（权限卡「总允许」沉淀，Finch 式）：命令前缀列表，仅匹配 bash/powershell。
+   * 命中且 risk 为 write/outward 时免弹窗；danger 级永远不免。主进程裁决时读取。
+   */
+  permissionRules: string[];
 }
 
 /**
@@ -467,11 +474,24 @@ export interface SandboxSettings {
   enabled: boolean;
   /** 沙盒内 readonly/write 级命令免审批；danger/outward 级仍然弹窗 */
   autoAllow: boolean;
+  /**
+   * 逃生舱（对齐 Claude Code allowUnsandboxedCommands，默认开）：命令与沙盒根本冲突
+   * （GUI/Electron 应用、钥匙串、Mach 服务等）时，模型可用 dangerouslyDisableSandbox=true
+   * 申请无沙盒重试——必经权限弹窗。关闭 = 严格模式，逃生舱参数直接被网关拒绝。
+   */
+  allowUnsandboxedCommands: boolean;
+  /**
+   * 沙盒外命令白名单（命令前缀匹配，如 "git push"、"pnpm test:e2e"）：命中的命令
+   * 不经沙盒直接执行，走普通权限流（不享受 autoAllow 免审批）。「总允许」逃生舱请求时会自动写入。
+   */
+  excludedCommands: string[];
   network: {
     /** 放行的域名（支持 *.example.com 与 example.com:443 端口语法） */
     allowedDomains: string[];
     /** 显式拒绝的域名（优先于 allowedDomains） */
     deniedDomains: string[];
+    /** 允许沙盒内命令监听本地端口（dev server、 vite/playwright 等需要），默认开 */
+    allowLocalBinding: boolean;
   };
   filesystem: {
     /** 额外允许写入的绝对路径（开发缓存之外的特殊需求） */
@@ -506,9 +526,12 @@ export const DEFAULT_SANDBOX_ALLOWED_DOMAINS: string[] = [
 export const DEFAULT_SANDBOX_SETTINGS: SandboxSettings = {
   enabled: true,
   autoAllow: true,
+  allowUnsandboxedCommands: true,
+  excludedCommands: [],
   network: {
     allowedDomains: DEFAULT_SANDBOX_ALLOWED_DOMAINS,
     deniedDomains: [],
+    allowLocalBinding: true,
   },
   filesystem: {
     extraAllowWrite: [],
@@ -542,6 +565,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   monoFontFile: "",
   advancedSearch: null,
   sandbox: DEFAULT_SANDBOX_SETTINGS,
+  permissionRules: [],
   remote: {
     enabled: false,
     port: null,
