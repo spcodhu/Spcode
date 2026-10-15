@@ -80,4 +80,16 @@ describe.skipIf(!isMac)("SandboxService（macOS 真跑）", () => {
     expect(askCalls).toContain("denied-by-callback-xyz.com");
     expect(out).toMatch(/403|denied|Could not|failed/i);
   }, 40_000);
+
+  it("allowLocalBinding 默认开：沙盒内可监听本地端口（dev server 场景）", async () => {
+    const svc = getSandboxService();
+    expect((await svc.ensureReady()).state).toBe("active");
+    // python3 起一次性 HTTP 服务并自访问；allowLocalBinding=false 时 bind 会被内核拒
+    const { command } = await svc.wrap(
+      "python3 -c \"import socket; s=socket.socket(); s.bind(('127.0.0.1',0)); s.listen(1); print('bind-ok', s.getsockname()[1]); s.close()\"",
+      workDir,
+    );
+    const out = await run(command);
+    expect(out).toContain("bind-ok");
+  }, 40_000);
 });

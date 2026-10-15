@@ -17,7 +17,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import type { SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
-import type { SandboxSettings } from "@spcode/shared";
+import { DEFAULT_SANDBOX_SETTINGS, type SandboxSettings } from "@spcode/shared";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 import { buildSandboxRuntimeConfig } from "./config-builder.js";
 
@@ -58,6 +58,11 @@ class SandboxService {
         console.warn("[sandbox] updateConfig failed:", err);
       }
     }
+  }
+
+  /** 当前设置快照（bash 工具读 excludedCommands/allowUnsandboxedCommands 等热生效字段用） */
+  settingsSnapshot(): SandboxSettings {
+    return this.settings ?? DEFAULT_SANDBOX_SETTINGS;
   }
 
   /**
@@ -132,12 +137,14 @@ class SandboxService {
   /**
    * 全局配置只承载网络段（代理在 initialize 时启动、端口固定）；
    * 文件系统段给最严默认值，实际边界由每条命令的 customConfig 覆盖。
+   * allowLocalBinding：dev server / playwright 等需要监听本地端口，默认开。
    */
   private baseNetworkOnlyConfig(settings: SandboxSettings): SandboxRuntimeConfig {
     return {
       network: {
         allowedDomains: [...settings.network.allowedDomains],
         deniedDomains: [...settings.network.deniedDomains],
+        allowLocalBinding: settings.network.allowLocalBinding,
       },
       filesystem: {
         denyRead: [],

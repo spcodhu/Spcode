@@ -51,7 +51,9 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
       if (ctx.getSandboxSettings) sandbox.configure(ctx.getSandboxSettings());
       const sandboxState = await sandbox.ensureReady();
       const customTools: ToolDefinition[] = [
-        ...(sandboxState.state === "active" ? [createSandboxedBashTool(ctx.cwd)] : []),
+        // 子会话不挂权限网关（无 beforeToolCall），沙盒是唯一防线——绝不能给子代理
+        // 开放 dangerouslyDisableSandbox 逃生舱参数，否则就是无审批逃逸口
+        ...(sandboxState.state === "active" ? [createSandboxedBashTool(ctx.cwd, { allowBypass: false })] : []),
         // 子会话深度 +1；达到上限后子会话不再拿到 Task（评审 P2-5：让条件与头注释同口径）
         ...(ctx.depth + 1 < MAX_TASK_DEPTH ? [createTaskTool({ ...ctx, depth: ctx.depth + 1 })] : []),
       ];

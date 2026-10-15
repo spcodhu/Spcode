@@ -27,7 +27,7 @@ import { cleanSessionTitle } from "@spcode/shared";
 import { isAdvancedSearchReady } from "@spcode/shared/advanced-search";
 import { MemoryDistiller } from "./distill.js";
 import type { MemoryStore } from "./memory-store.js";
-import { createSandboxedBashTool } from "./sandbox/bash-tool.js";
+import { createSandboxedBashTool, matchesExcludedCommand } from "./sandbox/bash-tool.js";
 import { getSandboxService } from "./sandbox/manager.js";
 import {
   isPlanModeSafeCommand,
@@ -249,7 +249,9 @@ export class SessionController {
       sessionManager: opts.sessionFile ? SessionManager.open(opts.sessionFile) : undefined,
       customTools: [
         // 沙盒化 bash：active 时同名覆盖内置 bash；不可用/关闭时不注册，pi 用内置实现
-        ...(sandboxState.state === "active" ? [createSandboxedBashTool(cwd)] : []),
+        ...(sandboxState.state === "active"
+          ? [createSandboxedBashTool(cwd, { allowBypass: true, getSettings: opts.getSandboxSettings })]
+          : []),
         createWebSearchTool(),
         // 高级搜索：仅当用户在设置页配置了完整可用的搜索 API 才注册，
         // 没配置时工具列表里根本没有它（模型无从误调）。配置变更对己创建会话不生效，新会话生效。
@@ -364,9 +366,44 @@ export class SessionController {
       // - 仅 bash/powershell 受沙盒约束；edit/write 等进程内文件工具不享受自动放行
       // - 沙盒内 write 级命令在 autoAllow 开启时免审批（内核边界已兜底）
       // - outward（对外动作）/danger 仍弹窗——沙盒管不住语义级后果
+      // - 逃生舱（dangerouslyDisableSandbox=true）：严格模式直接拒；否则强制弹窗（bypass 标记），
+      //   不享受 autoAllow——批准后命令在沙盒外以完整权限执行
+      // - excludedCommands（沙盒外白名单）命中的命令不经沙盒，不享受 autoAllow，走普通权限流
       const sandboxed = sandboxState.state === "active";
       const isShellTool = DANGER_TOOL_NAMES.has(ctx.toolCall.name.toLowerCase());
-      if (sandboxed && isShellTool && risk === "write" && opts.getSandboxSettings?.().autoAllow) {
+      const sandboxSettings = opts.getSandboxSettings?.();
+      const bypassRequested =
+        isShellTool &&
+        sandboxed &&
+        (ctx.toolCall.arguments as { dangerouslyDisableSandbox?: unknown } | null)?.dangerouslyDisableSandbox === true;
+      if (bypassRequested) {
+        if (!sandboxSettings?.allowUnsandboxedCommands) {
+          return {
+            block: true,
+            reason:
+              "Sandbox strict mode: dangerouslyDisableSandbox is disabled (sandbox.allowUnsandboxedCommands=false). Run the command inside the sandbox or ask the user to allow it in Settings → Sandbox.",
+          };
+        }
+        const approved = await opts.requestPermission({
+          requestId: randomUUID(),
+          sessionId: opts.sessionId,
+          toolName: ctx.toolCall.name,
+          args: ctx.toolCall.arguments,
+          risk,
+          sandboxed: false,
+          bypass: true,
+        });
+        if (approved) return undefined;
+        return { block: true, reason: "User denied this tool call in Spcod permission dialog." };
+      }
+      const cmd = extractCommand(ctx.toolCall.arguments);
+      const excludedHit =
+        isShellTool &&
+        sandboxed &&
+        cmd !== null &&
+        (sandboxSettings?.excludedCommands ?? []).some((r) => matchesExcludedCommand(cmd, r));
+      const effectiveSandboxed = sandboxed && isShellTool && !excludedHit;
+      if (effectiveSandboxed && risk === "write" && sandboxSettings?.autoAllow) {
         return undefined;
       }
       const approved = await opts.requestPermission({
@@ -375,7 +412,7 @@ export class SessionController {
         toolName: ctx.toolCall.name,
         args: ctx.toolCall.arguments,
         risk,
-        sandboxed: sandboxed && isShellTool,
+        sandboxed: effectiveSandboxed,
       });
       if (approved) return undefined;
       return { block: true, reason: "User denied this tool call in Spcod permission dialog." };
