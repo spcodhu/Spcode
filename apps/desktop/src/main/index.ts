@@ -11,6 +11,7 @@ import {
   type AppSettings,
   baseName,
   cleanSessionTitle,
+  type ComposerDraft,
   type HostCommand,
   type HostEvent,
   IPC,
@@ -23,6 +24,7 @@ import { executeSearch, isAdvancedSearchReady } from "@spcode/shared/advanced-se
 import { resolveSpcodeHome } from "@spcode/shared/node";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { AgentBridge } from "./agent-bridge.js";
+import { DraftsStore } from "./drafts-store.js";
 import { QuotaService } from "./quota-service.js";
 import { RemoteServer } from "./remote/index.js";
 import { Scheduler } from "./scheduler.js";
@@ -63,6 +65,7 @@ const devIconPath = join(__dirname, "../../build/icon.png");
 const devIcon = !app.isPackaged && existsSync(devIconPath) ? devIconPath : undefined;
 
 const settings = new SettingsStore();
+const draftsStore = new DraftsStore();
 const registry = new SessionRegistry();
 const ledger = new UsageLedger();
 const quota = new QuotaService(undefined, (providerId) => ledger.providerUsage(providerId));
@@ -377,6 +380,12 @@ function registerIpc(): void {
       }
     }
     return out;
+  });
+
+  // 输入框草稿：全量读/写（渲染层防抖 500ms 保存；内容全空的 key 已被渲染层剔除）
+  ipcMain.handle(IPC.getComposerDrafts, () => draftsStore.get());
+  ipcMain.handle(IPC.setComposerDrafts, (_e, drafts: Record<string, ComposerDraft>) => {
+    draftsStore.set(drafts && typeof drafts === "object" ? drafts : {});
   });
 
   ipcMain.handle(IPC.getSettings, () => settings.get());

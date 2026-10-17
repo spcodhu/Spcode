@@ -230,6 +230,8 @@ describe("exportSessionContext（渲染层）", () => {
         updateGetState: vi.fn(async () => ({ status: "idle" })),
         getSettings: vi.fn(async () => ({})),
         listSessions: vi.fn(async () => []),
+      getComposerDrafts: vi.fn(async () => ({})),
+      setComposerDrafts: vi.fn(async () => {}),
         command,
       },
     });

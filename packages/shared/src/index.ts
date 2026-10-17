@@ -52,6 +52,21 @@ export type PickedFile =
   | { kind: "image"; name: string; mimeType: string; data: string }
   | { kind: "rejected"; name: string; size: number; reason: string };
 
+/**
+ * 输入框草稿（按会话持久化， ~/.spcode/composer-drafts.json）。
+ * key：正式会话 = sessionId；未落盘的新会话 = "draft:<mode>:<cwd>" 稳定 key
+ * （draft 会话对象被清理/重建后仍命中，点加号自动带出）。
+ */
+export interface ComposerDraft {
+  text: string;
+  attachments: ImageAttachment[];
+  /** 文件附件（MD 模式；含文本内容，发送时拼进消息文本） */
+  files: { name: string; size: number; text: string }[];
+  /** 输入模式：纯文本 / Markdown */
+  inputMode: "plain" | "markdown";
+  updatedAt: number;
+}
+
 export interface SessionMeta {
   id: string;
   mode: SessionMode;
@@ -396,6 +411,9 @@ export const IPC = {
   pickDirectory: "spcode:pick-directory",
   pickImages: "spcode:pick-images",
   pickFiles: "spcode:pick-files",
+  /** renderer -> main (invoke)：输入框草稿全量读/写（渲染层防抖保存） */
+  getComposerDrafts: "spcode:get-composer-drafts",
+  setComposerDrafts: "spcode:set-composer-drafts",
   /** renderer -> main (invoke)：在 Finder/资源管理器中显示路径 */
   revealPath: "spcode:reveal-path",
   /** renderer -> main (invoke)：读取/写入应用设置 */

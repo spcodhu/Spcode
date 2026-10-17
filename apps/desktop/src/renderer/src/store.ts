@@ -11,6 +11,7 @@
 
 import type {
   AppSettings,
+  ComposerDraft,
   ExportContextResult,
   HostEvent,
   ImageAttachment,
@@ -185,6 +186,11 @@ interface StoreState {
   sessionOrder: string[];
   activeSessionId: string | null;
   registrySessions: RegistrySession[];
+  /**
+   * 输入框草稿（按会话保存，落盘 ~/.spcode/composer-drafts.json）。
+   * key：正式会话 = sessionId；未落盘新会话 = draft:<mode>:<cwd> 稳定 key（composerDraftKeyOf）。
+   */
+  composerDrafts: Record<string, ComposerDraft>;
   pendingQuestions: QuestionRequest[];
   pendingPermissions: PermissionRequest[];
   lastError: string | null;
@@ -202,6 +208,10 @@ interface StoreState {
   ): Promise<string>;
   /** Fork 弹窗当前针对的源会话 id（null = 关闭） */
   forkDialogFor: string | null;
+  /** 更新输入框草稿（合并 patch；内容全空且为纯文本模式时删 key，保持 map 干净） */
+  setComposerDraft(key: string, patch: Partial<Omit<ComposerDraft, "updatedAt">>): void;
+  /** 清除输入框草稿（发送成功/会话删除时调用） */
+  clearComposerDraft(key: string): void;
   setForkDialogFor(id: string | null): void;
   /** 导出会话上下文（handoff）：落盘三件套并把接力提示词复制到剪贴板 */
   exportSessionContext(id: string): Promise<void>;
@@ -330,6 +340,18 @@ const nextMsgId = () => `m${++msgSeq}`;
  */
 let unsubscribeHostEvents: (() => void) | null = null;
 let unsubscribeUpdateState: (() => void) | null = null;
+
+/** 草稿持久化订阅幂等标记 + 防抖定时器（500ms 合并不停打字产生的连续写盘） */
+let draftsPersistSubscribed = false;
+let draftsPersistTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleDraftsPersist(drafts: Record<string, ComposerDraft>): void {
+  if (draftsPersistTimer) clearTimeout(draftsPersistTimer);
+  draftsPersistTimer = setTimeout(() => {
+    draftsPersistTimer = null;
+    void window.spcode.setComposerDrafts(drafts).catch(() => {});
+  }, 500);
+}
 
 /** 解除宿主事件订阅（App 卸载 / StrictMode 重挂载清理时调用） */
 export function teardownHostEvents(): void {
@@ -543,6 +565,13 @@ function pruneDrafts(s: StoreState, keepId: string | null): Pick<StoreState, "se
   return { sessions, sessionOrder: s.sessionOrder.filter((id) => !drop.has(id)) };
 }
 
+/** 草稿 key：draft 会话（点加号未提交）用 mode+cwd 稳定 key——会话对象被
+ *  pruneDrafts 清理或重启 App 后，再次点加号仍命中同一份草稿（Finch 式体验） */
+export function composerDraftKeyOf(session: SessionState | undefined, sessionId: string): string {
+  if (session?.draft) return `draft:${session.meta.mode}:${session.meta.cwd}`;
+  return sessionId;
+}
+
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
@@ -556,6 +585,7 @@ export const useStore = create<StoreState>((set, get) => ({
   sessionOrder: [],
   activeSessionId: null,
   registrySessions: [],
+  composerDrafts: {},
   pendingQuestions: [],
   pendingPermissions: [],
   lastError: null,
@@ -567,6 +597,35 @@ export const useStore = create<StoreState>((set, get) => ({
     set({ forkDialogFor: id });
   },
 
+  setComposerDraft(key, patch) {
+    set((s) => {
+      const prev = s.composerDrafts[key];
+      const next: ComposerDraft = {
+        text: prev?.text ?? "",
+        attachments: prev?.attachments ?? [],
+        files: prev?.files ?? [],
+        inputMode: prev?.inputMode ?? "plain",
+        ...patch,
+        updatedAt: Date.now(),
+      };
+      const empty =
+        !next.text.trim() && next.attachments.length === 0 && next.files.length === 0 && next.inputMode === "plain";
+      const drafts = { ...s.composerDrafts };
+      if (empty) delete drafts[key];
+      else drafts[key] = next;
+      return { composerDrafts: drafts };
+    });
+  },
+
+  clearComposerDraft(key) {
+    set((s) => {
+      if (!(key in s.composerDrafts)) return s;
+      const drafts = { ...s.composerDrafts };
+      delete drafts[key];
+      return { composerDrafts: drafts };
+    });
+  },
+
   async init() {
     // 订阅放在任何 await 之前并保持幂等：两次 init 交错时也只会有一个监听器
     if (!unsubscribeHostEvents) {
@@ -575,11 +634,21 @@ export const useStore = create<StoreState>((set, get) => ({
     }
     // 启动时补拉一次更新状态：错过启动早期的推送也不丢
     void window.spcode.updateGetState().then((s) => set({ updateState: s })).catch(() => {});
+    // 输入框草稿防抖落盘（composer-drafts.json；subscribe 幂等，随宿主订阅一起只装一次）
+    if (!draftsPersistSubscribed) {
+      draftsPersistSubscribed = true;
+      useStore.subscribe((s, prev) => {
+        if (s.composerDrafts !== prev.composerDrafts) scheduleDraftsPersist(s.composerDrafts);
+      });
+    }
     const settings = await window.spcode.getSettings();
     set({ settings });
     await get().refreshModels();
-    const registry = await window.spcode.listSessions().catch(() => []);
-    set({ registrySessions: registry ?? [], ready: true });
+    const [registry, drafts] = await Promise.all([
+      window.spcode.listSessions().catch(() => []),
+      window.spcode.getComposerDrafts().catch(() => ({})),
+    ]);
+    set({ registrySessions: registry ?? [], composerDrafts: drafts ?? {}, ready: true });
   },
 
   async refreshModels() {
@@ -783,8 +852,12 @@ export const useStore = create<StoreState>((set, get) => ({
     set((s) => {
       const sessions = { ...s.sessions };
       delete sessions[id];
+      // 同步清掉该会话的输入框草稿
+      const drafts = { ...s.composerDrafts };
+      delete drafts[id];
       return {
         sessions,
+        composerDrafts: drafts,
         sessionOrder: s.sessionOrder.filter((x) => x !== id),
         registrySessions: s.registrySessions.filter((x) => x.id !== id),
         activeSessionId: s.activeSessionId === id ? null : s.activeSessionId,

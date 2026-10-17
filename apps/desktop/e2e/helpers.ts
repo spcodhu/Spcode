@@ -17,10 +17,12 @@ export const appDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 export interface LaunchOptions {
   /** 启动前在临时 SPCODE_HOME 里预置数据（注册表/会话文件等夹具） */
   seed?: (spcodeHome: string) => void;
+  /** 固定 SPCODE_HOME（默认每次 mkdtemp 新建）；草稿持久化等跨重启测试用 */
+  spcodeHome?: string;
 }
 
 export async function launchApp(opts?: LaunchOptions): Promise<ElectronApplication> {
-  const spcodeHome = mkdtempSync(join(tmpdir(), "spcode-e2e-"));
+  const spcodeHome = opts?.spcodeHome ?? mkdtempSync(join(tmpdir(), "spcode-e2e-"));
   opts?.seed?.(spcodeHome);
   const userDataDir = mkdtempSync(join(tmpdir(), "spcode-e2e-userdata-"));
   // playwright 的 env 是整体替换而非合并，必须带上 process.env

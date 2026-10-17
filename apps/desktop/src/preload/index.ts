@@ -5,6 +5,7 @@
 import {
   type AdvancedSearchConfig,
   type AppSettings,
+  type ComposerDraft,
   type HostCommandInput,
   type HostEvent,
   IPC,
@@ -56,6 +57,9 @@ export interface SpcodeApi {
   pickImages(): Promise<{ name: string; mimeType: string; data: string }[]>;
   /** 选择任意文件（MD 输入模式）：文本类含内容，图片转附件，二进制/超大标 rejected */
   pickFiles(): Promise<PickedFile[]>;
+  /** 输入框草稿：全量读取（启动时）/ 全量保存（防抖） */
+  getComposerDrafts(): Promise<Record<string, ComposerDraft>>;
+  setComposerDrafts(drafts: Record<string, ComposerDraft>): Promise<void>;
   /** 外观：字体导入/字体数据/主题 JSON 导入 */
   pickFontFile(): Promise<{ file: string; family: string } | null>;
   getFontData(fileName: string): Promise<Uint8Array | null>;
@@ -144,6 +148,12 @@ const api: SpcodeApi = {
   },
   pickFiles() {
     return ipcRenderer.invoke(IPC.pickFiles);
+  },
+  getComposerDrafts() {
+    return ipcRenderer.invoke(IPC.getComposerDrafts);
+  },
+  setComposerDrafts(drafts) {
+    return ipcRenderer.invoke(IPC.setComposerDrafts, drafts);
   },
   pickFontFile() {
     return ipcRenderer.invoke(IPC.pickFontFile);

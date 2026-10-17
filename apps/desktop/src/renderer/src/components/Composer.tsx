@@ -1,10 +1,9 @@
-import type { ImageAttachment, ModelInfo, ModelRef } from "@spcode/shared";
+import type { ComposerDraft, ImageAttachment, ModelInfo, ModelRef } from "@spcode/shared";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import TurndownService from "turndown";
 import { buildFileBlocks, type DraftFile } from "../file-blocks";
 import { formatFileSize } from "../format";
-import type { SessionState } from "../store";
-import { useStore } from "../store";
+import { composerDraftKeyOf, type SessionState, useStore } from "../store";
 import { Icon } from "./Icon";
 import { ImageLightbox } from "./ImageLightbox";
 import { Markdown } from "./Markdown";
@@ -26,7 +25,11 @@ export function prefillComposer(text: string): void {
 // - 任意文件以 chip 挂载，发送时内容拼接进消息文本（引擎仅支持文本+图片）
 // ---------------------------------------------------------------------------
 
-type InputMode = "plain" | "markdown";
+type InputMode = ComposerDraft["inputMode"];
+
+/** 空附件常量（草稿缺省值复用同一引用，避免每次渲染新数组） */
+const EMPTY_ATTACHMENTS: ImageAttachment[] = [];
+const EMPTY_FILES: DraftFile[] = [];
 
 /** 富文本粘贴 → Markdown（模块级单例，与 agent-host 的 webfetch/websearch 同款配置） */
 let turndown: TurndownService | null = null;
@@ -36,13 +39,19 @@ function getTurndown(): TurndownService {
 }
 
 export function Composer({ sessionId }: { sessionId: string }) {
-  const [text, setText] = useState("");
-  const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
-  const [files, setFiles] = useState<DraftFile[]>([]);
-  const [inputMode, setInputMode] = useState<InputMode>("plain");
+  const session = useStore((s) => s.sessions[sessionId]);
+  // 草稿按会话持久化：draft 会话用稳定 key，切换会话/点加号/重启 App 均恢复
+  const draftKey = composerDraftKeyOf(session, sessionId);
+  const draft = useStore((s) => s.composerDrafts[draftKey]);
+  const text = draft?.text ?? "";
+  const attachments = draft?.attachments ?? EMPTY_ATTACHMENTS;
+  const files = draft?.files ?? EMPTY_FILES;
+  const inputMode = draft?.inputMode ?? "plain";
+  const setComposerDraft = useStore((s) => s.setComposerDraft);
+  const clearComposerDraft = useStore((s) => s.clearComposerDraft);
+  // 预览开关/图片预览为瞬态 UI 状态，不入草稿
   const [previewOn, setPreviewOn] = useState(false);
   const [previewIdx, setPreviewIdx] = useState<number | null>(null);
-  const session = useStore((s) => s.sessions[sessionId]);
   const running = session?.running ?? false;
   const models = useStore((s) => s.models);
   const settings = useStore((s) => s.settings);
@@ -54,11 +63,19 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const saveSettings = useStore((s) => s.saveSettings);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const updateDraft = (patch: Partial<Omit<ComposerDraft, "updatedAt">>) => setComposerDraft(draftKey, patch);
+
+  /** 追加附件/文件：读 getState 最新值，避免异步回调里的旧闭包覆盖并发追加 */
+  const appendToDraft = (field: "attachments" | "files", items: ImageAttachment[] | DraftFile[]) => {
+    const cur = useStore.getState().composerDrafts[draftKey];
+    setComposerDraft(draftKey, { [field]: [...(cur?.[field] ?? []), ...items] });
+  };
+
   // 监听外部预填请求：填入文本、聚焦并把光标移到末尾
   useEffect(() => {
     const onPrefill = (e: Event) => {
       const text = (e as CustomEvent<{ text: string }>).detail?.text ?? "";
-      setText(text);
+      updateDraft({ text });
       requestAnimationFrame(() => {
         const el = textareaRef.current;
         el?.focus();
@@ -67,7 +84,8 @@ export function Composer({ sessionId }: { sessionId: string }) {
     };
     window.addEventListener(COMPOSER_PREFILL_EVENT, onPrefill);
     return () => window.removeEventListener(COMPOSER_PREFILL_EVENT, onPrefill);
-  }, []);
+    // biome-ignore lint/correctness/useExhaustiveDependencies: updateDraft 随 draftKey 重建，只需在 key 变化时重绑
+  }, [draftKey]);
 
   // 高度自适应：textarea 不设行数上限，滚动交给外层容器（padding 常驻，
   // 修复多行输入时 padding-top 随内容滚出视野的问题）
@@ -85,16 +103,15 @@ export function Composer({ sessionId }: { sessionId: string }) {
   /** 在光标处插入片段（MD 模式的图片占位/富文本转换用），插入后光标移到片段末尾 */
   const insertAtCursor = (snippet: string) => {
     const el = textareaRef.current;
-    setText((prev) => {
-      const focused = el && document.activeElement === el;
-      const start = focused ? el.selectionStart : prev.length;
-      const end = focused ? el.selectionEnd : prev.length;
-      requestAnimationFrame(() => {
-        el?.focus();
-        el?.setSelectionRange(start + snippet.length, start + snippet.length);
-      });
-      return prev.slice(0, start) + snippet + prev.slice(end);
+    const prev = useStore.getState().composerDrafts[draftKey]?.text ?? "";
+    const focused = el && document.activeElement === el;
+    const start = focused ? el.selectionStart : prev.length;
+    const end = focused ? el.selectionEnd : prev.length;
+    requestAnimationFrame(() => {
+      el?.focus();
+      el?.setSelectionRange(start + snippet.length, start + snippet.length);
     });
+    updateDraft({ text: prev.slice(0, start) + snippet + prev.slice(end) });
   };
 
   const send = () => {
@@ -102,16 +119,15 @@ export function Composer({ sessionId }: { sessionId: string }) {
     const value = text.trim() + buildFileBlocks(files);
     const imgs = attachments;
     const fileMeta = files.map(({ name, size }) => ({ name, size }));
-    setText("");
-    setAttachments([]);
-    setFiles([]);
+    // 发送即清空草稿（与旧语义一致：乐观清空，不等引擎响应）
+    clearComposerDraft(draftKey);
     void sendPrompt(value, imgs.length ? imgs : undefined, fileMeta.length ? fileMeta : undefined);
     requestAnimationFrame(() => textareaRef.current?.focus());
   };
 
   const pickAttachments = async () => {
     const imgs = await window.spcode.pickImages().catch(() => []);
-    if (imgs.length) setAttachments((a) => [...a, ...imgs]);
+    if (imgs.length) appendToDraft("attachments", imgs);
   };
 
   /** MD 模式「添加文件」：图片走附件通道，文本文件进 chips，二进制/超大提示拒绝 */
@@ -126,8 +142,8 @@ export function Composer({ sessionId }: { sessionId: string }) {
       else if (f.kind === "text") newFiles.push({ name: f.name, size: f.size, text: f.text });
       else rejected.push(`${f.name}（${f.reason}）`);
     }
-    if (newImages.length) setAttachments((a) => [...a, ...newImages]);
-    if (newFiles.length) setFiles((fs) => [...fs, ...newFiles]);
+    if (newImages.length) appendToDraft("attachments", newImages);
+    if (newFiles.length) appendToDraft("files", newFiles);
     if (rejected.length) useStore.setState({ notice: { text: `以下文件未添加：${rejected.join("、")}` } });
   };
 
@@ -145,7 +161,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
         return `pasted-${Date.now()}-${i + 1}.${ext}`;
       });
       void Promise.all(imgFiles.map((f, i) => fileToAttachment(f, names[i] ?? f.name))).then((imgs) =>
-        setAttachments((a) => [...a, ...imgs]),
+        appendToDraft("attachments", imgs),
       );
       if (mdMode) insertAtCursor(names.map((n) => `![${n}]`).join("\n"));
       return;
@@ -208,7 +224,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setAttachments((a) => a.filter((_, j) => j !== i))}
+                    onClick={() => updateDraft({ attachments: attachments.filter((_, j) => j !== i) })}
                     title={`移除 ${img.name}`}
                     className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-bg-active text-text-tertiary opacity-0 transition-opacity hover:text-text-primary group-hover/chip:opacity-100"
                   >
@@ -232,7 +248,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
                   <span className="shrink-0 text-text-tertiary">{formatFileSize(f.size)}</span>
                   <button
                     type="button"
-                    onClick={() => setFiles((fs) => fs.filter((_, j) => j !== i))}
+                    onClick={() => updateDraft({ files: files.filter((_, j) => j !== i) })}
                     title={`移除 ${f.name}`}
                     className="shrink-0 text-text-tertiary transition-colors hover:text-text-primary"
                   >
@@ -256,7 +272,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
               <textarea
                 ref={textareaRef}
                 value={text}
-                onChange={(e) => setText(e.target.value)}
+                onChange={(e) => updateDraft({ text: e.target.value })}
                 onPaste={handlePaste}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -284,8 +300,9 @@ export function Composer({ sessionId }: { sessionId: string }) {
             {/* Markdown 输入模式切换（适合粘贴/编写大段结构化文本） */}
             <button
               type="button"
+              data-testid="md-mode-toggle"
               onClick={() => {
-                setInputMode((m) => (m === "markdown" ? "plain" : "markdown"));
+                updateDraft({ inputMode: mdMode ? "plain" : "markdown" });
                 setPreviewOn(false);
               }}
               title={
@@ -311,6 +328,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
                 </ToolButton>
                 <button
                   type="button"
+                  data-testid="md-preview-toggle"
                   onClick={() => setPreviewOn((v) => !v)}
                   title={previewOn ? "返回编辑" : "预览 Markdown"}
                   className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] transition-colors ${
