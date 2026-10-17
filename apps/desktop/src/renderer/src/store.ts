@@ -136,6 +136,8 @@ export interface SessionState {
   planMode: boolean;
   /** pi 会话文件路径（宿主休眠后凭它唤醒；来自 create/open/activate 响应） */
   sessionFile?: string | null;
+  /** 本次运行开始时间（agent_start 时记录，运行状态条耗时显示用；不持久化） */
+  runStartedAt?: number;
   /** 沙盒状态（创建时确定；Composer 状态 chip 用） */
   sandbox?: { state: "active" | "disabled" | "unavailable"; reason?: string };
   /** 宿主侧是否有活跃 AgentSession；false = 已休眠，激活时需 session.activate 唤醒 */
@@ -443,9 +445,11 @@ function applySessionEvent(session: SessionState, event: Record<string, unknown>
     }
     case "agent_start":
       session.running = true;
+      session.runStartedAt = Date.now();
       break;
     case "agent_settled":
       session.running = false;
+      session.runStartedAt = undefined;
       // 运行结束（含 abort）：空占位消息不再转圈，有内容的定格
       settleStreamingTail(session);
       break;
@@ -924,6 +928,7 @@ export const useStore = create<StoreState>((set, get) => ({
           streaming: true,
         });
         draft.running = true;
+        draft.runStartedAt = Date.now();
         if (!draft.messages.some((m) => m.role === "user" && messageText(m) !== text)) {
           draft.meta = { ...draft.meta, title: cleanSessionTitle(text) || "图片消息" };
         }
@@ -946,6 +951,7 @@ export const useStore = create<StoreState>((set, get) => ({
       set((s) =>
         touchSession(s, sessionId, (draft) => {
           draft.running = false;
+          draft.runStartedAt = undefined;
           settleStreamingTail(draft);
         }),
       );

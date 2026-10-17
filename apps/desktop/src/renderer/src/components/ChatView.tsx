@@ -4,6 +4,7 @@ import { Composer } from "./Composer";
 import { SessionEmptyState } from "./EmptyState";
 import { AssistantRunItem, MessageItem } from "./MessageItem";
 import { QuestionInline } from "./QuestionCard";
+import { RunStatusBar } from "./RunStatusBar";
 import { WorkDrawer } from "./WorkDrawer";
 
 export function ChatView({ sessionId }: { sessionId: string }) {
@@ -71,6 +72,11 @@ export function ChatView({ sessionId }: { sessionId: string }) {
       )}
       {/* 当前会话的待回答提问：内嵌在输入框上方，不全局弹窗 */}
       <QuestionInline sessionId={sessionId} />
+      {/* 运行状态条：常驻输入框正上方，不随消息流滚动（模型当前动作/等待态/耗时） */}
+      <RunStatusBar
+        sessionId={sessionId}
+        onJumpToBottom={() => bottomRef.current?.scrollIntoView({ block: "end", behavior: "smooth" })}
+      />
       <Composer sessionId={sessionId} />
     </div>
   );
