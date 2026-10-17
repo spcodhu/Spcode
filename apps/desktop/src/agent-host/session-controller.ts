@@ -151,6 +151,8 @@ export interface SessionControllerOptions {
   thinkingLevel?: string;
   /** 打开已存在的 pi 会话文件（会话恢复） */
   sessionFile?: string;
+  /** 直接传入现成的 pi SessionManager（Fork 场景：forkFrom 复制出的新会话树） */
+  sessionManager?: SessionManager;
   /** 恢复会话时带上计划模式状态（来自会话注册表），true 则创建后直接进入计划态 */
   planMode?: boolean;
   emitEvent: (event: AgentSessionEvent) => void;
@@ -246,7 +248,7 @@ export class SessionController {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       thinkingLevel: opts.thinkingLevel as any,
       resourceLoader,
-      sessionManager: opts.sessionFile ? SessionManager.open(opts.sessionFile) : undefined,
+      sessionManager: opts.sessionManager ?? (opts.sessionFile ? SessionManager.open(opts.sessionFile) : undefined),
       customTools: [
         // 沙盒化 bash：active 时同名覆盖内置 bash；不可用/关闭时不注册，pi 用内置实现
         ...(sandboxState.state === "active"

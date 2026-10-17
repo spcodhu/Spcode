@@ -10,9 +10,9 @@
  * 禁止 import "electron" —— 这里只有 Node API + process.parentPort。
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { CredentialSynchronizationError, ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
 import type {
   AdvancedSearchConfig,
@@ -289,7 +289,7 @@ async function getOrRevive(sessionId: string): Promise<SessionController | null>
   return ctl;
 }
 
-/** session.create / session.open 公共逻辑 */
+/** session.create / session.open / session.fork 公共逻辑 */
 async function createController(params: {
   sessionId: string;
   cwd: string;
@@ -297,6 +297,8 @@ async function createController(params: {
   model?: ModelRef;
   thinkingLevel?: string;
   sessionFile?: string;
+  /** Fork 场景：forkFrom 复制出的现成 SessionManager（优先于 sessionFile） */
+  sessionManager?: SessionManager;
   /** 恢复会话时的计划模式状态（来自注册表） */
   planMode?: boolean;
   noTitleAutomation?: boolean;
@@ -313,6 +315,7 @@ async function createController(params: {
     modelRef: params.model,
     thinkingLevel: params.thinkingLevel,
     sessionFile: params.sessionFile,
+    sessionManager: params.sessionManager,
     planMode: params.planMode,
     noTitleAutomation: params.noTitleAutomation,
     emitEvent: (event) => emit({ type: "session.event", sessionId: params.sessionId, event }),
@@ -461,6 +464,47 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         // 先回响应，再推历史（渲染进程按序处理）
         respond(id, true, ctl.info());
         emit({ type: "session.history", sessionId: cmd.payload.sessionId, messages: ctl.history() });
+        break;
+      }
+      case "session.fork": {
+        // 复制源会话的完整上下文（整棵会话树）到新会话文件，两会话从此独立演进
+        const { sourceSessionId, newSessionId } = cmd.payload;
+        // 源会话正在运行：拒绝（复制到半截流式状态语义混乱；渲染层菜单已禁用，这里兜底）
+        const srcCtl = sessions.get(sourceSessionId);
+        if (srcCtl?.isRunning()) throw new Error("会话正在运行，请先停止再分叉");
+        const sourceFile = cmd.payload.sourceSessionFile;
+        if (!sourceFile || !existsSync(sourceFile) || statSync(sourceFile).size === 0) {
+          throw new Error("该会话还没有可分叉的内容（会话记录为空）");
+        }
+        // 同 newSessionId 重复 fork：先结清并释放旧实例，避免 AgentSession 泄漏（同 create/open）
+        hibernation.cancel(newSessionId);
+        hibernated.delete(newSessionId);
+        const existingFork = sessions.get(newSessionId);
+        if (existingFork) {
+          settlePendingForSession(newSessionId);
+          await existingFork.dispose().catch(() => {});
+          sessions.delete(newSessionId);
+        }
+        // sessionDir 必须显式传源文件所在目录：forkFrom 内部 getDefaultSessionDir 不带
+        // agentDir，不传会落到 pi 默认目录（~/.pi/agent/sessions/）而不是 ~/.spcode/...
+        const forkCwd = cmd.payload.cwd?.trim() ? cmd.payload.cwd : join(AGENT_DIR, "..", "scratch");
+        const forkedManager = SessionManager.forkFrom(sourceFile, forkCwd, dirname(sourceFile), {
+          id: newSessionId,
+          parentSession: sourceFile,
+        });
+        const ctl = await createController({
+          sessionId: newSessionId,
+          cwd: cmd.payload.cwd ?? "",
+          mode: cmd.payload.mode,
+          model: cmd.payload.model,
+          thinkingLevel: cmd.payload.thinkingLevel,
+          sessionManager: forkedManager,
+          planMode: cmd.payload.planMode,
+        });
+        sessions.set(newSessionId, ctl);
+        respond(id, true, ctl.info());
+        // Fork 出的会话自带完整历史（渲染进程按序处理：先响应后历史）
+        emit({ type: "session.history", sessionId: newSessionId, messages: ctl.history() });
         break;
       }
       case "session.hibernate": {

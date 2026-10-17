@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ChatView } from "./components/ChatView";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { ForkDialog } from "./components/ForkDialog";
 import { Icon } from "./components/Icon";
 import { PermissionCard } from "./components/PermissionCard";
 import { SchedulePage } from "./components/SchedulePage";
@@ -16,6 +17,8 @@ export default function App() {
   const lastError = useStore((s) => s.lastError);
   const notice = useStore((s) => s.notice);
   const activeSessionId = useStore((s) => s.activeSessionId);
+  const forkDialogFor = useStore((s) => s.forkDialogFor);
+  const setForkDialogFor = useStore((s) => s.setForkDialogFor);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -91,6 +94,7 @@ export default function App() {
           </div>
         </div>
         <PermissionCard />
+        {forkDialogFor && <ForkDialog sourceId={forkDialogFor} onClose={() => setForkDialogFor(null)} />}
         {settingsOpen && <SettingsPage onClose={() => setSettingsOpen(false)} />}
         {searchOpen && <SearchPalette onClose={() => setSearchOpen(false)} />}
         {scheduleOpen && <SchedulePage onClose={() => setScheduleOpen(false)} />}

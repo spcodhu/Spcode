@@ -165,6 +165,8 @@ export interface RegistrySession {
   sessionFile: string | null;
   planMode?: boolean;
   planFile?: string | null;
+  /** Fork 来源会话 id（分叉会话才有） */
+  forkedFrom?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -188,6 +190,14 @@ interface StoreState {
 
   init(): Promise<void>;
   createSession(mode: SessionMode, cwd?: string): Promise<string>;
+  /** Fork 会话：复制源会话完整上下文到新会话（弹窗选项可覆盖模型/思考档位/计划模式），返回新会话 id */
+  forkSession(
+    sourceId: string,
+    opts: { title?: string; model?: ModelRef; thinkingLevel?: string; planMode?: boolean },
+  ): Promise<string>;
+  /** Fork 弹窗当前针对的源会话 id（null = 关闭） */
+  forkDialogFor: string | null;
+  setForkDialogFor(id: string | null): void;
   /** 草稿会话落盘：首次发送消息时才真正创建并写入历史，返回正式 sessionId */
   materializeDraft(draftId: string): Promise<string>;
   openSession(entry: RegistrySession): Promise<void>;
@@ -542,6 +552,11 @@ export const useStore = create<StoreState>((set, get) => ({
   lastError: null,
   notice: null,
   updateState: { status: "idle" },
+  forkDialogFor: null,
+
+  setForkDialogFor(id) {
+    set({ forkDialogFor: id });
+  },
 
   async init() {
     // 订阅放在任何 await 之前并保持幂等：两次 init 交错时也只会有一个监听器
@@ -766,6 +781,76 @@ export const useStore = create<StoreState>((set, get) => ({
         activeSessionId: s.activeSessionId === id ? null : s.activeSessionId,
       };
     });
+  },
+
+  async forkSession(sourceId, opts) {
+    const source = get().registrySessions.find((r) => r.id === sourceId);
+    if (!source) throw new Error("源会话不存在或已被删除");
+    const newId = crypto.randomUUID();
+    const info = await window.spcode.command<HostSessionInfo>({
+      type: "session.fork",
+      payload: {
+        sourceSessionId: sourceId,
+        newSessionId: newId,
+        ...(opts.title?.trim() ? { title: opts.title.trim() } : {}),
+        ...(opts.model ? { model: opts.model } : {}),
+        ...(opts.thinkingLevel ? { thinkingLevel: opts.thinkingLevel } : {}),
+        ...(typeof opts.planMode === "boolean" ? { planMode: opts.planMode } : {}),
+      },
+    });
+    const now = Date.now();
+    const title = opts.title?.trim() || `${source.title} · 分叉`;
+    const planMode = info.planMode ?? opts.planMode ?? source.planMode ?? false;
+    const session: SessionState = {
+      meta: {
+        id: newId,
+        mode: source.mode,
+        cwd: source.cwd,
+        title,
+        model: info.model,
+        thinkingLevel: info.thinkingLevel,
+        createdAt: now,
+        updatedAt: now,
+      },
+      messages: [],
+      running: false,
+      usage: { ...EMPTY_USAGE },
+      lastUsage: null,
+      supportedThinkingLevels: info.supportedThinkingLevels ?? [],
+      todos: [],
+      planMode,
+      sessionFile: info.sessionFile ?? null,
+      sandbox: info.sandbox,
+      hostAwake: true,
+    };
+    // 历史消息由宿主随后的 session.history 事件填充（fork 响应后紧跟历史回放）
+    set((s) => {
+      const pruned = pruneDrafts(s, newId);
+      return {
+        sessions: { ...pruned.sessions, [newId]: session },
+        sessionOrder: [newId, ...pruned.sessionOrder],
+        registrySessions: [
+          {
+            id: newId,
+            mode: source.mode,
+            cwd: source.cwd,
+            title,
+            model: info.model,
+            thinkingLevel: info.thinkingLevel,
+            sessionFile: info.sessionFile ?? null,
+            planMode,
+            planFile: null,
+            forkedFrom: sourceId,
+            createdAt: now,
+            updatedAt: now,
+          },
+          ...s.registrySessions,
+        ],
+      };
+    });
+    // 走标准激活路径：被切走的会话进休眠宽限，新会话上位
+    get().setActive(newId);
+    return newId;
   },
 
   setActive(id) {

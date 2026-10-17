@@ -27,7 +27,9 @@ import { RemoteServer } from "./remote/index.js";
 import { Scheduler } from "./scheduler.js";
 import {
   backfillSessionFile,
+  buildForkRegistryEntry,
   isDefaultTitle,
+  prepareForkCommand,
   removeSession as removeSessionEverywhere,
 } from "./session-helpers.js";
 import { SessionRegistry } from "./session-registry.js";
@@ -229,7 +231,23 @@ function registerIpc(): void {
       cmd.payload.planMode = registry.get(cmd.payload.sessionId)?.planMode ?? false;
     }
 
+    // Fork 会话：渲染层只传 sourceSessionId/newSessionId 与可选项，
+    // 源会话的 sessionFile/cwd/mode 与缺省继承的 model/thinkingLevel/planMode 在这里补齐
+    if (cmd.type === "session.fork") {
+      const prepared = prepareForkCommand(registry, cmd.payload);
+      if (!prepared.ok) throw new Error(prepared.error);
+      cmd.payload = prepared.payload;
+    }
+
     return bridge.call(cmd, { timeoutMs: CALL_TIMEOUTS[cmd.type] }).then((result) => {
+      // Fork 成功：注册表写入新条目（标题后缀/继承关系见 buildForkRegistryEntry），广播列表刷新
+      if (cmd.type === "session.fork") {
+        const source = registry.get(cmd.payload.sourceSessionId);
+        if (source) {
+          registry.upsert(buildForkRegistryEntry(source, cmd.payload));
+          bridge.emitLocal({ type: "sessions.changed" });
+        }
+      }
       backfillSessionFile(cmd, result, registry);
       return result;
     });

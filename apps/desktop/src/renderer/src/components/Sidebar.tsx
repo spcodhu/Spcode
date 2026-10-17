@@ -48,6 +48,7 @@ export function Sidebar({
   const createSession = useStore((s) => s.createSession);
   const openSession = useStore((s) => s.openSession);
   const deleteSession = useStore((s) => s.deleteSession);
+  const setForkDialogFor = useStore((s) => s.setForkDialogFor);
   const pendingQuestions = useStore((s) => s.pendingQuestions);
 
   /** 有待回答提问的会话集合（侧栏「?」标记用） */
@@ -94,6 +95,26 @@ export function Sidebar({
   const openRegistry = (r: RegistrySession) => {
     if (sessions[r.id]) setActive(r.id);
     else void openSession(r);
+  };
+
+  /** 分叉会话的 tooltip 溯源标注：「分叉自《源标题》」（源已删则如实标注） */
+  const forkOriginTitle = (r: RegistrySession): string | undefined => {
+    if (!r.forkedFrom) return undefined;
+    return registrySessions.find((x) => x.id === r.forkedFrom)?.title ?? "已删除的会话";
+  };
+
+  /** Fork 菜单项（空间会话与聊天会话共用）：源会话运行中或未落盘时禁用 */
+  const forkMenuItem = (r: RegistrySession): SectionMenuItem => {
+    const running = sessions[r.id]?.running ?? false;
+    const disabled = running || !r.sessionFile;
+    return {
+      key: "fork",
+      icon: "branch",
+      label: "Fork 会话",
+      disabled,
+      disabledHint: running ? "会话正在运行，停下后再分叉" : "会话还没有可分叉的内容",
+      onClick: () => setForkDialogFor(r.id),
+    };
   };
 
   const newProjectInSpace = async (cwd: string) => {
@@ -246,6 +267,7 @@ export function Sidebar({
                           running={sessions[r.id]?.running ?? false}
                           waiting={waitingSessionIds.has(r.id)}
                           menuItems={[
+                            forkMenuItem(r),
                             {
                               key: "reveal",
                               icon: "folder",
@@ -261,6 +283,7 @@ export function Sidebar({
                               onClick: () => void deleteSession(r.id),
                             },
                           ]}
+                          forkedFromTitle={forkOriginTitle(r)}
                           onOpen={() => openRegistry(r)}
                           onDelete={() => void deleteSession(r.id)}
                         />
@@ -327,6 +350,7 @@ export function Sidebar({
                   running={sessions[r.id]?.running ?? false}
                   waiting={waitingSessionIds.has(r.id)}
                   menuItems={[
+                    forkMenuItem(r),
                     {
                       key: "del",
                       icon: "x",
@@ -336,6 +360,7 @@ export function Sidebar({
                       onClick: () => void deleteSession(r.id),
                     },
                   ]}
+                  forkedFromTitle={forkOriginTitle(r)}
                   onOpen={() => openRegistry(r)}
                   onDelete={() => void deleteSession(r.id)}
                 />
@@ -429,6 +454,7 @@ function SessionRow({
   waiting,
   nested,
   menuItems,
+  forkedFromTitle,
   onOpen,
   onDelete,
 }: {
@@ -441,6 +467,8 @@ function SessionRow({
   nested?: boolean;
   /** hover 时「…」菜单项（删除之外的操作，如在 Finder 中显示） */
   menuItems?: SectionMenuItem[];
+  /** Fork 会话的溯源标注（「分叉自《xxx》」tooltip） */
+  forkedFromTitle?: string;
   onOpen: () => void;
   onDelete: () => void;
 }) {
@@ -450,7 +478,7 @@ function SessionRow({
         nested ? "h-8 pl-8 pr-2" : "h-9 px-2"
       } ${active ? "bg-accent-soft" : "hover:bg-bg-hover"}`}
       onClick={onOpen}
-      title={r.title}
+      title={forkedFromTitle ? `${r.title}\n分叉自《${forkedFromTitle}》` : r.title}
     >
       <span className={`shrink-0 rounded-full ${active ? "h-1.5 w-1.5 bg-accent" : "h-1 w-1 bg-text-tertiary/70"}`} />
       <span className={`min-w-0 flex-1 truncate text-[13px] ${active ? "text-accent" : "text-text-secondary"}`}>
@@ -495,6 +523,9 @@ interface SectionMenuItem {
   danger?: boolean;
   /** 需要二次确认：第一次点击变为「确认…?」，再点才执行 */
   confirm?: boolean;
+  /** 禁用（灰显、不响应点击；disabledHint 为悬浮提示的禁用原因） */
+  disabled?: boolean;
+  disabledHint?: string;
   onClick: () => void;
 }
 
@@ -547,7 +578,10 @@ function SectionMenu({ title, items }: { title: string; items: SectionMenuItem[]
               <button
                 type="button"
                 key={item.key}
+                disabled={item.disabled}
+                title={item.disabled ? item.disabledHint : undefined}
                 onClick={() => {
+                  if (item.disabled) return;
                   if (item.confirm && !confirming) {
                     setConfirmKey(item.key);
                     return;
@@ -556,8 +590,10 @@ function SectionMenu({ title, items }: { title: string; items: SectionMenuItem[]
                   setConfirmKey(null);
                   item.onClick();
                 }}
-                className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] hover:bg-bg-hover ${
-                  item.danger || confirming ? "text-danger" : "text-text-primary"
+                className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] ${
+                  item.disabled
+                    ? "cursor-not-allowed text-text-tertiary opacity-50"
+                    : `hover:bg-bg-hover ${item.danger || confirming ? "text-danger" : "text-text-primary"}`
                 }`}
               >
                 {item.icon && <Icon name={item.icon} size={14} className="shrink-0 text-text-tertiary" />}

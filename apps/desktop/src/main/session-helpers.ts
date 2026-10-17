@@ -10,6 +10,9 @@ import { baseName, type HostCommand, type HostEvent } from "@spcode/shared";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 import type { SessionRegistryEntry } from "./session-registry.js";
 
+/** session.fork 命令的 payload 类型（从 HostCommand 提取，与协议保持同源） */
+export type ForkPayload = Extract<HostCommand, { type: "session.fork" }>["payload"];
+
 /** 注册表最小结构接口（handlers 单测可用纯 mock 实现） */
 export interface RegistryLike {
   list(): SessionRegistryEntry[];
@@ -34,9 +37,15 @@ export function isDefaultTitle(title: string, cwd: string): boolean {
   return title === "新聊天" || title === "新项目" || title === baseName(cwd);
 }
 
-/** 会话创建/恢复/唤醒成功后回填 sessionFile 等到注册表（支撑下次恢复） */
+/** 会话创建/恢复/唤醒/分叉成功后回填 sessionFile 等到注册表（支撑下次恢复） */
 export function backfillSessionFile(cmd: HostCommand, result: unknown, registry: RegistryLike): void {
-  if (cmd.type !== "session.create" && cmd.type !== "session.open" && cmd.type !== "session.activate") return;
+  if (
+    cmd.type !== "session.create" &&
+    cmd.type !== "session.open" &&
+    cmd.type !== "session.activate" &&
+    cmd.type !== "session.fork"
+  )
+    return;
   const data = result as
     | {
         sessionId?: string;
@@ -58,6 +67,58 @@ export function backfillSessionFile(cmd: HostCommand, result: unknown, registry:
 /** 标题入注册表前的归一化：去首尾空白、限长 100（与 PairHelloInner 设备名同口径） */
 export function normalizeSessionTitle(title: string): string {
   return title.trim().slice(0, 100);
+}
+
+/**
+ * Fork 命令的注册表补全（主进程 IPC 层调用）：渲染层只传 sourceSessionId/newSessionId
+ * 与可选项；源会话的 sessionFile/cwd/mode 与缺省继承的 model/thinkingLevel/planMode
+ * 都在这里补齐（对照 Claude Code fork：未显式指定的维度继承源会话）。
+ * 源会话不存在 → ok:false（调用方据此报错）。
+ */
+export function prepareForkCommand(
+  registry: RegistryLike,
+  payload: ForkPayload,
+): { ok: true; payload: ForkPayload } | { ok: false; error: string } {
+  const source = registry.get(payload.sourceSessionId);
+  if (!source) return { ok: false, error: `源会话不存在：${payload.sourceSessionId}` };
+  return {
+    ok: true,
+    payload: {
+      ...payload,
+      sourceSessionFile: source.sessionFile ?? undefined,
+      cwd: source.cwd,
+      mode: source.mode,
+      model: payload.model ?? source.model ?? undefined,
+      thinkingLevel: payload.thinkingLevel ?? source.thinkingLevel,
+      planMode: payload.planMode ?? source.planMode ?? false,
+    },
+  };
+}
+
+/**
+ * Fork 成功后的注册表新条目：继承源会话的 mode/cwd，标题默认「<源标题> · 分叉」。
+ * 不复制 planFile——计划文件按 sessionId 命名（~/.spcode/plans/<id>.md），互不相干。
+ */
+export function buildForkRegistryEntry(
+  source: SessionRegistryEntry,
+  payload: ForkPayload,
+  now = Date.now(),
+): SessionRegistryEntry {
+  const title = normalizeSessionTitle(payload.title ?? "") || normalizeSessionTitle(`${source.title} · 分叉`);
+  return {
+    id: payload.newSessionId,
+    mode: source.mode,
+    cwd: source.cwd,
+    title,
+    model: payload.model ?? source.model,
+    thinkingLevel: payload.thinkingLevel ?? source.thinkingLevel,
+    sessionFile: null,
+    planMode: payload.planMode ?? source.planMode ?? false,
+    planFile: null,
+    forkedFrom: source.id,
+    createdAt: now,
+    updatedAt: now,
+  };
 }
 
 /**

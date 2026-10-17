@@ -158,6 +158,25 @@ export type HostCommand =
         planMode?: boolean;
       };
     }
+  | {
+      id: string;
+      /** Fork 会话：复制源会话的完整上下文到新会话（新 id），两会话从此独立演进 */
+      type: "session.fork";
+      payload: {
+        sourceSessionId: string;
+        newSessionId: string;
+        /** 新会话标题（缺省由主进程生成「<源标题> · 分叉」） */
+        title?: string;
+        /** 缺省继承源会话 */
+        model?: ModelRef;
+        thinkingLevel?: string;
+        planMode?: boolean;
+        /** 以下字段由主进程从注册表补全，渲染层不传 */
+        sourceSessionFile?: string;
+        cwd?: string;
+        mode?: SessionMode;
+      };
+    }
   | { id: string; type: "session.prompt"; payload: { sessionId: string; text: string; images?: ImageAttachment[] } }
   | { id: string; type: "session.setPlanMode"; payload: { sessionId: string; enabled: boolean } }
   | { id: string; type: "session.abort"; payload: { sessionId: string } }

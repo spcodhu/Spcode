@@ -20,6 +20,8 @@ export interface SessionRegistryEntry {
   planMode?: boolean;
   /** WritePlan 落盘的 PLAN.md 路径（~/.spcode/plans/<id>.md），删会话时一并清理 */
   planFile?: string | null;
+  /** Fork 来源会话 id（分叉会话才有；UI tooltip 标注用） */
+  forkedFrom?: string;
   createdAt: number;
   updatedAt: number;
 }
