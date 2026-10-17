@@ -96,4 +96,22 @@ test.describe("Composer 输入区", () => {
 
     await app.close();
   });
+
+  test("流程图块：mermaid 插件按需加载后渲染出 SVG", async () => {
+    const app = await launchApp();
+    const window = await app.firstWindow();
+    await window.getByRole("button", { name: /新建聊天/ }).click();
+    await expect(window.getByPlaceholder(/说点什么/)).toBeVisible({ timeout: 15000 });
+
+    await window.getByTestId("md-mode-toggle").click();
+    // 工具栏插入流程图模板（```mermaid graph TD ...```）
+    await window.getByTestId("md-editor").click();
+    await window.getByTestId("md-tool-mermaid").click();
+
+    // 预览：mermaid chunk 按需加载后渲染出 SVG 图
+    await window.getByTestId("md-view-preview").click();
+    await expect(window.locator(".md-body svg").first()).toBeVisible({ timeout: 20000 });
+
+    await app.close();
+  });
 });
