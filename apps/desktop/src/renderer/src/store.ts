@@ -11,6 +11,7 @@
 
 import type {
   AppSettings,
+  ExportContextResult,
   HostEvent,
   ImageAttachment,
   ModelInfo,
@@ -198,6 +199,8 @@ interface StoreState {
   /** Fork 弹窗当前针对的源会话 id（null = 关闭） */
   forkDialogFor: string | null;
   setForkDialogFor(id: string | null): void;
+  /** 导出会话上下文（handoff）：落盘三件套并把接力提示词复制到剪贴板 */
+  exportSessionContext(id: string): Promise<void>;
   /** 草稿会话落盘：首次发送消息时才真正创建并写入历史，返回正式 sessionId */
   materializeDraft(draftId: string): Promise<string>;
   openSession(entry: RegistrySession): Promise<void>;
@@ -851,6 +854,34 @@ export const useStore = create<StoreState>((set, get) => ({
     // 走标准激活路径：被切走的会话进休眠宽限，新会话上位
     get().setActive(newId);
     return newId;
+  },
+
+  async exportSessionContext(id) {
+    const entry = get().registrySessions.find((r) => r.id === id);
+    if (!entry) return;
+    try {
+      const result = await window.spcode.command<ExportContextResult>({
+        type: "session.exportContext",
+        payload: { sessionId: id },
+      });
+      let copied = true;
+      try {
+        await navigator.clipboard.writeText(result.promptText);
+      } catch {
+        copied = false;
+      }
+      const running = get().sessions[id]?.running ?? false;
+      const snapshotHint = running ? "（会话仍在进行，导出的是当前时刻快照）" : "";
+      set({
+        notice: {
+          text: copied
+            ? `接力提示词已复制，粘贴给下一个 AI 助手即可继续${snapshotHint}。导出目录：${result.dir}`
+            : `复制剪贴板失败，接力提示词已保存到 ${result.promptPath}，可手动复制`,
+        },
+      });
+    } catch (e) {
+      set({ lastError: e instanceof Error ? e.message : String(e) });
+    }
   },
 
   setActive(id) {

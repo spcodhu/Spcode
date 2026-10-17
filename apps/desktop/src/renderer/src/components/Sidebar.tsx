@@ -49,6 +49,7 @@ export function Sidebar({
   const openSession = useStore((s) => s.openSession);
   const deleteSession = useStore((s) => s.deleteSession);
   const setForkDialogFor = useStore((s) => s.setForkDialogFor);
+  const exportSessionContext = useStore((s) => s.exportSessionContext);
   const pendingQuestions = useStore((s) => s.pendingQuestions);
 
   /** 有待回答提问的会话集合（侧栏「?」标记用） */
@@ -116,6 +117,16 @@ export function Sidebar({
       onClick: () => setForkDialogFor(r.id),
     };
   };
+
+  /** 导出会话上下文菜单项（共用）：未落盘时禁用；导出+复制提示词一步到位 */
+  const exportMenuItem = (r: RegistrySession): SectionMenuItem => ({
+    key: "export",
+    icon: "copy",
+    label: "导出会话上下文",
+    disabled: !r.sessionFile,
+    disabledHint: "会话还没有可导出的内容",
+    onClick: () => void exportSessionContext(r.id),
+  });
 
   const newProjectInSpace = async (cwd: string) => {
     await createSession("project", cwd);
@@ -268,6 +279,7 @@ export function Sidebar({
                           waiting={waitingSessionIds.has(r.id)}
                           menuItems={[
                             forkMenuItem(r),
+                            exportMenuItem(r),
                             {
                               key: "reveal",
                               icon: "folder",
@@ -351,6 +363,7 @@ export function Sidebar({
                   waiting={waitingSessionIds.has(r.id)}
                   menuItems={[
                     forkMenuItem(r),
+                    exportMenuItem(r),
                     {
                       key: "del",
                       icon: "x",

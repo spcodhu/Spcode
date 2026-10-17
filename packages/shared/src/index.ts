@@ -178,6 +178,18 @@ export type HostCommand =
       };
     }
   | { id: string; type: "session.prompt"; payload: { sessionId: string; text: string; images?: ImageAttachment[] } }
+  | {
+      id: string;
+      /** 导出会话上下文（handoff）：落盘 transcript.md + session.jsonl + handoff.md，返回接力提示词 */
+      type: "session.exportContext";
+      payload: {
+        sessionId: string;
+        /** 以下字段由主进程从注册表补全，渲染层不传 */
+        sessionFile?: string;
+        cwd?: string;
+        title?: string;
+      };
+    }
   | { id: string; type: "session.setPlanMode"; payload: { sessionId: string; enabled: boolean } }
   | { id: string; type: "session.abort"; payload: { sessionId: string } }
   | { id: string; type: "session.setModel"; payload: { sessionId: string; model: ModelRef } }
@@ -237,6 +249,25 @@ export type HostEvent =
   | { type: "schedule.fired"; taskId: string; name: string; sessionId: string }
   /** fatal=true 表示宿主进程已退出（渲染层据此置 hostReady=false）；普通错误（如 prompt 失败）不影响就绪态 */
   | { type: "host.error"; message: string; fatal?: boolean };
+
+// ---------------------------------------------------------------------------
+// 会话上下文导出（handoff）
+// ---------------------------------------------------------------------------
+
+/** session.exportContext 的返回：导出目录与三件套路径 + 可直接复制到剪贴板的接力提示词 */
+export interface ExportContextResult {
+  /** 导出目录（~/.spcode/exports/<slug>-<ts>/） */
+  dir: string;
+  /** 人类可读对话记录（Markdown） */
+  transcriptPath: string;
+  /** pi 原始会话文件整份复制（含所有分支/compaction/usage） */
+  jsonlPath: string;
+  /** 接力提示词落盘路径（与 promptText 同内容，剪贴板失败时的兜底） */
+  promptPath: string;
+  /** 接力提示词全文（渲染层复制到剪贴板） */
+  promptText: string;
+  stats: { messages: number; chars: number };
+}
 
 // ---------------------------------------------------------------------------
 // 会话搜索

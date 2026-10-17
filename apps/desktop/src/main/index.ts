@@ -239,6 +239,15 @@ function registerIpc(): void {
       cmd.payload = prepared.payload;
     }
 
+    // 导出会话上下文：渲染层只传 sessionId，sessionFile/cwd/title 从注册表补齐
+    if (cmd.type === "session.exportContext") {
+      const entry = registry.get(cmd.payload.sessionId);
+      if (!entry) throw new Error(`会话不存在：${cmd.payload.sessionId}`);
+      cmd.payload.sessionFile = entry.sessionFile ?? undefined;
+      cmd.payload.cwd = entry.cwd;
+      cmd.payload.title = entry.title;
+    }
+
     return bridge.call(cmd, { timeoutMs: CALL_TIMEOUTS[cmd.type] }).then((result) => {
       // Fork 成功：注册表写入新条目（标题后缀/继承关系见 buildForkRegistryEntry），广播列表刷新
       if (cmd.type === "session.fork") {

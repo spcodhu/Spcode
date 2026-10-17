@@ -27,6 +27,7 @@ import type {
 import { DEFAULT_SANDBOX_SETTINGS } from "@spcode/shared";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 import { HibernationManager } from "./hibernation.js";
+import { exportSessionContext } from "./export-context.js";
 import { MemoryStore } from "./memory-store.js";
 import { getSandboxService } from "./sandbox/manager.js";
 import { SessionController } from "./session-controller.js";
@@ -537,6 +538,23 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
       }
       case "memory.read": {
         respond(id, true, getMemoryStore().readAll());
+        break;
+      }
+      case "session.exportContext": {
+        // 纯文件读导出（不唤醒/不创建 AgentSession）：运行中/休眠会话都可导出，
+        // append-only 会话文件读到的是导出时刻快照
+        const sessionFile = cmd.payload.sessionFile;
+        if (!sessionFile) throw new Error("该会话还没有可导出的内容（会话记录为空）");
+        respond(
+          id,
+          true,
+          exportSessionContext({
+            sessionFile,
+            cwd: cmd.payload.cwd ?? "",
+            title: cmd.payload.title ?? cmd.payload.sessionId,
+            spcodeHome: SPCODE_HOME,
+          }),
+        );
         break;
       }
       case "theme.generate": {
