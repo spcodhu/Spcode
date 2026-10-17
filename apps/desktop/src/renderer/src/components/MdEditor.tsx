@@ -1,0 +1,206 @@
+/**
+ * Markdown 编辑器：contentEditable 实现的「文档式」输入区。
+ *
+ * - 文本是 raw markdown，图片内嵌 <img> 直显（附件 base64），即「图片显示在对应位置」
+ * - 非受控 DOM + 序列化同步：打字只上行（DOM→store），外部变更（发送清空/草稿恢复/
+ *   prefill/切会话）才下行（store→DOM），比对一致就不重设 innerHTML，光标不跳
+ * - Enter 发送 / Shift+Enter 换行（insertText "\n"，浏览器生成 <br> 且光标正确跟随）
+ * - 粘贴：图片内嵌光标处；text/html 经 turndown 转 markdown 插入；纯文本规范化插入
+ */
+
+import type { ImageAttachment } from "@spcode/shared";
+import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import TurndownService from "turndown";
+import { collectImageNames, draftToEditorHtml, serializeEditor } from "../md-editor";
+
+export interface MdEditorHandle {
+  /** 在光标处内嵌图片（无选区时追加到末尾），并把附件并入 attachments */
+  insertImages(atts: ImageAttachment[]): void;
+  /** 在光标处插入 markdown 文本（\n 规范化为 <br>） */
+  insertMarkdown(md: string): void;
+  focus(): void;
+}
+
+/** 富文本粘贴 → Markdown（模块级单例） */
+let turndown: TurndownService | null = null;
+function getTurndown(): TurndownService {
+  if (!turndown) turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
+  return turndown;
+}
+
+function escHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** 把浏览器选区收敛到编辑器内（无选区/选区在外部时移到内容末尾） */
+function ensureSelectionInside(root: HTMLElement): void {
+  root.focus();
+  const sel = window.getSelection();
+  if (sel && sel.rangeCount > 0 && root.contains(sel.anchorNode)) return;
+  const range = document.createRange();
+  range.selectNodeContents(root);
+  range.collapse(false);
+  sel?.removeAllRanges();
+  sel?.addRange(range);
+}
+
+export const MdEditor = forwardRef<
+  MdEditorHandle,
+  {
+    /** store 草稿 key：变化时强制重建内容（切会话） */
+    draftKey: string;
+    text: string;
+    attachments: ImageAttachment[];
+    placeholder: string;
+    onSync: (text: string, attachments: ImageAttachment[]) => void;
+    onSend: () => void;
+  }
+>(function MdEditor({ draftKey, text, attachments, placeholder, onSync, onSend }, ref) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  // onSync/附件的最新引用（onInput 等事件回调闭包用，避免每次渲染重绑监听）
+  const attachmentsRef = useRef(attachments);
+  attachmentsRef.current = attachments;
+  const onSyncRef = useRef(onSync);
+  onSyncRef.current = onSync;
+  const onSendRef = useRef(onSend);
+  onSendRef.current = onSend;
+
+  /** DOM → store：序列化 + 空态归一 + 清理已删除图片的附件 */
+  const syncFromDom = () => {
+    const root = rootRef.current;
+    if (!root) return;
+    let next = serializeEditor(root);
+    if (!next.trim() && !root.querySelector("img")) {
+      // 空态归一：浏览器残留的 <br> 占位清掉，恢复 :empty 占位符
+      if (root.innerHTML !== "") root.innerHTML = "";
+      next = "";
+    }
+    const names = collectImageNames(next);
+    const kept = attachmentsRef.current.filter((a) => names.has(a.name));
+    onSyncRef.current(next, kept);
+  };
+
+  /** store → DOM：仅外部变更时重设（打字期间 serialize(DOM) 必然等于 text） */
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    if (serializeEditor(root) === text) return;
+    root.innerHTML = draftToEditorHtml(text, attachmentsRef.current);
+  }, [text, draftKey]);
+
+  // 挂载时灌入草稿（首帧 effect 已覆盖；这里处理 StrictMode 重挂载：DOM 重建后 effect 不一定再跑）
+  useEffect(() => {
+    const root = rootRef.current;
+    if (root && text && !root.innerHTML) {
+      root.innerHTML = draftToEditorHtml(text, attachmentsRef.current);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅挂载时
+  }, []);
+
+  /** 在光标处内嵌图片（无选区时追加到末尾），并把附件并入附件列表 */
+  const insertAttachments = (atts: ImageAttachment[]) => {
+    const root = rootRef.current;
+    if (!root || atts.length === 0) return;
+    ensureSelectionInside(root);
+    for (const att of atts) {
+      const name = escHtml(att.name);
+      document.execCommand(
+        "insertHTML",
+        false,
+        `<img src="data:${att.mimeType};base64,${att.data}" data-name="${name}" alt="${name}" class="md-inline-img" />`,
+      );
+    }
+    onSyncRef.current(serializeEditor(root), [...attachmentsRef.current, ...atts]);
+  };
+
+  useImperativeHandle(ref, () => ({
+    insertImages: insertAttachments,
+    insertMarkdown(md) {
+      const root = rootRef.current;
+      if (!root || !md) return;
+      ensureSelectionInside(root);
+      // 手动规范化（转义 + \n→<br>），不依赖浏览器 insertHTML 对纯文本的差异化处理
+      document.execCommand("insertHTML", false, md.split("\n").map(escHtml).join("<br>"));
+      syncFromDom();
+    },
+    focus() {
+      rootRef.current?.focus();
+    },
+  }));
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    const items = Array.from(e.clipboardData?.items ?? []);
+    const imgFiles = items
+      .filter((it) => it.kind === "file" && it.type.startsWith("image/"))
+      .map((it) => it.getAsFile())
+      .filter((f): f is File => !!f && f.size <= 10 * 1024 * 1024);
+    if (imgFiles.length > 0) {
+      e.preventDefault();
+      void Promise.all(imgFiles.map((f, i) => fileToAttachment(f, i))).then(insertAttachments);
+      return;
+    }
+    const html = e.clipboardData?.getData("text/html") ?? "";
+    if (html.trim()) {
+      e.preventDefault();
+      const md = getTurndown().turndown(html);
+      if (md.trim()) {
+        ensureSelectionInside(rootRef.current!);
+        document.execCommand("insertHTML", false, md.split("\n").map(escHtml).join("<br>"));
+        syncFromDom();
+      }
+      return;
+    }
+    const plain = e.clipboardData?.getData("text/plain") ?? "";
+    if (plain) {
+      e.preventDefault();
+      ensureSelectionInside(rootRef.current!);
+      document.execCommand("insertHTML", false, plain.split("\n").map(escHtml).join("<br>"));
+      syncFromDom();
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Enter") return;
+    if (e.nativeEvent.isComposing) return; // IME 组词中的 Enter 是上屏，不触发发送/换行
+    e.preventDefault();
+    if (e.shiftKey) {
+      // insertText "\n"：浏览器生成 <br> 且光标正确跟随（insertHTML "<br>" 在末尾时光标不上移）
+      document.execCommand("insertText", false, "\n");
+      syncFromDom();
+    } else {
+      onSendRef.current();
+    }
+  };
+
+  return (
+    <div
+      ref={rootRef}
+      data-testid="md-editor"
+      contentEditable
+      role="textbox"
+      aria-multiline="true"
+      tabIndex={0}
+      data-placeholder={placeholder}
+      onInput={syncFromDom}
+      onPaste={handlePaste}
+      onKeyDown={handleKeyDown}
+      className="md-editor mono text-[14px] leading-6"
+    />
+  );
+});
+
+/** 剪贴板图片 File → ImageAttachment（独立命名：占位与附件同名）。Composer 的 plain 模式粘贴也复用。 */
+export function fileToAttachment(file: File, index = 0): Promise<ImageAttachment> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = String(reader.result ?? "");
+      const comma = url.indexOf(",");
+      if (comma < 0) return reject(new Error("图片读取失败"));
+      const ext = file.type.split("/")[1]?.toLowerCase() || "png";
+      resolve({ name: `pasted-${Date.now()}-${index + 1}.${ext}`, mimeType: file.type, data: url.slice(comma + 1) });
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("图片读取失败"));
+    reader.readAsDataURL(file);
+  });
+}

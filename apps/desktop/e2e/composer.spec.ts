@@ -64,32 +64,43 @@ test.describe("输入框：草稿保存", () => {
 });
 
 test.describe("输入框：Markdown 模式", () => {
-  test("MD 切换 → 等宽字体与占位文案 → 预览渲染 → 切回保留模式", async () => {
+  test("MD 浮牌切换 → 文档式编辑区 → 预览渲染 → 模式按会话记住", async () => {
     const app = await launchApp();
     const window = await app.firstWindow();
 
     await window.getByRole("button", { name: /新建聊天/ }).click();
-    const composer = window.getByPlaceholder(/说点什么/);
-    await expect(composer).toBeVisible({ timeout: 15000 });
+    await expect(window.getByPlaceholder(/说点什么/)).toBeVisible({ timeout: 15000 });
 
-    // 切到 MD 模式：占位文案变化，出现预览按钮
+    // 右上角浮牌切换到 MD 模式：文档式编辑区出现，预览牌同时浮出
     await window.getByTestId("md-mode-toggle").click();
-    const mdComposer = window.getByPlaceholder(/Markdown/);
-    await expect(mdComposer).toBeVisible();
+    const editor = window.getByTestId("md-editor");
+    await expect(editor).toBeVisible();
     await expect(window.getByTestId("md-preview-toggle")).toBeVisible();
 
-    // 输入 markdown，切预览 → 渲染出标题
-    await mdComposer.fill("# 大标题");
+    // 编辑区立即变高（min 220px）
+    const height = await editor.evaluate((el) => el.parentElement!.clientHeight);
+    expect(height).toBeGreaterThanOrEqual(220);
+
+    // contenteditable 输入 markdown，Shift+Enter 换行
+    await editor.click();
+    await editor.pressSequentially("# 大标题");
+    await window.keyboard.press("Shift+Enter");
+    await editor.pressSequentially("第二行");
+    await expect(editor).toContainText("大标题");
+    await expect(editor).toContainText("第二行");
+
+    // 预览：渲染出标题
     await window.getByTestId("md-preview-toggle").click();
     await expect(window.getByRole("heading", { name: "大标题" })).toBeVisible();
 
-    // 切回编辑 → 原文还在
+    // 切回编辑：原文（含换行）还在
     await window.getByTestId("md-preview-toggle").click();
-    await expect(window.getByPlaceholder(/Markdown/)).toHaveValue("# 大标题");
+    await expect(window.getByTestId("md-editor")).toContainText("大标题");
+    await expect(window.getByTestId("md-editor")).toContainText("第二行");
 
-    // MD 模式按会话记住：侧栏「新对话」dup 复用同一草稿会话，模式与文本都还在
+    // 模式与内容按会话记住（「新对话」dup 复用同一草稿）
     await window.getByRole("button", { name: "新对话" }).click();
-    await expect(window.getByPlaceholder(/Markdown/)).toHaveValue("# 大标题");
+    await expect(window.getByTestId("md-editor")).toContainText("大标题");
 
     await app.close();
   });

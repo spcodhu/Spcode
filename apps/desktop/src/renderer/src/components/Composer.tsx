@@ -1,12 +1,13 @@
 import type { ComposerDraft, ImageAttachment, ModelInfo, ModelRef } from "@spcode/shared";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import TurndownService from "turndown";
 import { buildFileBlocks, type DraftFile } from "../file-blocks";
 import { formatFileSize } from "../format";
+import { resolveImageRefs } from "../md-editor";
 import { composerDraftKeyOf, type SessionState, useStore } from "../store";
 import { Icon } from "./Icon";
 import { ImageLightbox } from "./ImageLightbox";
 import { Markdown } from "./Markdown";
+import { fileToAttachment, MdEditor, type MdEditorHandle } from "./MdEditor";
 
 // ---------------------------------------------------------------------------
 // 外部预填输入框（空态建议卡片等场景点击后把提示词填进输入框并聚焦）
@@ -19,9 +20,9 @@ export function prefillComposer(text: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// Markdown 输入模式：应对大量/未经整理的结构化文本输入
-// - 等宽字体编辑 + Streamdown 预览切换
-// - 粘贴富文本（text/html）自动转 Markdown；粘贴图片插入 ![name] 占位 + 附件
+// Markdown 输入模式（文档式编辑区，独立于 plain 的 textarea）：
+// - contentEditable 编辑器：文本为 raw markdown，图片内嵌 <img> 直显在对应位置
+// - 编辑/预览切换（预览经 resolveImageRefs 把 ![name] 解析成内联 data URL）
 // - 任意文件以 chip 挂载，发送时内容拼接进消息文本（引擎仅支持文本+图片）
 // ---------------------------------------------------------------------------
 
@@ -30,13 +31,6 @@ type InputMode = ComposerDraft["inputMode"];
 /** 空附件常量（草稿缺省值复用同一引用，避免每次渲染新数组） */
 const EMPTY_ATTACHMENTS: ImageAttachment[] = [];
 const EMPTY_FILES: DraftFile[] = [];
-
-/** 富文本粘贴 → Markdown（模块级单例，与 agent-host 的 webfetch/websearch 同款配置） */
-let turndown: TurndownService | null = null;
-function getTurndown(): TurndownService {
-  if (!turndown) turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
-  return turndown;
-}
 
 export function Composer({ sessionId }: { sessionId: string }) {
   const session = useStore((s) => s.sessions[sessionId]);
@@ -62,6 +56,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const setPlanMode = useStore((s) => s.setPlanMode);
   const saveSettings = useStore((s) => s.saveSettings);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const mdEditorRef = useRef<MdEditorHandle>(null);
 
   const updateDraft = (patch: Partial<Omit<ComposerDraft, "updatedAt">>) => setComposerDraft(draftKey, patch);
 
@@ -77,6 +72,11 @@ export function Composer({ sessionId }: { sessionId: string }) {
       const text = (e as CustomEvent<{ text: string }>).detail?.text ?? "";
       updateDraft({ text });
       requestAnimationFrame(() => {
+        const mode = useStore.getState().composerDrafts[draftKey]?.inputMode ?? "plain";
+        if (mode === "markdown") {
+          mdEditorRef.current?.focus();
+          return;
+        }
         const el = textareaRef.current;
         el?.focus();
         el?.setSelectionRange(text.length, text.length);
@@ -87,8 +87,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
     // biome-ignore lint/correctness/useExhaustiveDependencies: updateDraft 随 draftKey 重建，只需在 key 变化时重绑
   }, [draftKey]);
 
-  // 高度自适应：textarea 不设行数上限，滚动交给外层容器（padding 常驻，
-  // 修复多行输入时 padding-top 随内容滚出视野的问题）
+  // 高度自适应（仅 plain textarea；MD 编辑器由内容自然撑开，外层容器限高滚动）
   useLayoutEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -99,20 +98,8 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const canSend = !!text.trim() || attachments.length > 0 || files.length > 0;
   const planMode = session?.planMode ?? false;
   const mdMode = inputMode === "markdown";
-
-  /** 在光标处插入片段（MD 模式的图片占位/富文本转换用），插入后光标移到片段末尾 */
-  const insertAtCursor = (snippet: string) => {
-    const el = textareaRef.current;
-    const prev = useStore.getState().composerDrafts[draftKey]?.text ?? "";
-    const focused = el && document.activeElement === el;
-    const start = focused ? el.selectionStart : prev.length;
-    const end = focused ? el.selectionEnd : prev.length;
-    requestAnimationFrame(() => {
-      el?.focus();
-      el?.setSelectionRange(start + snippet.length, start + snippet.length);
-    });
-    updateDraft({ text: prev.slice(0, start) + snippet + prev.slice(end) });
-  };
+  // 预览文本：仅 MD 预览态计算（把 ![name] 解析成内联 data URL；含大 base64，避免每次渲染都算）
+  const previewText = mdMode && previewOn ? resolveImageRefs(text, attachments) : "";
 
   const send = () => {
     if (!canSend || running) return;
@@ -122,12 +109,23 @@ export function Composer({ sessionId }: { sessionId: string }) {
     // 发送即清空草稿（与旧语义一致：乐观清空，不等引擎响应）
     clearComposerDraft(draftKey);
     void sendPrompt(value, imgs.length ? imgs : undefined, fileMeta.length ? fileMeta : undefined);
-    requestAnimationFrame(() => textareaRef.current?.focus());
+    requestAnimationFrame(() => {
+      if (mdMode) mdEditorRef.current?.focus();
+      else textareaRef.current?.focus();
+    });
   };
 
+  /** 添加图片：MD 模式内嵌到编辑器光标处（图片显示在对应位置）；plain 模式挂顶部附件 chips */
   const pickAttachments = async () => {
     const imgs = await window.spcode.pickImages().catch(() => []);
-    if (imgs.length) appendToDraft("attachments", imgs);
+    if (!imgs.length) return;
+    if (mdMode) {
+      // 预览态下编辑器未挂载：先切回编辑态再插入（光标兜底到末尾）
+      if (previewOn) setPreviewOn(false);
+      requestAnimationFrame(() => mdEditorRef.current?.insertImages(imgs));
+    } else {
+      appendToDraft("attachments", imgs);
+    }
   };
 
   /** MD 模式「添加文件」：图片走附件通道，文本文件进 chips，二进制/超大提示拒绝 */
@@ -147,33 +145,17 @@ export function Composer({ sessionId }: { sessionId: string }) {
     if (rejected.length) useStore.setState({ notice: { text: `以下文件未添加：${rejected.join("、")}` } });
   };
 
-  // Cmd/Ctrl+V 粘贴：图片 → 附件（MD 模式另在光标处插入 ![name] 占位）；
-  // MD 模式下富文本（text/html）自动转 Markdown；无图片则走默认文本粘贴
+  // plain 模式粘贴：图片 → 附件 chips（MD 模式的粘贴由 MdEditor 自行处理）
   const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const imgFiles = Array.from(e.clipboardData?.items ?? [])
       .filter((it) => it.kind === "file" && it.type.startsWith("image/"))
       .map((it) => it.getAsFile())
       .filter((f): f is File => !!f && f.size <= 10 * 1024 * 1024);
-    if (imgFiles.length > 0) {
-      e.preventDefault();
-      const names = imgFiles.map((f, i) => {
-        const ext = f.type.split("/")[1]?.toLowerCase() || "png";
-        return `pasted-${Date.now()}-${i + 1}.${ext}`;
-      });
-      void Promise.all(imgFiles.map((f, i) => fileToAttachment(f, names[i] ?? f.name))).then((imgs) =>
-        appendToDraft("attachments", imgs),
-      );
-      if (mdMode) insertAtCursor(names.map((n) => `![${n}]`).join("\n"));
-      return;
-    }
-    if (mdMode) {
-      const html = e.clipboardData?.getData("text/html") ?? "";
-      if (html.trim()) {
-        e.preventDefault();
-        const md = getTurndown().turndown(html);
-        if (md.trim()) insertAtCursor(md.endsWith("\n") ? md : `${md}\n`);
-      }
-    }
+    if (imgFiles.length === 0) return;
+    e.preventDefault();
+    void Promise.all(imgFiles.map((f, i) => fileToAttachment(f, i))).then((imgs) =>
+      appendToDraft("attachments", imgs),
+    );
   };
 
   const actMode = settings?.permissionMode === "act";
@@ -193,20 +175,61 @@ export function Composer({ sessionId }: { sessionId: string }) {
               : "border-border focus-within:border-border-strong"
           }`}
         >
-          {/* 计划模式挂签：浮在输入框右上角的标签牌，一眼可见，点击退出 */}
-          {planMode && (
+          {/* 右上角浮动牌组：预览 / MD / 计划。计划挂签保持最右原位，
+              MD 与预览牌在它左侧避让（互不影响各自的显隐与动画） */}
+          <div className="absolute -top-[11px] right-5 z-10 flex items-center gap-1.5">
+            {mdMode && (
+              <button
+                type="button"
+                data-testid="md-preview-toggle"
+                onClick={() => setPreviewOn((v) => !v)}
+                title={previewOn ? "返回编辑" : "预览 Markdown"}
+                className={`flex items-center gap-1 rounded-full border px-2.5 py-[3px] text-[11px] font-medium shadow-md transition-colors ${
+                  previewOn
+                    ? "border-accent/40 bg-accent-soft text-accent"
+                    : "border-border bg-bg-elevated text-text-tertiary hover:border-border-strong hover:text-text-secondary"
+                }`}
+              >
+                <Icon name={previewOn ? "pen" : "eye"} size={11} strokeWidth={2.2} />
+                {previewOn ? "编辑" : "预览"}
+              </button>
+            )}
             <button
               type="button"
-              onClick={() => void setPlanMode(false)}
-              title="计划模式：模型只出计划、不改文件 · 点击退出"
-              className="absolute -top-[10px] right-5 z-10 flex items-center gap-1 rounded-full bg-accent px-2.5 py-[3px] text-[11px] font-medium text-white shadow-md transition-colors hover:bg-accent-dim"
+              data-testid="md-mode-toggle"
+              onClick={() => {
+                updateDraft({ inputMode: mdMode ? "plain" : "markdown" });
+                setPreviewOn(false);
+              }}
+              title={
+                mdMode
+                  ? "退出 Markdown 输入模式"
+                  : "Markdown 输入模式：文档式编辑，图片内嵌、支持文件附件与预览"
+              }
+              className={`flex items-center gap-1 rounded-full border px-2.5 py-[3px] text-[11px] font-medium shadow-md transition-colors ${
+                mdMode
+                  ? "border-accent/40 bg-accent-soft text-accent"
+                  : "border-border bg-bg-elevated text-text-tertiary hover:border-border-strong hover:text-text-secondary"
+              }`}
             >
-              <Icon name="clipboardCheck" size={11} strokeWidth={2.2} />
-              计划模式
+              <Icon name="pen" size={11} strokeWidth={2.2} />
+              MD
             </button>
-          )}
-          {/* 图片附件 chips（缩略图 + 移除） */}
-          {attachments.length > 0 && (
+            {/* 计划模式挂签：浮在输入框右上角的标签牌，一眼可见，点击退出 */}
+            {planMode && (
+              <button
+                type="button"
+                onClick={() => void setPlanMode(false)}
+                title="计划模式：模型只出计划、不改文件 · 点击退出"
+                className="flex items-center gap-1 rounded-full bg-accent px-2.5 py-[3px] text-[11px] font-medium text-white shadow-md transition-colors hover:bg-accent-dim"
+              >
+                <Icon name="clipboardCheck" size={11} strokeWidth={2.2} />
+                计划模式
+              </button>
+            )}
+          </div>
+          {/* 图片附件 chips（仅 plain 模式；MD 模式图片内嵌在编辑器对应位置） */}
+          {!mdMode && attachments.length > 0 && (
             <div className="flex flex-wrap gap-2 px-3.5 pt-3">
               {attachments.map((img, i) => (
                 <div key={`${img.name}-${img.data.length}`} className="group/chip relative">
@@ -234,9 +257,53 @@ export function Composer({ sessionId }: { sessionId: string }) {
               ))}
             </div>
           )}
-          {/* 文件附件 chips（MD 模式；文件名 + 大小 + 移除） */}
+          {/* 输入区：滚动在外层容器（padding 常驻）。MD 模式是文档式编辑区
+              （立即变高：min 220px / max 46vh；编辑与预览二选一），plain 模式为自适应 textarea */}
+          {mdMode ? (
+            previewOn ? (
+              <div className="max-h-[46vh] min-h-[220px] overflow-y-auto px-4 pb-2 pt-4">
+                {text.trim() || attachments.length > 0 ? (
+                  <Markdown text={previewText} />
+                ) : (
+                  <div className="text-[14px] leading-6 text-text-tertiary">没什么可预览</div>
+                )}
+              </div>
+            ) : (
+              <div className="max-h-[46vh] min-h-[220px] overflow-y-auto px-4 pb-2 pt-4">
+                <MdEditor
+                  ref={mdEditorRef}
+                  draftKey={draftKey}
+                  text={text}
+                  attachments={attachments}
+                  placeholder="粘贴或编写 Markdown…（Enter 发送，Shift+Enter 换行）"
+                  onSync={(nextText, nextAtts) => updateDraft({ text: nextText, attachments: nextAtts })}
+                  onSend={send}
+                />
+              </div>
+            )
+          ) : (
+            <div className="max-h-[216px] overflow-y-auto px-4 pb-1 pt-3.5">
+              <textarea
+                ref={textareaRef}
+                value={text}
+                onChange={(e) => updateDraft({ text: e.target.value })}
+                onPaste={handlePaste}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    send();
+                  }
+                }}
+                placeholder="说点什么…（Enter 发送，Shift+Enter 换行）"
+                rows={2}
+                className="block w-full resize-none overflow-hidden bg-transparent text-[14px] leading-6 outline-none placeholder:text-text-tertiary"
+              />
+            </div>
+          )}
+
+          {/* 文件附件 chips（MD 模式「添加文件」；输入区与工具栏之间，发送时内容随消息发出） */}
           {files.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 px-3.5 pt-3">
+            <div className="flex flex-wrap gap-1.5 px-3.5 pb-2">
               {files.map((f, i) => (
                 <span
                   key={`${f.name}-${i}`}
@@ -258,89 +325,21 @@ export function Composer({ sessionId }: { sessionId: string }) {
               ))}
             </div>
           )}
-          {/* 输入区：滚动在外层容器（padding 常驻）；MD 预览与编辑 textarea 二选一 */}
-          {mdMode && previewOn ? (
-            <div className="max-h-[216px] min-h-[76px] overflow-y-auto px-4 pb-1 pt-3.5">
-              {text.trim() ? (
-                <Markdown text={text} />
-              ) : (
-                <div className="text-[14px] leading-6 text-text-tertiary">没什么可预览</div>
-              )}
-            </div>
-          ) : (
-            <div className="max-h-[216px] overflow-y-auto px-4 pb-1 pt-3.5">
-              <textarea
-                ref={textareaRef}
-                value={text}
-                onChange={(e) => updateDraft({ text: e.target.value })}
-                onPaste={handlePaste}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                    e.preventDefault();
-                    send();
-                  }
-                }}
-                placeholder={
-                  mdMode
-                    ? "粘贴或编写 Markdown…（Enter 发送，Shift+Enter 换行）"
-                    : "说点什么…（Enter 发送，Shift+Enter 换行）"
-                }
-                rows={2}
-                className={`block w-full resize-none overflow-hidden bg-transparent text-[14px] leading-6 outline-none placeholder:text-text-tertiary ${mdMode ? "mono" : ""}`}
-              />
-            </div>
-          )}
 
           {/* 底部胶囊工具栏 */}
           <div className="flex items-center gap-1.5 px-2.5 pb-2.5">
-            <ToolButton title="添加图片附件" onClick={() => void pickAttachments()}>
+            <ToolButton
+              title={mdMode ? "添加图片（内嵌到光标处）" : "添加图片附件"}
+              onClick={() => void pickAttachments()}
+            >
               <Icon name="plus" size={16} />
             </ToolButton>
 
-            {/* Markdown 输入模式切换（适合粘贴/编写大段结构化文本） */}
-            <button
-              type="button"
-              data-testid="md-mode-toggle"
-              onClick={() => {
-                updateDraft({ inputMode: mdMode ? "plain" : "markdown" });
-                setPreviewOn(false);
-              }}
-              title={
-                mdMode
-                  ? "退出 Markdown 输入模式"
-                  : "Markdown 输入模式：适合大段结构化文本，支持富文本粘贴转 MD、文件附件与预览"
-              }
-              className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] transition-colors ${
-                mdMode
-                  ? "bg-accent/20 text-accent"
-                  : "text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
-              }`}
-            >
-              <Icon name="pen" size={13} />
-              MD
-            </button>
-
-            {/* MD 模式专属：添加文件 / 预览切换 */}
+            {/* MD 模式专属：添加文件（MD 切换与预览在右上角浮动牌组） */}
             {mdMode && (
-              <>
-                <ToolButton title="添加文件（文本内容随消息发送；图片走附件）" onClick={() => void pickFiles()}>
-                  <Icon name="fileText" size={15} />
-                </ToolButton>
-                <button
-                  type="button"
-                  data-testid="md-preview-toggle"
-                  onClick={() => setPreviewOn((v) => !v)}
-                  title={previewOn ? "返回编辑" : "预览 Markdown"}
-                  className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] transition-colors ${
-                    previewOn
-                      ? "bg-accent/20 text-accent"
-                      : "text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
-                  }`}
-                >
-                  <Icon name={previewOn ? "pen" : "eye"} size={13} />
-                  {previewOn ? "编辑" : "预览"}
-                </button>
-              </>
+              <ToolButton title="添加文件（文本内容随消息发送；图片走附件）" onClick={() => void pickFiles()}>
+                <Icon name="fileText" size={15} />
+              </ToolButton>
             )}
 
             {/* 权限模式 */}
@@ -422,24 +421,6 @@ export function Composer({ sessionId }: { sessionId: string }) {
       )}
     </div>
   );
-}
-
-/** 剪贴板图片 File → ImageAttachment（>10MB 已在上游过滤，与主进程 pickImages 对齐）。
- *  name 可由调用方指定（MD 模式需先生成占位名插入文本，附件与占位同名） */
-function fileToAttachment(file: File, name?: string): Promise<ImageAttachment> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const url = String(reader.result ?? "");
-      const comma = url.indexOf(",");
-      if (comma < 0) return reject(new Error("图片读取失败"));
-      const ext = file.type.split("/")[1]?.toLowerCase() || "png";
-      // 剪贴板文件的 name 通常是 "image.png" 这类占位名，统一换可读名
-      resolve({ name: name ?? `pasted-${Date.now()}.${ext}`, mimeType: file.type, data: url.slice(comma + 1) });
-    };
-    reader.onerror = () => reject(reader.error ?? new Error("图片读取失败"));
-    reader.readAsDataURL(file);
-  });
 }
 
 function ToolButton({ children, title, onClick }: { children: React.ReactNode; title: string; onClick?: () => void }) {
