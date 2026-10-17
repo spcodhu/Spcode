@@ -106,6 +106,34 @@ test.describe("Spcode 冒烟 E2E", () => {
     await app.close();
   });
 
+  test("设置页：上下文压缩分区——开关与阈值输入", async () => {
+    const app = await launchApp();
+    const window = await app.firstWindow();
+
+    await window.getByTitle("设置", { exact: true }).click();
+    await window.getByRole("button", { name: "通用" }).click();
+    const section = window.getByTestId("compaction-settings");
+    await expect(section).toBeVisible();
+
+    // 自动压缩开关默认开
+    const toggle = section.getByRole("switch", { name: "自动压缩" });
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
+
+    // 阈值输入：默认值、修改为合法值失焦保存
+    const reserve = section.getByRole("spinbutton").first();
+    await expect(reserve).toHaveValue("16384");
+    await reserve.fill("20480");
+    await reserve.blur();
+
+    // 重开设置页验证持久化（settings.json 已写入临时 SPCODE_HOME）
+    await window.getByTitle("关闭设置").click();
+    await window.getByTitle("设置", { exact: true }).click();
+    await window.getByRole("button", { name: "通用" }).click();
+    await expect(window.getByTestId("compaction-settings").getByRole("spinbutton").first()).toHaveValue("20480");
+
+    await app.close();
+  });
+
   test("设置页：远程控制分区——开关与配对码生成", async () => {
     const app = await launchApp();
     const window = await app.firstWindow();

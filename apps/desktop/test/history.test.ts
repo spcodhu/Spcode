@@ -111,3 +111,26 @@ describe("historyToMessages", () => {
     expect(messageText(out[2]!)).toBe("");
   });
 });
+
+describe("historyToMessages：compactionSummary 回放", () => {
+  it("压缩检查点回放为 notice 分隔线（带 tokensBefore 与可展开摘要），不静默丢弃", () => {
+    const messages = [
+      {
+        role: "compactionSummary",
+        summary: "## Goal\n实现压缩可见性",
+        tokensBefore: 182000,
+        timestamp: 1730000000000,
+      },
+      { role: "user", content: [{ type: "text", text: "继续" }] },
+    ];
+    const out = historyToMessages(messages);
+    expect(out).toHaveLength(2);
+    expect(out[0]?.role).toBe("notice");
+    expect(out[0]?.notice?.kind).toBe("compaction");
+    expect(out[0]?.notice?.tokensBefore).toBe(182000);
+    expect(out[0]?.notice?.summary).toContain("实现压缩可见性");
+    expect(messageText(out[0]!)).toContain("上下文已压缩");
+    expect(messageText(out[0]!)).toContain("182k");
+    expect(out[1]?.role).toBe("user");
+  });
+});

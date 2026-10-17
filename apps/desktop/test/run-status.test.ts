@@ -145,3 +145,17 @@ describe("formatElapsed", () => {
     expect(formatElapsed(600)).toBe("10:00");
   });
 });
+
+describe("压缩状态", () => {
+  it("compacting 时显示「正在压缩上下文…」，即使 running 已结束（手动压缩先 abort）", () => {
+    const session = makeSession({ running: false, compacting: true });
+    const status = deriveRunStatus(session, [], [], "s1");
+    expect(status?.label).toBe("正在压缩上下文…");
+  });
+
+  it("compacting 优先于运行中状态（自动压缩发生在回合结束后、settled 前）", () => {
+    const session = makeSession({ running: true, compacting: true });
+    const status = deriveRunStatus(session, [], [], "s1");
+    expect(status?.label).toBe("正在压缩上下文…");
+  });
+});

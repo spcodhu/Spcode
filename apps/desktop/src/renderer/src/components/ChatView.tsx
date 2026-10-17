@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { type ChatMessage, groupMessagesForRender, useStore } from "../store";
 import { Composer } from "./Composer";
 import { SessionEmptyState } from "./EmptyState";
-import { AssistantRunItem, MessageItem } from "./MessageItem";
+import { AssistantRunItem, MessageItem, NoticeItem } from "./MessageItem";
 import { QuestionInline } from "./QuestionCard";
 import { RunStatusBar } from "./RunStatusBar";
 import { WorkDrawer } from "./WorkDrawer";
@@ -51,6 +51,8 @@ export function ChatView({ sessionId }: { sessionId: string }) {
           {items.map((item, idx) =>
             item.kind === "user" ? (
               <MessageItem key={item.key} message={item.message} />
+            ) : item.kind === "notice" ? (
+              <NoticeItem key={item.key} message={item.message} />
             ) : (
               <AssistantRunItem
                 key={item.key}

@@ -99,6 +99,47 @@ function MessageItemImpl({ message }: { message: ChatMessage }) {
 export const MessageItem = memo(MessageItemImpl);
 
 /**
+ * 通知分隔线（压缩完成/失败等）：居中细线 + 小字，不打断阅读流。
+ * 压缩通知带摘要时可点击展开全文（恢复会话回放时摘要同样可见）。
+ */
+function NoticeItemImpl({ message }: { message: ChatMessage }) {
+  const text = messageText(message);
+  const summary = message.notice?.summary;
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="my-5">
+      <button
+        type="button"
+        disabled={!summary}
+        onClick={() => setOpen((v) => !v)}
+        className={`group flex w-full items-center gap-3 ${summary ? "" : "cursor-default"}`}
+      >
+        <span className="h-px flex-1 bg-border" />
+        <span className="flex shrink-0 items-center gap-1.5 text-[12px] text-text-tertiary transition-colors group-hover:text-text-secondary">
+          {text}
+          {summary && (
+            <Icon
+              name="chevronDown"
+              size={12}
+              className={`transition-transform duration-150 ${open ? "rotate-180" : ""}`}
+            />
+          )}
+        </span>
+        <span className="h-px flex-1 bg-border" />
+      </button>
+      {open && summary && (
+        <div className="mt-3 rounded-xl border border-border bg-bg-elevated px-4 py-3 text-[13px] leading-relaxed text-text-secondary">
+          <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-text-tertiary">压缩摘要（模型上下文中看到的版本）</div>
+          <Markdown text={summary} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+export const NoticeItem = memo(NoticeItemImpl);
+
+/**
  * 一次任务运行的渲染单元：把运行内所有回合的段拍平成一条时间线，
  * 严格按到达顺序从上往下渲染 —— 正文原位显示，思考/工具是时间线上
  * 的一行弱化条目（左轨 + 圆点），绝不发生"插叙"。

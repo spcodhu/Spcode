@@ -1,7 +1,7 @@
 import type { ComposerDraft, ImageAttachment, ModelInfo, ModelRef } from "@spcode/shared";
 import { useEffect, useRef, useState } from "react";
 import { buildFileBlocks, type DraftFile } from "../file-blocks";
-import { formatFileSize } from "../format";
+import { formatCompact, formatFileSize } from "../format";
 import { resolveImageRefs } from "../md-editor";
 import { composerDraftKeyOf, type SessionState, useStore } from "../store";
 import { Icon } from "./Icon";
@@ -55,6 +55,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const setModel = useStore((s) => s.setModel);
   const setThinkingLevel = useStore((s) => s.setThinkingLevel);
   const setPlanMode = useStore((s) => s.setPlanMode);
+  const compactSession = useStore((s) => s.compactSession);
   const saveSettings = useStore((s) => s.saveSettings);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const mdEditorRef = useRef<MdEditorHandle>(null);
@@ -380,9 +381,16 @@ export function Composer({ sessionId }: { sessionId: string }) {
 
             <div className="flex-1" />
 
-            {/* 上下文占用环（悬浮看明细） */}
+            {/* 上下文占用环（悬浮看明细 + 手动压缩入口） */}
             {settings?.quickQuota && session?.meta.model && (
-              <ContextRing model={session.meta.model} lastUsage={session.lastUsage} models={models} />
+              <ContextRing
+                model={session.meta.model}
+                lastUsage={session.lastUsage}
+                models={models}
+                compacting={session.compacting === true}
+                busy={session.running}
+                onCompact={() => void compactSession()}
+              />
             )}
 
             {/* 模型选择（两级弹出菜单） */}
@@ -446,31 +454,33 @@ function ToolButton({ children, title, onClick }: { children: React.ReactNode; t
 
 // ---------------------------------------------------------------------------
 // 上下文占用环：当前会话最近一次请求的上下文占用 / 模型上下文窗口
-// 悬浮显示自绘明细卡（不用原生 title，深色主题下原生提示太违和）
+// 悬浮显示自绘明细卡（不用原生 title，深色主题下原生提示太违和）+ 手动压缩入口
 // ---------------------------------------------------------------------------
-
-/** 紧凑格式：385k / 1.0M（Finch 同款） */
-function formatCompact(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
-  return String(n);
-}
 
 function ContextRing({
   model,
   lastUsage,
   models,
+  compacting,
+  busy,
+  onCompact,
 }: {
   model: ModelRef;
   lastUsage: SessionState["lastUsage"];
   models: ModelInfo[];
+  compacting: boolean;
+  /** 会话运行中（手动压缩会先 abort 运行，不在中途插入，故运行中禁用） */
+  busy: boolean;
+  onCompact: () => void;
 }) {
   const info = models.find((m) => m.provider === model.provider && m.modelId === model.modelId);
   const window = info?.contextWindow ?? 0;
   if (window <= 0) return null;
 
-  // 上下文占用 = 最近一次请求的 输入 + 缓存读（累计值会爆窗口，不能求和）
-  const used = lastUsage ? lastUsage.input + lastUsage.cacheRead : 0;
+  // 上下文占用 = 最近一次请求的 input + cacheRead + cacheWrite + output（= 引擎压缩判断的
+  // totalTokens 口径）。漏掉 cacheWrite 会让冷缓存请求显示失真小数字（缓存 TTL 过期后
+  // 上下文大头全计在 cacheWrite 上），环出现「突然变小又变大」的跳动。
+  const used = lastUsage ? lastUsage.input + lastUsage.cacheRead + lastUsage.cacheWrite + lastUsage.output : 0;
   const pct = Math.min(100, Math.round((used / window) * 100));
   const color = pct >= 90 ? "var(--color-danger)" : pct >= 70 ? "var(--color-warning)" : "var(--color-accent)";
 
@@ -493,7 +503,7 @@ function ContextRing({
         />
       </svg>
       {/* 悬浮明细卡 */}
-      <div className="pointer-events-none absolute bottom-8 right-0 z-50 w-64 rounded-xl border border-border bg-bg-elevated p-3 opacity-0 shadow-2xl transition-opacity duration-150 group-hover:opacity-100">
+      <div className="pointer-events-none absolute bottom-8 right-0 z-50 w-64 rounded-xl border border-border bg-bg-elevated p-3 opacity-0 shadow-2xl transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100">
         <div className="flex items-baseline justify-between">
           <span className="text-[13px] font-medium text-text-primary">上下文使用</span>
           <span className="text-[13px] text-text-secondary">
@@ -503,9 +513,10 @@ function ContextRing({
         {lastUsage ? (
           <div className="mt-2 space-y-1 text-[12px]">
             <div className="flex justify-between">
-              <span className="text-text-tertiary">输入 / 缓存</span>
+              <span className="text-text-tertiary">输入 / 缓存读 / 缓存写</span>
               <span className="text-text-secondary">
-                {lastUsage.input.toLocaleString()} / {lastUsage.cacheRead.toLocaleString()}
+                {lastUsage.input.toLocaleString()} / {lastUsage.cacheRead.toLocaleString()} /
+                {lastUsage.cacheWrite.toLocaleString()}
               </span>
             </div>
             <div className="flex justify-between">
@@ -516,6 +527,18 @@ function ContextRing({
         ) : (
           <div className="mt-2 text-[12px] text-text-tertiary">本轮还没有请求记录</div>
         )}
+        <button
+          type="button"
+          data-testid="compact-now"
+          disabled={compacting || busy}
+          onClick={onCompact}
+          className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-border px-2 py-1.5 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-45"
+        >
+          {compacting ? "正在压缩…" : "立即压缩上下文"}
+        </button>
+        <div className="mt-1.5 text-[11px] leading-snug text-text-tertiary">
+          压缩把较早的历史折叠成摘要（保留最近原文）。自动压缩阈值与保留窗口可在设置页调整。
+        </div>
       </div>
     </div>
   );

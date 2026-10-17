@@ -155,6 +155,9 @@ function GeneralPage() {
         />
       </div>
 
+      <SectionTitle>上下文压缩</SectionTitle>
+      <CompactionSection />
+
       <SectionTitle>沙盒</SectionTitle>
       <SandboxSection />
 
@@ -617,6 +620,108 @@ function PageHeader({ title, subtitle }: { title: string; subtitle: string }) {
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return <h2 className="mb-2 mt-6 text-[13px] font-semibold text-text-secondary first:mt-0">{children}</h2>;
+}
+
+/**
+ * 上下文压缩设置：自动开关 + 触发预留 + 保留窗口。
+ * 即时生效（引擎每轮压缩判断实时读取）；手动压缩入口在输入框左侧上下文环的悬浮卡。
+ */
+function CompactionSection() {
+  const settings = useStore((s) => s.settings);
+  const saveSettings = useStore((s) => s.saveSettings);
+  const compaction = settings?.compaction;
+  if (!compaction) return null;
+
+  const patch = (p: Partial<typeof compaction>) => void saveSettings({ compaction: { ...compaction, ...p } });
+
+  return (
+    <div className="space-y-3" data-testid="compaction-settings">
+      <div className="flex items-center justify-between rounded-xl border border-border bg-bg-elevated px-4 py-3">
+        <div>
+          <div className="text-[14px] text-text-primary">自动压缩</div>
+          <div className="mt-0.5 text-[12px] text-text-tertiary">
+            上下文接近模型窗口上限时，自动把较早历史折叠成摘要再继续。关闭后仍可手动压缩（上下文环悬浮卡）
+          </div>
+        </div>
+        <Switch on={compaction.enabled} onChange={(v) => patch({ enabled: v })} label="自动压缩" />
+      </div>
+      <div className="rounded-xl border border-border bg-bg-elevated px-4 py-3">
+        <TokenField
+          label="触发预留（tokens）"
+          desc="上下文剩余空间不足此值时开始自动压缩，同时为模型输出保底。默认 16,384"
+          value={compaction.reserveTokens}
+          min={1024}
+          onCommit={(v) => patch({ reserveTokens: v })}
+        />
+        <div className="my-3 h-px bg-border" />
+        <TokenField
+          label="保留窗口（tokens）"
+          desc="压缩时保留最近原文不折叠的量。调大可减少「上一轮改动被折叠进摘要」；过大则压缩收益变小。默认 40,000"
+          value={compaction.keepRecentTokens}
+          min={1000}
+          onCommit={(v) => patch({ keepRecentTokens: v })}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** token 数字输入：本地编辑态 + 失焦/回车校验提交（非法值回退并提示） */
+function TokenField({
+  label,
+  desc,
+  value,
+  min,
+  onCommit,
+}: {
+  label: string;
+  desc: string;
+  value: number;
+  min: number;
+  onCommit: (v: number) => void;
+}) {
+  const [text, setText] = useState(String(value));
+  const [invalid, setInvalid] = useState(false);
+  // 外部值变化（另一区块修改/重载设置）时同步本地编辑态
+  useEffect(() => {
+    setText(String(value));
+    setInvalid(false);
+  }, [value]);
+
+  const commit = () => {
+    const n = Number(text);
+    if (!Number.isSafeInteger(n) || n < min) {
+      setInvalid(true);
+      setText(String(value));
+      return;
+    }
+    setInvalid(false);
+    if (n !== value) onCommit(n);
+  };
+
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <div>
+        <div className="text-[14px] text-text-primary">{label}</div>
+        <div className="mt-0.5 text-[12px] text-text-tertiary">{desc}</div>
+        {invalid && <div className="mt-1 text-[12px] text-danger">请输入 ≥ {min.toLocaleString()} 的整数</div>}
+      </div>
+      <input
+        type="number"
+        min={min}
+        step={1024}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        }}
+        className={`mono w-32 shrink-0 rounded-lg border bg-bg-main px-2.5 py-1.5 text-right text-[13px] text-text-primary outline-none transition-colors ${
+          invalid ? "border-danger" : "border-border focus:border-accent"
+        }`}
+      />
+    </div>
+  );
 }
 
 /**

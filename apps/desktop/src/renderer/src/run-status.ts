@@ -27,6 +27,7 @@ export function deriveRunStatus(
   pendingQuestions: QuestionRequest[],
   sessionId: string,
 ): RunStatus | null {
+  if (session?.compacting) return { kind: "working", label: "正在压缩上下文…" };
   if (!session?.running) return null;
   if (pendingQuestions.some((q) => q.sessionId === sessionId)) {
     return { kind: "question", label: "等待你的回答…" };

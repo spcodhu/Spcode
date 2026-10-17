@@ -41,3 +41,10 @@ export function formatFileSize(size: number): string {
   if (size >= 1024) return `${Math.round(size / 1024)}KB`;
   return `${size}B`;
 }
+
+/** 紧凑 token 计数：385k / 1.0M（上下文占用与压缩提示共用） */
+export function formatCompact(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
+  return String(n);
+}

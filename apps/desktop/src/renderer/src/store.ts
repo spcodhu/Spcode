@@ -28,6 +28,7 @@ import type {
 } from "@spcode/shared";
 import { baseName, cleanSessionTitle } from "@spcode/shared";
 import { create } from "zustand";
+import { formatCompact } from "./format";
 
 // ---------------------------------------------------------------------------
 // UI 消息模型
@@ -54,13 +55,23 @@ export type Segment =
 
 export interface ChatMessage {
   id: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "notice";
   segments: Segment[];
   /** 用户消息携带的图片附件（base64 内联，用于气泡缩略图） */
   images?: ImageAttachment[];
   /** 用户消息携带的文件附件元信息（MD 输入模式；内容已拼进发送文本，这里仅存展示信息） */
   files?: { name: string; size: number }[];
   streaming: boolean;
+  /**
+   * 通知类消息的负载（role === "notice" 时存在）。
+   * compaction：一次上下文压缩的分隔线（tokensBefore→tokensAfter，summary 可展开）。
+   */
+  notice?: {
+    kind: "compaction";
+    tokensBefore?: number;
+    tokensAfter?: number;
+    summary?: string;
+  };
 }
 
 /** 消息的全部正文文本（user 标题、测试断言用） */
@@ -104,6 +115,7 @@ export function flattenSegments(messages: ChatMessage[]): Segment[] {
  */
 export type RenderItem =
   | { kind: "user"; key: string; message: ChatMessage }
+  | { kind: "notice"; key: string; message: ChatMessage }
   | { kind: "run"; key: string; messages: ChatMessage[] };
 
 export function groupMessagesForRender(messages: ChatMessage[]): RenderItem[] {
@@ -117,6 +129,10 @@ export function groupMessagesForRender(messages: ChatMessage[]): RenderItem[] {
   for (const m of messages) {
     if (m.role === "assistant") {
       run.push(m);
+    } else if (m.role === "notice") {
+      // 通知（压缩分隔线等）独立成组：不打断“一次运行”的语义边界，但自身不属于任何运行
+      flush();
+      items.push({ kind: "notice", key: m.id, message: m });
     } else {
       flush();
       items.push({ kind: "user", key: m.id, message: m });
@@ -131,8 +147,10 @@ export interface SessionState {
   messages: ChatMessage[];
   running: boolean;
   usage: UsageAggregate;
-  /** 最近一次请求的用量快照：上下文占用 = input + cacheRead（Finch 同款口径） */
+  /** 最近一次请求的用量快照；上下文占用口径见 Composer.ContextRing（与引擎压缩判断同源） */
   lastUsage: UsageRecord | null;
+  /** 引擎正在压缩上下文（compaction_start/end 驱动；运行状态条据此显示「正在压缩」） */
+  compacting?: boolean;
   supportedThinkingLevels: string[];
   todos: TodoItem[];
   /** 计划模式：模型只读调研并出计划，批准后才执行（持久化在主进程注册表） */
@@ -223,6 +241,8 @@ interface StoreState {
   setActive(id: string): void;
   sendPrompt(text: string, images?: ImageAttachment[], files?: { name: string; size: number }[]): Promise<void>;
   abort(): Promise<void>;
+  /** 手动压缩当前会话上下文（结果以压缩分隔线形式进入消息流；错误走 lastError） */
+  compactSession(): Promise<void>;
   setModel(ref: ModelRef): Promise<void>;
   setThinkingLevel(level: string): Promise<void>;
   setPlanMode(enabled: boolean): Promise<void>;
@@ -334,6 +354,33 @@ let msgSeq = 0;
 const nextMsgId = () => `m${++msgSeq}`;
 
 /**
+ * 压缩分隔线消息（compaction_end 实时插入 / 会话恢复时由 compactionSummary 回放）。
+ * 让用户能回答「是不是压缩过」：线内注明前后 token 量，摘要可展开。
+ */
+function makeCompactionNotice(tokensBefore?: number, tokensAfter?: number, summary?: string): ChatMessage {
+  const range =
+    tokensBefore !== undefined
+      ? `${formatCompact(tokensBefore)}${tokensAfter !== undefined ? ` → ${formatCompact(tokensAfter)}` : ""}`
+      : "";
+  return {
+    id: nextMsgId(),
+    role: "notice",
+    segments: [{ kind: "text", id: nextMsgId(), text: `上下文已压缩${range ? ` · ${range}` : ""}` }],
+    streaming: false,
+    notice: { kind: "compaction", tokensBefore, tokensAfter, summary },
+  };
+}
+
+/** 引擎压缩错误消息（英文、工程向）→ 用户可读文案 */
+function friendlyCompactionError(message: string): string {
+  if (/Nothing to compact/i.test(message)) return "上下文还太短，无需压缩";
+  if (/Already compacted/i.test(message)) return "刚刚已经压缩过了";
+  if (/cancelled/i.test(message)) return "压缩被取消";
+  if (/No model selected/i.test(message)) return "未选择模型，无法压缩";
+  return message;
+}
+
+/**
  * 宿主事件订阅句柄（模块级）。
  * StrictMode 下 App 的挂载 effect 会跑两次，init() 随之重入；
  * 订阅必须幂等，否则每个 HostEvent 被应用两遍（回复气泡重复、用量翻倍）。
@@ -404,13 +451,19 @@ function isEmptyMessage(m: ChatMessage): boolean {
 
 /** 收尾悬挂的流式消息：空占位直接丢弃，已有内容则定格（运行结束/出错时调用） */
 function settleStreamingTail(session: SessionState): void {
-  const last = session.messages[session.messages.length - 1];
-  if (last?.role !== "assistant" || !last.streaming) return;
-  if (isEmptyMessage(last)) {
-    session.messages.pop();
-  } else {
-    for (const s of last.segments) if (s.kind === "thinking") s.done = true;
-    last.streaming = false;
+  // 从后往前找最后一条仍在流式的 assistant 消息定格——消息流尾部可能隔着
+  // 压缩完成提示等 notice（自动压缩发生在回合结束后、agent_settled 前）
+  for (let i = session.messages.length - 1; i >= 0; i--) {
+    const m = session.messages[i];
+    if (!m || m.role !== "assistant") continue;
+    if (!m.streaming) return;
+    if (isEmptyMessage(m)) {
+      session.messages.splice(i, 1);
+    } else {
+      for (const s of m.segments) if (s.kind === "thinking") s.done = true;
+      m.streaming = false;
+    }
+    return;
   }
 }
 
@@ -471,6 +524,30 @@ function applySessionEvent(session: SessionState, event: Record<string, unknown>
       session.running = true;
       session.runStartedAt = Date.now();
       break;
+    case "compaction_start":
+      // 引擎开始压缩（自动阈值/溢出/手动）：状态条显示「正在压缩上下文…」
+      session.compacting = true;
+      break;
+    case "compaction_end": {
+      session.compacting = false;
+      const e = event as {
+        result?: { tokensBefore?: number; estimatedTokensAfter?: number; summary?: string };
+        aborted?: boolean;
+        errorMessage?: string;
+      };
+      if (e.result) {
+        session.messages.push(makeCompactionNotice(e.result.tokensBefore, e.result.estimatedTokensAfter, e.result.summary));
+      } else if (!e.aborted && e.errorMessage) {
+        // 失败也要留痕（用户点了手动压缩却什么都没发生是最差的体验）；aborted = 用户主动取消，不打扰
+        session.messages.push({
+          id: nextMsgId(),
+          role: "notice",
+          segments: [{ kind: "text", id: nextMsgId(), text: `上下文压缩未完成：${friendlyCompactionError(e.errorMessage)}` }],
+          streaming: false,
+        });
+      }
+      break;
+    }
     case "agent_settled":
       session.running = false;
       session.runStartedAt = undefined;
@@ -513,8 +590,11 @@ export function historyToMessages(messages: unknown[]): ChatMessage[] {
     }
   }
   for (const raw of messages) {
-    const m = raw as { role?: string; content?: unknown };
-    if (m.role === "user") {
+    const m = raw as { role?: string; content?: unknown; summary?: string; tokensBefore?: number };
+    if (m.role === "compactionSummary") {
+      // 压缩检查点：回放为分隔线（压缩前的历史已折叠成摘要，可从线上展开查看）
+      out.push(makeCompactionNotice(typeof m.tokensBefore === "number" ? m.tokensBefore : undefined, undefined, m.summary));
+    } else if (m.role === "user") {
       const blocks = Array.isArray(m.content) ? (m.content as PiContentBlock[]) : [];
       const text = blocks
         .filter((b) => b.type === "text" && b.text)
@@ -1040,6 +1120,21 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!activeSessionId) return;
     if (get().sessions[activeSessionId]?.draft) return; // 草稿没有宿主实例
     await window.spcode.command({ type: "session.abort", payload: { sessionId: activeSessionId } });
+  },
+
+  async compactSession() {
+    const { activeSessionId } = get();
+    if (!activeSessionId) return;
+    const s = get().sessions[activeSessionId];
+    // 草稿无宿主实例；运行中/压缩中禁止（手动压缩会先 abort 当前运行，不在运行中途插入）
+    if (!s || s.draft || s.running || s.compacting) return;
+    try {
+      await window.spcode.command({ type: "session.compact", payload: { sessionId: activeSessionId } });
+    } catch (e) {
+      // 引擎拒绝（如「Nothing to compact」「Already compacted」）：compaction_end 的
+      // 失败 notice 已进入消息流，这里只兜底引擎没发事件的异常
+      set({ lastError: e instanceof Error ? e.message : String(e) });
+    }
   },
 
   async setModel(ref) {

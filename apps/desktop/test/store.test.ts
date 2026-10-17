@@ -427,3 +427,149 @@ describe("permission.resolved 双端撤卡", () => {
     expect(useStore.getState().pendingPermissions).toHaveLength(1);
   });
 });
+
+describe("compaction 事件流", () => {
+  it("compaction_start 置压缩中标志，compaction_end 清标志并插入分隔线消息", () => {
+    stubSpcodeApi();
+    seedSession("s-compact");
+    const evt = (event: Record<string, unknown>) =>
+      useStore.getState().applyHostEvent({ type: "session.event", sessionId: "s-compact", event } as never);
+
+    evt({ type: "compaction_start", reason: "threshold" });
+    expect(useStore.getState().sessions["s-compact"]?.compacting).toBe(true);
+
+    evt({
+      type: "compaction_end",
+      reason: "threshold",
+      result: { summary: "## Goal\n做点事", firstKeptEntryId: "e9", tokensBefore: 182000, estimatedTokensAfter: 52000 },
+      aborted: false,
+      willRetry: false,
+    });
+    const session = useStore.getState().sessions["s-compact"];
+    expect(session?.compacting).toBe(false);
+    const notice = session?.messages[session.messages.length - 1];
+    expect(notice?.role).toBe("notice");
+    expect(notice?.notice?.kind).toBe("compaction");
+    expect(notice?.notice?.tokensBefore).toBe(182000);
+    expect(notice?.notice?.tokensAfter).toBe(52000);
+    expect(messageText(notice!)).toContain("182k");
+    expect(messageText(notice!)).toContain("52k");
+  });
+
+  it("压缩失败（非取消）插入错误提示；用户取消不留痕", () => {
+    stubSpcodeApi();
+    seedSession("s-compact-fail");
+    const evt = (event: Record<string, unknown>) =>
+      useStore.getState().applyHostEvent({ type: "session.event", sessionId: "s-compact-fail", event } as never);
+
+    // 手动压缩但内容太少：引擎 compaction_end 带 errorMessage
+    evt({
+      type: "compaction_end",
+      reason: "manual",
+      result: undefined,
+      aborted: false,
+      willRetry: false,
+      errorMessage: "Compaction failed: Nothing to compact (session too small)",
+    });
+    let messages = useStore.getState().sessions["s-compact-fail"]?.messages ?? [];
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.role).toBe("notice");
+    expect(messageText(messages[0]!)).toContain("无需压缩");
+
+    // 用户中途取消（aborted）：不再插入任何消息
+    evt({ type: "compaction_end", reason: "manual", result: undefined, aborted: true, willRetry: false });
+    messages = useStore.getState().sessions["s-compact-fail"]?.messages ?? [];
+    expect(messages).toHaveLength(1);
+  });
+
+  it("自动压缩的分隔线不影响 agent_settled 定格其前的流式 assistant 消息", () => {
+    stubSpcodeApi();
+    seedSession("s-compact-settle");
+    // 模拟一轮进行中：streaming assistant 在流
+    useStore.setState((s) => {
+      const sess = s.sessions["s-compact-settle"];
+      if (!sess) return s;
+      return {
+        sessions: {
+          ...s.sessions,
+          "s-compact-settle": {
+            ...sess,
+            running: true,
+            messages: [
+              { id: "u1", role: "user" as const, segments: [{ kind: "text" as const, id: "seg1", text: "问" }], streaming: false },
+              {
+                id: "a1",
+                role: "assistant" as const,
+                segments: [{ kind: "thinking" as const, id: "seg2", text: "想", done: false }],
+                streaming: true,
+              },
+            ],
+          },
+        },
+      };
+    });
+    const evt = (event: Record<string, unknown>) =>
+      useStore.getState().applyHostEvent({ type: "session.event", sessionId: "s-compact-settle", event } as never);
+
+    // 回合结束后、agent_settled 前发生自动压缩：notice 插在流式消息之后
+    evt({
+      type: "compaction_end",
+      reason: "threshold",
+      result: { summary: "s", firstKeptEntryId: "e1", tokensBefore: 100000 },
+      aborted: false,
+      willRetry: false,
+    });
+    evt({ type: "agent_settled" });
+
+    const messages = useStore.getState().sessions["s-compact-settle"]?.messages ?? [];
+    // 流式 assistant 被定格（streaming=false），没有被 notice 挡住而永远转圈
+    const assistant = messages.find((m) => m.id === "a1");
+    expect(assistant?.streaming).toBe(false);
+    const thinking = assistant?.segments[0];
+    expect(thinking?.kind === "thinking" && thinking.done).toBe(true);
+    // notice 仍在末尾
+    expect(messages[messages.length - 1]?.role).toBe("notice");
+  });
+});
+
+describe("groupMessagesForRender：notice 分组", () => {
+  it("notice 独立成组，不打断前后运行的归属", () => {
+    const msg = (id: string, role: "user" | "assistant" | "notice"): ChatMessage => ({
+      id,
+      role,
+      segments: [],
+      streaming: false,
+      ...(role === "notice" ? { notice: { kind: "compaction" as const } } : {}),
+    });
+    const items = groupMessagesForRender([
+      msg("u1", "user"),
+      msg("a1", "assistant"),
+      msg("n1", "notice"),
+      msg("a2", "assistant"),
+    ]);
+    expect(items.map((i) => i.kind)).toEqual(["user", "run", "notice", "run"]);
+    expect(items[3]?.kind === "run" && items[3].messages.map((m) => m.id)).toEqual(["a2"]);
+  });
+});
+
+describe("compactSession 手动压缩", () => {
+  it("向宿主发送 session.compact 命令；运行中/草稿会话不发送", async () => {
+    const { } = stubSpcodeApi();
+    const spy = window.spcode.command as ReturnType<typeof vi.fn>;
+    seedSession("s-manual-compact");
+    await useStore.getState().compactSession();
+    expect(spy.mock.calls.some((c) => (c[0] as { type?: string }).type === "session.compact")).toBe(true);
+
+    // 运行中：不重复发起（手动压缩会先 abort 运行，不在中途插入）
+    spy.mockClear();
+    useStore.setState((s) => {
+      const sess = s.sessions["s-manual-compact"];
+      if (!sess) return s;
+      return {
+        sessions: { ...s.sessions, "s-manual-compact": { ...sess, running: true } },
+      };
+    });
+    await useStore.getState().compactSession();
+    expect(spy.mock.calls.some((c) => (c[0] as { type?: string }).type === "session.compact")).toBe(false);
+  });
+});
