@@ -8,7 +8,7 @@ import { Icon } from "./Icon";
 import { ImageLightbox } from "./ImageLightbox";
 import { Markdown } from "./Markdown";
 import { fileToAttachment, MdEditor, type MdEditorHandle } from "./MdEditor";
-import { MdToolbar, MdViewSwitch, type MdView } from "./MdToolbar";
+import { MdToolbar, type MdView } from "./MdToolbar";
 
 // ---------------------------------------------------------------------------
 // 外部预填输入框（空态建议卡片等场景点击后把提示词填进输入框并聚焦）
@@ -181,32 +181,10 @@ export function Composer({ sessionId }: { sessionId: string }) {
               : "border-border focus-within:border-border-strong"
           }`}
         >
-          {/* 右上角浮动牌组：视图三态 / 长文本输入 / 计划。计划挂签保持最右原位 */}
-          <div className="absolute -top-[11px] right-5 z-10 flex items-center gap-1.5">
-            {mdMode && <MdViewSwitch view={mdView} onChange={setMdView} />}
-            <button
-              type="button"
-              data-testid="md-mode-toggle"
-              onClick={() => {
-                updateDraft({ inputMode: mdMode ? "plain" : "markdown" });
-                setMdView("edit");
-              }}
-              title={
-                mdMode
-                  ? "退出长文本输入（回到普通输入框）"
-                  : "长文本输入：文档式编辑区，支持 Markdown 工具栏、分屏预览、图片内嵌与文件附件"
-              }
-              className={`flex items-center gap-1 rounded-full border px-2.5 py-[3px] text-[11px] font-medium shadow-md transition-colors ${
-                mdMode
-                  ? "border-accent/40 bg-accent-soft text-accent"
-                  : "border-border bg-bg-elevated text-text-tertiary hover:border-border-strong hover:text-text-secondary"
-              }`}
-            >
-              <Icon name="pen" size={11} strokeWidth={2.2} />
-              {mdMode ? "退出长文本输入" : "切换长文本输入"}
-            </button>
-            {/* 计划模式挂签：浮在输入框右上角的标签牌，一眼可见，点击退出 */}
-            {planMode && (
+          {/* 右上角：仅计划模式挂签（长文本的视图三态与退出在编辑器工具栏右端，不再挤在边框上）。
+              right-10：让开 MD 工具栏最右的退出按钮，避免 3px 点击重叠 */}
+          {planMode && (
+            <div className="absolute -top-[11px] right-10 z-10">
               <button
                 type="button"
                 onClick={() => void setPlanMode(false)}
@@ -216,8 +194,8 @@ export function Composer({ sessionId }: { sessionId: string }) {
                 <Icon name="clipboardCheck" size={11} strokeWidth={2.2} />
                 计划模式
               </button>
-            )}
-          </div>
+            </div>
+          )}
           {/* 图片附件 chips（仅 plain 模式；MD 模式图片内嵌在编辑器对应位置） */}
           {!mdMode && attachments.length > 0 && (
             <div className="flex flex-wrap gap-2 px-3.5 pt-3">
@@ -252,6 +230,12 @@ export function Composer({ sessionId }: { sessionId: string }) {
           {mdMode ? (
             <>
               <MdToolbar
+                view={mdView}
+                onViewChange={setMdView}
+                onExit={() => {
+                  updateDraft({ inputMode: "plain" });
+                  setMdView("edit");
+                }}
                 onAction={(a) => mdEditorRef.current?.applyAction(a)}
                 onPickImages={() => void pickAttachments()}
               />
@@ -340,6 +324,23 @@ export function Composer({ sessionId }: { sessionId: string }) {
               <ToolButton title="添加图片附件" onClick={() => void pickAttachments()}>
                 <Icon name="plus" size={16} />
               </ToolButton>
+            )}
+
+            {/* 长文本输入入口（MD 模式内的退出按钮在编辑器工具栏右端，同一 testid 不同时出现） */}
+            {!mdMode && (
+              <button
+                type="button"
+                data-testid="md-mode-toggle"
+                onClick={() => {
+                  updateDraft({ inputMode: "markdown" });
+                  setMdView("edit");
+                }}
+                title="长文本输入：文档式编辑区，支持 Markdown 工具栏、分屏预览、图片内嵌与文件附件"
+                className="flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
+              >
+                <Icon name="pen" size={13} />
+                长文本
+              </button>
             )}
 
             {/* MD 模式专属：添加文件（图片在工具栏，视图三态在工具栏右侧） */}

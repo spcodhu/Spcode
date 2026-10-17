@@ -1,6 +1,6 @@
 /**
  * Markdown 编辑器工具栏（博客编辑器风格）：
- * 左侧字形/标题/块/代码/插入/历史 动作按钮，右侧「编辑 · 分屏 · 预览」三态切换。
+ * 左侧字形/标题/块/代码/插入/历史 动作，右端「编辑 · 分屏 · 预览」三态切换 + 退出长文本输入。
  *
  * 纯展示组件：动作经 onAction 回传给 MdEditor.applyAction；图片走 Composer 的附件通道。
  */
@@ -10,10 +10,10 @@ import type { MdAction } from "./MdEditor";
 /** Markdown 输入区的呈现模式 */
 export type MdView = "edit" | "split" | "preview";
 
-/** 三态切换的分段控件（编辑/分屏/预览）。与工具栏分开渲染，放在输入框右上角牌组里 */
+/** 三态切换的分段控件（编辑/分屏/预览）。工具栏内控件：用 bg-main 底、不浮阴影 */
 export function MdViewSwitch({ view, onChange }: { view: MdView; onChange: (v: MdView) => void }) {
   return (
-    <div className="flex items-center rounded-full border border-border bg-bg-elevated p-0.5 text-[11px] font-medium shadow-md">
+    <div className="flex shrink-0 items-center rounded-full bg-bg-main p-0.5 text-[11px] font-medium">
       {VIEWS.map((v) => (
         <button
           key={v.value}
@@ -86,16 +86,24 @@ const VIEWS: { value: MdView; label: string }[] = [
 ];
 
 export function MdToolbar({
+  view,
+  onViewChange,
+  onExit,
   onAction,
   onPickImages,
 }: {
+  view: MdView;
+  onViewChange: (v: MdView) => void;
+  /** 退出长文本输入（回普通输入框） */
+  onExit: () => void;
   onAction: (a: MdAction) => void;
   /** 图片按钮：走 Composer 的附件通道（内嵌到光标处） */
   onPickImages: () => void;
 }) {
   return (
-    <div className="flex items-center gap-1 border-b border-border px-2 py-1.5">
-      <div className="flex min-w-0 flex-1 items-center gap-0.5">
+    <div className="flex items-center gap-1.5 border-b border-border px-2 py-1.5">
+      {/* 动作区：窄窗口下横向滚动（隐藏滚动条），右侧视图控制始终固定不挤 */}
+      <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {GROUPS.map((group, gi) => (
           <div key={group[0]?.key ?? gi} className="flex shrink-0 items-center gap-0.5">
             {gi > 0 && <span className="mx-0.5 h-3.5 w-px shrink-0 bg-border" />}
@@ -120,6 +128,19 @@ export function MdToolbar({
           </div>
         ))}
       </div>
+
+      {/* 右端：三态切换 + 退出长文本输入 */}
+      <span className="h-3.5 w-px shrink-0 bg-border" />
+      <MdViewSwitch view={view} onChange={onViewChange} />
+      <button
+        type="button"
+        data-testid="md-mode-toggle"
+        onClick={onExit}
+        title="退出长文本输入（回到普通输入框）"
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
+      >
+        <Icon name="x" size={13} />
+      </button>
     </div>
   );
 }
