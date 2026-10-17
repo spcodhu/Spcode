@@ -1,5 +1,5 @@
 import type { ComposerDraft, ImageAttachment, ModelInfo, ModelRef } from "@spcode/shared";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { buildFileBlocks, type DraftFile } from "../file-blocks";
 import { formatFileSize } from "../format";
 import { resolveImageRefs } from "../md-editor";
@@ -8,6 +8,7 @@ import { Icon } from "./Icon";
 import { ImageLightbox } from "./ImageLightbox";
 import { Markdown } from "./Markdown";
 import { fileToAttachment, MdEditor, type MdEditorHandle } from "./MdEditor";
+import { MdToolbar, MdViewSwitch, type MdView } from "./MdToolbar";
 
 // ---------------------------------------------------------------------------
 // 外部预填输入框（空态建议卡片等场景点击后把提示词填进输入框并聚焦）
@@ -43,8 +44,8 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const inputMode = draft?.inputMode ?? "plain";
   const setComposerDraft = useStore((s) => s.setComposerDraft);
   const clearComposerDraft = useStore((s) => s.clearComposerDraft);
-  // 预览开关/图片预览为瞬态 UI 状态，不入草稿
-  const [previewOn, setPreviewOn] = useState(false);
+  // 预览开关/图片预览为瞬态 UI 状态，不入草稿（分屏/预览三态）
+  const [mdView, setMdView] = useState<MdView>("edit");
   const [previewIdx, setPreviewIdx] = useState<number | null>(null);
   const running = session?.running ?? false;
   const models = useStore((s) => s.models);
@@ -87,19 +88,16 @@ export function Composer({ sessionId }: { sessionId: string }) {
     // biome-ignore lint/correctness/useExhaustiveDependencies: updateDraft 随 draftKey 重建，只需在 key 变化时重绑
   }, [draftKey]);
 
-  // 高度自适应（仅 plain textarea；MD 编辑器由内容自然撑开，外层容器限高滚动）
-  useLayoutEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = "0px";
-    el.style.height = `${el.scrollHeight}px`;
-  }, [text, inputMode, previewOn]);
+  /* 高度自适应交给 CSS field-sizing: content（见 styles.css .composer-textarea）：
+     不再用 JS 重算 height——那样每次输入先把高度归零再撑开，会把外层滚动容器的
+     scrollTop 夹回 0（表现为多行输入时每敲一个字就跳回顶部）。 */
 
   const canSend = !!text.trim() || attachments.length > 0 || files.length > 0;
   const planMode = session?.planMode ?? false;
   const mdMode = inputMode === "markdown";
-  // 预览文本：仅 MD 预览态计算（把 ![name] 解析成内联 data URL；含大 base64，避免每次渲染都算）
-  const previewText = mdMode && previewOn ? resolveImageRefs(text, attachments) : "";
+  // 预览文本：仅需要预览时计算（分屏/预览；含大 base64，避免每次渲染都算）
+  const needPreview = mdMode && (mdView === "preview" || mdView === "split");
+  const previewText = needPreview ? resolveImageRefs(text, attachments) : "";
 
   const send = () => {
     if (!canSend || running) return;
@@ -121,7 +119,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
     if (!imgs.length) return;
     if (mdMode) {
       // 预览态下编辑器未挂载：先切回编辑态再插入（光标兜底到末尾）
-      if (previewOn) setPreviewOn(false);
+      if (mdView === "preview") setMdView("edit");
       requestAnimationFrame(() => mdEditorRef.current?.insertImages(imgs));
     } else {
       appendToDraft("attachments", imgs);
@@ -165,6 +163,14 @@ export function Composer({ sessionId }: { sessionId: string }) {
       !(settings?.disabledModels ?? []).includes(`${m.provider}/${m.modelId}`),
   );
 
+  /** 预览区内容（分屏/预览共用；空态给轻提示） */
+  const previewBody =
+    text.trim() || attachments.length > 0 ? (
+      <Markdown text={previewText} />
+    ) : (
+      <div className="text-[14px] leading-6 text-text-tertiary">没什么可预览</div>
+    );
+
   return (
     <div className="shrink-0 px-6 pb-4 pt-1">
       <div className="mx-auto max-w-3xl">
@@ -175,36 +181,20 @@ export function Composer({ sessionId }: { sessionId: string }) {
               : "border-border focus-within:border-border-strong"
           }`}
         >
-          {/* 右上角浮动牌组：预览 / MD / 计划。计划挂签保持最右原位，
-              MD 与预览牌在它左侧避让（互不影响各自的显隐与动画） */}
+          {/* 右上角浮动牌组：视图三态 / 长文本输入 / 计划。计划挂签保持最右原位 */}
           <div className="absolute -top-[11px] right-5 z-10 flex items-center gap-1.5">
-            {mdMode && (
-              <button
-                type="button"
-                data-testid="md-preview-toggle"
-                onClick={() => setPreviewOn((v) => !v)}
-                title={previewOn ? "返回编辑" : "预览 Markdown"}
-                className={`flex items-center gap-1 rounded-full border px-2.5 py-[3px] text-[11px] font-medium shadow-md transition-colors ${
-                  previewOn
-                    ? "border-accent/40 bg-accent-soft text-accent"
-                    : "border-border bg-bg-elevated text-text-tertiary hover:border-border-strong hover:text-text-secondary"
-                }`}
-              >
-                <Icon name={previewOn ? "pen" : "eye"} size={11} strokeWidth={2.2} />
-                {previewOn ? "编辑" : "预览"}
-              </button>
-            )}
+            {mdMode && <MdViewSwitch view={mdView} onChange={setMdView} />}
             <button
               type="button"
               data-testid="md-mode-toggle"
               onClick={() => {
                 updateDraft({ inputMode: mdMode ? "plain" : "markdown" });
-                setPreviewOn(false);
+                setMdView("edit");
               }}
               title={
                 mdMode
-                  ? "退出 Markdown 输入模式"
-                  : "Markdown 输入模式：文档式编辑，图片内嵌、支持文件附件与预览"
+                  ? "退出长文本输入（回到普通输入框）"
+                  : "长文本输入：文档式编辑区，支持 Markdown 工具栏、分屏预览、图片内嵌与文件附件"
               }
               className={`flex items-center gap-1 rounded-full border px-2.5 py-[3px] text-[11px] font-medium shadow-md transition-colors ${
                 mdMode
@@ -213,7 +203,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
               }`}
             >
               <Icon name="pen" size={11} strokeWidth={2.2} />
-              MD
+              {mdMode ? "退出长文本输入" : "切换长文本输入"}
             </button>
             {/* 计划模式挂签：浮在输入框右上角的标签牌，一眼可见，点击退出 */}
             {planMode && (
@@ -257,32 +247,49 @@ export function Composer({ sessionId }: { sessionId: string }) {
               ))}
             </div>
           )}
-          {/* 输入区：滚动在外层容器（padding 常驻）。MD 模式是文档式编辑区
-              （立即变高：min 220px / max 46vh；编辑与预览二选一），plain 模式为自适应 textarea */}
+          {/* 输入区：plain 模式为自适应 textarea（field-sizing，不滚动外层）；
+              MD 模式为文档式编辑区：工具栏 + 编辑/分屏/预览三态 */}
           {mdMode ? (
-            previewOn ? (
-              <div className="max-h-[46vh] min-h-[220px] overflow-y-auto px-4 pb-2 pt-4">
-                {text.trim() || attachments.length > 0 ? (
-                  <Markdown text={previewText} />
-                ) : (
-                  <div className="text-[14px] leading-6 text-text-tertiary">没什么可预览</div>
-                )}
-              </div>
-            ) : (
-              <div className="max-h-[46vh] min-h-[220px] overflow-y-auto px-4 pb-2 pt-4">
-                <MdEditor
-                  ref={mdEditorRef}
-                  draftKey={draftKey}
-                  text={text}
-                  attachments={attachments}
-                  placeholder="粘贴或编写 Markdown…（Enter 发送，Shift+Enter 换行）"
-                  onSync={(nextText, nextAtts) => updateDraft({ text: nextText, attachments: nextAtts })}
-                  onSend={send}
-                />
-              </div>
-            )
+            <>
+              <MdToolbar
+                onAction={(a) => mdEditorRef.current?.applyAction(a)}
+                onPickImages={() => void pickAttachments()}
+              />
+              {mdView === "edit" && (
+                <div className="max-h-[46vh] min-h-[180px] overflow-y-auto px-4 pb-2 pt-4">
+                  <MdEditor
+                    ref={mdEditorRef}
+                    draftKey={draftKey}
+                    text={text}
+                    attachments={attachments}
+                    placeholder="粘贴或编写 Markdown…（Enter 发送，Shift+Enter 换行）"
+                    onSync={(nextText, nextAtts) => updateDraft({ text: nextText, attachments: nextAtts })}
+                    onSend={send}
+                  />
+                </div>
+              )}
+              {mdView === "split" && (
+                <div className="grid max-h-[46vh] min-h-[180px] grid-cols-2 divide-x divide-border">
+                  <div className="overflow-y-auto px-4 py-4">
+                    <MdEditor
+                      ref={mdEditorRef}
+                      draftKey={draftKey}
+                      text={text}
+                      attachments={attachments}
+                      placeholder="编写 Markdown…（Enter 发送，Shift+Enter 换行）"
+                      onSync={(nextText, nextAtts) => updateDraft({ text: nextText, attachments: nextAtts })}
+                      onSend={send}
+                    />
+                  </div>
+                  <div className="overflow-y-auto px-4 py-4">{previewBody}</div>
+                </div>
+              )}
+              {mdView === "preview" && (
+                <div className="max-h-[46vh] min-h-[180px] overflow-y-auto px-4 pb-2 pt-4">{previewBody}</div>
+              )}
+            </>
           ) : (
-            <div className="max-h-[216px] overflow-y-auto px-4 pb-1 pt-3.5">
+            <div className="px-4 pb-1 pt-3.5">
               <textarea
                 ref={textareaRef}
                 value={text}
@@ -296,7 +303,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
                 }}
                 placeholder="说点什么…（Enter 发送，Shift+Enter 换行）"
                 rows={2}
-                className="block w-full resize-none overflow-hidden bg-transparent text-[14px] leading-6 outline-none placeholder:text-text-tertiary"
+                className="composer-textarea block max-h-[200px] w-full resize-none overflow-y-auto bg-transparent text-[14px] leading-6 outline-none placeholder:text-text-tertiary"
               />
             </div>
           )}
@@ -328,14 +335,14 @@ export function Composer({ sessionId }: { sessionId: string }) {
 
           {/* 底部胶囊工具栏 */}
           <div className="flex items-center gap-1.5 px-2.5 pb-2.5">
-            <ToolButton
-              title={mdMode ? "添加图片（内嵌到光标处）" : "添加图片附件"}
-              onClick={() => void pickAttachments()}
-            >
-              <Icon name="plus" size={16} />
-            </ToolButton>
+            {/* 图片：plain 模式挂附件 chips；MD 模式在编辑器工具栏里（内嵌到光标处） */}
+            {!mdMode && (
+              <ToolButton title="添加图片附件" onClick={() => void pickAttachments()}>
+                <Icon name="plus" size={16} />
+              </ToolButton>
+            )}
 
-            {/* MD 模式专属：添加文件（MD 切换与预览在右上角浮动牌组） */}
+            {/* MD 模式专属：添加文件（图片在工具栏，视图三态在工具栏右侧） */}
             {mdMode && (
               <ToolButton title="添加文件（文本内容随消息发送；图片走附件）" onClick={() => void pickFiles()}>
                 <Icon name="fileText" size={15} />

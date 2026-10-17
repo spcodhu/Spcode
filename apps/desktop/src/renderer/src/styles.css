@@ -1,4 +1,16 @@
 @import "tailwindcss";
+/* KaTeX 公式渲染样式（@streamdown/math 预览公式用） */
+@import "katex/dist/katex.min.css";
+
+/*
+ * Tailwind 不扫描 node_modules：显式声明 Streamdown 及其插件包，
+ * 让它们内部使用的 utility class（表格滚动、代码块头部、mermaid 容器等）
+ * 参与生成——否则只靠手写 CSS 兜底，总会漏。
+ */
+@source "../../../node_modules/streamdown/dist/*.js";
+@source "../../../node_modules/@streamdown/code/dist/*.js";
+@source "../../../node_modules/@streamdown/math/dist/*.js";
+@source "../../../node_modules/@streamdown/mermaid/dist/*.js";
 
 /*
  * Spcode 默认暗色主题「雀羽 · 墨」（Finch 风格中性灰 + 雀绿 accent）
@@ -403,6 +415,12 @@ button:disabled {
   outline: none;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* 普通输入框：高度随内容自适应，滚动交给 textarea 自身——
+   不用 JS 重算 height，避免每次输入先归零再撑开时把外层 scrollTop 夹回顶部 */
+.composer-textarea {
+  field-sizing: content;
 }
 .md-editor:empty::before {
   content: attr(data-placeholder);

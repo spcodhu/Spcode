@@ -63,23 +63,23 @@ test.describe("输入框：草稿保存", () => {
   });
 });
 
-test.describe("输入框：Markdown 模式", () => {
-  test("MD 浮牌切换 → 文档式编辑区 → 预览渲染 → 模式按会话记住", async () => {
+test.describe("输入框：长文本模式", () => {
+  test("切换长文本输入 → 文档式编辑区 → 预览渲染 → 模式按会话记住", async () => {
     const app = await launchApp();
     const window = await app.firstWindow();
 
     await window.getByRole("button", { name: /新建聊天/ }).click();
     await expect(window.getByPlaceholder(/说点什么/)).toBeVisible({ timeout: 15000 });
 
-    // 右上角浮牌切换到 MD 模式：文档式编辑区出现，预览牌同时浮出
+    // 右上角浮牌切换到长文本：文档式编辑区出现，三态控件同时浮出
     await window.getByTestId("md-mode-toggle").click();
     const editor = window.getByTestId("md-editor");
     await expect(editor).toBeVisible();
-    await expect(window.getByTestId("md-preview-toggle")).toBeVisible();
+    await expect(window.getByTestId("md-view-preview")).toBeVisible();
 
-    // 编辑区立即变高（min 220px）
+    // 编辑区立即变高（min 180px）
     const height = await editor.evaluate((el) => el.parentElement!.clientHeight);
-    expect(height).toBeGreaterThanOrEqual(220);
+    expect(height).toBeGreaterThanOrEqual(180);
 
     // contenteditable 输入 markdown，Shift+Enter 换行
     await editor.click();
@@ -90,11 +90,11 @@ test.describe("输入框：Markdown 模式", () => {
     await expect(editor).toContainText("第二行");
 
     // 预览：渲染出标题
-    await window.getByTestId("md-preview-toggle").click();
+    await window.getByTestId("md-view-preview").click();
     await expect(window.getByRole("heading", { name: "大标题" })).toBeVisible();
 
     // 切回编辑：原文（含换行）还在
-    await window.getByTestId("md-preview-toggle").click();
+    await window.getByTestId("md-view-edit").click();
     await expect(window.getByTestId("md-editor")).toContainText("大标题");
     await expect(window.getByTestId("md-editor")).toContainText("第二行");
 
@@ -107,7 +107,7 @@ test.describe("输入框：Markdown 模式", () => {
 });
 
 test.describe("输入框：高度自适应", () => {
-  test("多行输入时滚动在外层容器（顶部 padding 常驻）", async () => {
+  test("多行输入：高度随内容增长、超出上限后 textarea 自身滚动，外层 padding 不随滚动消失", async () => {
     const app = await launchApp();
     const window = await app.firstWindow();
 
@@ -115,20 +115,24 @@ test.describe("输入框：高度自适应", () => {
     const composer = window.getByPlaceholder(/说点什么/);
     await expect(composer).toBeVisible({ timeout: 15000 });
 
-    // 输入 20 行：容器触发滚动（scrollHeight > clientHeight），padding-top 仍是 14px
+    // 输入 20 行：field-sizing 让 textarea 自身变高到上限（200px）后内部滚动，外层不滚
     await composer.fill(Array.from({ length: 20 }, (_, i) => `第${i + 1}行`).join("\n"));
     const metrics = await composer.evaluate((el) => {
       const container = el.parentElement!;
       const cs = getComputedStyle(container);
       return {
+        textareaScrollable: el.scrollHeight > el.clientHeight,
         containerScrollable: container.scrollHeight > container.clientHeight,
         paddingTop: cs.paddingTop,
         textareaOverflow: getComputedStyle(el).overflowY,
+        textareaHeight: el.clientHeight,
       };
     });
-    expect(metrics.containerScrollable).toBe(true);
-    expect(metrics.paddingTop).toBe("14px"); // pt-3.5
-    expect(metrics.textareaOverflow).toBe("hidden"); // textarea 自身不滚动
+    expect(metrics.textareaScrollable).toBe(true); // 内部滚动（滚动条出现在 textarea 自身）
+    expect(metrics.containerScrollable).toBe(false); // 外层不滚，padding 不会被滚走
+    expect(metrics.paddingTop).toBe("14px"); // pt-3.5 常驻
+    expect(metrics.textareaOverflow).toBe("auto");
+    expect(metrics.textareaHeight).toBeLessThanOrEqual(201); // max-h-[200px]
 
     await app.close();
   });

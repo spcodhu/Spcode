@@ -7,9 +7,12 @@
 import { describe, expect, it } from "vitest";
 import {
   collectImageNames,
+  cycleHeading,
   draftToEditorHtml,
+  lineStartOffset,
   resolveImageRefs,
   serializeEditor,
+  shiftHeading,
 } from "../src/renderer/src/md-editor.js";
 
 const IMG = { name: "pasted-1.png", mimeType: "image/png", data: "aGVsbG8=" };
@@ -76,5 +79,50 @@ describe("collectImageNames", () => {
   it("收集全部引用名（供清理已删除图片的附件）", () => {
     expect([...collectImageNames("![a.png] x ![b.png]")].sort()).toEqual(["a.png", "b.png"]);
     expect(collectImageNames("普通 [链接] 文本").size).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 工具栏动作辅助（行前缀 / 标题级别）
+// ---------------------------------------------------------------------------
+
+describe("lineStartOffset（工具栏行前缀定位）", () => {
+  const text = "第一行\n第二行\n第三行";
+
+  it("返回光标所在行的行首偏移", () => {
+    expect(lineStartOffset(text, 0)).toBe(0);
+    expect(lineStartOffset(text, 2)).toBe(0); // 第一行内
+    expect(lineStartOffset(text, 4)).toBe(4); // 第二行行首（换行符之后）
+    expect(lineStartOffset(text, 6)).toBe(4); // 第二行内
+    expect(lineStartOffset(text, text.length)).toBe(8); // 第三行行首
+  });
+
+  it("越界 caret 夹紧到合法范围", () => {
+    expect(lineStartOffset("abc", -5)).toBe(0);
+    expect(lineStartOffset("abc", 99)).toBe(0);
+    expect(lineStartOffset("a\nb", 99)).toBe(2);
+  });
+});
+
+describe("cycleHeading（标题按钮循环）", () => {
+  it("无前缀 → ## → ### → #### → 取消", () => {
+    expect(cycleHeading("标题")).toBe("## 标题");
+    expect(cycleHeading("## 标题")).toBe("### 标题");
+    expect(cycleHeading("### 标题")).toBe("#### 标题");
+    expect(cycleHeading("#### 标题")).toBe("标题");
+  });
+});
+
+describe("shiftHeading（A+ / A- 升降级）", () => {
+  it("无前缀时 A+ 加 ##，A- 保持原样", () => {
+    expect(shiftHeading("标题", 1)).toBe("## 标题");
+    expect(shiftHeading("标题", -1)).toBe("标题");
+  });
+
+  it("有前缀时增减一级并夹紧在 1..6", () => {
+    expect(shiftHeading("## 标题", 1)).toBe("### 标题");
+    expect(shiftHeading("## 标题", -1)).toBe("# 标题");
+    expect(shiftHeading("# 标题", -1)).toBe("# 标题");
+    expect(shiftHeading("###### 标题", 1)).toBe("###### 标题");
   });
 });

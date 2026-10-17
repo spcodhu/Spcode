@@ -11,13 +11,43 @@
 import type { ImageAttachment } from "@spcode/shared";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import TurndownService from "turndown";
-import { collectImageNames, draftToEditorHtml, serializeEditor } from "../md-editor";
+import {
+  collectImageNames,
+  cycleHeading,
+  draftToEditorHtml,
+  lineStartOffset,
+  serializeEditor,
+  shiftHeading,
+} from "../md-editor";
+
+/** 工具栏动作（image 由 Composer 走附件通道，不进编辑器动作表） */
+export type MdAction =
+  | "bold"
+  | "italic"
+  | "underline"
+  | "strike"
+  | "heading"
+  | "heading-up"
+  | "heading-down"
+  | "quote"
+  | "ol"
+  | "ul"
+  | "code"
+  | "code-block"
+  | "link"
+  | "table"
+  | "mermaid"
+  | "math"
+  | "undo"
+  | "redo";
 
 export interface MdEditorHandle {
   /** 在光标处内嵌图片（无选区时追加到末尾），并把附件并入 attachments */
   insertImages(atts: ImageAttachment[]): void;
   /** 在光标处插入 markdown 文本（\n 规范化为 <br>） */
   insertMarkdown(md: string): void;
+  /** 工具栏动作：包裹/行前缀/块插入/撤销重做 */
+  applyAction(action: MdAction): void;
   focus(): void;
 }
 
@@ -80,8 +110,163 @@ export const MdEditor = forwardRef<
     onSyncRef.current(next, kept);
   };
 
-  /** store → DOM：仅外部变更时重设（打字期间 serialize(DOM) 必然等于 text） */
-  useEffect(() => {
+  /**
+   * 在光标处插入纯文本（多行可靠）：转义后拼 <br> 走 insertHTML——
+   * execCommand("insertText") 对多行字符串会吞掉换行（实测），且 insertHTML 能进原生 undo 栈。
+   * backChars：插入后光标从末尾回退的字符数（用于把光标放进包裹标记/代码块中间）。
+   */
+  const insertPlain = (text: string, backChars = 0) => {
+    const root = rootRef.current;
+    if (!root) return;
+    ensureSelectionInside(root);
+    document.execCommand("insertHTML", false, text.split("\n").map(escHtml).join("<br>"));
+    const sel = window.getSelection();
+    for (let i = 0; i < backChars; i++) sel?.modify("move", "backward", "character");
+    syncFromDom();
+  };
+
+  /** 对称包裹选区（无选区则插入一对标记并把光标放到中间） */
+  const wrapSelection = (before: string, after = before) => {
+    const root = rootRef.current;
+    if (!root) return;
+    ensureSelectionInside(root);
+    const selected = window.getSelection()?.toString() ?? "";
+    insertPlain(`${before}${selected}${after}`, selected ? 0 : after.length);
+  };
+
+  /** 当前 caret 所在文本节点与行范围（caret 在非文本容器时返回 null，由调用方兜底） */
+  const caretLine = (root: HTMLElement) => {
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return null;
+    const range = sel.getRangeAt(0);
+    if (!root.contains(range.startContainer)) return null;
+    const node = range.startContainer;
+    if (node.nodeType !== Node.TEXT_NODE) return null;
+    const text = node as Text;
+    const data = text.data;
+    const start = lineStartOffset(data, range.startOffset);
+    const nextNl = data.indexOf("\n", start);
+    const end = nextNl < 0 ? data.length : nextNl;
+    return { text, start, end, caret: range.startOffset };
+  };
+
+  /** 把光标设到文本节点的指定偏移（collapsed） */
+  const setCaret = (node: Text, offset: number) => {
+    const range = document.createRange();
+    range.setStart(node, Math.max(0, Math.min(offset, node.data.length)));
+    range.collapse(true);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  };
+
+  /** 行前缀类动作（引用/有序/无序）：toggle 前缀，光标保持相对行位置 */
+  const toggleLinePrefix = (prefix: string) => {
+    const root = rootRef.current;
+    if (!root) return;
+    ensureSelectionInside(root);
+    const info = caretLine(root);
+    if (!info) {
+      // 兜底：非文本容器（光标在 <br>/root 层）→ 直接插入前缀
+      insertPlain(prefix);
+      syncFromDom();
+      return;
+    }
+    const { text, start, end, caret } = info;
+    const line = text.data.slice(start, end);
+    const has = line.startsWith(prefix);
+    if (has) text.deleteData(start, prefix.length);
+    else text.insertData(start, prefix);
+    const delta = has ? -prefix.length : prefix.length;
+    setCaret(text, caret + delta);
+    syncFromDom();
+  };
+
+  /** 整行变换（标题类）：替换行文本，光标落到行尾 */
+  const transformLine = (fn: (line: string) => string) => {
+    const root = rootRef.current;
+    if (!root) return;
+    ensureSelectionInside(root);
+    const info = caretLine(root);
+    if (!info) {
+      insertPlain(fn(""));
+      syncFromDom();
+      return;
+    }
+    const { text, start, end } = info;
+    const next = fn(text.data.slice(start, end));
+    text.deleteData(start, end - start);
+    text.insertData(start, next);
+    setCaret(text, start + next.length);
+    syncFromDom();
+  };
+
+  /**
+   * 块插入：前后各补一个空行（markdown 块语法要求空行分隔，否则表格/公式会被并进上一段），
+   * caretBack 让光标回退到模板内的空位。
+   */
+  const insertBlock = (template: string, caretBack = 0) => {
+    insertPlain(`\n\n${template}\n\n`, caretBack);
+  };
+
+  /** 工具栏动作主入口（包裹 / 行前缀 / 块插入 / 撤销重做） */
+  const applyAction = (action: MdAction) => {
+    const root = rootRef.current;
+    if (!root) return;
+    root.focus();
+    switch (action) {
+      case "bold":
+        return wrapSelection("**");
+      case "italic":
+        return wrapSelection("*");
+      case "underline":
+        return wrapSelection("<u>", "</u>");
+      case "strike":
+        return wrapSelection("~~");
+      case "code":
+        return wrapSelection("`");
+      case "math": {
+        // 智能公式：有选中 → 行内 $x$；无选中 → 块公式 $$…$$（光标落中间空行）
+        ensureSelectionInside(root);
+        const selected = window.getSelection()?.toString() ?? "";
+        if (selected) insertPlain(`$${selected}$`);
+        else insertBlock("$$\n\n$$", 4);
+        return;
+      }
+      case "heading":
+        return transformLine(cycleHeading);
+      case "heading-up":
+        return transformLine((l) => shiftHeading(l, 1));
+      case "heading-down":
+        return transformLine((l) => shiftHeading(l, -1));
+      case "quote":
+        return toggleLinePrefix("> ");
+      case "ol":
+        return toggleLinePrefix("1. ");
+      case "ul":
+        return toggleLinePrefix("- ");
+      case "link": {
+        ensureSelectionInside(root);
+        const selected = window.getSelection()?.toString() ?? "";
+        insertPlain(selected ? `[${selected}](url)` : "[链接文字](url)");
+        return;
+      }
+      case "code-block":
+        return insertBlock("```\n\n```", 5);
+      case "table":
+        return insertBlock("| 列 1 | 列 2 |\n| --- | --- |\n|  |  |");
+      case "mermaid":
+        return insertBlock("```mermaid\ngraph TD\n  A[开始] --> B[结束]\n```");
+      case "undo":
+        document.execCommand("undo");
+        return syncFromDom();
+      case "redo":
+        document.execCommand("redo");
+        return syncFromDom();
+    }
+  };
+
+  /** store → DOM：仅外部变更时重设（打字期间 serialize(DOM) 必然等于 text） */  useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
     if (serializeEditor(root) === text) return;
@@ -122,6 +307,9 @@ export const MdEditor = forwardRef<
       // 手动规范化（转义 + \n→<br>），不依赖浏览器 insertHTML 对纯文本的差异化处理
       document.execCommand("insertHTML", false, md.split("\n").map(escHtml).join("<br>"));
       syncFromDom();
+    },
+    applyAction(action) {
+      applyAction(action);
     },
     focus() {
       rootRef.current?.focus();

@@ -44,6 +44,25 @@ const PATHS: Record<string, string> = {
   fileText: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8",
   eye: "M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z",
   book: "M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2zM8 7h7M8 11h7",
+  // Markdown 工具栏图标（Feather/Lucide 风格）
+  bold: "M6 4h8a4 4 0 0 1 0 8H6zM6 12h9a4 4 0 0 1 0 8H6z",
+  italic: "M19 4h-9M14 20H5M15 4 9 20",
+  underline: "M6 3v7a6 6 0 0 0 12 0V3M4 21h16",
+  strike: "M16 4H9a3 3 0 0 0-2.83 4M14 12a4 4 0 0 1 0 8H6M4 12h16",
+  heading: "M6 4v16M18 4v16M6 12h12",
+  quote: "M6 6h5v5a5 5 0 0 1-5 5M14 6h5v5a5 5 0 0 1-5 5",
+  listOrdered: "M10 6h11M10 12h11M10 18h11M4 5h1v4M4 9h2M6 17H4c0-1 2-2 2-3s-1-1.5-2-1",
+  list: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
+  code: "m16 18 6-6-6-6M8 6l-6 6 6 6",
+  codeBlock: "M4 4h16v16H4zM9.5 9l-2.5 3 2.5 3M14.5 9l2.5 3-2.5 3",
+  link: "M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7",
+  image: "M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zM8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM21 15l-5-5L5 21",
+  table: "M3 3h18v18H3zM3 9h18M3 15h18M9 3v18M15 3v18",
+  diagram: "M3 3h6v6H3zM15 15h6v6h-6zM9 6h4a2 2 0 0 1 2 2v7",
+  sigma: "M18 4H6l7 8-7 8h12z",
+  minus: "M5 12h14",
+  undo: "M9 14 4 9l5-5M20 20v-7a4 4 0 0 0-4-4H4",
+  redo: "m15 14 5-5-5-5M4 20v-7a4 4 0 0 1 4-4h12",
 };
 
 export function Icon({
