@@ -413,6 +413,10 @@ function registerIpc(): void {
     if ("sandbox" in patch) {
       bridge.push({ type: "sandbox.setConfig", payload: { config: next.sandbox } });
     }
+    // 压缩设置实时下发宿主（引擎每次压缩判断都实时读 SettingsManager，活跃会话即时生效）
+    if ("compaction" in patch) {
+      bridge.push({ type: "compaction.setConfig", payload: { config: next.compaction } });
+    }
     // 远程控制开关/端口变更：即时启停（改动最小的方式——由 IPC 层显式触发）
     if ("remote" in patch) {
       void remote.applySettings();
@@ -526,6 +530,7 @@ if (!app.requestSingleInstanceLock()) {
         bridge.push({ type: "memory.setDistillEnabled", payload: { enabled: settings.get().memoryDistill } });
         bridge.push({ type: "search.setAdvancedConfig", payload: { config: settings.get().advancedSearch } });
         bridge.push({ type: "sandbox.setConfig", payload: { config: settings.get().sandbox } });
+        bridge.push({ type: "compaction.setConfig", payload: { config: settings.get().compaction } });
       }
     });
     await bridge.start();

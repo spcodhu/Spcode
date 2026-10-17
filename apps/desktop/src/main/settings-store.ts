@@ -3,7 +3,7 @@
  */
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type AppSettings, DEFAULT_SETTINGS } from "@spcode/shared";
+import { type AppSettings, DEFAULT_SETTINGS, sanitizeCompactionSettings } from "@spcode/shared";
 import { readJsonFile, resolveSpcodeHome } from "@spcode/shared/node";
 
 /** 设置文件只需是普通对象（字段级宽松：合并到 DEFAULT_SETTINGS 之上，未知/多余字段原样保留） */
@@ -59,12 +59,16 @@ export class SettingsStore {
         network: { ...DEFAULT_SETTINGS.sandbox.network, ...loadedSandboxNetwork },
         filesystem: { ...DEFAULT_SETTINGS.sandbox.filesystem, ...loadedSandboxFilesystem },
       },
+      // compaction：段缺失补默认；段内字段非法时回落出厂值（非法值会让引擎在 agent 循环里 throw）
+      compaction: sanitizeCompactionSettings(loaded.compaction),
     };
     return this.cache;
   }
 
   set(patch: Partial<AppSettings>): AppSettings {
     const next = { ...this.get(), ...patch };
+    // 同上：写入前归一化，杜绝非法值落到盘上
+    if ("compaction" in patch) next.compaction = sanitizeCompactionSettings(patch.compaction);
     mkdirSync(this.dir, { recursive: true });
     const tmp = `${this.file}.tmp`;
     writeFileSync(tmp, JSON.stringify(next, null, 2), "utf-8");

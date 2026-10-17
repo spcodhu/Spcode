@@ -13,9 +13,10 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
-import { CredentialSynchronizationError, ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
+import { CredentialSynchronizationError, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import type {
   AdvancedSearchConfig,
+  CompactionSettings,
   HostCommand,
   HostEvent,
   ModelInfo,
@@ -24,7 +25,7 @@ import type {
   QuestionRequest,
   SandboxSettings,
 } from "@spcode/shared";
-import { DEFAULT_SANDBOX_SETTINGS } from "@spcode/shared";
+import { DEFAULT_COMPACTION_SETTINGS, DEFAULT_SANDBOX_SETTINGS } from "@spcode/shared";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 import { HibernationManager } from "./hibernation.js";
 import { exportSessionContext } from "./export-context.js";
@@ -67,6 +68,14 @@ let distillEnabled = true;
 let advancedSearchConfig: AdvancedSearchConfig | null = null;
 /** 沙盒设置（主进程设置页经 sandbox.setConfig 下发；未下发前用默认值） */
 let sandboxSettings: SandboxSettings = DEFAULT_SANDBOX_SETTINGS;
+/**
+ * 共享的 pi SettingsManager（纯内存）：压缩设置的唯一事实源是主进程 AppSettings，
+ * 经 compaction.setConfig 下发后 applyOverrides 合并。引擎每次压缩判断都实时读它，
+ * 故活跃会话也即时生效；不落盘，避免与 ~/.spcode/agent/settings.json 出现两个事实源。
+ */
+const piSettings = SettingsManager.inMemory({
+  compaction: { ...DEFAULT_COMPACTION_SETTINGS },
+});
 const sessions = new Map<string, SessionController>();
 /** 会话创建时的原始 cwd（chat 为 ""），休眠墓碑据此推断恢复模式 */
 const sessionCwd = new Map<string, string>();
@@ -330,6 +339,7 @@ async function createController(params: {
     isDistillEnabled: () => distillEnabled,
     getAdvancedSearchConfig: () => advancedSearchConfig,
     getSandboxSettings: () => sandboxSettings,
+    piSettings,
   });
 }
 
@@ -372,6 +382,12 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
   }
   if (cmd.type === "sandbox.setConfig") {
     sandboxSettings = cmd.payload.config;
+    return;
+  }
+  if (cmd.type === "compaction.setConfig") {
+    // applyOverrides 深合并进合并视图；引擎每轮压缩判断都实时调 getCompactionSettings，
+    // 活跃会话下一次判断即用新值（无需重建会话）
+    piSettings.applyOverrides({ compaction: cmd.payload.config });
     return;
   }
 
@@ -605,6 +621,15 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
           await ctl.abort();
         }
         respond(id, true);
+        break;
+      }
+      case "session.compact": {
+        // 手动压缩：唤醒休眠会话（压缩结果随即写回会话文件）；引擎内部会先 abort 当前运行，
+        // 过程与结果走 compaction_start/end 事件同步给渲染层
+        const ctl = await getOrRevive(cmd.payload.sessionId);
+        if (!ctl) throw new Error(`Session not found: ${cmd.payload.sessionId}`);
+        const result = await ctl.compact();
+        respond(id, true, result);
         break;
       }
       case "session.setModel": {

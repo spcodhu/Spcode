@@ -11,7 +11,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { getSupportedThinkingLevels, type Model } from "@earendil-works/pi-ai";
 import type { AgentSession, AgentSessionEvent, ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { createAgentSession, DefaultResourceLoader, SessionManager } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, DefaultResourceLoader, SessionManager, type SettingsManager } from "@earendil-works/pi-coding-agent";
 import type {
   AdvancedSearchConfig,
   ModelRef,
@@ -172,6 +172,11 @@ export interface SessionControllerOptions {
   getAdvancedSearchConfig?: () => AdvancedSearchConfig | null;
   /** 沙盒设置（主进程设置页下发，实时读取；enabled 且平台可用时 bash 走 OS 级沙盒） */
   getSandboxSettings?: () => SandboxSettings;
+  /**
+   * 共享 pi SettingsManager（压缩设置载体）：引擎每轮压缩判断实时读取，
+   * 主进程下发新配置后活跃会话即时生效。缺省时 pi 自建（读 ~/.spcode/agent/settings.json）。
+   */
+  piSettings?: SettingsManager;
   requestPermission: (req: PermissionRequest) => Promise<boolean>;
   askQuestion: (req: QuestionRequest) => Promise<Record<string, string>>;
 }
@@ -248,6 +253,7 @@ export class SessionController {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       thinkingLevel: opts.thinkingLevel as any,
       resourceLoader,
+      settingsManager: opts.piSettings,
       sessionManager: opts.sessionManager ?? (opts.sessionFile ? SessionManager.open(opts.sessionFile) : undefined),
       customTools: [
         // 沙盒化 bash：active 时同名覆盖内置 bash；不可用/关闭时不注册，pi 用内置实现
@@ -509,6 +515,16 @@ export class SessionController {
 
   async abort(): Promise<void> {
     await this.session.abort();
+  }
+
+  /**
+   * 手动压缩上下文。引擎行为：先 abort 当前运行（不重试被中断的回合），
+   * 然后生成摘要并写 compaction entry；过程与结果走 compaction_start/end 事件。
+   * 摘要/保留窗口参数由共享 SettingsManager 的当前值决定（设置页实时可调）。
+   */
+  async compact(): Promise<{ tokensBefore: number; estimatedTokensAfter?: number }> {
+    const result = await this.session.compact();
+    return { tokensBefore: result.tokensBefore, estimatedTokensAfter: result.estimatedTokensAfter };
   }
 
   async setModel(ref: ModelRef): Promise<void> {

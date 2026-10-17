@@ -218,6 +218,12 @@ export type HostCommand =
     }
   | { id: string; type: "session.setPlanMode"; payload: { sessionId: string; enabled: boolean } }
   | { id: string; type: "session.abort"; payload: { sessionId: string } }
+  | {
+      id: string;
+      /** 手动压缩上下文（引擎会先 abort 当前运行；压缩过程走 compaction_start/end 事件） */
+      type: "session.compact";
+      payload: { sessionId: string };
+    }
   | { id: string; type: "session.setModel"; payload: { sessionId: string; model: ModelRef } }
   | { id: string; type: "session.setThinkingLevel"; payload: { sessionId: string; level: string } }
   | { id: string; type: "session.dispose"; payload: { sessionId: string } }
@@ -243,6 +249,11 @@ export type HostCommand =
   | { type: "search.setAdvancedConfig"; payload: { config: AdvancedSearchConfig | null } }
   /** 沙盒设置下发（设置页变更后推送；宿主就绪时重推）。对已创建会话不生效，新会话生效 */
   | { type: "sandbox.setConfig"; payload: { config: SandboxSettings } }
+  /**
+   * 压缩设置下发（设置页变更后推送；宿主就绪时重推）。
+   * 与沙盒不同：pi 引擎每次压缩判断都实时读 SettingsManager，活跃会话即时生效。
+   */
+  | { type: "compaction.setConfig"; payload: { config: CompactionSettings } }
   | { id: string; type: "auth.setApiKey"; payload: { provider: string; apiKey: string } }
   | { id: string; type: "auth.listProviders" }
   | { type: "permission.reply"; payload: { requestId: string; approved: boolean } }
@@ -537,6 +548,8 @@ export interface AppSettings {
   remote: RemoteSettings;
   /** 命令沙盒：bash 命令在 OS 级边界内执行（macOS Seatbelt / Linux bubblewrap） */
   sandbox: SandboxSettings;
+  /** 上下文压缩：阈值/保留窗口/开关（下发 pi 引擎，活跃会话实时生效） */
+  compaction: CompactionSettings;
   /**
    * 免审批规则（权限卡「总允许」沉淀，Finch 式）：命令前缀列表，仅匹配 bash/powershell。
    * 命中且 risk 为 write/outward 时免弹窗；danger 级永远不免。主进程裁决时读取。
@@ -628,6 +641,45 @@ export interface CustomTheme {
   colors: Record<string, string>;
 }
 
+// ---------------------------------------------------------------------------
+// 上下文压缩设置
+// ---------------------------------------------------------------------------
+
+/**
+ * 上下文压缩设置（透传给 pi 引擎的 compaction 子系统）。
+ * 触发语义：估算上下文用量 > 模型窗口 - reserveTokens 时自动压缩；
+ * 压缩时从最新往前保留 keepRecentTokens 原文，更早的折叠成 LLM 摘要。
+ */
+export interface CompactionSettings {
+  /** 自动压缩开关；关闭不影响手动压缩（输入框旁上下文环悬浮卡里发起） */
+  enabled: boolean;
+  /** 触发预留：剩余窗口不足此值时开始压缩（同时是模型输出的保底空间） */
+  reserveTokens: number;
+  /** 压缩时保留最近原文的 token 量（引擎默认 20000；出厂放宽到 40000 减少「上一轮改动被折叠」） */
+  keepRecentTokens: number;
+}
+
+export const DEFAULT_COMPACTION_SETTINGS: CompactionSettings = {
+  enabled: true,
+  reserveTokens: 16384,
+  keepRecentTokens: 40000,
+};
+
+/**
+ * 压缩设置归一化：非法字段回落出厂默认。
+ * 必须在上游拦住——pi 引擎读到非法 compaction 值会在 agent 循环里直接 throw。
+ */
+export function sanitizeCompactionSettings(input: unknown): CompactionSettings {
+  const src = input && typeof input === "object" && !Array.isArray(input) ? (input as Partial<CompactionSettings>) : {};
+  const num = (v: unknown, dflt: number): number =>
+    typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : dflt;
+  return {
+    enabled: typeof src.enabled === "boolean" ? src.enabled : DEFAULT_COMPACTION_SETTINGS.enabled,
+    reserveTokens: num(src.reserveTokens, DEFAULT_COMPACTION_SETTINGS.reserveTokens),
+    keepRecentTokens: num(src.keepRecentTokens, DEFAULT_COMPACTION_SETTINGS.keepRecentTokens),
+  };
+}
+
 export const DEFAULT_SETTINGS: AppSettings = {
   defaultModel: null,
   defaultThinkingLevel: "medium",
@@ -645,6 +697,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   monoFontFile: "",
   advancedSearch: null,
   sandbox: DEFAULT_SANDBOX_SETTINGS,
+  compaction: DEFAULT_COMPACTION_SETTINGS,
   permissionRules: [],
   remote: {
     enabled: false,
