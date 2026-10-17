@@ -1,4 +1,8 @@
-import { describe, expect, it, vi, afterEach } from "vitest";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostCommand } from "@spcode/shared";
 import {
   backfillSessionFile,
@@ -121,6 +125,58 @@ describe("backfillSessionFile: session.fork", () => {
       reg,
     );
     expect(reg.get("new-1")?.sessionFile).toContain("new-1.jsonl");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// pi forkFrom 集成：钉住 sessionDir 必须显式传源目录这个坑（不带 agentDir 时
+// forkFrom 内部 getDefaultSessionDir 会落到 pi 默认目录 ~/.pi/agent/sessions/）
+// ---------------------------------------------------------------------------
+
+describe("SessionManager.forkFrom 集成（真实文件）", () => {
+  const tmpDirs: string[] = [];
+  const makeTmp = () => {
+    const d = mkdtempSync(join(tmpdir(), "spcode-fork-it-"));
+    tmpDirs.push(d);
+    return d;
+  };
+  afterEach(() => {
+    while (tmpDirs.length) rmSync(tmpDirs.pop()!, { recursive: true, force: true });
+  });
+
+  it("fork 文件落在源会话同目录、带 parentSession 头、完整复制消息", () => {
+    const home = makeTmp();
+    const sessionsDir = join(home, "agent", "sessions", "-tmp-proj");
+    const sm = SessionManager.create("/tmp/proj", sessionsDir);
+    sm.appendMessage({ role: "user", content: "帮我重构支付模块", timestamp: Date.now() });
+    // pi 的 _persist 在首条 assistant 消息出现前不落盘（hasAssistant 守卫）
+    sm.appendMessage({
+      role: "assistant",
+      content: [{ type: "text", text: "好的，先看现状。" }],
+      timestamp: Date.now(),
+    } as never);
+    const srcFile = sm.getSessionFile();
+    expect(srcFile).toBeTruthy();
+    expect(existsSync(srcFile!)).toBe(true);
+
+    // 与宿主 fork case 同款的调用方式
+    const forked = SessionManager.forkFrom(srcFile!, "/tmp/proj", dirname(srcFile!), {
+      id: "fork-it-1",
+      parentSession: srcFile!,
+    });
+    const forkFile = forked.getSessionFile();
+    expect(forkFile).toContain(sessionsDir);
+    expect(forkFile).not.toBe(srcFile);
+
+    const lines = readFileSync(forkFile!, "utf-8").trim().split("\n");
+    const header = JSON.parse(lines[0]!) as { type: string; id: string; parentSession?: string };
+    expect(header.type).toBe("session");
+    expect(header.id).toBe("fork-it-1");
+    expect(header.parentSession).toBe(srcFile);
+    // 消息完整复制
+    expect(lines.length).toBe(3); // header + user + assistant
+    expect(readFileSync(forkFile!, "utf-8")).toContain("帮我重构支付模块");
+    expect(readFileSync(forkFile!, "utf-8")).toContain("好的，先看现状。");
   });
 });
 

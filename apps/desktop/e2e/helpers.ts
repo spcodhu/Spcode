@@ -14,8 +14,14 @@ import { type ElectronApplication, _electron as electron } from "@playwright/tes
 
 export const appDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-export async function launchApp(): Promise<ElectronApplication> {
+export interface LaunchOptions {
+  /** 启动前在临时 SPCODE_HOME 里预置数据（注册表/会话文件等夹具） */
+  seed?: (spcodeHome: string) => void;
+}
+
+export async function launchApp(opts?: LaunchOptions): Promise<ElectronApplication> {
   const spcodeHome = mkdtempSync(join(tmpdir(), "spcode-e2e-"));
+  opts?.seed?.(spcodeHome);
   const userDataDir = mkdtempSync(join(tmpdir(), "spcode-e2e-userdata-"));
   // playwright 的 env 是整体替换而非合并，必须带上 process.env
   const env = { ...process.env, SPCODE_HOME: spcodeHome };
