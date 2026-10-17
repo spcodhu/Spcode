@@ -8,6 +8,7 @@ import {
   type HostCommandInput,
   type HostEvent,
   IPC,
+  type PickedFile,
   type RemotePairingInfo,
   type RemoteStatus,
   type ScheduleTask,
@@ -53,6 +54,8 @@ export interface SpcodeApi {
   revealPath(path: string): Promise<void>;
   /** 选择图片附件（多选，base64 内联） */
   pickImages(): Promise<{ name: string; mimeType: string; data: string }[]>;
+  /** 选择任意文件（MD 输入模式）：文本类含内容，图片转附件，二进制/超大标 rejected */
+  pickFiles(): Promise<PickedFile[]>;
   /** 外观：字体导入/字体数据/主题 JSON 导入 */
   pickFontFile(): Promise<{ file: string; family: string } | null>;
   getFontData(fileName: string): Promise<Uint8Array | null>;
@@ -138,6 +141,9 @@ const api: SpcodeApi = {
   },
   pickImages() {
     return ipcRenderer.invoke(IPC.pickImages);
+  },
+  pickFiles() {
+    return ipcRenderer.invoke(IPC.pickFiles);
   },
   pickFontFile() {
     return ipcRenderer.invoke(IPC.pickFontFile);

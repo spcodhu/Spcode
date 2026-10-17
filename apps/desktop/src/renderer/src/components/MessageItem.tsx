@@ -1,27 +1,23 @@
-import { createCodePlugin } from "@streamdown/code";
 import { memo, type ReactNode, useEffect, useRef, useState } from "react";
-import { Streamdown } from "streamdown";
+import { formatFileSize } from "../format";
 import { type ChatMessage, flattenSegments, messageText, type ToolCallState } from "../store";
 import { summarizeArgs, toolLabel } from "../tooling";
 import { Icon } from "./Icon";
 import { ImageLightbox } from "./ImageLightbox";
+import { Markdown } from "./Markdown";
 
-/*
- * 语法高亮插件（shiki）。模块级单例，避免每次渲染重建 highlighter。
- * 双主题都钉成 github-dark：Tailwind 不扫描 node_modules，streamdown 的 dark: 变体类全部失效，
- * 若保留默认 github-light 基色，暗色界面上代码会被刷成浅色主题的灰白。
- *
- * 评审 N3：SHIKI_THEME 是当前唯一的主题耦合点。将来支持浅色主题（CustomTheme.base: "light"）
- * 时，这里要随主题切换高亮方案（重建插件并触发消息区重渲染），CustomTheme 类型处有互指注释。
- */
-const SHIKI_THEME: "github-dark" = "github-dark";
-const codePlugin = createCodePlugin({ themes: [SHIKI_THEME, SHIKI_THEME] });
+/** 用户气泡长文本折叠阈值（行）：MD 模式粘贴大段结构化文本/文件拼接回放时免刷屏 */
+const COLLAPSE_LINES = 12;
 
-/** 用户消息气泡（含图片附件缩略图，点击放大预览；纯图片消息不渲染空气泡） */
+/** 用户消息气泡（含图片附件缩略图点击放大、文件附件 chips；长文本默认折叠） */
 function MessageItemImpl({ message }: { message: ChatMessage }) {
   const text = messageText(message);
   const [previewIdx, setPreviewIdx] = useState<number | null>(null);
+  const [expanded, setExpanded] = useState(false);
   const images = message.images ?? [];
+  const files = message.files ?? [];
+  const lineCount = text ? text.split("\n").length : 0;
+  const collapsible = lineCount > COLLAPSE_LINES;
   return (
     <div className="mb-4 flex flex-col items-end gap-2">
       {images.length > 0 && (
@@ -43,9 +39,48 @@ function MessageItemImpl({ message }: { message: ChatMessage }) {
           ))}
         </div>
       )}
+      {files.length > 0 && (
+        <div className="flex max-w-[85%] flex-wrap justify-end gap-1.5">
+          {files.map((f) => (
+            <span
+              key={`${f.name}-${f.size}`}
+              title={`${f.name}（已随消息发送）`}
+              className="flex items-center gap-1.5 rounded-lg border border-border bg-bg-elevated px-2 py-1 text-[12px] text-text-secondary"
+            >
+              <Icon name="fileText" size={12} className="text-text-tertiary" />
+              <span className="max-w-48 truncate">{f.name}</span>
+              <span className="text-text-tertiary">{formatFileSize(f.size)}</span>
+            </span>
+          ))}
+        </div>
+      )}
       {text.trim() && (
         <div className="max-w-[85%] whitespace-pre-wrap rounded-xl rounded-br-sm border border-border bg-user-bubble px-4 py-2.5 text-sm">
-          {text}
+          {collapsible && !expanded ? (
+            <>
+              {text.split("\n").slice(0, 5).join("\n")}
+              <button
+                type="button"
+                onClick={() => setExpanded(true)}
+                className="mt-1 block text-[12px] text-accent transition-colors hover:text-accent-dim"
+              >
+                …展开全部（共 {lineCount} 行 · {text.length} 字）
+              </button>
+            </>
+          ) : (
+            <>
+              {text}
+              {collapsible && (
+                <button
+                  type="button"
+                  onClick={() => setExpanded(false)}
+                  className="mt-1 block text-[12px] text-accent transition-colors hover:text-accent-dim"
+                >
+                  收起
+                </button>
+              )}
+            </>
+          )}
         </div>
       )}
       {previewIdx !== null && (
@@ -156,22 +191,6 @@ function WorkEntry({ open, children }: { open: boolean; children: ReactNode }) {
   return (
     <div className="collapse-grid" data-open={open}>
       <div className="collapse-inner">{children}</div>
-    </div>
-  );
-}
-
-/** 统一的 Markdown 渲染配置（Codex 简约风：无表格悬浮按钮/内滚动） */
-function Markdown({ text }: { text: string }) {
-  return (
-    <div className="md-body mb-2 text-sm leading-6">
-      <Streamdown
-        controls={{ table: false, mermaid: false, code: { copy: true, download: false } }}
-        tableMaxHeight={0}
-        shikiTheme={[SHIKI_THEME, SHIKI_THEME]}
-        plugins={{ code: codePlugin }}
-      >
-        {text}
-      </Streamdown>
     </div>
   );
 }

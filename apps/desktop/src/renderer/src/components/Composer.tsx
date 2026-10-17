@@ -1,9 +1,13 @@
 import type { ImageAttachment, ModelInfo, ModelRef } from "@spcode/shared";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import TurndownService from "turndown";
+import { buildFileBlocks, type DraftFile } from "../file-blocks";
+import { formatFileSize } from "../format";
 import type { SessionState } from "../store";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
 import { ImageLightbox } from "./ImageLightbox";
+import { Markdown } from "./Markdown";
 
 // ---------------------------------------------------------------------------
 // 外部预填输入框（空态建议卡片等场景点击后把提示词填进输入框并聚焦）
@@ -15,9 +19,28 @@ export function prefillComposer(text: string): void {
   window.dispatchEvent(new CustomEvent(COMPOSER_PREFILL_EVENT, { detail: { text } }));
 }
 
+// ---------------------------------------------------------------------------
+// Markdown 输入模式：应对大量/未经整理的结构化文本输入
+// - 等宽字体编辑 + Streamdown 预览切换
+// - 粘贴富文本（text/html）自动转 Markdown；粘贴图片插入 ![name] 占位 + 附件
+// - 任意文件以 chip 挂载，发送时内容拼接进消息文本（引擎仅支持文本+图片）
+// ---------------------------------------------------------------------------
+
+type InputMode = "plain" | "markdown";
+
+/** 富文本粘贴 → Markdown（模块级单例，与 agent-host 的 webfetch/websearch 同款配置） */
+let turndown: TurndownService | null = null;
+function getTurndown(): TurndownService {
+  if (!turndown) turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
+  return turndown;
+}
+
 export function Composer({ sessionId }: { sessionId: string }) {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
+  const [files, setFiles] = useState<DraftFile[]>([]);
+  const [inputMode, setInputMode] = useState<InputMode>("plain");
+  const [previewOn, setPreviewOn] = useState(false);
   const [previewIdx, setPreviewIdx] = useState<number | null>(null);
   const session = useStore((s) => s.sessions[sessionId]);
   const running = session?.running ?? false;
@@ -46,16 +69,43 @@ export function Composer({ sessionId }: { sessionId: string }) {
     return () => window.removeEventListener(COMPOSER_PREFILL_EVENT, onPrefill);
   }, []);
 
-  const canSend = !!text.trim() || attachments.length > 0;
+  // 高度自适应：textarea 不设行数上限，滚动交给外层容器（padding 常驻，
+  // 修复多行输入时 padding-top 随内容滚出视野的问题）
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "0px";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [text, inputMode, previewOn]);
+
+  const canSend = !!text.trim() || attachments.length > 0 || files.length > 0;
   const planMode = session?.planMode ?? false;
+  const mdMode = inputMode === "markdown";
+
+  /** 在光标处插入片段（MD 模式的图片占位/富文本转换用），插入后光标移到片段末尾 */
+  const insertAtCursor = (snippet: string) => {
+    const el = textareaRef.current;
+    setText((prev) => {
+      const focused = el && document.activeElement === el;
+      const start = focused ? el.selectionStart : prev.length;
+      const end = focused ? el.selectionEnd : prev.length;
+      requestAnimationFrame(() => {
+        el?.focus();
+        el?.setSelectionRange(start + snippet.length, start + snippet.length);
+      });
+      return prev.slice(0, start) + snippet + prev.slice(end);
+    });
+  };
 
   const send = () => {
     if (!canSend || running) return;
-    const value = text.trim();
+    const value = text.trim() + buildFileBlocks(files);
     const imgs = attachments;
+    const fileMeta = files.map(({ name, size }) => ({ name, size }));
     setText("");
     setAttachments([]);
-    void sendPrompt(value, imgs.length ? imgs : undefined);
+    setFiles([]);
+    void sendPrompt(value, imgs.length ? imgs : undefined, fileMeta.length ? fileMeta : undefined);
     requestAnimationFrame(() => textareaRef.current?.focus());
   };
 
@@ -64,15 +114,50 @@ export function Composer({ sessionId }: { sessionId: string }) {
     if (imgs.length) setAttachments((a) => [...a, ...imgs]);
   };
 
-  // Cmd/Ctrl+V 粘贴剪贴板图片（截图等）：读成 base64 附件；无图片则走默认文本粘贴
+  /** MD 模式「添加文件」：图片走附件通道，文本文件进 chips，二进制/超大提示拒绝 */
+  const pickFiles = async () => {
+    const picked = await window.spcode.pickFiles().catch(() => []);
+    if (!picked.length) return;
+    const rejected: string[] = [];
+    const newFiles: DraftFile[] = [];
+    const newImages: ImageAttachment[] = [];
+    for (const f of picked) {
+      if (f.kind === "image") newImages.push({ name: f.name, mimeType: f.mimeType, data: f.data });
+      else if (f.kind === "text") newFiles.push({ name: f.name, size: f.size, text: f.text });
+      else rejected.push(`${f.name}（${f.reason}）`);
+    }
+    if (newImages.length) setAttachments((a) => [...a, ...newImages]);
+    if (newFiles.length) setFiles((fs) => [...fs, ...newFiles]);
+    if (rejected.length) useStore.setState({ notice: { text: `以下文件未添加：${rejected.join("、")}` } });
+  };
+
+  // Cmd/Ctrl+V 粘贴：图片 → 附件（MD 模式另在光标处插入 ![name] 占位）；
+  // MD 模式下富文本（text/html）自动转 Markdown；无图片则走默认文本粘贴
   const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const files = Array.from(e.clipboardData?.items ?? [])
+    const imgFiles = Array.from(e.clipboardData?.items ?? [])
       .filter((it) => it.kind === "file" && it.type.startsWith("image/"))
       .map((it) => it.getAsFile())
       .filter((f): f is File => !!f && f.size <= 10 * 1024 * 1024);
-    if (files.length === 0) return;
-    e.preventDefault();
-    void Promise.all(files.map(fileToAttachment)).then((imgs) => setAttachments((a) => [...a, ...imgs]));
+    if (imgFiles.length > 0) {
+      e.preventDefault();
+      const names = imgFiles.map((f, i) => {
+        const ext = f.type.split("/")[1]?.toLowerCase() || "png";
+        return `pasted-${Date.now()}-${i + 1}.${ext}`;
+      });
+      void Promise.all(imgFiles.map((f, i) => fileToAttachment(f, names[i] ?? f.name))).then((imgs) =>
+        setAttachments((a) => [...a, ...imgs]),
+      );
+      if (mdMode) insertAtCursor(names.map((n) => `![${n}]`).join("\n"));
+      return;
+    }
+    if (mdMode) {
+      const html = e.clipboardData?.getData("text/html") ?? "";
+      if (html.trim()) {
+        e.preventDefault();
+        const md = getTurndown().turndown(html);
+        if (md.trim()) insertAtCursor(md.endsWith("\n") ? md : `${md}\n`);
+      }
+    }
   };
 
   const actMode = settings?.permissionMode === "act";
@@ -133,27 +218,112 @@ export function Composer({ sessionId }: { sessionId: string }) {
               ))}
             </div>
           )}
-          <textarea
-            ref={textareaRef}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onPaste={handlePaste}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault();
-                send();
-              }
-            }}
-            placeholder="说点什么…（Enter 发送，Shift+Enter 换行）"
-            rows={Math.min(8, Math.max(2, text.split("\n").length))}
-            className="w-full resize-none bg-transparent px-4 pb-1 pt-3.5 text-[14px] leading-6 outline-none placeholder:text-text-tertiary"
-          />
+          {/* 文件附件 chips（MD 模式；文件名 + 大小 + 移除） */}
+          {files.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 px-3.5 pt-3">
+              {files.map((f, i) => (
+                <span
+                  key={`${f.name}-${i}`}
+                  title={`${f.name} · 发送时内容随消息发出`}
+                  className="flex items-center gap-1.5 rounded-lg border border-border bg-bg-main px-2 py-1 text-[12px] text-text-secondary"
+                >
+                  <Icon name="fileText" size={12} className="shrink-0 text-text-tertiary" />
+                  <span className="max-w-56 truncate">{f.name}</span>
+                  <span className="shrink-0 text-text-tertiary">{formatFileSize(f.size)}</span>
+                  <button
+                    type="button"
+                    onClick={() => setFiles((fs) => fs.filter((_, j) => j !== i))}
+                    title={`移除 ${f.name}`}
+                    className="shrink-0 text-text-tertiary transition-colors hover:text-text-primary"
+                  >
+                    <Icon name="x" size={11} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          {/* 输入区：滚动在外层容器（padding 常驻）；MD 预览与编辑 textarea 二选一 */}
+          {mdMode && previewOn ? (
+            <div className="max-h-[216px] min-h-[76px] overflow-y-auto px-4 pb-1 pt-3.5">
+              {text.trim() ? (
+                <Markdown text={text} />
+              ) : (
+                <div className="text-[14px] leading-6 text-text-tertiary">没什么可预览</div>
+              )}
+            </div>
+          ) : (
+            <div className="max-h-[216px] overflow-y-auto px-4 pb-1 pt-3.5">
+              <textarea
+                ref={textareaRef}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                onPaste={handlePaste}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    send();
+                  }
+                }}
+                placeholder={
+                  mdMode
+                    ? "粘贴或编写 Markdown…（Enter 发送，Shift+Enter 换行）"
+                    : "说点什么…（Enter 发送，Shift+Enter 换行）"
+                }
+                rows={2}
+                className={`block w-full resize-none overflow-hidden bg-transparent text-[14px] leading-6 outline-none placeholder:text-text-tertiary ${mdMode ? "mono" : ""}`}
+              />
+            </div>
+          )}
 
           {/* 底部胶囊工具栏 */}
           <div className="flex items-center gap-1.5 px-2.5 pb-2.5">
             <ToolButton title="添加图片附件" onClick={() => void pickAttachments()}>
               <Icon name="plus" size={16} />
             </ToolButton>
+
+            {/* Markdown 输入模式切换（适合粘贴/编写大段结构化文本） */}
+            <button
+              type="button"
+              onClick={() => {
+                setInputMode((m) => (m === "markdown" ? "plain" : "markdown"));
+                setPreviewOn(false);
+              }}
+              title={
+                mdMode
+                  ? "退出 Markdown 输入模式"
+                  : "Markdown 输入模式：适合大段结构化文本，支持富文本粘贴转 MD、文件附件与预览"
+              }
+              className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] transition-colors ${
+                mdMode
+                  ? "bg-accent/20 text-accent"
+                  : "text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
+              }`}
+            >
+              <Icon name="pen" size={13} />
+              MD
+            </button>
+
+            {/* MD 模式专属：添加文件 / 预览切换 */}
+            {mdMode && (
+              <>
+                <ToolButton title="添加文件（文本内容随消息发送；图片走附件）" onClick={() => void pickFiles()}>
+                  <Icon name="fileText" size={15} />
+                </ToolButton>
+                <button
+                  type="button"
+                  onClick={() => setPreviewOn((v) => !v)}
+                  title={previewOn ? "返回编辑" : "预览 Markdown"}
+                  className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] transition-colors ${
+                    previewOn
+                      ? "bg-accent/20 text-accent"
+                      : "text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
+                  }`}
+                >
+                  <Icon name={previewOn ? "pen" : "eye"} size={13} />
+                  {previewOn ? "编辑" : "预览"}
+                </button>
+              </>
+            )}
 
             {/* 权限模式 */}
             <button
@@ -236,8 +406,9 @@ export function Composer({ sessionId }: { sessionId: string }) {
   );
 }
 
-/** 剪贴板图片 File → ImageAttachment（>10MB 已在上游过滤，与主进程 pickImages 对齐） */
-function fileToAttachment(file: File): Promise<ImageAttachment> {
+/** 剪贴板图片 File → ImageAttachment（>10MB 已在上游过滤，与主进程 pickImages 对齐）。
+ *  name 可由调用方指定（MD 模式需先生成占位名插入文本，附件与占位同名） */
+function fileToAttachment(file: File, name?: string): Promise<ImageAttachment> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -246,7 +417,7 @@ function fileToAttachment(file: File): Promise<ImageAttachment> {
       if (comma < 0) return reject(new Error("图片读取失败"));
       const ext = file.type.split("/")[1]?.toLowerCase() || "png";
       // 剪贴板文件的 name 通常是 "image.png" 这类占位名，统一换可读名
-      resolve({ name: `pasted-${Date.now()}.${ext}`, mimeType: file.type, data: url.slice(comma + 1) });
+      resolve({ name: name ?? `pasted-${Date.now()}.${ext}`, mimeType: file.type, data: url.slice(comma + 1) });
     };
     reader.onerror = () => reject(reader.error ?? new Error("图片读取失败"));
     reader.readAsDataURL(file);

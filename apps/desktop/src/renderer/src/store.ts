@@ -57,6 +57,8 @@ export interface ChatMessage {
   segments: Segment[];
   /** 用户消息携带的图片附件（base64 内联，用于气泡缩略图） */
   images?: ImageAttachment[];
+  /** 用户消息携带的文件附件元信息（MD 输入模式；内容已拼进发送文本，这里仅存展示信息） */
+  files?: { name: string; size: number }[];
   streaming: boolean;
 }
 
@@ -209,7 +211,7 @@ interface StoreState {
   openSessionById(id: string): Promise<void>;
   deleteSession(id: string): Promise<void>;
   setActive(id: string): void;
-  sendPrompt(text: string, images?: ImageAttachment[]): Promise<void>;
+  sendPrompt(text: string, images?: ImageAttachment[], files?: { name: string; size: number }[]): Promise<void>;
   abort(): Promise<void>;
   setModel(ref: ModelRef): Promise<void>;
   setThinkingLevel(level: string): Promise<void>;
@@ -897,9 +899,9 @@ export const useStore = create<StoreState>((set, get) => ({
     if (id) void ensureAwake(id);
   },
 
-  async sendPrompt(text, images) {
+  async sendPrompt(text, images, files) {
     const activeId = get().activeSessionId;
-    if (!activeId || (!text.trim() && !images?.length)) return;
+    if (!activeId || (!text.trim() && !images?.length && !files?.length)) return;
     // 草稿会话：首次发送时才真正创建并写入历史（避免空会话刷屏侧栏）
     let sessionId = activeId;
     if (get().sessions[sessionId]?.draft) {
@@ -917,6 +919,7 @@ export const useStore = create<StoreState>((set, get) => ({
           role: "user",
           segments: [{ kind: "text", id: nextMsgId(), text }],
           ...(images?.length ? { images } : {}),
+          ...(files?.length ? { files } : {}),
           streaming: false,
         });
         // 立即创建 assistant 流式占位：加载动画随点击发送同时出现，

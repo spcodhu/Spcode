@@ -41,6 +41,17 @@ export interface ImageAttachment {
   data: string;
 }
 
+/**
+ * 文件选择结果（IPC pickFiles，Markdown 输入模式「添加文件」用）：
+ * - text：文本类文件（扩展名白名单+二进制唿探，≤200KB），渲染层发送时拼进消息文本
+ * - image：图片，转 ImageAttachment 走图片附件通道
+ * - rejected：二进制/超大/读取失败，渲染层提示并跳过
+ */
+export type PickedFile =
+  | { kind: "text"; name: string; size: number; text: string }
+  | { kind: "image"; name: string; mimeType: string; data: string }
+  | { kind: "rejected"; name: string; size: number; reason: string };
+
 export interface SessionMeta {
   id: string;
   mode: SessionMode;
@@ -381,9 +392,10 @@ export const IPC = {
   pickFontFile: "spcode:pick-font-file",
   getFontData: "spcode:get-font-data",
   pickThemeFile: "spcode:pick-theme-file",
-  /** renderer -> main (invoke)：选择项目文件夹 / 图片附件 */
+  /** renderer -> main (invoke)：选择项目文件夹 / 图片附件 / 任意文件（MD 输入模式） */
   pickDirectory: "spcode:pick-directory",
   pickImages: "spcode:pick-images",
+  pickFiles: "spcode:pick-files",
   /** renderer -> main (invoke)：在 Finder/资源管理器中显示路径 */
   revealPath: "spcode:reveal-path",
   /** renderer -> main (invoke)：读取/写入应用设置 */

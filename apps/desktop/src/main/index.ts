@@ -14,6 +14,7 @@ import {
   type HostCommand,
   type HostEvent,
   IPC,
+  type PickedFile,
   type ScheduleTask,
   type ScheduleTaskInput,
   type SessionMode,
@@ -37,6 +38,21 @@ import { searchSessions } from "./session-search.js";
 import { SettingsStore } from "./settings-store.js";
 import { setupAutoUpdater, downloadUpdate, getUpdateState, ignoreVersion, installUpdate } from "./updater.js";
 import { UsageLedger } from "./usage-ledger.js";
+
+/** pickFiles 的文本文件扩展名白名单（不在名单内的靠二进制唿探判决） */
+const PICK_TEXT_EXTS = new Set([
+  "txt", "md", "markdown", "json", "jsonc", "yaml", "yml", "toml", "xml", "csv",
+  "ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "java", "go", "rs",
+  "c", "h", "cpp", "hpp", "cs", "rb", "php", "swift", "kt", "sh", "bash", "zsh", "ps1",
+  "sql", "html", "css", "scss", "less", "vue", "svelte", "ini", "conf", "log",
+]);
+const PICK_IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp"]);
+
+/** 二进制唿探：前 8000 字节内出现 NUL 即视为二进制 */
+function looksBinary(buf: Buffer): boolean {
+  const head = buf.subarray(0, Math.min(buf.length, 8000));
+  return head.includes(0);
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -321,6 +337,43 @@ function registerIpc(): void {
         out.push({ name: basename(file), mimeType, data: buf.toString("base64") });
       } catch {
         // 单个文件读取失败不阻塞其它
+      }
+    }
+    return out;
+  });
+
+  // 任意文件选择（Markdown 输入模式「添加文件」）：文本类读 utf-8 内容，图片转图片附件，
+  // 二进制/超大标 rejected 由渲染层提示（引擎 prompt 只支持文本+图片，文件内容随文本发出）
+  ipcMain.handle(IPC.pickFiles, async (): Promise<PickedFile[]> => {
+    if (!mainWindow) return [];
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ["openFile", "multiSelections"],
+      title: "添加文件",
+    });
+    if (result.canceled) return [];
+    const out: PickedFile[] = [];
+    for (const file of result.filePaths) {
+      const name = basename(file);
+      const ext = name.includes(".") ? (name.split(".").pop()?.toLowerCase() ?? "") : "";
+      try {
+        const buf = readFileSync(file);
+        const size = buf.byteLength;
+        if (PICK_IMAGE_EXTS.has(ext)) {
+          if (size > 10 * 1024 * 1024) {
+            out.push({ kind: "rejected", name, size, reason: "图片超过 10MB" });
+          } else {
+            const mimeType = ext === "jpg" ? "image/jpeg" : `image/${ext}`;
+            out.push({ kind: "image", name, mimeType, data: buf.toString("base64") });
+          }
+        } else if (size > 200 * 1024) {
+          out.push({ kind: "rejected", name, size, reason: "文本文件超过 200KB" });
+        } else if (PICK_TEXT_EXTS.has(ext) || !looksBinary(buf)) {
+          out.push({ kind: "text", name, size, text: buf.toString("utf-8") });
+        } else {
+          out.push({ kind: "rejected", name, size, reason: "二进制文件无法作为文本发送" });
+        }
+      } catch {
+        out.push({ kind: "rejected", name, size: 0, reason: "读取失败" });
       }
     }
     return out;
