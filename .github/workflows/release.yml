@@ -72,6 +72,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
-          # 版本号带 -beta.N 等后缀时标为 Pre-release，不占 Latest 位
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          # 自用场景：最新构建始终占 Latest 位（仓库首页 Releases 直接指向最新包），
+          # 不按 tag 形态标 Pre-release——beta 与稳定版只通过版本号后缀区分
+          prerelease: false
           generate_release_notes: true
