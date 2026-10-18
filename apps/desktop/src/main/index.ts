@@ -5,7 +5,7 @@
 import { randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   type AdvancedSearchConfig,
   type AppSettings,
@@ -13,6 +13,7 @@ import {
   type ComposerDraft,
   cleanSessionTitle,
   type HostCommand,
+  type HostCommandInput,
   type HostEvent,
   IPC,
   type PickedFile,
@@ -127,9 +128,11 @@ function createWindow(): void {
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 14, y: 14 },
     webPreferences: {
-      preload: join(__dirname, "../preload/index.mjs"),
+      preload: join(__dirname, "../preload/index.cjs"),
       contextIsolation: true,
-      sandbox: false,
+      // 评审 R3-C6：preload 只用 ipcRenderer/contextBridge（命令 id 已挪主进程补发），
+      // 可以安全开启沙箱——被劫持的渲染层不再有 Node 能力
+      sandbox: true,
     },
   });
 
@@ -140,10 +143,12 @@ function createWindow(): void {
   });
 
   // 安全：拦截渲染进程内导航（模型输出的 Markdown 链接同窗点击会导航走本窗口，
-  // 远程页面将继承 preload 能力）。file://（打包后的本地页面）与 dev server 放行。
+  // 远程页面将继承 preload 能力）。只放行应用自身入口文件与 dev server——
+  // 任意 file:// 一律拦（评审 R3-C6：本地恶意 HTML 不能继承 preload）。
+  const allowedEntryUrl = pathToFileURL(join(__dirname, "../renderer/index.html")).href;
   mainWindow.webContents.on("will-navigate", (e, url) => {
     const devUrl = process.env.ELECTRON_RENDERER_URL;
-    if (url.startsWith("file://") || (devUrl && url.startsWith(devUrl))) return;
+    if (url === allowedEntryUrl || (devUrl && url.startsWith(devUrl))) return;
     e.preventDefault();
     if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
   });
@@ -256,8 +261,10 @@ function registerIpc(): void {
     "models.catalog": 60_000,
   };
 
-  ipcMain.handle(IPC.hostCommand, async (_e, cmd: HostCommand) => {
-    if (!("id" in cmd)) throw new Error("hostCommand requires id");
+  ipcMain.handle(IPC.hostCommand, async (_e, raw: HostCommandInput) => {
+    // id 统一在这里补发（preload 不生成；评审 R3-C6）
+    const id = "id" in raw && typeof raw.id === "string" && raw.id ? raw.id : randomUUID();
+    const cmd = { ...raw, id } as Extract<HostCommand, { id: string }>;
 
     // 创建/恢复会话时写入注册表
     if (cmd.type === "session.create") {

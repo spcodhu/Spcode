@@ -90,8 +90,8 @@ export interface SpcodeApi {
 
 const api: SpcodeApi = {
   command(cmd) {
-    const id = cmd.id ?? crypto.randomUUID();
-    return ipcRenderer.invoke(IPC.hostCommand, { ...cmd, id });
+    // id 由主进程补发（preload 不引 crypto——为 sandbox:true 扫清障碍，评审 R3-C6）
+    return ipcRenderer.invoke(IPC.hostCommand, cmd);
   },
   onEvent(cb) {
     const listener = (_e: unknown, event: HostEvent) => cb(event);

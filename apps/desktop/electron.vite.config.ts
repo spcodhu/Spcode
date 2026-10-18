@@ -28,6 +28,15 @@ export default defineConfig({
   },
   preload: {
     plugins: [inlineWorkspace],
+    build: {
+      rollupOptions: {
+        output: {
+          // sandbox:true 的渲染进程要求 preload 为 CJS（Electron 约束，评审 R3-C6）
+          format: "cjs",
+          entryFileNames: "[name].cjs",
+        },
+      },
+    },
   },
   renderer: {
     plugins: [react(), tailwindcss()],
