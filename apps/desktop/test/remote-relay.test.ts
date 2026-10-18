@@ -199,10 +199,9 @@ class RelayDevice {
     });
   }
 
-  /** 重连 = 新 WS + 出站 seq 归零（seq 生命周期绑定连接） */
+  /** 重连 = 新 WS；协议 v2 下出站 seq 持久续接（不归零） */
   async reconnect(): Promise<void> {
     this.ws.close();
-    this.outSeq = 0;
     await this.connect();
   }
 
@@ -213,7 +212,7 @@ class RelayDevice {
 
   async pair(otp: string, name = "relay 测试机"): Promise<void> {
     const c = secretboxEncrypt(JSON.stringify({ publicKey: this.phone.publicKey, name }), deriveOtpKey(otp));
-    this.sendRaw({ t: "pair", otp, c });
+    this.sendRaw({ t: "pair", c });
     const ack = await this.waitFrame((f) => f.t === "pair_ack");
     expect(ack.ok).toBe(true);
     const inner = JSON.parse(boxDecrypt(ack.c!, this.desktopPk, this.phone.secretKey)!) as {
@@ -225,9 +224,21 @@ class RelayDevice {
   }
 
   async auth(): Promise<void> {
-    this.sendRaw({ t: "auth", publicKey: this.phone.publicKey, deviceId: this.deviceId ?? undefined });
-    const ack = await this.waitFrame((f) => f.t === "auth_ack");
+    // 协议 v2：auth 声明（带持久化的 nextSeq）→ 挑战 → 私钥证明 → ack
+    // 只匹配本次调用之后到达的帧：重连重 auth 时历史帧里有旧挑战/旧 ack
+    const startAt = this.frames.length;
+    this.sendRaw({
+      t: "auth",
+      publicKey: this.phone.publicKey,
+      deviceId: this.deviceId ?? undefined,
+      nextSeq: this.outSeq,
+    });
+    const challenge = await this.waitFrame((f) => f.t === "auth_challenge", 3000, startAt);
+    const proof = boxEncrypt(challenge.nonce as string, this.desktopPk, this.phone.secretKey);
+    this.sendRaw({ t: "auth_proof", c: proof });
+    const ack = await this.waitFrame((f) => f.t === "auth_ack", 3000, startAt);
     expect(ack.ok).toBe(true);
+    if (typeof ack.resumeSeq === "number") this.outSeq = Math.max(ack.resumeSeq, this.outSeq);
   }
 
   /** 发送加密命令（帧外层带 deviceId 供 relay 路由） */
@@ -250,12 +261,12 @@ class RelayDevice {
     });
   }
 
-  waitFrame(pred: (f: WireFrame) => boolean, timeoutMs = 3000): Promise<WireFrame> {
-    const hit = this.frames.find(pred);
+  waitFrame(pred: (f: WireFrame) => boolean, timeoutMs = 3000, fromIndex = 0): Promise<WireFrame> {
+    const hit = this.frames.slice(fromIndex).find(pred);
     if (hit) return Promise.resolve(hit);
     return new Promise((resolvePromise, rejectPromise) => {
       const poll = setInterval(() => {
-        const found = this.frames.find(pred);
+        const found = this.frames.slice(fromIndex).find(pred);
         if (found) {
           clearInterval(poll);
           clearTimeout(timer);
@@ -562,26 +573,26 @@ describe("断线补拉（session.output.since → session.output.backfill）", (
   });
 });
 
-describe("seq 绑定逻辑连接", () => {
-  it("设备重连重新 auth 后入站 seq 从 0 重新开始；重放被断连并墓碑，重新 auth 恢复", async () => {
+describe("seq 跨连接单调（协议 v2）", () => {
+  it("重连后出站 seq 续接不归零；旧帧重放被断连墓碑；重新 auth 后续接恢复", async () => {
     const dev = await makeDevice("seq 机");
-    dev.sendCmd("seq-c1", { type: "session.list" });
+    dev.sendCmd("seq-c1", { type: "session.list" }); // seq 0
     await dev.waitPayload((p) => p.kind === "response" && p.id === "seq-c1");
 
-    // 设备重连 relay（新 WS，出站 seq 归零）→ 重新 auth → host 重置该设备入站校验
+    // 设备重连 relay（新 WS）→ 重新 auth → host 按持久基准线 seed（不再归零）
     await dev.reconnect();
     await dev.auth();
-    dev.sendCmd("seq-c2", { type: "session.list" }); // seq=0：不重置会被当重放拒绝
+    dev.sendCmd("seq-c2", { type: "session.list" }); // v2：seq 续接（1），不归零
     const resp = await dev.waitPayload((p) => p.kind === "response" && p.id === "seq-c2");
     expect(resp.ok).toBe(true);
 
-    // 重放同一 seq=0 → host 关闭该虚拟连接（墓碑）；后续业务帧被丢弃
+    // 重放旧 seq=0 帧 → host 关闭该虚拟连接（墓碑）；后续业务帧被丢弃
     dev.replayEncrypted("seq-c2b", 0, { type: "session.list" });
     await new Promise((r) => setTimeout(r, 200));
     dev.sendCmd("seq-c3", { type: "session.list" });
     await expect(dev.waitPayload((p) => p.kind === "response" && p.id === "seq-c3", 500)).rejects.toThrow("超时");
 
-    // 重新 auth = 新逻辑会话：墓碑清除，seq 重新从 0 计
+    // 重新 auth：基准线未因重放而后退，seq 继续续接
     await dev.reconnect();
     await dev.auth();
     dev.sendCmd("seq-c4", { type: "session.list" });

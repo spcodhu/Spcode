@@ -125,6 +125,23 @@ export class PairingManager {
     return this.devices().find((d) => d.publicKey === publicKey);
   }
 
+  /** 设备级入站 seq 基准线（协议 v2 防跨连接重放）：缺省 -1（没见过任何帧） */
+  lastInSeqOf(publicKey: string): number {
+    return this.findByPublicKey(publicKey)?.lastInSeq ?? -1;
+  }
+
+  /**
+   * 更新设备的入站 seq 基准线。persist=false 只改内存（每帧调用不刷盘）；
+   * persist=true（每 32 帧与连接关闭时）才落盘——崩溃丢失的部分只会让基准线偏低，
+   * 不会放大重放窗口（对端持久化自己的出站 seq，双方取 max 续接）。
+   */
+  noteInboundSeq(publicKey: string, seq: number, persist: boolean): void {
+    const dev = this.findByPublicKey(publicKey);
+    if (!dev || seq <= (dev.lastInSeq ?? -1)) return;
+    dev.lastInSeq = seq;
+    if (persist) this.persistDevices();
+  }
+
   removeDevice(id: string): boolean {
     const list = this.devices();
     const idx = list.findIndex((d) => d.id === id);

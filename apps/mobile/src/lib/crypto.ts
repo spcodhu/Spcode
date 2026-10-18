@@ -161,6 +161,16 @@ export class SeqCounter {
     return this.next++;
   }
 
+  /** 下一个将发出的 seq（持久化续接用） */
+  peek(): number {
+    return this.next;
+  }
+
+  /** 协议 v2：按 host 的 resumeSeq / 本地持久值续接出站序号 */
+  setNext(n: number): void {
+    if (Number.isInteger(n) && n >= 0) this.next = n;
+  }
+
   reset(): void {
     this.next = 0;
   }

@@ -35,7 +35,9 @@ export function parseQrPayload(text: string): QrPayload {
   const v = params.get("v");
   if (v !== "2") {
     throw new Error(
-      v === "1" ? "配对码版本过旧：桌面端已升级配对协议（v2），请在桌面设置页重新生成配对码" : `不支持的协议版本：${v ?? "缺失"}`,
+      v === "1"
+        ? "配对码版本过旧：桌面端已升级配对协议（v2），请在桌面设置页重新生成配对码"
+        : `不支持的协议版本：${v ?? "缺失"}`,
     );
   }
 

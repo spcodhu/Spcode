@@ -12,8 +12,9 @@
  */
 
 import type { RemoteCommand, RemoteEncryptedFrame, RemoteEncryptedPayload } from "@spcode/shared";
-import { generateKeyPair, openPayload, pairOpen, pairSeal, SeqCounter, SeqGuard, sealPayload } from "./crypto";
+import { boxSeal, generateKeyPair, openPayload, pairOpen, pairSeal, SeqCounter, SeqGuard, sealPayload } from "./crypto";
 import type { PairingRecord } from "./db";
+import { savePairing } from "./db";
 import type { RemoteCommandExt, RemoteEventExt } from "./protocol";
 import { parseQrPayload } from "./qr";
 import { isRelayHost, orderHosts, relayWsUrl } from "./relay";
@@ -307,25 +308,54 @@ export class RemoteClient {
     ws.addEventListener("message", (ev) => this.onRawMessage(ws, ev));
     ws.addEventListener("close", () => {
       if (this.ws === ws) this.ws = null;
+      this.persistOutSeq(); // 断连兜底落盘
       this.failAllPending(new Error("连接已断开"));
       if (!this.stopped && this.state !== "unpaired") this.scheduleReconnect("连接已断开");
     });
     ws.addEventListener("error", () => ws.close());
 
-    // auth 握手：每连接重置双向 seq 与早到帧缓冲。
-    // 桌面侧 relay 出站 seq 跨重连不归零（离线队列里可能有高 seq 在途帧），
-    // 但 SeqGuard 重置后接受任意首个合法 seq、随后严格递增，两种语义都兼容。
-    this.outSeq.reset();
+    // auth 握手（协议 v2）：出站 seq 从持久化值续接（跨连接单调，配合 host 侧持久基准线关闭重放窗口）；
+    // 入站 seq 每连接重置（host→device 方向出站 seq relay 跨重连不归零，SeqGuard 兼容两种语义）。
+    this.outSeq.setNext(this.record.lastOutSeq ?? 0);
     this.inSeq.reset();
     this.earlyFrames = [];
     try {
       // relay 是广播语义：auth 帧外层带 deviceId，host 据此把帧分流到本设备的虚拟连接
-      const hello: { t: "auth"; publicKey: string; deviceId?: string } = {
+      const hello: { t: "auth"; publicKey: string; deviceId?: string; nextSeq: number } = {
         t: "auth",
         publicKey: this.record.keyPair.publicKey,
+        nextSeq: this.outSeq.peek(),
       };
       if (this.relay) hello.deviceId = this.record.deviceId;
       ws.send(JSON.stringify(hello));
+
+      // 第一步：等服务端挑战（relay 广播下可能收到他设备的帧：带 deviceId 且不匹配的丢弃）。
+      // 未知设备会被直接回 auth_ack(ok:false) 而不发挑战，两种帧都要接。
+      const first = (await waitFrame(
+        ws,
+        (f) => {
+          const frame = f as { t?: string; deviceId?: string };
+          if (frame.t !== "auth_challenge" && frame.t !== "auth_ack") return false;
+          return !this.relay || typeof frame.deviceId !== "string" || frame.deviceId === this.record.deviceId;
+        },
+        8000,
+        "等待认证挑战",
+      )) as { t: "auth_challenge" | "auth_ack"; nonce?: string; ok?: boolean; error?: string };
+
+      if (first.t === "auth_ack") {
+        // 未配对即拒（无挑战）：进入 unpaired 等用户重新扫码
+        this.stopped = true;
+        this.setState("unpaired");
+        ws.close();
+        return;
+      }
+
+      // 第二步：私钥证明（box 密封 nonce 回传）
+      const proof = boxSeal(first.nonce!, this.record.desktopPk, this.record.keyPair.secretKey);
+      const proofFrame: { t: "auth_proof"; c: string; deviceId?: string } = { t: "auth_proof", c: proof };
+      if (this.relay) proofFrame.deviceId = this.record.deviceId;
+      ws.send(JSON.stringify(proofFrame));
+
       const ack = (await waitFrame(
         ws,
         (f) => {
@@ -340,10 +370,13 @@ export class RemoteClient {
         t: "auth_ack";
         ok: boolean;
         desktopPk?: string;
+        resumeSeq?: number;
+        error?: string;
       };
       if (!ack.ok) {
+        // seq_rollback = 本地出站序号被回滚（如清了站点数据但桌面还记得旧 seq）：配对关系已不可信，需重新配对
         this.stopped = true; // 桌面已不认识本设备：不再自动重连，等待用户重新配对
-        this.setState("unpaired");
+        this.setState("unpaired", ack.error === "seq_rollback" ? "设备状态与桌面不一致，请重新配对" : undefined);
         ws.close();
         return;
       }
@@ -355,6 +388,8 @@ export class RemoteClient {
         return;
       }
       this.backoff = this.backoffMin;
+      // 协议 v2：按 host 的 resumeSeq 续接出站序号（与本地持久值取大者）
+      this.outSeq.setNext(Math.max(ack.resumeSeq ?? 0, this.outSeq.peek()));
       this.setState("ready");
       // 冲刷握手期间（同一轮事件循环里）先到的加密帧（典型：snapshot 紧随 auth_ack）
       const early = this.earlyFrames;
@@ -392,8 +427,9 @@ export class RemoteClient {
     if (this.relay && typeof f.deviceId === "string" && f.deviceId !== this.record.deviceId) return;
     if (f.t !== "encrypted" || typeof f.c !== "string" || typeof f.id !== "string") return;
     if (this.state !== "ready") {
-      // 握手阶段的消息由 waitFrame 处理；紧随 ack 到达的加密帧先缓冲，ready 后按序冲刷
-      this.earlyFrames.push(frame);
+      // 握手阶段的消息由 waitFrame 处理；紧随 ack 到达的加密帧先缓冲，ready 后按序冲刷。
+      // 上限 256 帧：relay 广播风暴/异常对端不能借此刷爆内存
+      if (this.earlyFrames.length < 256) this.earlyFrames.push(frame);
       return;
     }
     this.onEncryptedFrame(ws, frame);
@@ -445,6 +481,16 @@ export class RemoteClient {
     // relay 广播语义：帧外层带 deviceId，host 据此分流到本设备的虚拟连接
     if (this.relay) frame.deviceId = this.record.deviceId;
     ws.send(JSON.stringify(frame));
+    // 出站 seq 节流持久化（每 32 帧一次；断连时由 close 路径兜底），跨连接单调
+    if (this.outSeq.peek() % 32 === 0) void this.persistOutSeq();
+  }
+
+  /** 出站 seq 落盘（fire-and-forget：丢一次只让序号前进 32 以内，不回滚） */
+  private persistOutSeq(): void {
+    this.record.lastOutSeq = this.outSeq.peek();
+    savePairing(this.record).catch(() => {
+      // 持久化失败不阻塞通信（极端情况：host 侧基准线高于本地时由 seq_rollback 明示）
+    });
   }
 
   private failAllPending(err: Error): void {

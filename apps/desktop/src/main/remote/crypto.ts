@@ -120,6 +120,11 @@ export class SeqGuard {
     return true;
   }
 
+  /** 协议 v2：用持久化的基准线初始化（重连不再归零，跨连接重放窗口随之关闭） */
+  seed(last: number): void {
+    this.last = last;
+  }
+
   reset(): void {
     this.last = -1;
   }
@@ -131,5 +136,15 @@ export class SeqCounter {
 
   take(): number {
     return this.next++;
+  }
+
+  /** 下一个将发出的 seq（持久化续接用） */
+  peek(): number {
+    return this.next;
+  }
+
+  /** 协议 v2：按 host 的 resumeSeq / 本地持久值续接出站序号 */
+  setNext(n: number): void {
+    if (Number.isInteger(n) && n >= 0) this.next = n;
   }
 }

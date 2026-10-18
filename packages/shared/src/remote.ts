@@ -96,11 +96,18 @@ export type RemoteClientHello =
    */
   | { t: "pair"; c: string }
   /**
-   * 已配对设备身份证明：未知公钥直接断开。
+   * 已配对设备身份声明：未知公钥直接断开。
    * deviceId 仅经 relay 连接时携带（pair_ack 里分配的那个 id）：host 按它把帧分流到
    * 该设备的逻辑连接；局域网直连无需携带。
+   * nextSeq：设备持久化的下一个出站 seq（协议 v2，跨连接单调）；缺省按 0 处理。
    */
-  | { t: "auth"; publicKey: string; deviceId?: string };
+  | { t: "auth"; publicKey: string; deviceId?: string; nextSeq?: number }
+  /**
+   * 挑战-应答（协议 v2，评审 R3-C2）：设备收到 auth_challenge 后回复，
+   * c = base64( box( nonce, desktopPk, deviceSecret ) )——只有持有私钥的设备能产出可解密的 box。
+   * 纯公钥声明不再视为已认证（防 relay/嗅探者冒充已配对设备并重放历史帧）。
+   */
+  | { t: "auth_proof"; c: string };
 
 /** 桌面 → 手机：hello 帧的应答 */
 export type RemoteServerHello =
@@ -108,7 +115,13 @@ export type RemoteServerHello =
   | { t: "pair_ack"; ok: true; c: string }
   /** error: "locked"（错误超限锁定）| "expired"（窗口过期/未开启）| "otp_mismatch" | "bad_payload" */
   | { t: "pair_ack"; ok: false; error: string }
-  | { t: "auth_ack"; ok: true; desktopPk: string }
+  /** auth 挑战：32B 随机 nonce（base64）；设备须用私钥 box 密封回传（auth_proof） */
+  | { t: "auth_challenge"; nonce: string }
+  /**
+   * resumeSeq：host 期望的下一个入站 seq（设备出站计数据此续接，跨连接单调）。
+   * error: "unknown_device" | "bad_proof" | "seq_rollback"（设备持久 seq 回滚，需重新配对）
+   */
+  | { t: "auth_ack"; ok: true; desktopPk: string; resumeSeq?: number }
   | { t: "auth_ack"; ok: false; error: string };
 
 /** PairHello 密文内明文（手机公钥 + 设备名） */
@@ -182,6 +195,8 @@ export interface PairedDevice {
   /** X25519 公钥（base64） */
   publicKey: string;
   pairedAt: number;
+  /** 协议 v2：该设备最后一个被接受的入站 seq（跨连接单调，防重放基准线；节流落盘） */
+  lastInSeq?: number;
 }
 
 /** 断线补拉的输出 chunk（session.output 的持久化形态） */

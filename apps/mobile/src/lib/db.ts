@@ -19,6 +19,8 @@ export interface PairingRecord {
   /** 手机端 X25519 密钥对（base64） */
   keyPair: { publicKey: string; secretKey: string };
   pairedAt: number;
+  /** 协议 v2：下一个出站 seq（跨连接单调；节流落盘） */
+  lastOutSeq?: number;
 }
 
 const PAIRING_KEY = "pairing";

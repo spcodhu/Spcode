@@ -84,8 +84,12 @@ function normalizeRelayUrl(url: string | null | undefined): string | null {
 interface PeerState {
   peer: PeerConnection;
   device: PairedDevice | null;
+  /** 协议 v2：auth 挑战挂起态（已认公钥、未过私钥证明）；证明通过前不接受业务帧 */
+  pendingAuth: { device: PairedDevice; nonce: string; nextSeq: number | null } | null;
   inGuard: SeqGuard;
   outSeq: SeqCounter;
+  /** 本连接最后一个被接受的入站 seq（关闭时强制落盘用） */
+  lastAcceptedSeq: number;
 }
 
 /** PWA 构建产物目录探测：env 覆盖 > 打包 resources > monorepo apps/mobile/dist */
@@ -359,19 +363,37 @@ export class RemoteServer {
   // -------------------------------------------------------------------------
 
   private acceptPeer(peer: PeerConnection): void {
-    const state: PeerState = { peer, device: null, inGuard: new SeqGuard(), outSeq: new SeqCounter() };
+    const state: PeerState = {
+      peer,
+      device: null,
+      pendingAuth: null,
+      inGuard: new SeqGuard(),
+      outSeq: new SeqCounter(),
+      lastAcceptedSeq: -1,
+    };
     this.peers.add(state);
     peer.onMessage((frame) => this.handleFrame(state, frame));
-    peer.onClose(() => this.peers.delete(state));
+    peer.onClose(() => {
+      this.peers.delete(state);
+      // 连接关闭：强制落盘该设备的入站 seq 基准线（每帧更新是节流的，这里兜底）
+      if (state.device && state.lastAcceptedSeq >= 0) {
+        this.pairing.noteInboundSeq(state.device.publicKey, state.lastAcceptedSeq, true);
+      }
+    });
   }
 
   private handleFrame(state: PeerState, frame: unknown): void {
+    // 协议 v2：auth 挑战挂起中只接受 auth_proof
+    if (state.pendingAuth) {
+      this.handleAuthProof(state, frame);
+      return;
+    }
     if (!state.device) {
       this.handleHello(state, frame);
       return;
     }
-    // relay 场景：设备重连后会在原逻辑连接上重新 auth（= 新设备连接，入站 seq 归零），
-    // 握手帧任何时候都走 hello 分支；hello 内做同公钥校验，身份切换直接断开
+    // relay 场景：设备重连后会在原逻辑连接上重新 auth（握手帧任何时候都走 hello 分支）；
+    // hello 内做同公钥校验，身份切换直接断开
     const maybeHello = frame as { t?: string } | null;
     if (maybeHello?.t === "pair" || maybeHello?.t === "auth") {
       this.handleHello(state, frame);
@@ -386,6 +408,9 @@ export class RemoteServer {
       state.peer.close(); // 重放 / 乱序：直接断开
       return;
     }
+    state.lastAcceptedSeq = f.seq;
+    // 设备级持久基准线：每 32 帧落一次盘（崩溃只丢尾部 ≤32 个序号，基准线偏低不放大重放窗口）
+    this.pairing.noteInboundSeq(state.device.publicKey, f.seq, f.seq % 32 === 0);
     const plain = boxDecrypt(f.c, state.device.publicKey, this.pairing.getIdentity().secretKey);
     if (!plain) {
       state.peer.close(); // 解密失败（篡改 / 密钥错配）：直接断开
@@ -441,17 +466,61 @@ export class RemoteServer {
         state.peer.close();
         return;
       }
-      // 重新 auth = 对端新连接：入站 seq 归零重新校验；出站 seq 保持单调（relay 离线
-      // 队列里可能还有高 seq 的在途帧，归零会让对端把新帧误判为重放）
-      state.device = device;
-      state.inGuard.reset();
-      state.peer.send({ t: "auth_ack", ok: true, desktopPk: this.pairing.getIdentity().publicKey });
-      this.sendSnapshot(state);
-      this.sendHello(state);
+      // 协议 v2 挑战-应答：只认公钥不够（公钥经 QR/relay 广播是半公开的），
+      // 须证明持有对应私钥——否则任何人可冒充已配对设备建连并触发 seq 重置后重放历史帧
+      const nonce = randomUUID() + randomUUID(); // 72 字符随机挑战
+      state.pendingAuth = {
+        device,
+        nonce,
+        nextSeq: typeof hello.nextSeq === "number" && Number.isInteger(hello.nextSeq) ? hello.nextSeq : null,
+      };
+      state.peer.send({ t: "auth_challenge", nonce });
       return;
     }
 
     state.peer.close(); // 首帧必须是合法 hello
+  }
+
+  /** 协议 v2：校验 auth_proof（box 密封的 nonce），通过后才视为已认证 */
+  private handleAuthProof(state: PeerState, frame: unknown): void {
+    const pending = state.pendingAuth;
+    if (!pending) return;
+    const f = frame as { t?: string; c?: string } | null;
+    if (f?.t !== "auth_proof" || typeof f.c !== "string") {
+      state.peer.close();
+      return;
+    }
+    const proof = boxDecrypt(f.c, pending.device.publicKey, this.pairing.getIdentity().secretKey);
+    if (proof !== pending.nonce) {
+      state.pendingAuth = null;
+      state.peer.send({ t: "auth_ack", ok: false, error: "bad_proof" });
+      state.peer.close();
+      return;
+    }
+    // seq 回滚检查：设备声明的下一个出站 seq 不得落后于我们已接受的基准线
+    // （落后 = 设备状态被回滚/重装丢失，或有人在重放旧连接）
+    const bar = this.pairing.lastInSeqOf(pending.device.publicKey);
+    if (pending.nextSeq === null && bar > -1) {
+      // 旧版客户端（无 nextSeq）连接有历史 seq 的设备：无法安全续接，要求刷新为新版
+      state.pendingAuth = null;
+      state.peer.send({ t: "auth_ack", ok: false, error: "seq_rollback" });
+      state.peer.close();
+      return;
+    }
+    if (pending.nextSeq !== null && pending.nextSeq <= bar) {
+      state.pendingAuth = null;
+      state.peer.send({ t: "auth_ack", ok: false, error: "seq_rollback" });
+      state.peer.close();
+      return;
+    }
+    state.pendingAuth = null;
+    state.device = pending.device;
+    state.lastAcceptedSeq = bar;
+    // 入站 seq 用持久基准线 seed（不再归零）：跨连接重放窗口随之关闭
+    state.inGuard.seed(bar);
+    state.peer.send({ t: "auth_ack", ok: true, desktopPk: this.pairing.getIdentity().publicKey, resumeSeq: bar + 1 });
+    this.sendSnapshot(state);
+    this.sendHello(state);
   }
 
   private async executeCommand(state: PeerState, frameId: string, command: RemoteCommand): Promise<void> {

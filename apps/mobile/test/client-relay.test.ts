@@ -1,10 +1,10 @@
 /**
  * RemoteClient 的 relay 通道行为单测（FakeWebSocket 驱动，不起真实服务）：
  * - 连接 URL 走 /channel/<channelId>?role=device；
- * - auth / encrypted 帧外层带 deviceId；
+ * - auth / auth_proof / encrypted 帧外层带 deviceId（协议 v2：挑战-应答 + 出站 seq 跨连接持久续接）；
  * - 入站帧：deviceId 不匹配的丢弃、relay 控制帧忽略、解不开的丢弃（不断连）；
  * - 他设备的 auth_ack 不误判；
- * - 重连后出站 seq 归零、入站 SeqGuard 重置（桌面出站 seq 不归零也兼容）。
+ * - 重连后出站 seq 持久续接不归零、入站 SeqGuard 重置（桌面出站 seq 不归零也兼容）。
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -126,8 +126,18 @@ describe("RemoteClient：relay 通道", () => {
     return ws;
   }
 
+  /** 模拟桌面端协议 v2 认证：挑战 → 校验设备私钥证明 → ack（resumeSeq 从 0 起） */
   async function ackAuth(ws: FakeWs): Promise<void> {
-    ws.message({ t: "auth_ack", ok: true, desktopPk: desktop.publicKey, deviceId: "dev-1" });
+    const nonce = `test-nonce-${Math.random().toString(36).slice(2)}`;
+    ws.message({ t: "auth_challenge", nonce, deviceId: "dev-1" });
+    await tick();
+    // 客户端应回 auth_proof：box(nonce) 可用 phone 公钥 × desktop 私钥解开
+    const proofFrame = JSON.parse(ws.sent.at(-1)!) as { t: string; c: string };
+    expect(proofFrame.t).toBe("auth_proof");
+    const { boxOpen } = await import("../src/lib/crypto");
+    const plain = boxOpen(proofFrame.c, phone.publicKey, desktop.secretKey);
+    expect(plain).toBe(nonce);
+    ws.message({ t: "auth_ack", ok: true, desktopPk: desktop.publicKey, deviceId: "dev-1", resumeSeq: 0 });
     await tick();
   }
 
@@ -136,14 +146,16 @@ describe("RemoteClient：relay 通道", () => {
     expect(ws.url).toBe(`wss://relay.test/channel/${deriveChannelId(desktop.publicKey)}?role=device`);
 
     const auth = JSON.parse(ws.sent[0]!);
-    expect(auth).toEqual({ t: "auth", publicKey: phone.publicKey, deviceId: "dev-1" });
+    expect(auth).toEqual({ t: "auth", publicKey: phone.publicKey, deviceId: "dev-1", nextSeq: 0 });
 
     await ackAuth(ws);
     expect(states).toContain("ready");
 
     void client.command({ type: "session.list" }).catch(() => {});
     await tick();
-    const frame = JSON.parse(ws.sent[1]!);
+    const frame = ws.sent
+      .map((s) => JSON.parse(s) as { t?: string; seq?: number; deviceId?: string; c?: unknown })
+      .find((f) => f.t === "encrypted")!;
     expect(frame).toMatchObject({ t: "encrypted", seq: 0, deviceId: "dev-1" });
     expect(typeof frame.c).toBe("string");
   });
@@ -201,7 +213,7 @@ describe("RemoteClient：relay 通道", () => {
     expect(ws.closed).toBe(false);
   });
 
-  it("重连后重新 auth：出站 seq 归零、入站 SeqGuard 重置（兼容桌面出站不归零）", async () => {
+  it("重连后重新 auth：出站 seq 持久续接不归零、入站 SeqGuard 重置（兼容桌面出站不归零）", async () => {
     const ws1 = await startToReady();
     await ackAuth(ws1);
     // 第一条连接上桌面出站推进到 seq 5
@@ -216,7 +228,10 @@ describe("RemoteClient：relay 通道", () => {
     expect(events).toHaveLength(1);
     void client.command({ type: "session.list" }).catch(() => {});
     await tick();
-    expect(JSON.parse(ws1.sent[1]!).seq).toBe(0);
+    const firstCmd = ws1.sent
+      .map((s) => JSON.parse(s) as { t?: string; seq?: number })
+      .find((f) => f.t === "encrypted")!;
+    expect(firstCmd.seq).toBe(0);
 
     // 断线 → 自动重连（退避 20ms）
     ws1.close();
@@ -225,13 +240,16 @@ describe("RemoteClient：relay 通道", () => {
     expect(ws2).not.toBe(ws1);
     ws2.open();
     await tick();
-    expect(JSON.parse(ws2.sent[0]!)).toMatchObject({ t: "auth", deviceId: "dev-1" });
+    // 协议 v2：出站 seq 持久续接（上条连接已发到 0，下一个应为 1），auth 携带 nextSeq 供 host 校验
+    expect(JSON.parse(ws2.sent[0]!)).toMatchObject({ t: "auth", deviceId: "dev-1", nextSeq: 1 });
     await ackAuth(ws2);
 
-    // 出站 seq 从新连接 0 起算
     void client.command({ type: "session.list" }).catch(() => {});
     await tick();
-    expect(JSON.parse(ws2.sent[1]!).seq).toBe(0);
+    const secondCmd = ws2.sent
+      .map((s) => JSON.parse(s) as { t?: string; seq?: number })
+      .find((f) => f.t === "encrypted")!;
+    expect(secondCmd.seq).toBe(1);
 
     // 入站 SeqGuard 已重置：桌面出站 seq 不归零（继续 6）也能正常接收
     ws2.message({

@@ -455,7 +455,7 @@ function settleStreamingTail(session: SessionState): void {
   // 压缩完成提示等 notice（自动压缩发生在回合结束后、agent_settled 前）
   for (let i = session.messages.length - 1; i >= 0; i--) {
     const m = session.messages[i];
-    if (!m || m.role !== "assistant") continue;
+    if (m?.role !== "assistant") continue;
     if (!m.streaming) return;
     if (isEmptyMessage(m)) {
       session.messages.splice(i, 1);
