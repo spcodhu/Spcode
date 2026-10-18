@@ -93,7 +93,7 @@ function freshQrPayload(): string {
   if (info.urls.length > 0) return info.qrPayload;
   const hosts = encodeURIComponent(`http://127.0.0.1:${port}`);
   const pk = encodeURIComponent(pairing.getIdentity().publicKey);
-  return `spcode-remote://pair?v=1&hosts=${hosts}&desktop_pk=${pk}&otp=${info.otp}`;
+  return `spcode-remote://pair?v=2&hosts=${hosts}&desktop_pk=${pk}&otp=${info.otp}`;
 }
 
 /** QR payload 的 hosts 替换为 127.0.0.1（集成测试强制走回环，避免依赖机器网卡） */
@@ -101,7 +101,7 @@ function localQrPayload(): string {
   const info = server.regeneratePairing();
   const hosts = encodeURIComponent(`http://127.0.0.1:${port}`);
   const pk = encodeURIComponent(pairing.getIdentity().publicKey);
-  return `spcode-remote://pair?v=1&hosts=${hosts}&desktop_pk=${pk}&otp=${info.otp}`;
+  return `spcode-remote://pair?v=2&hosts=${hosts}&desktop_pk=${pk}&otp=${info.otp}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -194,7 +194,7 @@ describe("PWA ↔ 真实桌面 RemoteServer 全链路", () => {
     const wrongOtp = info.otp === "00000000" ? "00000001" : "00000000";
     const hosts = encodeURIComponent(`http://127.0.0.1:${port}`);
     const pk = encodeURIComponent(pairing.getIdentity().publicKey);
-    const bad = `spcode-remote://pair?v=1&hosts=${hosts}&desktop_pk=${pk}&otp=${wrongOtp}`;
+    const bad = `spcode-remote://pair?v=2&hosts=${hosts}&desktop_pk=${pk}&otp=${wrongOtp}`;
     await expect(pairWithQr(bad, "错误 OTP 机")).rejects.toBeInstanceOf(PairError);
     await expect(pairWithQr(bad, "错误 OTP 机")).rejects.toMatchObject({ code: "otp_mismatch" });
   });
@@ -407,7 +407,7 @@ describe("PWA ↔ 桌面 RemoteServer 经 relay 全链路", () => {
     const info = server2.regeneratePairing();
     const hosts = encodeURIComponent(`relay+ws://127.0.0.1:${relayPort}`);
     const pk = encodeURIComponent(pairing2.getIdentity().publicKey);
-    return `spcode-remote://pair?v=1&hosts=${hosts}&desktop_pk=${pk}&otp=${info.otp}`;
+    return `spcode-remote://pair?v=2&hosts=${hosts}&desktop_pk=${pk}&otp=${info.otp}`;
   }
 
   it("pair（无 deviceId）→ 重连 auth（带 deviceId）→ 加密命令往返 → 广播事件 → 重连", async () => {

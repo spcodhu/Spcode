@@ -156,26 +156,27 @@ export class PairingManager {
   }
 
   /**
-   * OTP 握手：otp + secretbox 密文（内含手机公钥与设备名）。
+   * OTP 握手（协议 v2）：pair 帧只带 secretbox 密文，OTP 不上线。
+   * 用当前窗口 OTP 派生密钥直接试解——解不开即 OTP 不匹配（计数锁定）；
    * 成功即消费窗口（单次有效），同公钥重复配对替换旧记录。
    */
-  tryPair(otp: string, ciphertext: string): PairResult {
+  tryPair(ciphertext: string): PairResult {
     const now = this.now();
     if (now < this.lockedUntil) return { ok: false, error: "locked" };
     const win = this.currentPairing();
     if (!win) return { ok: false, error: "expired" };
-    if (otp !== win.otp) {
+    const plain = secretboxDecrypt(ciphertext, deriveOtpKey(win.otp));
+    const inner = plain ? parsePairHelloInner(plain) : null;
+    if (!plain || !inner) {
+      // 解密失败与解析失败同归 otp_mismatch：没有 OTP 的一方无法区分两者，统一计数防试探
       this.failures += 1;
       if (this.failures >= MAX_OTP_FAILURES) {
         this.lockedUntil = now + LOCKOUT_MS;
         this.window = null;
         this.failures = 0;
       }
-      return { ok: false, error: "otp_mismatch" };
+      return { ok: false, error: plain ? "bad_payload" : "otp_mismatch" };
     }
-    const plain = secretboxDecrypt(ciphertext, deriveOtpKey(otp));
-    const inner = plain ? parsePairHelloInner(plain) : null;
-    if (!inner) return { ok: false, error: "bad_payload" };
 
     // 单次有效：成功后立即关闭窗口
     this.window = null;
@@ -196,13 +197,13 @@ export class PairingManager {
   }
 
   /**
-   * QR payload：
-   *   spcode-remote://pair?v=1&hosts=<逗号分隔,URL编码>&desktop_pk=<base64>&otp=<8位>
+   * QR payload（协议 v2）：
+   *   spcode-remote://pair?v=2&hosts=<逗号分隔,URL编码>&desktop_pk=<base64>&otp=<8位>
    */
   buildQrPayload(urls: string[], win: PairingWindow): string {
     const hosts = encodeURIComponent(urls.join(","));
     const pk = encodeURIComponent(this.getIdentity().publicKey);
-    return `spcode-remote://pair?v=1&hosts=${hosts}&desktop_pk=${pk}&otp=${win.otp}`;
+    return `spcode-remote://pair?v=2&hosts=${hosts}&desktop_pk=${pk}&otp=${win.otp}`;
   }
 
   private persistDevices(): void {

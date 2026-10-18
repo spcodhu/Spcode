@@ -138,14 +138,15 @@ function connectWs(url: string, timeoutMs = 6000): Promise<WebSocket> {
 export async function pairWithQr(qrText: string, deviceName: string): Promise<PairingRecord> {
   const payload = parseQrPayload(qrText);
   const keyPair = generateKeyPair();
-  const c = await pairSeal({ publicKey: keyPair.publicKey, name: deviceName }, payload.otp);
+  const c = pairSeal({ publicKey: keyPair.publicKey, name: deviceName }, payload.otp);
 
   let lastError: Error | null = null;
   for (const host of orderHosts(payload.hosts)) {
     let ws: WebSocket | null = null;
     try {
       ws = await connectWs(connectUrlOf(host, payload.desktopPk));
-      ws.send(JSON.stringify({ t: "pair", otp: payload.otp, c }));
+      // 协议 v2：OTP 不上线，桌面用当前配对窗口 OTP 试解密文验证
+      ws.send(JSON.stringify({ t: "pair", c }));
       const ack = (await waitFrame(ws, (f) => (f as { t?: string }).t === "pair_ack", 8000, "等待配对应答")) as
         | { t: "pair_ack"; ok: true; c: string }
         | { t: "pair_ack"; ok: false; error: string };

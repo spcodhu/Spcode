@@ -1,7 +1,7 @@
 /**
  * QR payload 解析（spcode-remote://pair?...，桌面设置页展示 / 手机扫码或粘贴）。
- * 格式（桌面 pairing.ts 生成）：
- *   spcode-remote://pair?v=1&hosts=<逗号分隔的 base url，整体 URL 编码>&desktop_pk=<base64,URL编码>&otp=<8位数字>
+ * 格式（桌面 pairing.ts 生成，协议 v2）：
+ *   spcode-remote://pair?v=2&hosts=<逗号分隔的 base url，整体 URL 编码>&desktop_pk=<base64,URL编码>&otp=<8位数字>
  */
 
 import { isValidPublicKey } from "./crypto";
@@ -33,7 +33,11 @@ export function parseQrPayload(text: string): QrPayload {
   const params = new URLSearchParams(trimmed.slice(qIndex + 1));
 
   const v = params.get("v");
-  if (v !== "1") throw new Error(`不支持的协议版本：${v ?? "缺失"}`);
+  if (v !== "2") {
+    throw new Error(
+      v === "1" ? "配对码版本过旧：桌面端已升级配对协议（v2），请在桌面设置页重新生成配对码" : `不支持的协议版本：${v ?? "缺失"}`,
+    );
+  }
 
   const hostsRaw = params.get("hosts");
   if (!hostsRaw) throw new Error("配对码缺少 hosts 参数");
@@ -57,5 +61,5 @@ export function parseQrPayload(text: string): QrPayload {
   const otp = params.get("otp");
   if (!otp || !/^\d{8}$/.test(otp)) throw new Error("配对码中的 OTP 非法（应为 8 位数字）");
 
-  return { version: 1, hosts, desktopPk, otp };
+  return { version: 2, hosts, desktopPk, otp };
 }

@@ -7,6 +7,7 @@
  */
 
 import { createHash, randomInt } from "node:crypto";
+import { PAIR_KDF_DOMAIN, PAIR_KDF_ITERATIONS } from "@spcode/shared";
 import nacl from "tweetnacl";
 
 export interface BoxKeyPairB64 {
@@ -39,11 +40,17 @@ export function isValidPublicKey(pk: unknown): pk is string {
 }
 
 /**
- * OTP → secretbox 密钥：sha256("spcode-remote-pair-v1:" + otp)。
- * OTP 只走带外（桌面屏幕 QR/设置页），派生密钥不落地。
+ * OTP → secretbox 密钥（协议 v2，评审 R3-C1）：
+ * key = sha256 迭代 PAIR_KDF_ITERATIONS 轮（第 0 轮输入 PAIR_KDF_DOMAIN + otp，后续轮输入上一轮摘要）。
+ * OTP 只走带外（桌面屏幕 QR/设置页），派生密钥不落地；迭代拉高离线暴破成本（8 位 OTP 仅 10^8 空间）。
+ * 与移动端 lib/crypto.ts 的 deriveOtpKey 严格同式（跨端一致性由 mobile/test/crypto.test.ts 锁定）。
  */
 export function deriveOtpKey(otp: string): Uint8Array {
-  return new Uint8Array(createHash("sha256").update(`spcode-remote-pair-v1:${otp}`).digest());
+  let digest = new Uint8Array(createHash("sha256").update(`${PAIR_KDF_DOMAIN}${otp}`).digest());
+  for (let i = 1; i < PAIR_KDF_ITERATIONS; i++) {
+    digest = new Uint8Array(createHash("sha256").update(digest).digest());
+  }
+  return digest;
 }
 
 function concat(a: Uint8Array, b: Uint8Array): Uint8Array {

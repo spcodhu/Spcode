@@ -13,7 +13,7 @@ import { parseQrPayload } from "../src/lib/qr";
 import { deriveChannelId, isRelayHost, orderHosts, relayWsUrl } from "../src/lib/relay";
 
 function makeQr(hosts: string[], desktopPk: string, otp = "12345678"): string {
-  return `spcode-remote://pair?v=1&hosts=${encodeURIComponent(hosts.join(","))}&desktop_pk=${encodeURIComponent(desktopPk)}&otp=${otp}`;
+  return `spcode-remote://pair?v=2&hosts=${encodeURIComponent(hosts.join(","))}&desktop_pk=${encodeURIComponent(desktopPk)}&otp=${otp}`;
 }
 
 describe("parseQrPayload：relay 前缀项", () => {

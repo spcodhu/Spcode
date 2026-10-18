@@ -141,11 +141,11 @@ describe("seq", () => {
 describe("QR payload 解析", () => {
   const kp = generateKeyPair();
   const build = (hosts: string[], pk = kp.publicKey, otp = "12345678") =>
-    `spcode-remote://pair?v=1&hosts=${encodeURIComponent(hosts.join(","))}&desktop_pk=${encodeURIComponent(pk)}&otp=${otp}`;
+    `spcode-remote://pair?v=2&hosts=${encodeURIComponent(hosts.join(","))}&desktop_pk=${encodeURIComponent(pk)}&otp=${otp}`;
 
   it("单 host（URL 编码）", () => {
     const p = parseQrPayload(build(["http://192.168.1.5:8123"]));
-    expect(p).toEqual({ version: 1, hosts: ["http://192.168.1.5:8123"], desktopPk: kp.publicKey, otp: "12345678" });
+    expect(p).toEqual({ version: 2, hosts: ["http://192.168.1.5:8123"], desktopPk: kp.publicKey, otp: "12345678" });
   });
 
   it("多 host（逗号分隔后整体编码）", () => {
@@ -159,7 +159,7 @@ describe("QR payload 解析", () => {
     expect(() => parseQrPayload(build(["http://1.2.3.4:1"], "bad-key"))).toThrow(/公钥/);
     expect(() => parseQrPayload(build(["http://1.2.3.4:1"], undefined, "123"))).toThrow(/OTP/);
     expect(() =>
-      parseQrPayload("spcode-remote://pair?v=2&hosts=http%3A%2F%2F1.2.3.4%3A1&desktop_pk=x&otp=12345678"),
+      parseQrPayload("spcode-remote://pair?v=3&hosts=http%3A%2F%2F1.2.3.4%3A1&desktop_pk=x&otp=12345678"),
     ).toThrow(/版本/);
     expect(() => parseQrPayload(build(["ftp://x"]))).toThrow(/地址/);
   });

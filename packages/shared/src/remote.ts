@@ -89,10 +89,12 @@ export type RemoteEvent =
 /** 手机 → 桌面：连接建立后发送的第一个帧 */
 export type RemoteClientHello =
   /**
-   * 新设备配对：c = base64( secretbox( JSON(PairHelloInner), key = sha256("spcode-remote-pair-v1:" + otp) ) )
-   * secretbox 输出布局：nonce(24B) ‖ ciphertext
+   * 新设备配对：c = base64( secretbox( JSON(PairHelloInner), key = KDF(otp) ) )
+   * secretbox 输出布局：nonce(24B) ‖ ciphertext。
+   * 协议 v2（评审 R3-C1）：OTP 不再随帧明文发送——它就是 c 的密钥派生源，
+   * 明文传输会让 relay/嗅探者截留真设备 pair 帧并抢跑配对；桌面用当前窗口 OTP 试解验证。
    */
-  | { t: "pair"; otp: string; c: string }
+  | { t: "pair"; c: string }
   /**
    * 已配对设备身份证明：未知公钥直接断开。
    * deviceId 仅经 relay 连接时携带（pair_ack 里分配的那个 id）：host 按它把帧分流到
@@ -243,8 +245,9 @@ export interface RemotePairingInfo {
   otp: string;
   /**
    * QR payload：
-   *   spcode-remote://pair?v=1&hosts=<逗号分隔的 base url,URL编码>&desktop_pk=<base64>&otp=<8位数字>
-   * 例：spcode-remote://pair?v=1&hosts=http%3A%2F%2F192.168.1.5%3A8123&desktop_pk=…&otp=12345678
+   *   spcode-remote://pair?v=2&hosts=<逗号分隔的 base url,URL编码>&desktop_pk=<base64>&otp=<8位数字>
+   * 例：spcode-remote://pair?v=2&hosts=http%3A%2F%2F192.168.1.5%3A8123&desktop_pk=…&otp=12345678
+   * （OTP 走 QR 带外通道是安全的——威胁模型是不可信的网络/relay 路径，QR 展示在桌面屏幕上）
    *
    * hosts 前缀约定：普通项为局域网直连 base url（http://ip:port）；
    * 以 `relay+` 开头的项为 relay 通道（如 relay+wss://relay.example.com），

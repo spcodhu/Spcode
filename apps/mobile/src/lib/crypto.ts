@@ -2,14 +2,15 @@
  * 远程控制加密层（手机侧，tweetnacl 封装）——与 apps/desktop/src/main/remote/crypto.ts 严格对齐：
  * - X25519 密钥对（NaCl box）
  * - 密文布局：base64( nonce(24B) ‖ ciphertext )，secretbox / box 同布局
- * - OTP 派生密钥：sha256("spcode-remote-pair-v1:" + otp)（WebCrypto 或纯 JS 兜底）
+ * - OTP 派生密钥：sha256 迭代 KDF（纯 JS 同步实现，与桌面端一致）
  * - seq：SeqCounter（发，0 起递增）/ SeqGuard（收，只收严格递增，防重放）
  */
 
 import type { PairAckInner, PairHelloInner, RemoteEncryptedPayload } from "@spcode/shared";
+import { PAIR_KDF_DOMAIN, PAIR_KDF_ITERATIONS } from "@spcode/shared";
 import nacl from "tweetnacl";
 import { b64decode, b64encode } from "./base64";
-import { sha256Text } from "./sha256";
+import { sha256Sync } from "./sha256";
 
 export interface KeyPairB64 {
   publicKey: string;
@@ -32,9 +33,17 @@ export function isValidPublicKey(pk: unknown): pk is string {
   }
 }
 
-/** OTP → secretbox 密钥（与桌面 deriveOtpKey 同式） */
-export async function deriveOtpKey(otp: string): Promise<Uint8Array> {
-  return sha256Text(`spcode-remote-pair-v1:${otp}`);
+/**
+ * OTP → secretbox 密钥（协议 v2，与桌面 deriveOtpKey 严格同式，跨端一致性由 test/crypto.test.ts 锁定）：
+ * sha256 迭代 PAIR_KDF_ITERATIONS 轮（第 0 轮输入 PAIR_KDF_DOMAIN + otp）。
+ * 迭代是同步纯 JS 实现——5 万轮 WebCrypto await 在移动端要秒级，纯 JS 只要几十毫秒。
+ */
+export function deriveOtpKey(otp: string): Uint8Array {
+  let digest = sha256Sync(new TextEncoder().encode(`${PAIR_KDF_DOMAIN}${otp}`));
+  for (let i = 1; i < PAIR_KDF_ITERATIONS; i++) {
+    digest = sha256Sync(digest);
+  }
+  return digest;
 }
 
 function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
@@ -94,8 +103,8 @@ export function boxOpen(payload: string, peerPublicKey: string, mySecretKey: str
 // ---------------------------------------------------------------------------
 
 /** 配对握手：把手机公钥 + 设备名封进 OTP 派生密钥的 secretbox（pair hello 的 c 字段） */
-export async function pairSeal(inner: PairHelloInner, otp: string): Promise<string> {
-  return secretboxSeal(JSON.stringify(inner), await deriveOtpKey(otp));
+export function pairSeal(inner: PairHelloInner, otp: string): string {
+  return secretboxSeal(JSON.stringify(inner), deriveOtpKey(otp));
 }
 
 /** 解开 pair_ack 密文（桌面私钥 × 手机公钥的 box）；失败返回 null */

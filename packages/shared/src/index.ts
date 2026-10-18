@@ -719,6 +719,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
 export const SPCODE_HOME_DIRNAME = ".spcode";
 
 /**
+ * 配对 OTP 的 KDF 参数（协议 v2，双端必须一致——mobile/desktop 各自实现但共用本常量）：
+ * key = sha256 迭代 PAIR_KDF_ITERATIONS 轮，第 0 轮输入为 `PAIR_KDF_DOMAIN + otp`，后续轮输入为上一轮摘要。
+ * 8 位 OTP 只有 10^8 空间，单轮 sha256 可被离线暴破（评审 R3-C1）；迭代拉高离线暴破成本。
+ */
+export const PAIR_KDF_DOMAIN = "spcode-remote-pair-v2:";
+export const PAIR_KDF_ITERATIONS = 50_000;
+
+/**
  * 更新通道裁决（electron-updater 的 allowPrerelease 取值）：
  * 显式设置优先；未设置时跟随当前版本形态——当前是 beta 版就收 beta 更新，
  * 当前是稳定版就只收稳定版（与 electron-updater 内置默认一致）。

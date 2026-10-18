@@ -408,8 +408,9 @@ export class RemoteServer {
       return;
     }
 
-    if (hello.t === "pair" && typeof hello.otp === "string" && typeof hello.c === "string") {
-      const result = this.pairing.tryPair(hello.otp, hello.c);
+    if (hello.t === "pair" && typeof hello.c === "string") {
+      // 协议 v2：OTP 不上线，用当前配对窗口 OTP 试解验证
+      const result = this.pairing.tryPair(hello.c);
       if (!result.ok) {
         state.peer.send({ t: "pair_ack", ok: false, error: result.error });
         return; // 未锁定时允许在同一连接上重试
