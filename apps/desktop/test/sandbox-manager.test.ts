@@ -39,7 +39,8 @@ describe.skipIf(!isMac)("SandboxService（macOS 真跑）", () => {
     const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
     await SandboxManager.reset().catch(() => {});
     resetSandboxServiceForTest();
-  });
+    // sandbox-runtime 的 reset 要回收代理/子进程，机器繁忙时超 vitest 默认 10s 钩子超时
+  }, 30_000);
 
   async function run(wrapped: string): Promise<string> {
     try {
