@@ -11,7 +11,7 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { QuestionAnswerer } from "./ask-user.js";
 
-/** 批准卡的问题文案(同时是 answers 的 key,改动要同步解析处) */
+/** 批准卡的选项标签（协议键为题号索引 "0"；标签本身即用户点选值，改动要同步解析处） */
 export const EXIT_PLAN_QUESTION = "计划已就绪,是否开始执行?";
 export const EXIT_PLAN_APPROVE_LABEL = "开始执行";
 
@@ -54,7 +54,8 @@ export function createExitPlanModeTool(opts: {
           },
         ],
       });
-      const answer = (answers[EXIT_PLAN_QUESTION] ?? "").trim();
+      // 协议键 = 题号索引（本工具只有一题，读 "0"；兼容旧文本键）
+      const answer = (answers["0"] ?? answers[EXIT_PLAN_QUESTION] ?? "").trim();
       if (answer === EXIT_PLAN_APPROVE_LABEL) {
         await opts.onApproved();
         return {

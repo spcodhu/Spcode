@@ -7,28 +7,11 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { QuotaInfo, QuotaLimit } from "@spcode/shared";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 
-export interface QuotaLimit {
-  /** 行标签：每日额度 / 每周额度 / 余额… */
-  label: string;
-  /** 已用百分比 0-100；null 表示无进度（如余额文本行） */
-  usedPercent: number | null;
-  /** 右侧主文本（如 "45%" / "¥32.50"） */
-  text: string | null;
-  /** 重置时间或补充说明（如 "21:21" / "10月22日"） */
-  resetText: string | null;
-}
-
-export interface QuotaInfo {
-  provider: string;
-  label: string;
-  configured: boolean;
-  plan: string | null;
-  limits: QuotaLimit[];
-  updatedAt: number;
-  error?: string;
-}
+// 类型已下沉 shared（评审 R3-C12）；本文件保留 re-export 兼容 preload/页面引用
+export type { QuotaInfo, QuotaLimit } from "@spcode/shared";
 
 // ---------------------------------------------------------------------------
 // 密钥读取（pi auth.json，只读）

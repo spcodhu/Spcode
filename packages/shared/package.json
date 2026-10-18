@@ -6,6 +6,10 @@
   "exports": {
     ".": "./src/index.ts",
     "./node": "./src/node.ts",
-    "./advanced-search": "./src/advanced-search.ts"
+    "./advanced-search": "./src/advanced-search.ts",
+    "./crypto": "./src/crypto.ts"
+  },
+  "dependencies": {
+    "tweetnacl": "^1.0.3"
   }
 }

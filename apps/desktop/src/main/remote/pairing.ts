@@ -7,10 +7,10 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { chmodSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { PairedDevice, PairHelloInner } from "@spcode/shared";
-import { readJsonFile, resolveSpcodeHome } from "@spcode/shared/node";
+import { readJsonFile, resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
 import {
   type BoxKeyPairB64,
   deriveOtpKey,
@@ -69,14 +69,6 @@ function parsePairHelloInner(plain: string): PairHelloInner | null {
   }
 }
 
-/** 原子写 + 0600（凭证类文件）：tmp 同目录 rename，权限钉死在 tmp 与终态两处 */
-function atomicWritePrivate(file: string, content: string): void {
-  const tmp = `${file}.tmp`;
-  writeFileSync(tmp, content, { encoding: "utf-8", mode: 0o600 });
-  renameSync(tmp, file);
-  chmodSync(file, 0o600);
-}
-
 /** 设备指纹：公钥 sha256 前 8 位 hex（桌面/手机双向人工核对用，类似 SSH fingerprint） */
 export function deviceFingerprint(publicKey: string): string {
   return createHash("sha256").update(publicKey).digest("hex").slice(0, 8);
@@ -110,7 +102,7 @@ export class PairingManager {
       return loaded;
     }
     const kp = generateBoxKeyPair();
-    atomicWritePrivate(this.keyFile, JSON.stringify(kp, null, 2));
+    writeJsonFileAtomic(this.keyFile, kp, { mode: 0o600 });
     this.identity = kp;
     return kp;
   }
@@ -225,6 +217,6 @@ export class PairingManager {
 
   private persistDevices(): void {
     mkdirSync(this.dir, { recursive: true });
-    atomicWritePrivate(this.devicesFile, JSON.stringify(this.deviceList, null, 2));
+    writeJsonFileAtomic(this.devicesFile, this.deviceList, { mode: 0o600 });
   }
 }

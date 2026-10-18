@@ -36,7 +36,7 @@ export function QuestionCard({ request }: { request: QuestionRequest }) {
 
       <div className="thin-scroll min-h-0 flex-1 overflow-y-auto px-5 py-4">
         {request.questions.map((q, qi) => {
-          const key = q.header ?? `q${qi}`;
+          const key = String(qi); // 协议键 = 题号索引（三端统一，ask-user 按索引还原题目文本）
           const isMulti = q.multiSelect ?? false;
           return (
             <div key={key} className="mb-5 rounded-xl border border-slate-700 bg-slate-900/70 p-4">

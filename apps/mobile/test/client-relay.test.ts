@@ -7,11 +7,11 @@
  * - 重连后出站 seq 持久续接不归零、入站 SeqGuard 重置（桌面出站 seq 不归零也兼容）。
  */
 
+import type { RemoteEvent as RemoteEventExt } from "@spcode/shared";
+import { generateBoxKeyPair, sealPayload } from "@spcode/shared/crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type ConnectionState, RemoteClient } from "../src/lib/client";
-import { generateKeyPair, sealPayload } from "../src/lib/crypto";
 import type { PairingRecord } from "../src/lib/db";
-import type { RemoteEventExt } from "../src/lib/protocol";
 import { deriveChannelId } from "../src/lib/relay";
 
 type Listener = (ev: { data?: string }) => void;
@@ -72,8 +72,8 @@ function tick(ms = 5): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-const desktop = generateKeyPair();
-const phone = generateKeyPair();
+const desktop = generateBoxKeyPair();
+const phone = generateBoxKeyPair();
 
 function relayRecord(): PairingRecord {
   return {
@@ -134,8 +134,8 @@ describe("RemoteClient：relay 通道", () => {
     // 客户端应回 auth_proof：box(nonce) 可用 phone 公钥 × desktop 私钥解开
     const proofFrame = JSON.parse(ws.sent.at(-1)!) as { t: string; c: string };
     expect(proofFrame.t).toBe("auth_proof");
-    const { boxOpen } = await import("../src/lib/crypto");
-    const plain = boxOpen(proofFrame.c, phone.publicKey, desktop.secretKey);
+    const { boxDecrypt } = await import("@spcode/shared/crypto");
+    const plain = boxDecrypt(proofFrame.c, phone.publicKey, desktop.secretKey);
     expect(plain).toBe(nonce);
     ws.message({ t: "auth_ack", ok: true, desktopPk: desktop.publicKey, deviceId: "dev-1", resumeSeq: 0 });
     await tick();

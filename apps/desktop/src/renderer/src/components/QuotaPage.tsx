@@ -1,25 +1,9 @@
+import type { QuotaInfo, QuotaLimit } from "@spcode/shared";
 import { useEffect, useState } from "react";
 import { formatTime } from "../format";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
 import { Switch } from "./ui/Switch";
-
-interface QuotaLimit {
-  label: string;
-  usedPercent: number | null;
-  text: string | null;
-  resetText: string | null;
-}
-
-interface QuotaInfo {
-  provider: string;
-  label: string;
-  configured: boolean;
-  plan: string | null;
-  limits: QuotaLimit[];
-  updatedAt: number;
-  error?: string;
-}
 
 export function QuotaPage() {
   const settings = useStore((s) => s.settings);

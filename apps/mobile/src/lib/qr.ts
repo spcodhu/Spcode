@@ -4,7 +4,7 @@
  *   spcode-remote://pair?v=2&hosts=<逗号分隔的 base url，整体 URL 编码>&desktop_pk=<base64,URL编码>&otp=<8位数字>
  */
 
-import { isValidPublicKey } from "./crypto";
+import { isValidPublicKey } from "@spcode/shared/crypto";
 import { isRelayHost } from "./relay";
 
 export interface QrPayload {

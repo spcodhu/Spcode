@@ -27,15 +27,13 @@
  *   后续非 hello 帧一律丢弃，直到设备重新 auth 开启新逻辑会话。
  */
 
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
+import { deriveChannelId } from "@spcode/shared/crypto";
 import WebSocket from "ws";
-import { b64decode } from "../crypto.js";
 import type { PeerConnection, RemoteTransport } from "./types.js";
 
-/** channelId = SHA-256(桌面 X25519 公钥原始 32 字节) 的 hex 小写 */
-export function deriveChannelId(desktopPublicKeyB64: string): string {
-  return createHash("sha256").update(b64decode(desktopPublicKeyB64)).digest("hex");
-}
+// channelId 推导已下沉 @spcode/shared/crypto（评审 R3-C12：双端同一份实现）
+export { deriveChannelId };
 
 export interface RelayTransportOptions {
   /** relay 地址（wss://host[:port]，不含路径） */

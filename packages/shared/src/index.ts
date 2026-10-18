@@ -79,6 +79,33 @@ export interface SessionMeta {
   updatedAt: number;
 }
 
+/**
+ * 会话注册表条目（~/.spcode/sessions.json 的行项）：主进程持久化、渲染层/远程端镜像使用。
+ * 评审 R3-C12：原在 main/session-registry.ts 定义、store.ts 手工镜像一份，现唯一事实源在这里。
+ */
+export interface SessionRegistryEntry extends SessionMeta {
+  /** pi 会话文件路径（用于恢复），创建后回填 */
+  sessionFile: string | null;
+  /** 计划模式状态（恢复会话时随 session.open 传给宿主） */
+  planMode?: boolean;
+  /** WritePlan 落盘的 PLAN.md 路径（~/.spcode/plans/<id>.md），删会话时一并清理 */
+  planFile?: string | null;
+  /** Fork 来源会话 id（分叉会话才有；UI tooltip 标注用） */
+  forkedFrom?: string;
+}
+
+/** 宿主 SessionController.info() 的返回类型（session.create/open/fork/setModel 等命令的响应） */
+export interface SessionInfo {
+  sessionId: string;
+  sessionFile: string | null;
+  planMode: boolean;
+  /** 沙盒状态：active=内核边界生效；disabled=用户关闭；unavailable=平台/依赖不满足 */
+  sandbox: { state: "active" | "disabled" | "unavailable"; reason?: string };
+  model: ModelRef | null;
+  thinkingLevel: string;
+  supportedThinkingLevels: string[];
+}
+
 // ---------------------------------------------------------------------------
 // Token 用量（与 pi 的 usage 结构对齐）
 // ---------------------------------------------------------------------------
@@ -330,6 +357,39 @@ export interface SessionSearchResultItem {
   id: string;
   titleMatch: boolean;
   hits: SessionSearchHit[];
+}
+
+// ---------------------------------------------------------------------------
+// 定时任务
+// ---------------------------------------------------------------------------
+
+/** 厂商配额查询结果（QuotaService → 渲染层配额页/Composer 圆环；评审 R3-C12 下沉） */
+export interface QuotaLimit {
+  /** 行标签：每日额度 / 每周额度 / 余额… */
+  label: string;
+  /** 已用百分比 0-100；null 表示无进度（如余额文本行） */
+  usedPercent: number | null;
+  /** 右侧主文本（如 "45%" / "¥32.50"） */
+  text: string | null;
+  /** 重置时间或补充说明（如 "21:21" / "10月22日"） */
+  resetText: string | null;
+}
+
+export interface QuotaInfo {
+  provider: string;
+  label: string;
+  configured: boolean;
+  plan: string | null;
+  limits: QuotaLimit[];
+  updatedAt: number;
+  error?: string;
+}
+
+/** 用量账本按日聚合行（usage-ledger summarize 的返回元素） */
+export interface DailyUsage {
+  date: string;
+  total: UsageAggregate;
+  byModel: Record<string, UsageAggregate>;
 }
 
 // ---------------------------------------------------------------------------
@@ -722,14 +782,6 @@ export const SPCODE_HOME_DIRNAME = ".spcode";
 
 /** 密钥字段回传渲染层时的掩码（写回同值 = 未修改，主进程还原真值；评审 R3-C8） */
 export const SECRET_MASK = "••••••••";
-
-/**
- * 配对 OTP 的 KDF 参数（协议 v2，双端必须一致——mobile/desktop 各自实现但共用本常量）：
- * key = sha256 迭代 PAIR_KDF_ITERATIONS 轮，第 0 轮输入为 `PAIR_KDF_DOMAIN + otp`，后续轮输入为上一轮摘要。
- * 8 位 OTP 只有 10^8 空间，单轮 sha256 可被离线暴破（评审 R3-C1）；迭代拉高离线暴破成本。
- */
-export const PAIR_KDF_DOMAIN = "spcode-remote-pair-v2:";
-export const PAIR_KDF_ITERATIONS = 50_000;
 
 /**
  * 更新通道裁决（electron-updater 的 allowPrerelease 取值）：

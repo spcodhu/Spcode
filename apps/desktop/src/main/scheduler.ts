@@ -13,10 +13,10 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { ScheduleTask, ScheduleTaskInput } from "@spcode/shared";
-import { readJsonFile, resolveSpcodeHome } from "@spcode/shared/node";
+import { readJsonFile, resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
 
 /** 任务条目的最低结构要求：关键字段类型正确即收，其余字段宽进 */
 function validateTasks(data: unknown): ScheduleTask[] | null {
@@ -190,8 +190,6 @@ export class Scheduler {
   }
 
   private persist(): void {
-    const tmp = `${this.file}.tmp`;
-    writeFileSync(tmp, JSON.stringify(this.tasks, null, 2), "utf-8");
-    renameSync(tmp, this.file);
+    writeJsonFileAtomic(this.file, this.tasks);
   }
 }

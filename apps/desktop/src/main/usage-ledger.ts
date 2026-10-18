@@ -4,14 +4,11 @@
  */
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { UsageAggregate, UsageRecord } from "@spcode/shared";
+import type { DailyUsage, UsageAggregate, UsageRecord } from "@spcode/shared";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 
-export interface DailyUsage {
-  date: string;
-  total: UsageAggregate;
-  byModel: Record<string, UsageAggregate>;
-}
+// DailyUsage 已下沉 shared（评审 R3-C12）；re-export 兼容
+export type { DailyUsage } from "@spcode/shared";
 
 export class UsageLedger {
   private readonly dir: string;

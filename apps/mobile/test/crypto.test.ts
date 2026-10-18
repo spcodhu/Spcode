@@ -3,6 +3,24 @@
  * 交叉验证直接 import apps/desktop 的 remote/crypto.ts——两端实现不一致在这里就会暴露。
  */
 
+import {
+  b64decode,
+  b64encode,
+  boxDecrypt,
+  boxEncrypt,
+  deriveOtpKey,
+  generateBoxKeyPair,
+  isValidPublicKey,
+  openPayload,
+  pairOpen,
+  pairSeal,
+  SeqCounter,
+  SeqGuard,
+  sealPayload,
+  secretboxDecrypt,
+  secretboxEncrypt,
+  sha256Sync,
+} from "@spcode/shared/crypto";
 import { describe, expect, it } from "vitest";
 import {
   b64decode as desktopB64decode,
@@ -14,24 +32,7 @@ import {
   secretboxDecrypt as desktopSecretboxDecrypt,
   secretboxEncrypt as desktopSecretboxEncrypt,
 } from "../../desktop/src/main/remote/crypto.js";
-import { b64decode, b64encode } from "../src/lib/base64";
-import {
-  boxOpen,
-  boxSeal,
-  deriveOtpKey,
-  generateKeyPair,
-  isValidPublicKey,
-  openPayload,
-  pairOpen,
-  pairSeal,
-  SeqCounter,
-  SeqGuard,
-  sealPayload,
-  secretboxOpen,
-  secretboxSeal,
-} from "../src/lib/crypto";
 import { parseQrPayload } from "../src/lib/qr";
-import { sha256Sync } from "../src/lib/sha256";
 
 describe("base64", () => {
   it("与桌面端实现互编码一致", () => {
@@ -76,24 +77,24 @@ describe("sha256", () => {
 });
 
 describe("NaCl secretbox / box（与桌面端交叉）", () => {
-  it("手机 pairSeal → 桌面 secretboxDecrypt 可解；桌面 secretboxEncrypt → 手机 secretboxOpen 可解", async () => {
+  it("手机 pairSeal → 桌面 secretboxDecrypt 可解；桌面 secretboxEncrypt → 手机 secretboxDecrypt 可解", async () => {
     const otp = "87654321";
     const inner = { publicKey: "pk", name: "测试机" };
     const sealed = await pairSeal(inner, otp);
     expect(JSON.parse(desktopSecretboxDecrypt(sealed, desktopDeriveOtpKey(otp))!)).toEqual(inner);
 
     const fromDesktop = desktopSecretboxEncrypt(JSON.stringify(inner), desktopDeriveOtpKey(otp));
-    expect(secretboxOpen(fromDesktop, await deriveOtpKey(otp))).toBe(JSON.stringify(inner));
+    expect(secretboxDecrypt(fromDesktop, await deriveOtpKey(otp))).toBe(JSON.stringify(inner));
 
-    expect(secretboxSeal("x", await deriveOtpKey(otp))).not.toBe(sealed); // nonce 随机
+    expect(secretboxEncrypt("x", await deriveOtpKey(otp))).not.toBe(sealed); // nonce 随机
   });
 
-  it("手机 boxSeal → 桌面 boxDecrypt；桌面 boxEncrypt → 手机 pairOpen/boxOpen", () => {
-    const phone = generateKeyPair();
+  it("手机 boxEncrypt → 桌面 boxDecrypt；桌面 boxEncrypt → 手机 pairOpen/boxDecrypt", () => {
+    const phone = generateBoxKeyPair();
     const desktop = desktopGenerateBoxKeyPair();
 
     // 手机加密 → 桌面解密
-    const c1 = boxSeal("hello", desktop.publicKey, phone.secretKey);
+    const c1 = boxEncrypt("hello", desktop.publicKey, phone.secretKey);
     expect(desktopBoxDecrypt(c1, phone.publicKey, desktop.secretKey)).toBe("hello");
 
     // 桌面加密 pair_ack → 手机 pairOpen
@@ -107,13 +108,13 @@ describe("NaCl secretbox / box（与桌面端交叉）", () => {
     expect(openPayload(c3, desktop.publicKey, phone.secretKey)).toEqual(payload);
 
     // 错密钥 / 篡改 → null（不抛错）
-    const stranger = generateKeyPair();
-    expect(boxOpen(c1, stranger.publicKey, phone.secretKey)).toBeNull();
-    expect(boxOpen(`${c1.slice(0, -4)}AAAA`, desktop.publicKey, phone.secretKey)).toBeNull();
+    const stranger = generateBoxKeyPair();
+    expect(boxDecrypt(c1, stranger.publicKey, phone.secretKey)).toBeNull();
+    expect(boxDecrypt(`${c1.slice(0, -4)}AAAA`, desktop.publicKey, phone.secretKey)).toBeNull();
   });
 
   it("isValidPublicKey", () => {
-    const kp = generateKeyPair();
+    const kp = generateBoxKeyPair();
     expect(isValidPublicKey(kp.publicKey)).toBe(true);
     expect(isValidPublicKey("not-base64!!")).toBe(false);
     expect(isValidPublicKey(b64encode(new Uint8Array(8)))).toBe(false);
@@ -139,7 +140,7 @@ describe("seq", () => {
 });
 
 describe("QR payload 解析", () => {
-  const kp = generateKeyPair();
+  const kp = generateBoxKeyPair();
   const build = (hosts: string[], pk = kp.publicKey, otp = "12345678") =>
     `spcode-remote://pair?v=2&hosts=${encodeURIComponent(hosts.join(","))}&desktop_pk=${encodeURIComponent(pk)}&otp=${otp}`;
 

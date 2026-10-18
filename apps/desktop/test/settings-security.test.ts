@@ -59,7 +59,7 @@ describe("settings.json 权限", () => {
     if (process.platform === "win32") return;
     const store = new SettingsStore(dir);
     store.set({ permissionMode: "act" });
-    expect(statSync(store.dir + "/settings.json").mode & 0o777).toBe(0o600);
+    expect(statSync(`${store.dir}/settings.json`).mode & 0o777).toBe(0o600);
 
     // 模拟存量 0644 文件 → 新实例构造即收紧
     const dir2 = join(dir, "legacy");

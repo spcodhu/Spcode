@@ -47,10 +47,10 @@ function QuestionCard({ request, queueSize }: { request: QuestionRequest; queueS
   const answeredAny = request.questions.some((_item, i) => freeText[i]?.trim() || answers[i]);
 
   const submit = () => {
-    // 协议以问题文本为键（ask-user 工具渲染 Q/A 对）；同文案题后者覆盖前者，属可接受边界
+    // 协议键 = 题号索引（三端统一；ask-user 按索引还原题目文本，同文案题不再互相覆盖——评审 R3-C12）
     const merged: Record<string, string> = {};
     request.questions.forEach((item, i) => {
-      merged[item.question] = freeText[i]?.trim() || answers[i] || "";
+      merged[String(i)] = freeText[i]?.trim() || answers[i] || "";
     });
     reply(request.requestId, merged);
   };

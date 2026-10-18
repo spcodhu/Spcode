@@ -8,9 +8,9 @@
  *（一致性由 test/spcode-home.test.ts 锁定）。
  */
 
-import { copyFileSync, existsSync, readFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 /** 数据根目录名：与 index.ts 的 SPCODE_HOME_DIRNAME 同值 */
 const HOME_DIRNAME = ".spcode";
@@ -50,4 +50,27 @@ function backupCorruptFile(file: string): void {
   } catch {
     // 备份失败不阻塞主流程（权限/磁盘满等场景下次读取还会再试）
   }
+}
+
+/**
+ * 原子写（tmp 同目录 rename），可选 0600 权限钉死（评审 R3-C12：替换散落各处的 9 份手写样板）。
+ * mode 钉在 tmp 与终态两处（rename 保留 tmp 权限，chmod 兜存量文件）。
+ */
+export function writeFileAtomic(file: string, content: string, opts?: { mode?: number }): void {
+  mkdirSync(dirname(file), { recursive: true });
+  const tmp = `${file}.tmp`;
+  writeFileSync(tmp, content, opts?.mode ? { encoding: "utf-8", mode: opts.mode } : "utf-8");
+  renameSync(tmp, file);
+  if (opts?.mode !== undefined) {
+    try {
+      chmodSync(file, opts.mode);
+    } catch {
+      // Windows 无 POSIX 权限位
+    }
+  }
+}
+
+/** 原子写 JSON（2 空格缩进）；凭证类传 { mode: 0o600 } */
+export function writeJsonFileAtomic(file: string, data: unknown, opts?: { mode?: number }): void {
+  writeFileAtomic(file, JSON.stringify(data, null, 2), opts);
 }

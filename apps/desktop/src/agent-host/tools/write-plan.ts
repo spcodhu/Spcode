@@ -5,9 +5,10 @@
  * 原子写入;落盘后回调 onSaved,主进程据此把 planFile 回填进会话注册表。
  * 风险分级归 readonly:无副作用到用户文件,不弹权限卡。
  */
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { writeFileAtomic } from "@spcode/shared/node";
 import { type Static, Type } from "typebox";
 
 const writePlanSchema = Type.Object({
@@ -39,9 +40,7 @@ export function createWritePlanTool(opts: {
       }
       mkdirSync(opts.plansDir, { recursive: true });
       const file = join(opts.plansDir, `${opts.sessionId}.md`);
-      const tmp = `${file}.tmp`;
-      writeFileSync(tmp, `${content}\n`, "utf-8");
-      renameSync(tmp, file);
+      writeFileAtomic(file, `${content}\n`);
       opts.onSaved(file);
       return {
         content: [{ type: "text", text: `计划已保存:${file}。现在请在回复正文里完整展示计划全文。` }],

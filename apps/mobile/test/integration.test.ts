@@ -255,7 +255,7 @@ describe("PWA ↔ 真实桌面 RemoteServer 全链路", () => {
       deviceId: "nobody",
       hosts: [`http://127.0.0.1:${port}`],
       deviceName: "陌生设备",
-      keyPair: (await import("../src/lib/crypto")).generateKeyPair(),
+      keyPair: (await import("@spcode/shared/crypto")).generateBoxKeyPair(),
       pairedAt: Date.now(),
     };
     const mobile = new MobileTestClient(stranger);

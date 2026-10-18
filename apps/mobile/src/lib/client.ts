@@ -11,11 +11,25 @@
  * 依赖 crypto.getRandomValues（非安全上下文也可用）。
  */
 
-import type { RemoteCommand, RemoteEncryptedFrame, RemoteEncryptedPayload } from "@spcode/shared";
-import { boxSeal, generateKeyPair, openPayload, pairOpen, pairSeal, SeqCounter, SeqGuard, sealPayload } from "./crypto";
+import type {
+  RemoteCommand,
+  RemoteCommand as RemoteCommandExt,
+  RemoteEncryptedFrame,
+  RemoteEncryptedPayload,
+  RemoteEvent as RemoteEventExt,
+} from "@spcode/shared";
+import {
+  boxEncrypt,
+  generateBoxKeyPair,
+  openPayload,
+  pairOpen,
+  pairSeal,
+  SeqCounter,
+  SeqGuard,
+  sealPayload,
+} from "@spcode/shared/crypto";
 import type { PairingRecord } from "./db";
 import { savePairing } from "./db";
-import type { RemoteCommandExt, RemoteEventExt } from "./protocol";
 import { parseQrPayload } from "./qr";
 import { isRelayHost, orderHosts, relayWsUrl } from "./relay";
 
@@ -138,7 +152,7 @@ function connectWs(url: string, timeoutMs = 6000): Promise<WebSocket> {
  */
 export async function pairWithQr(qrText: string, deviceName: string): Promise<PairingRecord> {
   const payload = parseQrPayload(qrText);
-  const keyPair = generateKeyPair();
+  const keyPair = generateBoxKeyPair();
   const c = pairSeal({ publicKey: keyPair.publicKey, name: deviceName }, payload.otp);
 
   let lastError: Error | null = null;
@@ -280,7 +294,6 @@ export class RemoteClient {
         reject(new Error("命令响应超时"));
       }, timeoutMs);
       this.pending.set(id, { resolve: resolve as (data: unknown) => void, reject, timer });
-      // RemoteCommandExt 含尚未收敛进 shared 的命令（见 protocol.ts），线上帧格式一致
       this.sendEncrypted(ws, id, { kind: "command", command: cmd as RemoteCommand });
     });
   }
@@ -351,7 +364,7 @@ export class RemoteClient {
       }
 
       // 第二步：私钥证明（box 密封 nonce 回传）
-      const proof = boxSeal(first.nonce!, this.record.desktopPk, this.record.keyPair.secretKey);
+      const proof = boxEncrypt(first.nonce!, this.record.desktopPk, this.record.keyPair.secretKey);
       const proofFrame: { t: "auth_proof"; c: string; deviceId?: string } = { t: "auth_proof", c: proof };
       if (this.relay) proofFrame.deviceId = this.record.deviceId;
       ws.send(JSON.stringify(proofFrame));

@@ -19,8 +19,10 @@ import type {
   ModelRef,
   PermissionRequest,
   QuestionRequest,
+  SessionInfo,
   SessionMeta,
   SessionMode,
+  SessionRegistryEntry,
   TodoItem,
   UpdateState,
   UsageAggregate,
@@ -168,32 +170,11 @@ export interface SessionState {
 }
 
 /** 宿主 session.create/open/activate 响应（ctl.info() 的渲染进程侧镜像） */
-interface HostSessionInfo {
-  sessionFile?: string | null;
-  model: ModelRef | null;
-  thinkingLevel: string;
-  supportedThinkingLevels: string[];
-  planMode?: boolean;
-  /** 沙盒状态：active=内核边界生效；disabled=用户关闭；unavailable=平台/依赖不满足 */
-  sandbox?: { state: "active" | "disabled" | "unavailable"; reason?: string };
-}
+/** 宿主 session.info() 响应（已下沉 shared；评审 R3-C12） */
+type HostSessionInfo = SessionInfo;
 
-/** 主进程注册表里的持久化会话条目（镜像 SessionRegistryEntry） */
-export interface RegistrySession {
-  id: string;
-  mode: SessionMode;
-  cwd: string;
-  title: string;
-  model: ModelRef | null;
-  thinkingLevel: string;
-  sessionFile: string | null;
-  planMode?: boolean;
-  planFile?: string | null;
-  /** Fork 来源会话 id（分叉会话才有） */
-  forkedFrom?: string;
-  createdAt: number;
-  updatedAt: number;
-}
+/** 主进程注册表里的持久化会话条目（已下沉 shared 的 SessionRegistryEntry；别名保留渲染层习惯叫法） */
+export type RegistrySession = SessionRegistryEntry;
 
 interface StoreState {
   ready: boolean;

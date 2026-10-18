@@ -11,7 +11,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   CredentialSynchronizationError,
@@ -30,7 +30,7 @@ import type {
   SandboxSettings,
 } from "@spcode/shared";
 import { DEFAULT_COMPACTION_SETTINGS, DEFAULT_SANDBOX_SETTINGS } from "@spcode/shared";
-import { resolveSpcodeHome } from "@spcode/shared/node";
+import { resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
 import { exportSessionContext } from "./export-context.js";
 import { HibernationManager } from "./hibernation.js";
 import { MemoryStore } from "./memory-store.js";
@@ -152,9 +152,8 @@ async function persistApiKey(rt: ModelRuntime, provider: string, apiKey: string)
     }
   }
   data[provider] = { type: "api_key", key: apiKey };
-  const tmp = `${file}.tmp`;
-  writeFileSync(tmp, JSON.stringify(data, null, 2), "utf-8");
-  renameSync(tmp, file);
+  // 凭证文件 0600（评审 R3-C8/C12：与 pairing/push 同口径）
+  writeJsonFileAtomic(file, data, { mode: 0o600 });
   await rt.setRuntimeApiKey(provider, apiKey).catch(() => {});
 }
 

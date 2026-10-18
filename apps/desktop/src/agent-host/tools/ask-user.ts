@@ -49,8 +49,12 @@ export function createAskUserQuestionTool(sessionId: string, ask: QuestionAnswer
           options: q.options?.map((o) => ({ label: o.label, description: o.description })),
         })),
       });
+      // 协议键 = 题号索引（三端统一）；按索引还原题目文本渲染 Q/A（兼容旧客户端的文本键）
       const text = Object.entries(answers)
-        .map(([q, a]) => `Q: ${q}\nA: ${a}`)
+        .map(([k, a]) => {
+          const q = /^\d+$/.test(k) ? (args.questions[Number(k)]?.question ?? k) : k;
+          return `Q: ${q}\nA: ${a}`;
+        })
         .join("\n\n");
       return {
         content: [{ type: "text", text: text || "User dismissed the question without answering." }],

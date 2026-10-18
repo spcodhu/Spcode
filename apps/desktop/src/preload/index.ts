@@ -6,21 +6,21 @@ import {
   type AdvancedSearchConfig,
   type AppSettings,
   type ComposerDraft,
+  type DailyUsage,
   type HostCommandInput,
   type HostEvent,
   IPC,
   type PickedFile,
+  type QuotaInfo,
   type RemotePairingInfo,
   type RemoteStatus,
   type ScheduleTask,
   type ScheduleTaskInput,
+  type SessionRegistryEntry,
   type SessionSearchResultItem,
   type UpdateState,
 } from "@spcode/shared";
 import { contextBridge, ipcRenderer } from "electron";
-import type { QuotaInfo } from "../main/quota-service.js";
-import type { SessionRegistryEntry } from "../main/session-registry.js";
-import type { DailyUsage } from "../main/usage-ledger.js";
 
 export interface SpcodeApi {
   /** 发送带 id 的宿主命令并等待响应 */

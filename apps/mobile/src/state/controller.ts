@@ -3,10 +3,9 @@
  * 模块级单例（一个 App 一条连接），UI 组件只调这里的函数。
  */
 
-import type { ScheduleTask, ScheduleTaskInput, SessionMode } from "@spcode/shared";
+import type { RemoteEvent as RemoteEventExt, ScheduleTask, ScheduleTaskInput, SessionMode } from "@spcode/shared";
 import { RemoteClient } from "../lib/client";
 import { clearPairing, loadPairing, type PairingRecord } from "../lib/db";
-import type { RemoteEventExt } from "../lib/protocol";
 import {
   isPushEnabledLocally,
   isPushSupported,
@@ -257,7 +256,7 @@ export async function removeSchedule(taskId: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Web Push（契约见 lib/protocol.ts 的 TODO(契约收敛)）
+// Web Push（契约在 packages/shared/src/remote.ts）
 // ---------------------------------------------------------------------------
 
 /** 开启通知：订阅 PushManager 并上报桌面；失败抛错由 UI 展示（开关维持关闭） */
@@ -265,8 +264,16 @@ export async function enablePushNotifications(): Promise<void> {
   const vapidKey = useAppStore.getState().vapidKey;
   if (!vapidKey) throw new Error("桌面端尚未下发推送公钥（remote.hello），请确认桌面端已升级到支持推送的版本并重连");
   const sub = await subscribePush(vapidKey);
-  await send({ type: "push.subscribe", subscription: sub.toJSON() });
+  await send({ type: "push.subscribe", subscription: toPushSubscription(sub) });
   setPushEnabledLocally(true);
+}
+
+/** PushSubscription.toJSON() → 协议形状（可选字段收窄；缺 endpoint/keys 视为订阅损坏） */
+function toPushSubscription(sub: PushSubscription): { endpoint: string; keys: { p256dh: string; auth: string } } {
+  const j = sub.toJSON();
+  if (!j.endpoint || !j.keys?.p256dh || !j.keys?.auth)
+    throw new Error("推送订阅缺少 endpoint/keys（浏览器返回不完整）");
+  return { endpoint: j.endpoint, keys: { p256dh: j.keys.p256dh, auth: j.keys.auth } };
 }
 
 /** 关闭通知：本地退订（桌面侧订阅随连接失效，无需显式下线命令） */
@@ -279,7 +286,7 @@ async function resubscribePushIfEnabled(vapidKey: string): Promise<void> {
   if (!isPushSupported() || !isPushEnabledLocally()) return;
   try {
     const sub = await subscribePush(vapidKey);
-    await send({ type: "push.subscribe", subscription: sub.toJSON() });
+    await send({ type: "push.subscribe", subscription: toPushSubscription(sub) });
   } catch {
     // 订阅失效/授权被收回等：静默，下次 remote.hello 再试
   }

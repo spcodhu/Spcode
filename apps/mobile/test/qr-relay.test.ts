@@ -6,9 +6,8 @@
  */
 
 import { createHash } from "node:crypto";
+import { b64decode, generateBoxKeyPair } from "@spcode/shared/crypto";
 import { describe, expect, it } from "vitest";
-import { b64decode } from "../src/lib/base64";
-import { generateKeyPair } from "../src/lib/crypto";
 import { parseQrPayload } from "../src/lib/qr";
 import { deriveChannelId, isRelayHost, orderHosts, relayWsUrl } from "../src/lib/relay";
 
@@ -17,7 +16,7 @@ function makeQr(hosts: string[], desktopPk: string, otp = "12345678"): string {
 }
 
 describe("parseQrPayload：relay 前缀项", () => {
-  const pk = generateKeyPair().publicKey;
+  const pk = generateBoxKeyPair().publicKey;
 
   it("接受 LAN 与 relay+wss:// 混排的 hosts，顺序保留", () => {
     const payload = parseQrPayload(makeQr(["http://192.168.1.5:8123", "relay+wss://relay.example.com"], pk));
@@ -37,7 +36,7 @@ describe("parseQrPayload：relay 前缀项", () => {
 
 describe("relay 通道工具", () => {
   it("channelId = SHA-256(桌面公钥原始 32 字节) 的 hex 小写（与桌面端一致）", () => {
-    const pk = generateKeyPair().publicKey;
+    const pk = generateBoxKeyPair().publicKey;
     const expected = createHash("sha256")
       .update(Buffer.from(b64decode(pk)))
       .digest("hex");
@@ -46,7 +45,7 @@ describe("relay 通道工具", () => {
   });
 
   it("relayWsUrl：/channel/<channelId>?role=device", () => {
-    const pk = generateKeyPair().publicKey;
+    const pk = generateBoxKeyPair().publicKey;
     const url = relayWsUrl("relay+wss://relay.example.com/", pk);
     expect(url).toBe(`wss://relay.example.com/channel/${deriveChannelId(pk)}?role=device`);
   });

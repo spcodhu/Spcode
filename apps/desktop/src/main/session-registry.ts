@@ -2,29 +2,13 @@
  * 会话注册表：~/.spcode/sessions.json
  * 记录每个会话的元信息与 pi 会话文件路径，支撑跨重启的会话列表与恢复。
  */
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import type { ModelRef, SessionMode } from "@spcode/shared";
-import { readJsonFile, resolveSpcodeHome } from "@spcode/shared/node";
+import type { SessionRegistryEntry } from "@spcode/shared";
+import { readJsonFile, resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
 
-export interface SessionRegistryEntry {
-  id: string;
-  mode: SessionMode;
-  cwd: string;
-  title: string;
-  model: ModelRef | null;
-  thinkingLevel: string;
-  /** pi 会话文件路径（用于恢复），创建后回填 */
-  sessionFile: string | null;
-  /** 计划模式状态（可选，老条目没有；恢复会话时随 session.open 传给宿主） */
-  planMode?: boolean;
-  /** WritePlan 落盘的 PLAN.md 路径（~/.spcode/plans/<id>.md），删会话时一并清理 */
-  planFile?: string | null;
-  /** Fork 来源会话 id（分叉会话才有；UI tooltip 标注用） */
-  forkedFrom?: string;
-  createdAt: number;
-  updatedAt: number;
-}
+// 类型已下沉 shared（评审 R3-C12：渲染层/远程端同一份事实源）；本文件保留 re-export 兼容
+export type { SessionRegistryEntry } from "@spcode/shared";
 
 /** 注册表条目的最低结构要求：关键字段类型正确即收，其余字段宽进（老版本新增字段不挡路） */
 function validateEntries(data: unknown): SessionRegistryEntry[] | null {
@@ -85,8 +69,6 @@ export class SessionRegistry {
   }
 
   private persist(): void {
-    const tmp = `${this.file}.tmp`;
-    writeFileSync(tmp, JSON.stringify(this.entries, null, 2), "utf-8");
-    renameSync(tmp, this.file);
+    writeJsonFileAtomic(this.file, this.entries);
   }
 }

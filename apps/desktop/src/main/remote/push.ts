@@ -10,10 +10,10 @@
  * - 发送失败且状态码 404/410（订阅失效）时删除该订阅；推送失败不影响主流程。
  */
 
-import { chmodSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { HostEvent, RemotePushSubscription } from "@spcode/shared";
-import { readJsonFile, resolveSpcodeHome } from "@spcode/shared/node";
+import { readJsonFile, resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
 import webpush from "web-push";
 
 /** VAPID subject（contact）：项目仓库地址 */
@@ -26,14 +26,6 @@ interface VapidKeys {
 
 interface StoredSubscription extends RemotePushSubscription {
   updatedAt: number;
-}
-
-/** 原子写 + 0600（与 pairing.ts 同款：tmp 同目录 rename，权限钉死在两处） */
-function atomicWritePrivate(file: string, content: string): void {
-  const tmp = `${file}.tmp`;
-  writeFileSync(tmp, content, { encoding: "utf-8", mode: 0o600 });
-  renameSync(tmp, file);
-  chmodSync(file, 0o600);
 }
 
 function validateVapid(data: unknown): VapidKeys | null {
@@ -99,7 +91,7 @@ export class PushService {
     mkdirSync(this.dir, { recursive: true });
     const loaded = readJsonFile(this.vapidFile, validateVapid);
     const keys = loaded ?? webpush.generateVAPIDKeys();
-    if (!loaded) atomicWritePrivate(this.vapidFile, JSON.stringify(keys, null, 2));
+    if (!loaded) writeJsonFileAtomic(this.vapidFile, keys, { mode: 0o600 });
     this.vapid = keys;
     if (!this.vapidConfigured) {
       webpush.setVapidDetails(VAPID_SUBJECT, keys.publicKey, keys.privateKey);
@@ -181,6 +173,6 @@ export class PushService {
 
   private persist(): void {
     mkdirSync(this.dir, { recursive: true });
-    atomicWritePrivate(this.subsFile, JSON.stringify(this.subs, null, 2));
+    writeJsonFileAtomic(this.subsFile, this.subs, { mode: 0o600 });
   }
 }

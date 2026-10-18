@@ -9,8 +9,7 @@
  * - relay 是广播语义：帧外层 deviceId 的封装/过滤在 client.ts 处理。
  */
 
-import { b64decode } from "./base64";
-import { sha256Sync } from "./sha256";
+import { deriveChannelId } from "@spcode/shared/crypto";
 
 export const RELAY_HOST_PREFIX = "relay+";
 
@@ -19,11 +18,8 @@ export function isRelayHost(host: string): boolean {
   return host.startsWith(RELAY_HOST_PREFIX);
 }
 
-/** channelId = SHA-256(桌面公钥原始 32 字节) 的 hex 小写（纯 JS 实现，非安全上下文可用） */
-export function deriveChannelId(desktopPkB64: string): string {
-  const digest = sha256Sync(b64decode(desktopPkB64));
-  return [...digest].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
+/** relay channelId 推导：实现已下沉 @spcode/shared/crypto（双端同一份，评审 R3-C12） */
+export { deriveChannelId };
 
 /** relay hosts 项 → 设备侧 ws url：`wss://<relay>/channel/<channelId>?role=device&device=<deviceId>`
  *  （device 参数让 relay 离线队列按设备分槽补投——评审 R3-C9；缺省兼容旧 relay，收 "*" 槽） */

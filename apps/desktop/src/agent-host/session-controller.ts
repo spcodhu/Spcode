@@ -22,6 +22,7 @@ import type {
   PermissionRequest,
   QuestionRequest,
   SandboxSettings,
+  SessionInfo,
   SessionMode,
   TodoItem,
   ToolRisk,
@@ -391,13 +392,13 @@ export class SessionController {
     return ctl;
   }
 
-  info() {
+  info(): SessionInfo {
     const model = this.session.model;
     return {
       sessionId: this.sessionId,
       sessionFile: this.sessionFile,
       planMode: this.planMode,
-      sandbox: this.sandboxInfo,
+      sandbox: this.sandboxInfo as SessionInfo["sandbox"],
       model: model ? { provider: model.provider, modelId: model.id } : null,
       thinkingLevel: this.session.thinkingLevel,
       supportedThinkingLevels: model ? getSupportedThinkingLevels(model as Model<never>) : [],

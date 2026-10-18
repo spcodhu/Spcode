@@ -436,7 +436,7 @@ function registerIpc(): void {
     draftsStore.set(drafts && typeof drafts === "object" ? drafts : {});
   });
 
-  ipcMain.handle(IPC.getSettings, () => settings.get());
+  ipcMain.handle(IPC.getSettings, () => redactSettingsForRenderer(settings.get()));
   ipcMain.handle(IPC.getAppVersion, () => app.getVersion());
 
   // 更新：状态查询 / 手动下载 / 重启安装 / 忽略版本（状态推送见 setupAutoUpdater 的 onState）
@@ -448,7 +448,8 @@ function registerIpc(): void {
     ignoreVersion();
   });
   ipcMain.handle(IPC.setSettings, (_e, patch: Partial<AppSettings>) => {
-    const next = settings.set(patch);
+    // 掩码密钥还原（渲染层只见过掩码；评审 R3-C8）
+    const next = settings.set(restoreMaskedSecrets(patch, settings.get()));
     // 蒸馏开关实时下发宿主（评审 P0-4：静默计费的开关必须即时生效）
     if ("memoryDistill" in patch) {
       bridge.push({ type: "memory.setDistillEnabled", payload: { enabled: next.memoryDistill } });

@@ -29,7 +29,7 @@
  */
 
 import { randomInt } from "node:crypto";
-import { chmodSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type {
   PermissionRequest,
@@ -40,7 +40,8 @@ import type {
   RemoteFeishuStatus,
   SessionMeta,
 } from "@spcode/shared";
-import { readJsonFile, resolveSpcodeHome } from "@spcode/shared/node";
+import { describeSchedule } from "@spcode/shared";
+import { readJsonFile, resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
 import { RemoteEventAggregator } from "../aggregator.js";
 import { handleRemoteCommand, type RemoteHandlerDeps } from "../handlers.js";
 import type { BridgeEventSource } from "../index.js";
@@ -142,14 +143,6 @@ function validateStore(data: unknown): FeishuStoreData | null {
     if (typeof ur.openId !== "string" || typeof ur.boundAt !== "number") return null;
   }
   return data as FeishuStoreData;
-}
-
-/** 原子写 + 0600（与 pairing.ts 同款：凭证类文件 tmp 同目录 rename） */
-function atomicWritePrivate(file: string, content: string): void {
-  const tmp = `${file}.tmp`;
-  writeFileSync(tmp, content, { encoding: "utf-8", mode: 0o600 });
-  renameSync(tmp, file);
-  chmodSync(file, 0o600);
 }
 
 // ---------------------------------------------------------------------------
@@ -541,14 +534,8 @@ export class FeishuChannel {
     }
     const lines = result.tasks.map((t) => {
       const state = t.enabled ? "✅" : "⏸️";
-      const hm = `${t.hour}:${String(t.minute).padStart(2, "0")}`;
-      const freq = {
-        once: `单次 ${t.runAt ? new Date(t.runAt).toLocaleString() : ""}`,
-        hourly: "每小时",
-        daily: `每天 ${hm}`,
-        weekday: `工作日 ${hm}`,
-        weekly: `每周${"日一二三四五六"[t.weekday ?? 0]} ${hm}`,
-      }[t.frequency];
+      // 与桌面/移动端同一实现（评审 R3-C12：删掉本地野生复刻——weekday ?? 0 曾比 shared 的 ?? 1 差一天）
+      const freq = describeSchedule(t);
       const last = t.lastStatus ? ` · 上次${t.lastStatus === "ok" ? "成功" : "失败"}` : "";
       return `${state} **${t.name}** — ${freq}${last}`;
     });
@@ -760,7 +747,7 @@ export class FeishuChannel {
   private persistStore(): void {
     mkdirSync(dirname(this.storeFile), { recursive: true });
     const data: FeishuStoreData = { appId: this.cfgAppId, allowlist: [...this.allowlist.values()] };
-    atomicWritePrivate(this.storeFile, JSON.stringify(data, null, 2));
+    writeJsonFileAtomic(this.storeFile, data, { mode: 0o600 });
   }
 }
 
