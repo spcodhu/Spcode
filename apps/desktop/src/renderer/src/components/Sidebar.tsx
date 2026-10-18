@@ -209,12 +209,22 @@ export function Sidebar({
               const hidden = sp.sessions.length - visible.length;
               return (
                 <div key={sp.cwd} className="mb-0.5">
-                  {/* 空间行：点击展开/收起会话列表 */}
+                  {/* 空间行：点击展开/收起会话列表；行内含嵌套按钮故不能用原生 button，role+键盘事件补齐可访问性 */}
+                  {/* biome-ignore lint/a11y/useSemanticElements: 行内含嵌套按钮（菜单/新建），原生 button 不能嵌套交互元素 */}
                   <div
                     className={`group flex h-9 cursor-pointer items-center gap-1.5 rounded-lg px-2 transition-colors ${
                       containsActive ? "bg-bg-active" : "hover:bg-bg-hover"
                     }`}
                     onClick={() => setSpaceCollapsed((m) => ({ ...m, [sp.cwd]: expanded }))}
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={expanded}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setSpaceCollapsed((m) => ({ ...m, [sp.cwd]: expanded }));
+                      }
+                    }}
                     title={sp.cwd}
                   >
                     <Icon
@@ -232,6 +242,7 @@ export function Sidebar({
                       </span>
                     )}
                     {/* hover 出现的操作：… 更多菜单 + 新建会话（Finch 同款） */}
+                    {/* biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: 纯事件隔离容器，阻止冒泡到行点击，本身不是控件 */}
                     <div
                       className="hidden shrink-0 items-center gap-0.5 group-hover:flex"
                       onClick={(e) => e.stopPropagation()}
@@ -486,11 +497,20 @@ function SessionRow({
   onDelete: () => void;
 }) {
   return (
+    // biome-ignore lint/a11y/useSemanticElements: 行内含嵌套按钮（删除/菜单），原生 button 不能嵌套交互元素；role+键盘事件补齐可访问性
     <div
       className={`group flex cursor-pointer items-center gap-2 rounded-lg transition-colors ${
         nested ? "h-8 pl-8 pr-2" : "h-9 px-2"
       } ${active ? "bg-accent-soft" : "hover:bg-bg-hover"}`}
       onClick={onOpen}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
       title={forkedFromTitle ? `${r.title}\n分叉自《${forkedFromTitle}》` : r.title}
     >
       <span className={`shrink-0 rounded-full ${active ? "h-1.5 w-1.5 bg-accent" : "h-1 w-1 bg-text-tertiary/70"}`} />
@@ -508,6 +528,7 @@ function SessionRow({
       {running && <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent" />}
       <span className="shrink-0 text-[11px] text-text-tertiary group-hover:hidden">{formatRelative(r.updatedAt)}</span>
       {menuItems && menuItems.length > 0 && (
+        // biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: 纯事件隔离容器，阻止冒泡到行点击，本身不是控件
         <span className="hidden shrink-0 group-hover:block" onClick={(e) => e.stopPropagation()}>
           <SectionMenu title="会话操作" items={menuItems} />
         </span>

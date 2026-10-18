@@ -22,7 +22,13 @@ vi.mock("web-push", () => ({ default: mocks }));
 
 const { sendNotification, generateVAPIDKeys, setVapidDetails } = mocks;
 
-import { boxDecrypt, boxEncrypt, deriveOtpKey, generateBoxKeyPair, secretboxEncrypt } from "../src/main/remote/crypto.js";
+import {
+  boxDecrypt,
+  boxEncrypt,
+  deriveOtpKey,
+  generateBoxKeyPair,
+  secretboxEncrypt,
+} from "../src/main/remote/crypto.js";
 import { RemoteServer } from "../src/main/remote/index.js";
 import { PairingManager } from "../src/main/remote/pairing.js";
 import { PushService } from "../src/main/remote/push.js";

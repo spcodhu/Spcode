@@ -13,9 +13,10 @@
  *
  * UPDATE_OWNER/UPDATE_REPO 为占位值时直接跳过检查。
  */
+
+import { normalizeReleaseNotes, resolveAllowPrerelease, type UpdateState } from "@spcode/shared";
 import { app } from "electron";
 import pkg from "electron-updater";
-import { normalizeReleaseNotes, resolveAllowPrerelease, type UpdateState } from "@spcode/shared";
 
 const { autoUpdater } = pkg;
 

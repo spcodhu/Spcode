@@ -536,13 +536,17 @@ function applySessionEvent(session: SessionState, event: Record<string, unknown>
         errorMessage?: string;
       };
       if (e.result) {
-        session.messages.push(makeCompactionNotice(e.result.tokensBefore, e.result.estimatedTokensAfter, e.result.summary));
+        session.messages.push(
+          makeCompactionNotice(e.result.tokensBefore, e.result.estimatedTokensAfter, e.result.summary),
+        );
       } else if (!e.aborted && e.errorMessage) {
         // 失败也要留痕（用户点了手动压缩却什么都没发生是最差的体验）；aborted = 用户主动取消，不打扰
         session.messages.push({
           id: nextMsgId(),
           role: "notice",
-          segments: [{ kind: "text", id: nextMsgId(), text: `上下文压缩未完成：${friendlyCompactionError(e.errorMessage)}` }],
+          segments: [
+            { kind: "text", id: nextMsgId(), text: `上下文压缩未完成：${friendlyCompactionError(e.errorMessage)}` },
+          ],
           streaming: false,
         });
       }
@@ -593,7 +597,9 @@ export function historyToMessages(messages: unknown[]): ChatMessage[] {
     const m = raw as { role?: string; content?: unknown; summary?: string; tokensBefore?: number };
     if (m.role === "compactionSummary") {
       // 压缩检查点：回放为分隔线（压缩前的历史已折叠成摘要，可从线上展开查看）
-      out.push(makeCompactionNotice(typeof m.tokensBefore === "number" ? m.tokensBefore : undefined, undefined, m.summary));
+      out.push(
+        makeCompactionNotice(typeof m.tokensBefore === "number" ? m.tokensBefore : undefined, undefined, m.summary),
+      );
     } else if (m.role === "user") {
       const blocks = Array.isArray(m.content) ? (m.content as PiContentBlock[]) : [];
       const text = blocks
@@ -713,7 +719,10 @@ export const useStore = create<StoreState>((set, get) => ({
       unsubscribeUpdateState = window.spcode.onUpdateState((s) => set({ updateState: s }));
     }
     // 启动时补拉一次更新状态：错过启动早期的推送也不丢
-    void window.spcode.updateGetState().then((s) => set({ updateState: s })).catch(() => {});
+    void window.spcode
+      .updateGetState()
+      .then((s) => set({ updateState: s }))
+      .catch(() => {});
     // 输入框草稿防抖落盘（composer-drafts.json；subscribe 幂等，随宿主订阅一起只装一次）
     if (!draftsPersistSubscribed) {
       draftsPersistSubscribed = true;

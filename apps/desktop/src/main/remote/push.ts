@@ -60,9 +60,7 @@ export function isValidSubscription(v: unknown): v is RemotePushSubscription {
   const r = v as Record<string, unknown>;
   if (typeof r.endpoint !== "string" || !r.endpoint.startsWith("https://")) return false;
   const keys = r.keys as Record<string, unknown> | undefined;
-  return (
-    !!keys && typeof keys.p256dh === "string" && !!keys.p256dh && typeof keys.auth === "string" && !!keys.auth
-  );
+  return !!keys && typeof keys.p256dh === "string" && !!keys.p256dh && typeof keys.auth === "string" && !!keys.auth;
 }
 
 /** 事件 → 无内容推送文案（不含会话名、任务名、命令等任何业务数据） */
@@ -123,7 +121,8 @@ export class PushService {
 
   /** push.subscribe：按 deviceId 覆盖保存；订阅 JSON 不合法时抛错（响应 ok:false） */
   subscribe(deviceId: string, subscription: unknown): void {
-    if (!isValidSubscription(subscription)) throw new Error("非法的推送订阅（需要 endpoint / keys.p256dh / keys.auth）");
+    if (!isValidSubscription(subscription))
+      throw new Error("非法的推送订阅（需要 endpoint / keys.p256dh / keys.auth）");
     const subs = this.subscriptions();
     subs[deviceId] = { ...subscription, updatedAt: Date.now() };
     this.persist();

@@ -10,8 +10,8 @@ import {
   type AdvancedSearchConfig,
   type AppSettings,
   baseName,
-  cleanSessionTitle,
   type ComposerDraft,
+  cleanSessionTitle,
   type HostCommand,
   type HostEvent,
   IPC,
@@ -38,15 +38,54 @@ import {
 import { SessionRegistry } from "./session-registry.js";
 import { searchSessions } from "./session-search.js";
 import { SettingsStore } from "./settings-store.js";
-import { setupAutoUpdater, downloadUpdate, getUpdateState, ignoreVersion, installUpdate } from "./updater.js";
+import { downloadUpdate, getUpdateState, ignoreVersion, installUpdate, setupAutoUpdater } from "./updater.js";
 import { UsageLedger } from "./usage-ledger.js";
 
 /** pickFiles 的文本文件扩展名白名单（不在名单内的靠二进制唿探判决） */
 const PICK_TEXT_EXTS = new Set([
-  "txt", "md", "markdown", "json", "jsonc", "yaml", "yml", "toml", "xml", "csv",
-  "ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "java", "go", "rs",
-  "c", "h", "cpp", "hpp", "cs", "rb", "php", "swift", "kt", "sh", "bash", "zsh", "ps1",
-  "sql", "html", "css", "scss", "less", "vue", "svelte", "ini", "conf", "log",
+  "txt",
+  "md",
+  "markdown",
+  "json",
+  "jsonc",
+  "yaml",
+  "yml",
+  "toml",
+  "xml",
+  "csv",
+  "ts",
+  "tsx",
+  "js",
+  "jsx",
+  "mjs",
+  "cjs",
+  "py",
+  "java",
+  "go",
+  "rs",
+  "c",
+  "h",
+  "cpp",
+  "hpp",
+  "cs",
+  "rb",
+  "php",
+  "swift",
+  "kt",
+  "sh",
+  "bash",
+  "zsh",
+  "ps1",
+  "sql",
+  "html",
+  "css",
+  "scss",
+  "less",
+  "vue",
+  "svelte",
+  "ini",
+  "conf",
+  "log",
 ]);
 const PICK_IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp"]);
 
@@ -450,7 +489,8 @@ function registerIpc(): void {
 
   // 高级搜索「测试连接」：主进程发真实请求，返回成功条数或失败原因（渲染进程直连会撞 CSP/CORS）
   ipcMain.handle(IPC.searchTest, async (_e, config: AdvancedSearchConfig) => {
-    if (!isAdvancedSearchReady(config)) return { ok: false as const, error: "配置不完整（baseUrl / apiKey / 响应映射）" };
+    if (!isAdvancedSearchReady(config))
+      return { ok: false as const, error: "配置不完整（baseUrl / apiKey / 响应映射）" };
     try {
       const results = await executeSearch(config, "test", 3, 15_000);
       return { ok: true as const, count: results.length };

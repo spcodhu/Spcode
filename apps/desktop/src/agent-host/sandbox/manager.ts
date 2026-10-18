@@ -15,16 +15,13 @@
  */
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import type { SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
+import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import { DEFAULT_SANDBOX_SETTINGS, type SandboxSettings } from "@spcode/shared";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 import { buildSandboxRuntimeConfig } from "./config-builder.js";
 
-export type SandboxState =
-  | { state: "active" }
-  | { state: "disabled" }
-  | { state: "unavailable"; reason: string };
+export type SandboxState = { state: "active" } | { state: "disabled" } | { state: "unavailable"; reason: string };
 
 export interface SandboxViolation {
   line: string;
@@ -161,11 +158,7 @@ class SandboxService {
   async wrap(command: string, cwd: string): Promise<{ command: string; commandId: string }> {
     const state = await this.ensureReady();
     if (state.state !== "active") {
-      throw new Error(
-        state.state === "disabled"
-          ? "沙盒已关闭，不应调用 wrap"
-          : `沙盒不可用：${state.reason}`,
-      );
+      throw new Error(state.state === "disabled" ? "沙盒已关闭，不应调用 wrap" : `沙盒不可用：${state.reason}`);
     }
     const settings = this.settings;
     if (!settings) throw new Error("沙盒设置未下发");

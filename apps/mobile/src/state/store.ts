@@ -10,7 +10,14 @@
  * - 桌面侧 seq 每会话从 0 单调递增，故 raw 最小 seq > 0 即意味着更早的输出已截断。
  */
 
-import type { PermissionRequest, QuestionRequest, RemoteOutputChunk, ScheduleTask, SessionMeta, TodoItem } from "@spcode/shared";
+import type {
+  PermissionRequest,
+  QuestionRequest,
+  RemoteOutputChunk,
+  ScheduleTask,
+  SessionMeta,
+  TodoItem,
+} from "@spcode/shared";
 import { create } from "zustand";
 import type { ConnectionState } from "../lib/client";
 import type { PairingRecord } from "../lib/db";
@@ -190,7 +197,8 @@ export const useAppStore = create<AppState>((set) => ({
       } else {
         next.push({ id: chunkIdCounter++, chunk, kind });
       }
-      if (next.length > MAX_CHUNKS) return { outputs: { ...s.outputs, [sessionId]: next.slice(next.length - MAX_CHUNKS) } };
+      if (next.length > MAX_CHUNKS)
+        return { outputs: { ...s.outputs, [sessionId]: next.slice(next.length - MAX_CHUNKS) } };
       return { outputs: { ...s.outputs, [sessionId]: next } };
     }),
 

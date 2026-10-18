@@ -9,7 +9,16 @@ import type { ChatMessage, SessionState } from "../src/renderer/src/store.js";
 
 function makeSession(overrides: Partial<SessionState> = {}): SessionState {
   return {
-    meta: { id: "s1", mode: "chat", cwd: "", title: "t", model: null, thinkingLevel: "off", createdAt: 0, updatedAt: 0 },
+    meta: {
+      id: "s1",
+      mode: "chat",
+      cwd: "",
+      title: "t",
+      model: null,
+      thinkingLevel: "off",
+      createdAt: 0,
+      updatedAt: 0,
+    },
     messages: [],
     running: true,
     usage: {

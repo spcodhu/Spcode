@@ -5,8 +5,8 @@
  * pi 升级若改变该行为（缓存快照/延迟合并等），这里会红。
  */
 import { SettingsManager } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
 import { DEFAULT_COMPACTION_SETTINGS, sanitizeCompactionSettings } from "@spcode/shared";
+import { describe, expect, it } from "vitest";
 
 describe("pi SettingsManager 压缩设置链路", () => {
   it("inMemory 初始值即生效，applyOverrides 实时改变读取结果", () => {

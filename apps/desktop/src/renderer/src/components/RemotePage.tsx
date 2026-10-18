@@ -5,16 +5,17 @@
  *
  * 仅渲染进程 UI 与 IPC 调用，协议与配对逻辑全部在 main 进程（src/main/remote/）。
  */
-import { useCallback, useEffect, useState } from "react";
-import QRCode from "react-qr-code";
+
 import type {
   PairedDevice,
   RemoteFeishuSettings,
   RemoteFeishuState,
   RemoteRelayState,
-  RemoteStatus,
   RemoteSettings,
+  RemoteStatus,
 } from "@spcode/shared";
+import { useCallback, useEffect, useState } from "react";
+import QRCode from "react-qr-code";
 import { formatRelative, formatTime } from "../format";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
@@ -94,7 +95,9 @@ export function RemotePage() {
   };
 
   /** 更新 remote 子设置（relayUrl / tailscale / pushEnabled / feishu），随后刷新状态 */
-  const patchRemote = async (patch: Partial<Omit<RemoteSettings, "feishu">> & { feishu?: Partial<RemoteFeishuSettings> }) => {
+  const patchRemote = async (
+    patch: Partial<Omit<RemoteSettings, "feishu">> & { feishu?: Partial<RemoteFeishuSettings> },
+  ) => {
     if (busy) return;
     setBusy(true);
     try {
@@ -156,7 +159,12 @@ export function RemotePage() {
             {status?.enabled ? "本机正在监听局域网连接" : "开启后，手机扫码配对即可远程连接本机"}
           </div>
         </div>
-        <Switch on={status?.enabled ?? false} onChange={(v) => void toggle(v)} disabled={!status || busy} label="启用远程控制" />
+        <Switch
+          on={status?.enabled ?? false}
+          onChange={(v) => void toggle(v)}
+          disabled={!status || busy}
+          label="启用远程控制"
+        />
       </div>
 
       {loadFailed && <div className="mt-3 text-[13px] text-danger">远程控制状态读取失败，请重启应用后重试</div>}
@@ -194,7 +202,10 @@ export function RemotePage() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="text-[13px] text-text-secondary">用手机 Spcod App 扫码，或手动输入配对码：</div>
-                  <div className="mono mt-2 text-[28px] font-semibold tracking-[0.3em] text-text-primary" data-testid="remote-otp">
+                  <div
+                    className="mono mt-2 text-[28px] font-semibold tracking-[0.3em] text-text-primary"
+                    data-testid="remote-otp"
+                  >
                     {pairing.otp}
                   </div>
                   <OtpCountdown expiresAt={pairing.expiresAt} now={now} />
@@ -309,7 +320,9 @@ export function RemotePage() {
                 />
               </div>
             ) : (
-              <div className="text-[13px] text-text-tertiary">未检测到 tailscaled（安装并登录 Tailscale 后可启用直连）</div>
+              <div className="text-[13px] text-text-tertiary">
+                未检测到 tailscaled（安装并登录 Tailscale 后可启用直连）
+              </div>
             )}
           </div>
 
@@ -399,25 +412,37 @@ export function RemotePage() {
               </div>
               <div className="text-[12px] leading-5 text-text-tertiary">
                 凭证仅存本机，不会上传到我们的服务器；保存后自动建立长连接。
-                {feishuStatus?.state === "error" && <span className="text-danger"> 连接失败，请检查 App ID / Secret 与事件订阅配置。</span>}
+                {feishuStatus?.state === "error" && (
+                  <span className="text-danger"> 连接失败，请检查 App ID / Secret 与事件订阅配置。</span>
+                )}
               </div>
             </div>
 
             {/* 待绑定验证码：已连接且有待绑定用户时大字展示 */}
             {feishuStatus?.state === "connected" && feishuStatus.pendingBindCode && (
-              <div className="mt-3 rounded-lg border border-border bg-bg-root px-3 py-3 text-center" data-testid="remote-feishu-bind">
-                <div className="mono text-[28px] font-semibold tracking-[0.3em] text-text-primary" data-testid="remote-feishu-bind-code">
+              <div
+                className="mt-3 rounded-lg border border-border bg-bg-root px-3 py-3 text-center"
+                data-testid="remote-feishu-bind"
+              >
+                <div
+                  className="mono text-[28px] font-semibold tracking-[0.3em] text-text-primary"
+                  data-testid="remote-feishu-bind-code"
+                >
                   {feishuStatus.pendingBindCode}
                 </div>
                 <div className="mt-1.5 text-[12px] text-text-tertiary">
-                  在飞书向机器人发送 <span className="mono text-text-secondary">/bind {feishuStatus.pendingBindCode}</span> 完成绑定（5 分钟内有效）
+                  在飞书向机器人发送{" "}
+                  <span className="mono text-text-secondary">/bind {feishuStatus.pendingBindCode}</span> 完成绑定（5
+                  分钟内有效）
                 </div>
               </div>
             )}
 
             {/* 授权用户白名单 */}
             <div className="mt-3 border-t border-border pt-3" data-testid="remote-feishu-allowlist">
-              <div className="text-[12px] font-medium text-text-secondary">授权用户（{feishuStatus?.allowlistCount ?? 0}）</div>
+              <div className="text-[12px] font-medium text-text-secondary">
+                授权用户（{feishuStatus?.allowlistCount ?? 0}）
+              </div>
               {!feishuStatus || feishuStatus.allowlist.length === 0 ? (
                 <div className="mt-1.5 text-[12px] text-text-tertiary">
                   暂无授权用户。连接成功后，在飞书私聊机器人发送任意消息获取验证码，再用 /bind 完成绑定。
@@ -463,10 +488,14 @@ export function RemotePage() {
             <Icon name={feishuGuideOpen ? "chevronDown" : "chevronRight"} size={14} className="text-text-tertiary" />
           </button>
           {feishuGuideOpen && (
-            <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-[12px] leading-5 text-text-tertiary" data-testid="remote-feishu-guide">
+            <ol
+              className="mt-2 list-decimal space-y-1.5 pl-5 text-[12px] leading-5 text-text-tertiary"
+              data-testid="remote-feishu-guide"
+            >
               <li>注册飞书并创建一个免费团队（已有团队可跳过）。</li>
               <li>
-                登录<span className="text-text-secondary">飞书开放平台</span>（open.feishu.cn），创建「企业自建应用」——个人账号即可，无需企业认证。
+                登录<span className="text-text-secondary">飞书开放平台</span>
+                （open.feishu.cn），创建「企业自建应用」——个人账号即可，无需企业认证。
               </li>
               <li>在应用「添加应用能力」中启用「机器人」。</li>
               <li>
@@ -545,10 +574,7 @@ function RelayBadge({ state }: { state: RemoteRelayState }) {
   };
   const s = styles[state];
   return (
-    <span
-      data-testid="remote-relay-badge"
-      className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] ${s.cls}`}
-    >
+    <span data-testid="remote-relay-badge" className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] ${s.cls}`}>
       {s.text}
     </span>
   );
@@ -564,10 +590,7 @@ function FeishuBadge({ state }: { state: RemoteFeishuState }) {
   };
   const s = styles[state];
   return (
-    <span
-      data-testid="remote-feishu-badge"
-      className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] ${s.cls}`}
-    >
+    <span data-testid="remote-feishu-badge" className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] ${s.cls}`}>
       {s.text}
     </span>
   );

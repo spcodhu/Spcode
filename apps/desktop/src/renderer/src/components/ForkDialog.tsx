@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
 import type { ModelRef } from "@spcode/shared";
+import { useEffect, useMemo, useState } from "react";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
 import { Select } from "./ui/Select";
@@ -83,6 +83,7 @@ export function ForkDialog({ sourceId, onClose }: { sourceId: string; onClose: (
   };
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: 遮罩点外关闭，Esc 另有键盘关闭（评审 R3：待统一 Modal 组件化时收敛）
     <div
       className="fixed inset-0 z-40 flex items-start justify-center bg-black/55 pt-[16vh] backdrop-blur-[2px]"
       onMouseDown={(e) => {
@@ -113,7 +114,8 @@ export function ForkDialog({ sourceId, onClose }: { sourceId: string; onClose: (
             />
           </label>
 
-          {/* 模型 */}
+          {/* 模型（biome-ignore：Select 是自定义按钮式下拉，label 仅作视觉标题） */}
+          {/* biome-ignore lint/a11y/noLabelWithoutControl: Select 为自定义组件，label 不关联原生控件 */}
           <label className="block">
             <span className="mb-1.5 block text-[12px] text-text-tertiary">模型</span>
             <Select
@@ -136,6 +138,7 @@ export function ForkDialog({ sourceId, onClose }: { sourceId: string; onClose: (
 
           {/* 思考档位 */}
           {thinkingLevels.length > 0 && (
+            // biome-ignore lint/a11y/noLabelWithoutControl: Select 为自定义组件，label 不关联原生控件
             <label className="block">
               <span className="mb-1.5 block text-[12px] text-text-tertiary">思考档位</span>
               <Select

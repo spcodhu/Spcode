@@ -101,7 +101,9 @@ export function buildHeatGrid(totals: Map<string, number>, weeks = HEAT_WEEKS): 
   active.sort((a, b) => a - b);
   // 按排名分 4 档：重复值同取最大下标，保证最高档可达；单点历史直接给满档
   const idxOf = new Map<number, number>();
-  active.forEach((v, i) => idxOf.set(v, i));
+  active.forEach((v, i) => {
+    idxOf.set(v, i);
+  });
   const levelOf = (t: number): number => {
     if (t <= 0) return 0;
     if (active.length === 1) return 4;

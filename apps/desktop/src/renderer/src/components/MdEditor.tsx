@@ -266,7 +266,9 @@ export const MdEditor = forwardRef<
     }
   };
 
-  /** store → DOM：仅外部变更时重设（打字期间 serialize(DOM) 必然等于 text） */  useEffect(() => {
+  /** store → DOM：仅外部变更时重设（打字期间 serialize(DOM) 必然等于 text） */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: draftKey 仅作会话切换信号驱动重设，effect 体内不直接引用
+  useEffect(() => {
     const root = rootRef.current;
     if (!root) return;
     if (serializeEditor(root) === text) return;
@@ -274,12 +276,12 @@ export const MdEditor = forwardRef<
   }, [text, draftKey]);
 
   // 挂载时灌入草稿（首帧 effect 已覆盖；这里处理 StrictMode 重挂载：DOM 重建后 effect 不一定再跑）
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 仅挂载时执行，取挂载时刻的 text 即可
   useEffect(() => {
     const root = rootRef.current;
     if (root && text && !root.innerHTML) {
       root.innerHTML = draftToEditorHtml(text, attachmentsRef.current);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅挂载时
   }, []);
 
   /** 在光标处内嵌图片（无选区时追加到末尾），并把附件并入附件列表 */
@@ -361,6 +363,7 @@ export const MdEditor = forwardRef<
   };
 
   return (
+    // biome-ignore lint/a11y/useSemanticElements: contentEditable 富文本编辑器无语义等价元素，已标 role="textbox" + aria-multiline
     <div
       ref={rootRef}
       data-testid="md-editor"

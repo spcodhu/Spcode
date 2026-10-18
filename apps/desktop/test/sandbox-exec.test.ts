@@ -9,12 +9,12 @@
  * 注意：测试会临时用真实 SandboxManager 初始化网络代理（进程内），结束后 reset。
  */
 import { execFile } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { DEFAULT_SANDBOX_SETTINGS, type SandboxSettings } from "@spcode/shared";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildSandboxRuntimeConfig, isPathInside } from "../src/agent-host/sandbox/config-builder.js";
 
 const execFileP = promisify(execFile);

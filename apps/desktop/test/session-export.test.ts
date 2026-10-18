@@ -3,11 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  buildHandoffPrompt,
-  exportSessionContext,
-  renderTranscript,
-} from "../src/agent-host/export-context.js";
+import { buildHandoffPrompt, exportSessionContext, renderTranscript } from "../src/agent-host/export-context.js";
 import { teardownHostEvents, useStore } from "../src/renderer/src/store.js";
 
 /**
@@ -230,8 +226,8 @@ describe("exportSessionContext（渲染层）", () => {
         updateGetState: vi.fn(async () => ({ status: "idle" })),
         getSettings: vi.fn(async () => ({})),
         listSessions: vi.fn(async () => []),
-      getComposerDrafts: vi.fn(async () => ({})),
-      setComposerDrafts: vi.fn(async () => {}),
+        getComposerDrafts: vi.fn(async () => ({})),
+        setComposerDrafts: vi.fn(async () => {}),
         command,
       },
     });

@@ -62,7 +62,7 @@ export function findMicrocompactTargets(
   let boundary = -1;
   for (let i = projectedEntries.length - 1; i >= 0; i--) {
     const entry = projectedEntries[i];
-    if (entry && entry.messages.some((m) => m.role === "assistant")) {
+    if (entry?.messages.some((m) => m.role === "assistant")) {
       seen++;
       if (seen >= KEEP_RECENT_TURNS) {
         boundary = i;

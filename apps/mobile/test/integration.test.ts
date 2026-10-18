@@ -15,9 +15,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { RemoteServer } from "../../desktop/src/main/remote/index.js";
 import { PairingManager } from "../../desktop/src/main/remote/pairing.js";
 import { LanTransport } from "../../desktop/src/main/remote/transport/lan.js";
-import { createRelayServer } from "../../relay/src/index.js";
 import type { RegistryLike } from "../../desktop/src/main/session-helpers.js";
 import type { SessionRegistryEntry } from "../../desktop/src/main/session-registry.js";
+import { createRelayServer } from "../../relay/src/index.js";
 import { type ConnectionState, PairError, pairWithQr, RemoteClient } from "../src/lib/client";
 import type { PairingRecord } from "../src/lib/db";
 

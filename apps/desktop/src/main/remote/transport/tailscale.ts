@@ -16,11 +16,12 @@
  * - MagicDNS 名取自 `tailscale status --json` 的 Self.DNSName（带尾部点，需去除）。
  */
 
+import type { RemoteTailscaleStatus } from "@spcode/shared";
 // 注意：本项目 tsconfig（types: ["vite/client"] + bundler 解析）下 "node:child_process"
 // 会绑定到一个缺 EventEmitter 方法的 ChildProcess 声明（on/close 事件不可类型化），
 // 裸 "child_process" 解析正常——故此处刻意不用 node: 前缀（2026-10-06 实测）。
-import { spawn, type ChildProcess } from "child_process";
-import type { RemoteTailscaleStatus } from "@spcode/shared";
+// biome-ignore lint/style/useNodejsImportProtocol: 见上方注释，node: 前缀在本项目 tsconfig 下类型化错误
+import { type ChildProcess, spawn } from "child_process";
 
 const DETECT_TIMEOUT_MS = 3000;
 const CMD_TIMEOUT_MS = 10_000;

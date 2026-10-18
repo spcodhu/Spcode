@@ -12,6 +12,7 @@ import { RemoteServer, type RemoteServerDeps } from "../src/main/remote/index.js
 import { PairingManager } from "../src/main/remote/pairing.js";
 import type { TailscaleManager } from "../src/main/remote/transport/tailscale.js";
 import {
+  type ChannelHarness,
   cardText,
   FakeFeishuApi,
   flush,
@@ -19,7 +20,6 @@ import {
   makeEntry,
   makeScheduler,
   startAndBind,
-  type ChannelHarness,
 } from "./helpers/feishu-harness.js";
 
 const cleanup: string[] = [];

@@ -243,14 +243,7 @@ function TrendChart({ dates, series }: { dates: string[]; series: Series[] }) {
         {/* X 轴日期标签 */}
         {dates.map((d, i) =>
           i % labelStep === 0 || i === dates.length - 1 ? (
-            <text
-              key={d}
-              x={xAt(i)}
-              y={H - 8}
-              textAnchor="middle"
-              fontSize={10}
-              fill="var(--color-text-tertiary)"
-            >
+            <text key={d} x={xAt(i)} y={H - 8} textAnchor="middle" fontSize={10} fill="var(--color-text-tertiary)">
               {d.slice(5)}
             </text>
           ) : null,
@@ -276,9 +269,7 @@ function TrendChart({ dates, series }: { dates: string[]; series: Series[] }) {
             const x1 = Math.max(padL, xAt(i) - step / 2);
             const x2 = Math.min(padL + plotW, xAt(i) + step / 2);
             const total = series.reduce((n, s) => n + (s.values[i] ?? 0), 0);
-            const parts = series
-              .map((s) => `${s.label} ${formatZh(s.values[i] ?? 0)}`)
-              .join("、");
+            const parts = series.map((s) => `${s.label} ${formatZh(s.values[i] ?? 0)}`).join("、");
             return (
               <rect key={d} x={x1} y={padT} width={Math.max(0, x2 - x1)} height={plotH} fill="transparent">
                 <title>{`${d} · ${formatZh(total)} tokens（${parts}）`}</title>
@@ -341,6 +332,7 @@ function Heatmap({ totals }: { totals: Map<string, number> }) {
       >
         <div />
         {WEEKDAY_LABELS.map((label, r) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: 星期标签是固定 7 项静态数组，顺序永不变
           <div key={r} className="flex items-center justify-end pr-1.5 text-[10px] leading-none text-text-tertiary">
             {label}
           </div>

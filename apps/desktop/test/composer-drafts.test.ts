@@ -14,12 +14,29 @@ vi.stubGlobal("window", {
 
 function makeSession(overrides: Partial<SessionState> = {}): SessionState {
   return {
-    meta: { id: "s1", mode: "chat", cwd: "", title: "t", model: null, thinkingLevel: "off", createdAt: 0, updatedAt: 0 },
+    meta: {
+      id: "s1",
+      mode: "chat",
+      cwd: "",
+      title: "t",
+      model: null,
+      thinkingLevel: "off",
+      createdAt: 0,
+      updatedAt: 0,
+    },
     messages: [],
     running: false,
     usage: {
-      input: 0, output: 0, cacheRead: 0, cacheWrite: 0,
-      costInput: 0, costOutput: 0, costCacheRead: 0, costCacheWrite: 0, costTotal: 0, count: 0,
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      costInput: 0,
+      costOutput: 0,
+      costCacheRead: 0,
+      costCacheWrite: 0,
+      costTotal: 0,
+      count: 0,
     },
     lastUsage: null,
     supportedThinkingLevels: [],
@@ -30,7 +47,13 @@ function makeSession(overrides: Partial<SessionState> = {}): SessionState {
 }
 
 beforeEach(() => {
-  useStore.setState({ composerDrafts: {}, sessions: {}, sessionOrder: [], activeSessionId: null, registrySessions: [] });
+  useStore.setState({
+    composerDrafts: {},
+    sessions: {},
+    sessionOrder: [],
+    activeSessionId: null,
+    registrySessions: [],
+  });
 });
 
 describe("composerDraftKeyOf（稳定 key）", () => {

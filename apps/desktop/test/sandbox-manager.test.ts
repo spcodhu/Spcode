@@ -12,8 +12,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { DEFAULT_SANDBOX_SETTINGS } from "@spcode/shared";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { getSandboxService, resetSandboxServiceForTest } from "../src/agent-host/sandbox/manager.js";
 
 const execFileP = promisify(execFile);
@@ -58,21 +58,26 @@ describe.skipIf(!isMac)("SandboxService（macOS 真跑）", () => {
     expect(state.state).toBe("active");
   }, 30_000);
 
-  it("未知域名触发审批回调，放行后可通；二次访问不再询问", async () => {
-    const svc = getSandboxService();
-    expect((await svc.ensureReady()).state).toBe("active");
+  // 真网用例：默认跳过（离线/CI 不抖），SPCODE_TEST_NETWORK=1 时显式开启
+  it.skipIf(!process.env.SPCODE_TEST_NETWORK)(
+    "未知域名触发审批回调，放行后可通；二次访问不再询问",
+    async () => {
+      const svc = getSandboxService();
+      expect((await svc.ensureReady()).state).toBe("active");
 
-    const first = await svc.wrap("curl -sS -m 15 -o /dev/null -w '%{http_code}' https://example.com", workDir);
-    const out1 = await run(first.command);
-    expect(askCalls).toContain("example.com");
-    expect(out1.trim()).toMatch(/^[234]\d\d/);
-    expect(svc.approvedHostsSnapshot()).toContain("example.com");
+      const first = await svc.wrap("curl -sS -m 15 -o /dev/null -w '%{http_code}' https://example.com", workDir);
+      const out1 = await run(first.command);
+      expect(askCalls).toContain("example.com");
+      expect(out1.trim()).toMatch(/^[234]\d\d/);
+      expect(svc.approvedHostsSnapshot()).toContain("example.com");
 
-    const before = askCalls.length;
-    const second = await svc.wrap("curl -sS -m 15 -o /dev/null -w '%{http_code}' https://example.com", workDir);
-    await run(second.command);
-    expect(askCalls.length).toBe(before); // 会话放行集命中，不再问
-  }, 60_000);
+      const before = askCalls.length;
+      const second = await svc.wrap("curl -sS -m 15 -o /dev/null -w '%{http_code}' https://example.com", workDir);
+      await run(second.command);
+      expect(askCalls.length).toBe(before); // 会话放行集命中，不再问
+    },
+    60_000,
+  );
 
   it("回调拒绝的域名不通", async () => {
     const svc = getSandboxService();

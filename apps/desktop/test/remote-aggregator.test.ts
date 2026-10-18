@@ -11,7 +11,11 @@ const WINDOW_MS = 40;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function textDelta(delta: string): HostEvent {
-  return { type: "session.event", sessionId: "s1", event: { type: "message_update", assistantMessageEvent: { type: "text_delta", delta } } };
+  return {
+    type: "session.event",
+    sessionId: "s1",
+    event: { type: "message_update", assistantMessageEvent: { type: "text_delta", delta } },
+  };
 }
 
 function setup(windowMs = WINDOW_MS) {
@@ -46,7 +50,11 @@ describe("RemoteEventAggregator", () => {
     const s = setup();
     agg = s.agg;
     s.agg.handle(textDelta("a"));
-    s.agg.handle({ type: "session.event", sessionId: "s2", event: { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "b" } } });
+    s.agg.handle({
+      type: "session.event",
+      sessionId: "s2",
+      event: { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "b" } },
+    });
     await sleep(WINDOW_MS * 2);
     const outputs = s.events.filter((e) => e.type === "session.output");
     expect(outputs).toHaveLength(2);
@@ -58,7 +66,11 @@ describe("RemoteEventAggregator", () => {
     const s = setup();
     agg = s.agg;
     s.agg.handle(textDelta("正文"));
-    s.agg.handle({ type: "session.event", sessionId: "s1", event: { type: "message_update", assistantMessageEvent: { type: "thinking_delta", delta: "思考" } } });
+    s.agg.handle({
+      type: "session.event",
+      sessionId: "s1",
+      event: { type: "message_update", assistantMessageEvent: { type: "thinking_delta", delta: "思考" } },
+    });
     // thinking 到达应立即冲刷 text
     expect(s.events).toEqual([{ type: "session.output", sessionId: "s1", chunk: "正文", kind: "text", seq: 0 }]);
     await sleep(WINDOW_MS * 2);
@@ -92,7 +104,13 @@ describe("RemoteEventAggregator", () => {
   it("permission.request 原样透传（含 risk）并附带 waiting_permission 状态", () => {
     const s = setup();
     agg = s.agg;
-    const request = { requestId: "r1", sessionId: "s1", toolName: "Bash", args: { cmd: "rm -rf /" }, risk: "danger" as const };
+    const request = {
+      requestId: "r1",
+      sessionId: "s1",
+      toolName: "Bash",
+      args: { cmd: "rm -rf /" },
+      risk: "danger" as const,
+    };
     s.agg.handle({ type: "permission.request", request });
     expect(s.events).toEqual([
       { type: "permission.request", request },

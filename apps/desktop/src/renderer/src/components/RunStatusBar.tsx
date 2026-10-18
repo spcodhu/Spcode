@@ -48,7 +48,10 @@ export function RunStatusBar({ sessionId, onJumpToBottom }: { sessionId: string;
           title="点击跳到最新消息"
           className="flex h-7 w-full items-center gap-2 rounded-lg px-2 text-left transition-colors hover:bg-bg-hover/50"
         >
-          <span aria-hidden className={`h-[7px] w-[7px] shrink-0 animate-pulse rounded-full ${DOT_CLASS[status.kind]}`} />
+          <span
+            aria-hidden
+            className={`h-[7px] w-[7px] shrink-0 animate-pulse rounded-full ${DOT_CLASS[status.kind]}`}
+          />
           <span className={`shrink-0 text-[12px] ${shimmer ? "thinking-shimmer" : "text-text-secondary"}`}>
             {status.label}
           </span>

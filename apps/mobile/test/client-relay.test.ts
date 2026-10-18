@@ -8,7 +8,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { RemoteClient, type ConnectionState } from "../src/lib/client";
+import { type ConnectionState, RemoteClient } from "../src/lib/client";
 import { generateKeyPair, sealPayload } from "../src/lib/crypto";
 import type { PairingRecord } from "../src/lib/db";
 import type { RemoteEventExt } from "../src/lib/protocol";
@@ -110,10 +110,14 @@ describe("RemoteClient：relay 通道", () => {
   });
 
   async function startToReady(): Promise<FakeWs> {
-    client = new RemoteClient(relayRecord(), { onEvent: (e) => events.push(e), onState: (s) => states.push(s) }, {
-      backoffMinMs: 20,
-      backoffMaxMs: 40,
-    });
+    client = new RemoteClient(
+      relayRecord(),
+      { onEvent: (e) => events.push(e), onState: (s) => states.push(s) },
+      {
+        backoffMinMs: 20,
+        backoffMaxMs: 40,
+      },
+    );
     client.start();
     await tick();
     const ws = FakeWs.instances.at(-1)!;
@@ -201,7 +205,13 @@ describe("RemoteClient：relay 通道", () => {
     const ws1 = await startToReady();
     await ackAuth(ws1);
     // 第一条连接上桌面出站推进到 seq 5
-    ws1.message({ id: "x", seq: 5, t: "encrypted", deviceId: "dev-1", c: fromDesktop({ kind: "event", event: { type: "sessions.changed" } }) });
+    ws1.message({
+      id: "x",
+      seq: 5,
+      t: "encrypted",
+      deviceId: "dev-1",
+      c: fromDesktop({ kind: "event", event: { type: "sessions.changed" } }),
+    });
     await tick();
     expect(events).toHaveLength(1);
     void client.command({ type: "session.list" }).catch(() => {});
@@ -224,7 +234,13 @@ describe("RemoteClient：relay 通道", () => {
     expect(JSON.parse(ws2.sent[1]!).seq).toBe(0);
 
     // 入站 SeqGuard 已重置：桌面出站 seq 不归零（继续 6）也能正常接收
-    ws2.message({ id: "y", seq: 6, t: "encrypted", deviceId: "dev-1", c: fromDesktop({ kind: "event", event: { type: "sessions.changed" } }) });
+    ws2.message({
+      id: "y",
+      seq: 6,
+      t: "encrypted",
+      deviceId: "dev-1",
+      c: fromDesktop({ kind: "event", event: { type: "sessions.changed" } }),
+    });
     await tick();
     expect(events).toHaveLength(2);
     expect(ws2.closed).toBe(false);

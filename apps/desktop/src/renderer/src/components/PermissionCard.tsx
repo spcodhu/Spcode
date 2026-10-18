@@ -58,12 +58,18 @@ export function PermissionCard() {
           <div className="mt-0.5 text-xs text-text-tertiary">
             工具：<code className="mono text-text-secondary">{request.toolName}</code>
             {request.sandboxed ? (
-              <span data-testid="permission-sandboxed-badge" className="ml-2 rounded bg-accent/15 px-1.5 py-0.5 text-accent">
+              <span
+                data-testid="permission-sandboxed-badge"
+                className="ml-2 rounded bg-accent/15 px-1.5 py-0.5 text-accent"
+              >
                 沙盒内
               </span>
             ) : null}
             {bypass ? (
-              <span data-testid="permission-bypass-badge" className="ml-2 rounded bg-danger/15 px-1.5 py-0.5 text-danger">
+              <span
+                data-testid="permission-bypass-badge"
+                className="ml-2 rounded bg-danger/15 px-1.5 py-0.5 text-danger"
+              >
                 沙盒外
               </span>
             ) : null}

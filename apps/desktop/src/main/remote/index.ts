@@ -25,8 +25,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
   HostEvent,
-  PairedDevice,
   PairAckInner,
+  PairedDevice,
   RemoteClientHello,
   RemoteCommand,
   RemoteEncryptedFrame,
@@ -37,7 +37,7 @@ import type {
   RemoteStatus,
 } from "@spcode/shared";
 import { RemoteEventAggregator } from "./aggregator.js";
-import { FeishuChannel, type FeishuApi } from "./channel/feishu.js";
+import { type FeishuApi, FeishuChannel } from "./channel/feishu.js";
 import { boxDecrypt, boxEncrypt, isValidPublicKey, SeqCounter, SeqGuard } from "./crypto.js";
 import { handleRemoteCommand, type RemoteHandlerDeps } from "./handlers.js";
 import { SessionOutputLog } from "./output-log.js";
@@ -373,12 +373,12 @@ export class RemoteServer {
     // relay 场景：设备重连后会在原逻辑连接上重新 auth（= 新设备连接，入站 seq 归零），
     // 握手帧任何时候都走 hello 分支；hello 内做同公钥校验，身份切换直接断开
     const maybeHello = frame as { t?: string } | null;
-    if (maybeHello && (maybeHello.t === "pair" || maybeHello.t === "auth")) {
+    if (maybeHello?.t === "pair" || maybeHello?.t === "auth") {
       this.handleHello(state, frame);
       return;
     }
     const f = frame as RemoteEncryptedFrame | null;
-    if (!f || f.t !== "encrypted" || typeof f.id !== "string" || typeof f.c !== "string") {
+    if (f?.t !== "encrypted" || typeof f.id !== "string" || typeof f.c !== "string") {
       state.peer.close();
       return;
     }
@@ -471,7 +471,12 @@ export class RemoteServer {
         this.push.subscribe(state.device!.id, command.subscription);
         response = { kind: "response", id: frameId, ok: true, data: { ok: true } };
       } catch (err) {
-        response = { kind: "response", id: frameId, ok: false, error: err instanceof Error ? err.message : String(err) };
+        response = {
+          kind: "response",
+          id: frameId,
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
       }
       this.sendEncrypted(state, response);
       return;

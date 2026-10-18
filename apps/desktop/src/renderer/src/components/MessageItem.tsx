@@ -129,7 +129,9 @@ function NoticeItemImpl({ message }: { message: ChatMessage }) {
       </button>
       {open && summary && (
         <div className="mt-3 rounded-xl border border-border bg-bg-elevated px-4 py-3 text-[13px] leading-relaxed text-text-secondary">
-          <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-text-tertiary">压缩摘要（模型上下文中看到的版本）</div>
+          <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-text-tertiary">
+            压缩摘要（模型上下文中看到的版本）
+          </div>
           <Markdown text={summary} />
         </div>
       )}
@@ -351,6 +353,7 @@ function ThinkingRow({
   }, [streaming]);
 
   // 流式期间思考文本增长时自动滚到底（仅在用户未上翻时）
+  // biome-ignore lint/correctness/useExhaustiveDependencies: text 仅作内容增长信号驱动滚动，effect 体内只用 ref
   useEffect(() => {
     const el = bodyRef.current;
     if (streaming && el && stickRef.current) el.scrollTop = el.scrollHeight;

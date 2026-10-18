@@ -10,8 +10,8 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
 import { DEFAULT_SANDBOX_SETTINGS, type SandboxSettings } from "@spcode/shared";
+import { describe, expect, it } from "vitest";
 import { createSandboxedBashTool, matchesExcludedCommand } from "../src/agent-host/sandbox/bash-tool.js";
 import { resetSandboxServiceForTest } from "../src/agent-host/sandbox/manager.js";
 

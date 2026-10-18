@@ -27,8 +27,6 @@ export function prefillComposer(text: string): void {
 // - 任意文件以 chip 挂载，发送时内容拼接进消息文本（引擎仅支持文本+图片）
 // ---------------------------------------------------------------------------
 
-type InputMode = ComposerDraft["inputMode"];
-
 /** 空附件常量（草稿缺省值复用同一引用，避免每次渲染新数组） */
 const EMPTY_ATTACHMENTS: ImageAttachment[] = [];
 const EMPTY_FILES: DraftFile[] = [];
@@ -69,6 +67,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
   };
 
   // 监听外部预填请求：填入文本、聚焦并把光标移到末尾
+  // biome-ignore lint/correctness/useExhaustiveDependencies: updateDraft 随 draftKey 重建，只需在 key 变化时重绑
   useEffect(() => {
     const onPrefill = (e: Event) => {
       const text = (e as CustomEvent<{ text: string }>).detail?.text ?? "";
@@ -86,7 +85,6 @@ export function Composer({ sessionId }: { sessionId: string }) {
     };
     window.addEventListener(COMPOSER_PREFILL_EVENT, onPrefill);
     return () => window.removeEventListener(COMPOSER_PREFILL_EVENT, onPrefill);
-    // biome-ignore lint/correctness/useExhaustiveDependencies: updateDraft 随 draftKey 重建，只需在 key 变化时重绑
   }, [draftKey]);
 
   /* 高度自适应交给 CSS field-sizing: content（见 styles.css .composer-textarea）：
@@ -152,9 +150,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
       .filter((f): f is File => !!f && f.size <= 10 * 1024 * 1024);
     if (imgFiles.length === 0) return;
     e.preventDefault();
-    void Promise.all(imgFiles.map((f, i) => fileToAttachment(f, i))).then((imgs) =>
-      appendToDraft("attachments", imgs),
-    );
+    void Promise.all(imgFiles.map((f, i) => fileToAttachment(f, i))).then((imgs) => appendToDraft("attachments", imgs));
   };
 
   const actMode = settings?.permissionMode === "act";
@@ -298,6 +294,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
             <div className="flex flex-wrap gap-1.5 px-3.5 pb-2">
               {files.map((f, i) => (
                 <span
+                  // biome-ignore lint/suspicious/noArrayIndexKey: 附件 chips 只增删不重排，index 参与 key 无副作用
                   key={`${f.name}-${i}`}
                   title={`${f.name} · 发送时内容随消息发出`}
                   className="flex items-center gap-1.5 rounded-lg border border-border bg-bg-main px-2 py-1 text-[12px] text-text-secondary"

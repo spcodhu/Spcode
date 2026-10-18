@@ -9,3 +9,6 @@ coverage/
 *.tsbuildinfo
 test-results/
 .finch/
+.qoder/
+spcode-icon*.png
+ci-job.log

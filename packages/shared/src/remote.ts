@@ -13,7 +13,6 @@ import type {
   ModelRef,
   PermissionRequest,
   QuestionRequest,
-  ScheduleTask,
   ScheduleTaskInput,
   SessionMeta,
   SessionMode,

@@ -15,7 +15,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { RemoteServer } from "../src/main/remote/index.js";
 import { PairingManager } from "../src/main/remote/pairing.js";
 import { PushService } from "../src/main/remote/push.js";
-import { parseTailscaleStatus, TailscaleManager, type TailscaleRunResult } from "../src/main/remote/transport/tailscale.js";
+import {
+  parseTailscaleStatus,
+  TailscaleManager,
+  type TailscaleRunResult,
+} from "../src/main/remote/transport/tailscale.js";
 import type { RemoteTransport } from "../src/main/remote/transport/types.js";
 import type { RegistryLike } from "../src/main/session-helpers.js";
 import type { SessionRegistryEntry } from "../src/main/session-registry.js";

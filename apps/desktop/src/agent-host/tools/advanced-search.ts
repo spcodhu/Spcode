@@ -29,7 +29,8 @@ export function createAdvancedSearchTool(getConfig: () => AdvancedSearchConfig |
     label: "Advanced Search",
     description:
       "Run a high-quality web search via the configured search API (multi-source, higher precision than WebSearch). Prefer this tool over WebSearch when the query needs cross-source verification, high accuracy, or fresh/time-sensitive information; use WebSearch for casual lookups. Returns titles, URLs and snippets; call WebFetch on the best hit to read the full article.",
-    promptSnippet: "High-precision multi-source search API; prefer over WebSearch for cross-source or time-sensitive queries",
+    promptSnippet:
+      "High-precision multi-source search API; prefer over WebSearch for cross-source or time-sensitive queries",
     parameters: schema,
     execute: async (_id, args: Params, signal) => {
       const query = (args.query ?? "").trim();

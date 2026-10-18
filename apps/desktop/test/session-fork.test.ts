@@ -2,8 +2,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostCommand } from "@spcode/shared";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   backfillSessionFile,
   buildForkRegistryEntry,

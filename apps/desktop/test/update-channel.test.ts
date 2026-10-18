@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import { normalizeReleaseNotes, resolveAllowPrerelease } from "@spcode/shared";
+import { describe, expect, it } from "vitest";
 
 /**
  * 更新通道裁决（设置页「接收测试版更新」开关的语义）：

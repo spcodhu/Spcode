@@ -38,7 +38,7 @@ export function deriveRunStatus(
   }
   const last = session.messages[session.messages.length - 1];
   // 回合间隙（上一条消息已定格，下一回合未开始）或无消息：兜底「正在工作…」
-  if (!last || last.role !== "assistant" || !last.streaming) return { kind: "working", label: "正在工作…" };
+  if (last?.role !== "assistant" || !last?.streaming) return { kind: "working", label: "正在工作…" };
   const seg = last.segments[last.segments.length - 1];
   if (!seg) return { kind: "working", label: "正在工作…" };
   if (seg.kind === "thinking" && !seg.done) return { kind: "thinking", label: "思考中…" };

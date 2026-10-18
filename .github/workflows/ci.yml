@@ -1,8 +1,11 @@
-# CI：lint + typecheck + 单测 + e2e 冒烟，仅手动触发
-# （Actions 页面选 CI workflow → Run workflow），push/PR 不自动跑。
+# CI：lint + typecheck + 单测，push/PR 自动跑（评审 R3-C0：质量门禁必须在提交路径上）；
+# e2e 只在手动触发时跑（需要先出构建产物，耗时久——Actions 页面选 CI workflow → Run workflow）。
 name: CI
 
 on:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 jobs:
@@ -27,6 +30,8 @@ jobs:
       - run: pnpm test
 
       # e2e 需要先出构建产物；macOS runner 自带窗口环境，可直接跑 Electron
-      - run: pnpm --filter @spcode/desktop build
+      - if: github.event_name == 'workflow_dispatch'
+        run: pnpm --filter @spcode/desktop build
 
-      - run: pnpm --filter @spcode/desktop test:e2e
+      - if: github.event_name == 'workflow_dispatch'
+        run: pnpm --filter @spcode/desktop test:e2e

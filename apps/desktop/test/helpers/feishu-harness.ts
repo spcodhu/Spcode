@@ -13,9 +13,9 @@ import {
   type ScheduleTaskInput,
 } from "@spcode/shared";
 import {
-  FeishuChannel,
   type FeishuApi,
   type FeishuCardAction,
+  FeishuChannel,
   type FeishuChannelDeps,
   type FeishuInboundMessage,
 } from "../../src/main/remote/channel/feishu.js";
@@ -70,7 +70,9 @@ export async function flush(): Promise<void> {
   for (let i = 0; i < 30; i++) await Promise.resolve();
 }
 
-export function makeRegistry(entries: SessionRegistryEntry[] = []): RegistryLike & { entries: Map<string, SessionRegistryEntry> } {
+export function makeRegistry(
+  entries: SessionRegistryEntry[] = [],
+): RegistryLike & { entries: Map<string, SessionRegistryEntry> } {
   const map = new Map(entries.map((e) => [e.id, e]));
   return {
     entries: map,

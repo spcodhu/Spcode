@@ -2,10 +2,16 @@
  * RemoteCommand 分发单测：用 mock bridge/scheduler/registry 验证调用契约，
  * 重点是 session.create 链路顺序（upsert → create → backfill → 标题兜底 → prompt）。
  */
-import { mkdtempSync, rmSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_SETTINGS, type HostCommand, type HostEvent, type ScheduleTask, type ScheduleTaskInput } from "@spcode/shared";
+import {
+  DEFAULT_SETTINGS,
+  type HostCommand,
+  type HostEvent,
+  type ScheduleTask,
+  type ScheduleTaskInput,
+} from "@spcode/shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { handleRemoteCommand, type RemoteHandlerDeps } from "../src/main/remote/handlers.js";
 import type { RegistryLike } from "../src/main/session-helpers.js";
@@ -173,7 +179,7 @@ describe("session.prompt / abort / subscribe", () => {
 });
 
 describe("permission / question 回复", () => {
-  it("permission.reply → bridge.replyPermission（by=\"remote\"，双端撤卡来源标记）", async () => {
+  it('permission.reply → bridge.replyPermission（by="remote"，双端撤卡来源标记）', async () => {
     const { deps, permissionReplies } = makeDeps();
     await handleRemoteCommand({ type: "permission.reply", requestId: "r1", approved: true }, deps);
     expect(permissionReplies).toEqual([{ requestId: "r1", approved: true, by: "remote" }]);
@@ -202,7 +208,10 @@ describe("schedule.* 分发", () => {
     expect(created.task.id).toBe("t2");
     const listed = (await handleRemoteCommand({ type: "schedule.list" }, deps)) as { tasks: ScheduleTask[] };
     expect(listed.tasks).toEqual([task]);
-    const updated = (await handleRemoteCommand({ type: "schedule.update", id: "t1", patch: { enabled: false } }, deps)) as {
+    const updated = (await handleRemoteCommand(
+      { type: "schedule.update", id: "t1", patch: { enabled: false } },
+      deps,
+    )) as {
       task: ScheduleTask;
     };
     expect(updated.task.enabled).toBe(false);
@@ -254,7 +263,9 @@ describe("session.rename", () => {
       "会话不存在",
     );
     seedEntry(registry, "s1");
-    await expect(handleRemoteCommand({ type: "session.rename", sessionId: "s1", title: "   " }, deps)).rejects.toThrow();
+    await expect(
+      handleRemoteCommand({ type: "session.rename", sessionId: "s1", title: "   " }, deps),
+    ).rejects.toThrow();
     expect(localEvents).toEqual([]);
   });
 });

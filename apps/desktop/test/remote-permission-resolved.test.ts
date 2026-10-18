@@ -12,7 +12,13 @@ import { join } from "node:path";
 import { DEFAULT_SETTINGS, type HostCommand, type HostEvent, type ScheduleTask } from "@spcode/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
-import { boxDecrypt, boxEncrypt, deriveOtpKey, generateBoxKeyPair, secretboxEncrypt } from "../src/main/remote/crypto.js";
+import {
+  boxDecrypt,
+  boxEncrypt,
+  deriveOtpKey,
+  generateBoxKeyPair,
+  secretboxEncrypt,
+} from "../src/main/remote/crypto.js";
 import { RemoteServer } from "../src/main/remote/index.js";
 import { PairingManager } from "../src/main/remote/pairing.js";
 import { PushService } from "../src/main/remote/push.js";
@@ -162,7 +168,7 @@ class PairedPhone {
 }
 
 describe("permission.resolved 双端撤卡链路", () => {
-  it("远程端 permission.reply → bridge 收到 by=\"remote\" → 设备收到 permission.resolved 事件", async () => {
+  it('远程端 permission.reply → bridge 收到 by="remote" → 设备收到 permission.resolved 事件', async () => {
     const desktopPk = new PairingManager({ baseDir: dir }).getIdentity().publicKey;
     const phone = new PairedPhone(desktopPk);
     await phone.connectAndPair();
@@ -190,7 +196,7 @@ describe("permission.resolved 双端撤卡链路", () => {
     }
   });
 
-  it("桌面本地裁决（by=\"local\"）同样转发给远程端", async () => {
+  it('桌面本地裁决（by="local"）同样转发给远程端', async () => {
     const desktopPk = new PairingManager({ baseDir: dir }).getIdentity().publicKey;
     const phone = new PairedPhone(desktopPk);
     await phone.connectAndPair();

@@ -4,8 +4,8 @@
  */
 
 import { useState } from "react";
-import { disablePushNotifications, enablePushNotifications } from "../state/controller";
 import { isPushEnabledLocally, isPushSupported } from "../lib/push";
+import { disablePushNotifications, enablePushNotifications } from "../state/controller";
 import { useAppStore } from "../state/store";
 
 export function SettingsSheet({ onClose }: { onClose: () => void }) {
@@ -37,7 +37,9 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
   };
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: 遮罩点击关闭（移动端底部弹层惯例手势）
     <div className="absolute inset-0 z-30 flex flex-col justify-end bg-black/60" onClick={onClose}>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: 纯事件隔离容器，阻止冒泡到遮罩关闭，本身不是控件 */}
       <div
         className="rounded-t-2xl border-t border-slate-700 bg-[#11161d] p-5 pb-8"
         onClick={(e) => e.stopPropagation()}
@@ -75,7 +77,8 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
         {pairing && (
           <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-[11px] leading-5 text-slate-500">
             <div>
-              本机设备：<span className="text-slate-300">{pairing.deviceName}</span>（id {pairing.deviceId.slice(0, 8)}…）
+              本机设备：<span className="text-slate-300">{pairing.deviceName}</span>（id {pairing.deviceId.slice(0, 8)}
+              …）
             </div>
             <div>
               桌面公钥：<span className="font-mono">{pairing.desktopPk.slice(0, 12)}…</span>

@@ -3,11 +3,17 @@
  * 模块级单例（一个 App 一条连接），UI 组件只调这里的函数。
  */
 
-import type { RemoteCommand, ScheduleTask, ScheduleTaskInput, SessionMode } from "@spcode/shared";
+import type { ScheduleTask, ScheduleTaskInput, SessionMode } from "@spcode/shared";
 import { RemoteClient } from "../lib/client";
 import { clearPairing, loadPairing, type PairingRecord } from "../lib/db";
 import type { RemoteEventExt } from "../lib/protocol";
-import { isPushEnabledLocally, isPushSupported, setPushEnabledLocally, subscribePush, unsubscribePush } from "../lib/push";
+import {
+  isPushEnabledLocally,
+  isPushSupported,
+  setPushEnabledLocally,
+  subscribePush,
+  unsubscribePush,
+} from "../lib/push";
 import { getOutputMaxSeq, useAppStore } from "./store";
 
 let client: RemoteClient | null = null;

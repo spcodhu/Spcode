@@ -192,11 +192,11 @@ function permissionCard(request: PermissionRequest): Record<string, unknown> {
   const bypassNote = bypass ? "\n**⚠️ 此命令申请在沙盒外执行：以完整权限运行，不受文件/网络边界约束。**\n" : "\n";
   const md = `**工具**：\`${request.toolName}\`\n**风险**：${RISK_LABEL[request.risk] ?? request.risk}${bypassNote}**参数**：\n\`\`\`\n${argsText}\n\`\`\``;
   return mdCard(`权限请求：${request.toolName}`, severe ? "red" : (RISK_TEMPLATE[request.risk] ?? "blue"), md, [
-    button(
-      danger ? "确认允许危险操作" : bypass ? "确认沙盒外执行" : "批准",
-      severe ? "danger" : "primary",
-      { action: "permission", requestId: request.requestId, approved: true },
-    ),
+    button(danger ? "确认允许危险操作" : bypass ? "确认沙盒外执行" : "批准", severe ? "danger" : "primary", {
+      action: "permission",
+      requestId: request.requestId,
+      approved: true,
+    }),
     button("拒绝", "default", { action: "permission", requestId: request.requestId, approved: false }),
   ]);
 }
@@ -230,7 +230,7 @@ function questionCard(request: QuestionRequest): Record<string, unknown> | null 
 function truncateArgs(args: unknown, max: number): string {
   let text: string;
   try {
-    text = typeof args === "string" ? args : JSON.stringify(args, null, 2) ?? "";
+    text = typeof args === "string" ? args : (JSON.stringify(args, null, 2) ?? "");
   } catch {
     text = String(args);
   }
@@ -273,7 +273,10 @@ export class FeishuChannel {
   /** 输出尾部缓冲（sessionId → 最近输出文本，running→idle 时随摘要发出） */
   private readonly outputTails = new Map<string, string>();
   /** 进行中的权限卡片（requestId → 已发出的卡片位置 + 原始请求，resolved 时更新原卡片） */
-  private readonly permissionCards = new Map<string, { request: PermissionRequest; sent: { openId: string; messageId: string }[] }>();
+  private readonly permissionCards = new Map<
+    string,
+    { request: PermissionRequest; sent: { openId: string; messageId: string }[] }
+  >();
 
   constructor(deps: FeishuChannelDeps) {
     this.deps = deps;
@@ -336,7 +339,10 @@ export class FeishuChannel {
   /** 当前有效绑定验证码；无/过期则生成新的（6 位数字，5 分钟，单次有效） */
   pendingBindCode(): string {
     if (this.bindCode && this.now() < this.bindCode.expiresAt) return this.bindCode.code;
-    this.bindCode = { code: String(randomInt(0, 1_000_000)).padStart(6, "0"), expiresAt: this.now() + BIND_CODE_TTL_MS };
+    this.bindCode = {
+      code: String(randomInt(0, 1_000_000)).padStart(6, "0"),
+      expiresAt: this.now() + BIND_CODE_TTL_MS,
+    };
     return this.bindCode.code;
   }
 
@@ -465,7 +471,10 @@ export class FeishuChannel {
       await this.safeSend(() => this.api!.sendText(openId, "暂无会话。发送 /new <提示词> 创建。"));
       return;
     }
-    this.lastList.set(openId, sessions.map((s) => s.id));
+    this.lastList.set(
+      openId,
+      sessions.map((s) => s.id),
+    );
     const current = this.contexts.get(openId);
     const lines = sessions.map((s, i) => {
       const badge = { running: "🟢", waiting_permission: "🟡", idle: "⚪" }[this.sessionStatus.get(s.id) ?? "idle"];
@@ -502,7 +511,9 @@ export class FeishuChannel {
   }
 
   private async handleSchedules(openId: string): Promise<void> {
-    const result = (await this.dispatch({ type: "schedule.list" })) as { tasks: import("@spcode/shared").ScheduleTask[] };
+    const result = (await this.dispatch({ type: "schedule.list" })) as {
+      tasks: import("@spcode/shared").ScheduleTask[];
+    };
     if (result.tasks.length === 0) {
       await this.safeSend(() => this.api!.sendText(openId, "暂无定时任务。"));
       return;
@@ -527,7 +538,9 @@ export class FeishuChannel {
 
   private async handleRun(openId: string, rest: string): Promise<void> {
     if (!rest) throw new Error("用法：/run <任务名>（先用 /schedules 查看）");
-    const result = (await this.dispatch({ type: "schedule.list" })) as { tasks: import("@spcode/shared").ScheduleTask[] };
+    const result = (await this.dispatch({ type: "schedule.list" })) as {
+      tasks: import("@spcode/shared").ScheduleTask[];
+    };
     const exact = result.tasks.find((t) => t.name === rest);
     const matches = exact ? [exact] : result.tasks.filter((t) => t.name.startsWith(rest));
     if (matches.length === 0) throw new Error(`找不到任务：${rest}`);
@@ -578,7 +591,11 @@ export class FeishuChannel {
     try {
       if (value.action === "permission" && typeof value.requestId === "string") {
         // by="remote"：bridge 广播 permission.resolved，桌面端撤卡 + 本通道更新原卡片
-        await this.dispatch({ type: "permission.reply", requestId: value.requestId, approved: value.approved === true });
+        await this.dispatch({
+          type: "permission.reply",
+          requestId: value.requestId,
+          approved: value.approved === true,
+        });
         return;
       }
       if (value.action === "question" && typeof value.requestId === "string") {
@@ -665,7 +682,9 @@ export class FeishuChannel {
       const opts = q.options?.map((o) => `  - ${o.label}${o.description ? `：${o.description}` : ""}`).join("\n");
       return `**${i + 1}. ${q.question}**${q.multiSelect ? "（可多选）" : ""}${opts ? `\n${opts}` : ""}`;
     });
-    await this.broadcastText(`❓ Agent 提问：\n\n${lines.join("\n\n")}\n\n该提问形态暂不支持飞书内回答，请前往桌面端处理。`);
+    await this.broadcastText(
+      `❓ Agent 提问：\n\n${lines.join("\n\n")}\n\n该提问形态暂不支持飞书内回答，请前往桌面端处理。`,
+    );
   }
 
   /** 会话完成摘要：发给归属用户（无归属则不推，避免打扰全体） */
@@ -692,9 +711,10 @@ export class FeishuChannel {
   }
 
   /** 发送失败只记日志（网络抖动 / 限频），不影响主流程；返回 message_id 或 null */
-  private async safeSend(fn: () => Promise<string | void>): Promise<string | null> {
+  private async safeSend(fn: () => Promise<unknown>): Promise<string | null> {
     try {
-      return (await fn()) ?? null;
+      const r = await fn();
+      return typeof r === "string" ? r : null;
     } catch (err) {
       console.warn("[remote/feishu] 消息发送失败", err);
       return null;

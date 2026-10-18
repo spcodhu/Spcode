@@ -4,7 +4,7 @@
  * - maybeMicrocompact 的触发条件、context_edit 落盘与投影生效、幂等性
  * SessionManager 用 pi 真实的 inMemory 实现——投影/context_edit 是引擎语义，断言引擎行为而非我们的想象。
  */
-import type { AgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
+import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { findMicrocompactTargets, maybeMicrocompact, placeholderText } from "../src/agent-host/microcompact.js";
@@ -20,7 +20,14 @@ function assistantMsg(text: string, t = 0) {
     content: [{ type: "text" as const, text }],
     provider: "test",
     model: "m1",
-    usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }, totalTokens: 2 },
+    usage: {
+      input: 1,
+      output: 1,
+      cacheRead: 0,
+      cacheWrite: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      totalTokens: 2,
+    },
     stopReason: "stop" as const,
     timestamp: TS + t,
   };
@@ -87,7 +94,11 @@ describe("findMicrocompactTargets", () => {
   });
 });
 
-function fakeSession(sm: SessionManager, tokens: number, contextWindow = 200_000): { session: AgentSession; refreshed: { count: number } } {
+function fakeSession(
+  sm: SessionManager,
+  tokens: number,
+  contextWindow = 200_000,
+): { session: AgentSession; refreshed: { count: number } } {
   const refreshed = { count: 0 };
   const session = {
     model: { provider: "test", id: "m1", contextWindow },
@@ -108,7 +119,9 @@ describe("maybeMicrocompact", () => {
     const sm = SessionManager.inMemory();
     seedSession(sm);
     const { session, refreshed } = fakeSession(sm, LINE * 0.9);
-    const settings = SettingsManager.inMemory({ compaction: { enabled: true, reserveTokens: 16384, keepRecentTokens: 40000 } });
+    const settings = SettingsManager.inMemory({
+      compaction: { enabled: true, reserveTokens: 16384, keepRecentTokens: 40000 },
+    });
 
     const n = maybeMicrocompact(session, settings);
     expect(n).toBe(2);

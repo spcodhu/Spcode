@@ -19,9 +19,9 @@ async function exec(
   return (await tool.execute("t1", args as any, undefined, undefined, {} as any)) as ToolResultLike;
 }
 
-// 真网连通性测试只在本地跑：CI runner 出口地区与本机不同，Bing 对中文查询可能返回空结果
-// （beta.10 流水线曾因此双平台 Test 失败）；离线夹具测试不受影响，CI 全量跑。
-describe.skipIf(process.env.CI)("WebSearch 真网", () => {
+// 真网连通性测试默认不跑（本机/CI 出口网络环境差异大，会抖动）；
+// 需要验证真实抓取时显式开启：SPCODE_TEST_NETWORK=1 pnpm test（评审 R3-C0：默认 hermetic）
+describe.skipIf(!process.env.SPCODE_TEST_NETWORK)("WebSearch 真网", () => {
   it("中文查询能拿到结果", async () => {
     const tool = createWebSearchTool();
     const res = await exec(tool, { query: "杭州 天气", numResults: 5 });
@@ -84,7 +84,7 @@ describe("filterByPrompt / truncateWithNotice（离线）", () => {
   });
 });
 
-describe("WebFetch 真网", () => {
+describe.skipIf(!process.env.SPCODE_TEST_NETWORK)("WebFetch 真网", () => {
   it("抓取 example.com 转 Markdown", async () => {
     const tool = createWebFetchTool();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

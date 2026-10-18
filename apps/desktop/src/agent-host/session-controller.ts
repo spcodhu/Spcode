@@ -11,7 +11,12 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { getSupportedThinkingLevels, type Model } from "@earendil-works/pi-ai";
 import type { AgentSession, AgentSessionEvent, ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { createAgentSession, DefaultResourceLoader, SessionManager, type SettingsManager } from "@earendil-works/pi-coding-agent";
+import {
+  createAgentSession,
+  DefaultResourceLoader,
+  SessionManager,
+  type SettingsManager,
+} from "@earendil-works/pi-coding-agent";
 import type {
   AdvancedSearchConfig,
   ModelRef,
@@ -28,8 +33,6 @@ import { isAdvancedSearchReady } from "@spcode/shared/advanced-search";
 import { MemoryDistiller } from "./distill.js";
 import type { MemoryStore } from "./memory-store.js";
 import { maybeMicrocompact } from "./microcompact.js";
-import { createSandboxedBashTool, matchesExcludedCommand } from "./sandbox/bash-tool.js";
-import { getSandboxService } from "./sandbox/manager.js";
 import {
   isPlanModeSafeCommand,
   NORMAL_MODE_TOOLS,
@@ -40,6 +43,8 @@ import {
   PLAN_MODE_TOOLS,
   PLAN_MODE_WRITE_BLOCK_REASON,
 } from "./plan-mode.js";
+import { createSandboxedBashTool, matchesExcludedCommand } from "./sandbox/bash-tool.js";
+import { getSandboxService } from "./sandbox/manager.js";
 import { createAdvancedSearchTool } from "./tools/advanced-search.js";
 import { createAskUserQuestionTool } from "./tools/ask-user.js";
 import { createExitPlanModeTool } from "./tools/exit-plan-mode.js";
@@ -304,7 +309,9 @@ export class SessionController {
       opts.modelRuntime,
       opts.emitEvent,
       opts.emitPlanMode,
-      sandboxState.state === "unavailable" ? { state: sandboxState.state, reason: sandboxState.reason } : { state: sandboxState.state },
+      sandboxState.state === "unavailable"
+        ? { state: sandboxState.state, reason: sandboxState.reason }
+        : { state: sandboxState.state },
       {
         onRename: opts.onRename,
         renamedByAgent: renameProbe,

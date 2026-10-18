@@ -6,7 +6,7 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { HostCommand } from "@spcode/shared";
 import { afterEach, describe, expect, it } from "vitest";
-import { flush, makeChannel, startAndBind, cardText, makeEntry } from "./helpers/feishu-harness.js";
+import { cardText, flush, makeChannel, makeEntry, startAndBind } from "./helpers/feishu-harness.js";
 
 const cleanup: string[] = [];
 afterEach(() => {

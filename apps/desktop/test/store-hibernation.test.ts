@@ -1,4 +1,3 @@
-
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useStore } from "../src/renderer/src/store.js";
 

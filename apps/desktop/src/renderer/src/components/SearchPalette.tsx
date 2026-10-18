@@ -87,6 +87,7 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
   };
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: 遮罩点外关闭，Esc 另有键盘关闭（评审 R3：待统一 Modal 组件化时收敛）
     <div
       className="fixed inset-0 z-40 flex items-start justify-center bg-black/55 pt-[14vh] backdrop-blur-[2px]"
       onMouseDown={(e) => {

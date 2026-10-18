@@ -413,7 +413,13 @@ describe("permission.resolved 双端撤卡", () => {
   it("任一端裁决后撤掉同 requestId 的批准卡；未知 requestId 不影响", () => {
     stubSpcodeApi();
     useStore.setState({ pendingPermissions: [] });
-    const req = (id: string) => ({ requestId: id, sessionId: "s1", toolName: "Bash", args: {}, risk: "write" as const });
+    const req = (id: string) => ({
+      requestId: id,
+      sessionId: "s1",
+      toolName: "Bash",
+      args: {},
+      risk: "write" as const,
+    });
     useStore.getState().applyHostEvent({ type: "permission.request", request: req("r1") });
     useStore.getState().applyHostEvent({ type: "permission.request", request: req("r2") });
     expect(useStore.getState().pendingPermissions.map((p) => p.requestId)).toEqual(["r1", "r2"]);
@@ -423,7 +429,9 @@ describe("permission.resolved 双端撤卡", () => {
     expect(useStore.getState().pendingPermissions.map((p) => p.requestId)).toEqual(["r2"]);
 
     // 未知 requestId 不影响现有卡片
-    useStore.getState().applyHostEvent({ type: "permission.resolved", requestId: "ghost", approved: true, by: "local" });
+    useStore
+      .getState()
+      .applyHostEvent({ type: "permission.resolved", requestId: "ghost", approved: true, by: "local" });
     expect(useStore.getState().pendingPermissions).toHaveLength(1);
   });
 });
@@ -496,7 +504,12 @@ describe("compaction 事件流", () => {
             ...sess,
             running: true,
             messages: [
-              { id: "u1", role: "user" as const, segments: [{ kind: "text" as const, id: "seg1", text: "问" }], streaming: false },
+              {
+                id: "u1",
+                role: "user" as const,
+                segments: [{ kind: "text" as const, id: "seg1", text: "问" }],
+                streaming: false,
+              },
               {
                 id: "a1",
                 role: "assistant" as const,
@@ -554,7 +567,7 @@ describe("groupMessagesForRender：notice 分组", () => {
 
 describe("compactSession 手动压缩", () => {
   it("向宿主发送 session.compact 命令；运行中/草稿会话不发送", async () => {
-    const { } = stubSpcodeApi();
+    stubSpcodeApi();
     const spy = window.spcode.command as ReturnType<typeof vi.fn>;
     seedSession("s-manual-compact");
     await useStore.getState().compactSession();

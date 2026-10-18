@@ -11,7 +11,7 @@
  */
 import { copyFileSync, existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { SessionManager, type SessionEntry } from "@earendil-works/pi-coding-agent";
+import { type SessionEntry, SessionManager } from "@earendil-works/pi-coding-agent";
 import type { ExportContextResult } from "@spcode/shared";
 import { MemoryStore } from "./memory-store.js";
 
@@ -123,7 +123,8 @@ export function renderTranscript(
           messages++;
           parts.push("", "## 🧑 用户", "");
           if (text) parts.push(text);
-          for (const img of images) parts.push(`[📷 图片: ${img.mimeType || "image/png"}，未内联——原图见 session.jsonl]`);
+          for (const img of images)
+            parts.push(`[📷 图片: ${img.mimeType || "image/png"}，未内联——原图见 session.jsonl]`);
         } else if (m.role === "assistant") {
           const blocks = Array.isArray(m.content) ? (m.content as ContentBlock[]) : [];
           const rendered: string[] = [];
@@ -135,14 +136,7 @@ export function renderTranscript(
             } else if (b.type === "toolCall" && b.name) {
               const args = JSON.stringify(b.arguments ?? {}, null, 2);
               const res = b.id ? toolResults.get(b.id) : undefined;
-              const block = [
-                `#### 🔧 工具调用：\`${b.name}\``,
-                "",
-                "参数：",
-                "```json",
-                args,
-                "```",
-              ];
+              const block = [`#### 🔧 工具调用：\`${b.name}\``, "", "参数：", "```json", args, "```"];
               if (res) {
                 block.push("", `结果${res.isError ? "（错误）" : ""}：`, "```", res.text || "（无输出）", "```");
               } else {

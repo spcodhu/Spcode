@@ -11,11 +11,10 @@
  *   allow-only 语义下无害（不在 allowOnly 里的路径本来就不可写），且能兜住
  *   用户在 extraAllowWrite 里误放开了父目录的情况。
  */
-import { tmpdir } from "node:os";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
-import type { SandboxSettings } from "@spcode/shared";
 import type { SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
+import type { SandboxSettings } from "@spcode/shared";
 
 /** $SPCODE_HOME 下对沙盒命令禁写的条目（记忆投毒/配置篡改/凭据泄写防线） */
 const SPCODE_HOME_DENY_WRITE = [

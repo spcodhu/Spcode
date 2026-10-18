@@ -108,7 +108,11 @@ export class UsageLedger {
     const today = UsageLedger.dateOf(Date.now());
     const weekStart = UsageLedger.daysAgo(7);
     const picked =
-      range === "today" ? dates.filter((d) => d === today) : range === "week" ? dates.filter((d) => d >= weekStart) : dates;
+      range === "today"
+        ? dates.filter((d) => d === today)
+        : range === "week"
+          ? dates.filter((d) => d >= weekStart)
+          : dates;
     const total = emptyAgg();
     const byModel: Record<string, UsageAggregate> = {};
     for (const date of picked) {

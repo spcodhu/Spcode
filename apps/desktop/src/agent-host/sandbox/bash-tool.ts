@@ -19,7 +19,12 @@
  * 工具描述里向模型声明沙盒边界的存在——被拦截时模型能理解 EPERM/网络错误
  * 是预期行为并如实告知用户，而不是盲目重试。
  */
-import { createBashToolDefinition, createLocalBashOperations, type BashOperations, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import {
+  type BashOperations,
+  createBashToolDefinition,
+  createLocalBashOperations,
+  type ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
 import type { SandboxSettings } from "@spcode/shared";
 import { Type } from "typebox";
 import { getSandboxService } from "./manager.js";
@@ -85,8 +90,10 @@ export function createSandboxedBashTool(cwd: string, opts: SandboxedBashToolOpti
         // fail-closed：包装失败绝不裸跑（那等于静默关闭沙盒）
         const message = err instanceof Error ? err.message : String(err);
         options.onData(
-          Buffer.from(`Command not executed: sandbox wrapping failed (${message}). ` +
-            `You may retry; if it persists, ask the user to check sandbox status in Settings.\n`),
+          Buffer.from(
+            `Command not executed: sandbox wrapping failed (${message}). ` +
+              `You may retry; if it persists, ask the user to check sandbox status in Settings.\n`,
+          ),
         );
         return { exitCode: 126 };
       }

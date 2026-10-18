@@ -44,11 +44,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 }
 
 /** 在对象的自有键里按候选名做大小写不敏感匹配，返回实际键名；requireHttp 时要求值是 http(s) 字符串 */
-function findKey(
-  obj: Record<string, unknown>,
-  candidates: string[],
-  requireHttp = false,
-): string | null {
+function findKey(obj: Record<string, unknown>, candidates: string[], requireHttp = false): string | null {
   for (const [key, value] of Object.entries(obj)) {
     if (!candidates.includes(key.toLowerCase())) continue;
     if (typeof value !== "string" && value != null) continue;
@@ -168,11 +164,7 @@ function buildBody(config: AdvancedSearchConfig, query: string, numResults: numb
 }
 
 /** 解析响应为统一结果列表；业务错误（如博查 code != 200）抛 Error（导出供单测） */
-export function parseSearchResponse(
-  config: AdvancedSearchConfig,
-  json: unknown,
-  limit: number,
-): SearchResult[] {
+export function parseSearchResponse(config: AdvancedSearchConfig, json: unknown, limit: number): SearchResult[] {
   switch (config.protocol) {
     case "tavily": {
       const arr = isPlainObject(json) && Array.isArray(json.results) ? json.results : [];
@@ -204,11 +196,7 @@ export function parseSearchResponse(
         if (!/^https?:\/\//i.test(url)) continue;
         // 请求时开了 summary:true；缺 summary 的条目退回 snippet
         const snippet =
-          typeof el.summary === "string" && el.summary
-            ? el.summary
-            : typeof el.snippet === "string"
-              ? el.snippet
-              : "";
+          typeof el.summary === "string" && el.summary ? el.summary : typeof el.snippet === "string" ? el.snippet : "";
         results.push({
           title: typeof el.name === "string" && el.name ? el.name : url,
           url,

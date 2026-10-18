@@ -77,7 +77,16 @@ describe("lastAssistantUsageForRing（恢复会话的环初始化）", () => {
   it("取最后一条有效 assistant usage（含缓存写与输出，与环口径一致）", () => {
     const messages = [
       { role: "user", content: [] },
-      assistantWithUsage({ timestamp: 1000, usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } }),
+      assistantWithUsage({
+        timestamp: 1000,
+        usage: {
+          input: 1,
+          output: 1,
+          cacheRead: 0,
+          cacheWrite: 0,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+      }),
       assistantWithUsage({ timestamp: 2000 }),
     ];
     const u = lastAssistantUsageForRing("s1", messages, null);
@@ -112,12 +121,22 @@ describe("lastAssistantUsageForRing（恢复会话的环初始化）", () => {
     const messages = [
       assistantWithUsage({ timestamp: 1000, stopReason: "aborted" }),
       assistantWithUsage({ timestamp: 1100, usage: zero }),
-      { role: "assistant", timestamp: 1200, stopReason: "error", usage: { input: 9, output: 9, cacheRead: 0, cacheWrite: 0 } },
+      {
+        role: "assistant",
+        timestamp: 1200,
+        stopReason: "error",
+        usage: { input: 9, output: 9, cacheRead: 0, cacheWrite: 0 },
+      },
     ];
     expect(lastAssistantUsageForRing("s1", messages, model)).toBeNull();
 
     const noModel = [
-      { role: "assistant", timestamp: 1000, stopReason: "stop", usage: { input: 5, output: 5, cacheRead: 0, cacheWrite: 0 } },
+      {
+        role: "assistant",
+        timestamp: 1000,
+        stopReason: "stop",
+        usage: { input: 5, output: 5, cacheRead: 0, cacheWrite: 0 },
+      },
     ];
     expect(lastAssistantUsageForRing("s1", noModel, model)?.model).toEqual(model);
     expect(lastAssistantUsageForRing("s1", noModel, null)).toBeNull();

@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
 import type { AdvancedSearchConfig, AdvancedSearchProtocol } from "@spcode/shared";
 import { inferMapping, isAdvancedSearchReady, PRESET_ENDPOINTS } from "@spcode/shared/advanced-search";
+import { useEffect, useRef, useState } from "react";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
 import { ModelsPage } from "./ModelsPage";
@@ -27,6 +27,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
   const [page, setPage] = useState<PageId>("usage");
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: 遮罩点外关闭，Esc 另有键盘关闭（评审 R3：待统一 Modal 组件化时收敛）
     <div
       className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 backdrop-blur-[2px]"
       onMouseDown={(e) => {
@@ -180,14 +181,11 @@ function GeneralPage() {
         <div>
           <div className="text-[14px] text-text-primary">接收测试版更新</div>
           <div className="mt-0.5 text-[12px] text-text-tertiary">
-            开启后包含 beta 预发布版；关闭则只跟踪稳定版{settings?.betaUpdates === undefined ? "（当前跟随版本形态自动判断）" : ""}
+            开启后包含 beta 预发布版；关闭则只跟踪稳定版
+            {settings?.betaUpdates === undefined ? "（当前跟随版本形态自动判断）" : ""}
           </div>
         </div>
-        <Switch
-          on={betaUpdatesOn}
-          onChange={(v) => void saveSettings({ betaUpdates: v })}
-          label="接收测试版更新"
-        />
+        <Switch on={betaUpdatesOn} onChange={(v) => void saveSettings({ betaUpdates: v })} label="接收测试版更新" />
       </div>
     </div>
   );
@@ -256,7 +254,9 @@ function AdvancedSearchSection() {
     const config: AdvancedSearchConfig = { protocol, baseUrl: url, apiKey: key };
     if (protocol === "custom") {
       if (!inferred) {
-        onError(sample.trim() ? "无法从示例中识别结果列表（需包含带 http 链接的字段）" : "请粘贴该 API 的响应示例 JSON");
+        onError(
+          sample.trim() ? "无法从示例中识别结果列表（需包含带 http 链接的字段）" : "请粘贴该 API 的响应示例 JSON",
+        );
         return null;
       }
       config.responseSample = sample;
@@ -305,7 +305,11 @@ function AdvancedSearchSection() {
 
       <div className="grid grid-cols-[140px_1fr] items-center gap-x-3 gap-y-2.5">
         <div className="text-[13px] text-text-secondary">协议</div>
-        <Select value={protocol} options={PROTOCOL_OPTIONS} onChange={(v) => switchProtocol(v as AdvancedSearchProtocol)} />
+        <Select
+          value={protocol}
+          options={PROTOCOL_OPTIONS}
+          onChange={(v) => switchProtocol(v as AdvancedSearchProtocol)}
+        />
 
         <div className="text-[13px] text-text-secondary">Base URL</div>
         <input
@@ -372,9 +376,7 @@ function AdvancedSearchSection() {
             停用
           </button>
         )}
-        {hint && (
-          <span className={`text-[12px] ${hint.ok ? "text-accent" : "text-danger"}`}>{hint.text}</span>
-        )}
+        {hint && <span className={`text-[12px] ${hint.ok ? "text-accent" : "text-danger"}`}>{hint.text}</span>}
       </div>
     </div>
   );
@@ -788,8 +790,8 @@ function SandboxSection() {
         >
           <div className="text-[13px] font-semibold text-danger">⚠ 沙盒已关闭：命令将以你的完整权限直接执行</div>
           <div className="mt-1 text-[12px] leading-5 text-danger/80">
-            关闭后，AI 执行的命令不再受内核级边界约束：可以读写本机任意文件（包括 ~/.ssh 密钥、
-            ~/.spcode 记忆与配置）、可自由访问网络。届时唯一防线只剩审批弹窗——而黑名单可被绕过、
+            关闭后，AI 执行的命令不再受内核级边界约束：可以读写本机任意文件（包括 ~/.ssh 密钥、 ~/.spcode
+            记忆与配置）、可自由访问网络。届时唯一防线只剩审批弹窗——而黑名单可被绕过、
             逐条审批容易疲劳误点。除非你明确知道在做什么，否则不建议关闭。
           </div>
         </div>
@@ -818,7 +820,8 @@ function SandboxSection() {
         <div>
           <div className="text-[14px] text-text-primary">允许沙盒外重试（逃生舱）</div>
           <div className="mt-0.5 text-[12px] text-text-tertiary">
-            命令与沙盒根本冲突（启动 GUI/Electron 应用、访问钥匙串等）时，允许模型申请沙盒外重试——每次都会弹窗确认；关闭则一律拒绝（严格模式）
+            命令与沙盒根本冲突（启动 GUI/Electron
+            应用、访问钥匙串等）时，允许模型申请沙盒外重试——每次都会弹窗确认；关闭则一律拒绝（严格模式）
           </div>
         </div>
         <Switch

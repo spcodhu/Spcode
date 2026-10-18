@@ -10,13 +10,17 @@
  * 禁止 import "electron" —— 这里只有 Node API + process.parentPort。
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { CredentialSynchronizationError, ModelRuntime, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
+import {
+  CredentialSynchronizationError,
+  ModelRuntime,
+  SessionManager,
+  SettingsManager,
+} from "@earendil-works/pi-coding-agent";
 import type {
   AdvancedSearchConfig,
-  CompactionSettings,
   HostCommand,
   HostEvent,
   ModelInfo,
@@ -27,8 +31,8 @@ import type {
 } from "@spcode/shared";
 import { DEFAULT_COMPACTION_SETTINGS, DEFAULT_SANDBOX_SETTINGS } from "@spcode/shared";
 import { resolveSpcodeHome } from "@spcode/shared/node";
-import { HibernationManager } from "./hibernation.js";
 import { exportSessionContext } from "./export-context.js";
+import { HibernationManager } from "./hibernation.js";
 import { MemoryStore } from "./memory-store.js";
 import { getSandboxService } from "./sandbox/manager.js";
 import { SessionController } from "./session-controller.js";
@@ -480,7 +484,12 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         sessions.set(cmd.payload.sessionId, ctl);
         // 先回响应，再推历史（渲染进程按序处理）
         respond(id, true, ctl.info());
-        emit({ type: "session.history", sessionId: cmd.payload.sessionId, messages: ctl.history(), lastUsage: ctl.lastUsageForRing() });
+        emit({
+          type: "session.history",
+          sessionId: cmd.payload.sessionId,
+          messages: ctl.history(),
+          lastUsage: ctl.lastUsageForRing(),
+        });
         break;
       }
       case "session.fork": {
@@ -521,7 +530,12 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         sessions.set(newSessionId, ctl);
         respond(id, true, ctl.info());
         // Fork 出的会话自带完整历史（渲染进程按序处理：先响应后历史）
-        emit({ type: "session.history", sessionId: newSessionId, messages: ctl.history(), lastUsage: ctl.lastUsageForRing() });
+        emit({
+          type: "session.history",
+          sessionId: newSessionId,
+          messages: ctl.history(),
+          lastUsage: ctl.lastUsageForRing(),
+        });
         break;
       }
       case "session.hibernate": {
@@ -549,7 +563,12 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         sessions.set(cmd.payload.sessionId, ctl);
         respond(id, true, ctl.info());
         // 历史回放：渲染进程只在本地消息为空时采用（重复激活不会刷掉现有消息）
-        emit({ type: "session.history", sessionId: cmd.payload.sessionId, messages: ctl.history(), lastUsage: ctl.lastUsageForRing() });
+        emit({
+          type: "session.history",
+          sessionId: cmd.payload.sessionId,
+          messages: ctl.history(),
+          lastUsage: ctl.lastUsageForRing(),
+        });
         break;
       }
       case "memory.read": {

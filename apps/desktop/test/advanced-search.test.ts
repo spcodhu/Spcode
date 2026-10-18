@@ -3,12 +3,7 @@
  * 工具端到端用 stub 的 fetch（不打真网，避免消耗用户 API 额度）。
  */
 import type { AdvancedSearchConfig } from "@spcode/shared";
-import {
-  applyMapping,
-  inferMapping,
-  isAdvancedSearchReady,
-  parseSearchResponse,
-} from "@spcode/shared/advanced-search";
+import { applyMapping, inferMapping, isAdvancedSearchReady, parseSearchResponse } from "@spcode/shared/advanced-search";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAdvancedSearchTool } from "../src/agent-host/tools/advanced-search.js";
 
@@ -88,9 +83,9 @@ describe("applyMapping", () => {
   });
 
   it("路径不存在 → 空数组而不是抛错", () => {
-    expect(
-      applyMapping({}, { resultsPath: "a.b.c", titleField: "t", urlField: "url", snippetField: "" }, 10),
-    ).toEqual([]);
+    expect(applyMapping({}, { resultsPath: "a.b.c", titleField: "t", urlField: "url", snippetField: "" }, 10)).toEqual(
+      [],
+    );
   });
 });
 
@@ -131,9 +126,7 @@ describe("parseSearchResponse（预设协议）", () => {
   it("custom：缺 mapping 抛错，有 mapping 按映射解析", () => {
     const noMapping: AdvancedSearchConfig = { ...TAVILY_CONFIG, protocol: "custom" };
     expect(() => parseSearchResponse(noMapping, {}, 10)).toThrow("映射");
-    const mapping = inferMapping(
-      JSON.stringify({ results: [{ title: "t", url: "https://a.com", content: "c" }] }),
-    );
+    const mapping = inferMapping(JSON.stringify({ results: [{ title: "t", url: "https://a.com", content: "c" }] }));
     const cfg: AdvancedSearchConfig = { ...noMapping, mapping };
     const out = parseSearchResponse(cfg, { results: [{ title: "t", url: "https://a.com", content: "c" }] }, 10);
     expect(out).toEqual([{ title: "t", url: "https://a.com", snippet: "c" }]);

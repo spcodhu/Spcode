@@ -12,9 +12,7 @@ import { getOutputMaxSeq, useAppStore } from "../src/state/store";
 const S = "sess-1";
 
 function texts(sessionId = S): string {
-  return (useAppStore.getState().outputs[sessionId] ?? [])
-    .map((c) => (c.gap ? "‖GAP‖" : c.chunk))
-    .join("");
+  return (useAppStore.getState().outputs[sessionId] ?? []).map((c) => (c.gap ? "‖GAP‖" : c.chunk)).join("");
 }
 
 beforeEach(() => {

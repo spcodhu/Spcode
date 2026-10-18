@@ -4,8 +4,9 @@
  * 关键回归：outward 级曾在此被静默自动放行（adjudicate 只判 danger/write+ask），
  * 导致网络域名询问与 git push 等对外动作弹窗从未真正出现。
  */
-import { describe, expect, it } from "vitest";
+
 import type { PermissionRequest } from "@spcode/shared";
+import { describe, expect, it } from "vitest";
 import { decidePermission, matchesPermissionRule } from "../src/main/agent-bridge.js";
 
 function req(over: Partial<PermissionRequest> & Pick<PermissionRequest, "risk">): PermissionRequest {

@@ -7,10 +7,10 @@
 
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import { b64decode } from "../src/lib/base64";
 import { generateKeyPair } from "../src/lib/crypto";
 import { parseQrPayload } from "../src/lib/qr";
 import { deriveChannelId, isRelayHost, orderHosts, relayWsUrl } from "../src/lib/relay";
-import { b64decode } from "../src/lib/base64";
 
 function makeQr(hosts: string[], desktopPk: string, otp = "12345678"): string {
   return `spcode-remote://pair?v=1&hosts=${encodeURIComponent(hosts.join(","))}&desktop_pk=${encodeURIComponent(desktopPk)}&otp=${otp}`;
@@ -38,7 +38,9 @@ describe("parseQrPayload：relay 前缀项", () => {
 describe("relay 通道工具", () => {
   it("channelId = SHA-256(桌面公钥原始 32 字节) 的 hex 小写（与桌面端一致）", () => {
     const pk = generateKeyPair().publicKey;
-    const expected = createHash("sha256").update(Buffer.from(b64decode(pk))).digest("hex");
+    const expected = createHash("sha256")
+      .update(Buffer.from(b64decode(pk)))
+      .digest("hex");
     expect(deriveChannelId(pk)).toBe(expected);
     expect(deriveChannelId(pk)).toMatch(/^[0-9a-f]{64}$/);
   });

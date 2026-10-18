@@ -266,16 +266,22 @@ describe("配对握手 + 加密命令全链路", () => {
       expect(abortResp.ok).toBe(true);
 
       // bridge 调用契约：create → prompt ×2 → abort
-      expect(bridgeCalls.map((c) => c.type)).toEqual(["session.create", "session.prompt", "session.prompt", "session.abort"]);
+      expect(bridgeCalls.map((c) => c.type)).toEqual([
+        "session.create",
+        "session.prompt",
+        "session.prompt",
+        "session.abort",
+      ]);
       expect(registryEntries.get(sessionId)?.title).toBe("集成测试会话");
 
       // 4) 事件广播：bridge 事件 → 聚合器 → 加密帧
       for (const l of bridgeListeners) {
         l({ type: "session.event", sessionId, event: { type: "agent_start" } });
       }
-      const statusPayload = (await client
-        .waitFor((f) => decryptPayload(f)?.kind === "event")
-        .then(decryptPayload)) as { kind: string; event: { type: string } };
+      const statusPayload = (await client.waitFor((f) => decryptPayload(f)?.kind === "event").then(decryptPayload)) as {
+        kind: string;
+        event: { type: string };
+      };
       // 收到的第一个事件可能是别的，轮询直到 status running
       await client.waitFor((f) => {
         const p = decryptPayload(f);

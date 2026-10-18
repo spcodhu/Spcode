@@ -4,7 +4,7 @@
  * 标题栏齿轮进设置（通知开关等）；长按标题区可解除配对。
  */
 
-import type { SessionMode, SessionMeta } from "@spcode/shared";
+import type { SessionMeta, SessionMode } from "@spcode/shared";
 import { useMemo, useState } from "react";
 import { SettingsSheet } from "../components/SettingsSheet";
 import { createSession, removeSession, renameSession, unpair } from "../state/controller";
@@ -145,6 +145,7 @@ function SessionActionsSheet({ session, onClose }: { session: SessionMeta; onClo
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               maxLength={60}
+              // biome-ignore lint/a11y/noAutofocus: 移动端重命名弹层聚焦输入框是预期交互（软键盘直接弹出）
               autoFocus
               className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500"
             />

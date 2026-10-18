@@ -75,9 +75,10 @@ export function UpdateButton() {
 function UpdateDialog({ state, onClose }: { state: UpdateState; onClose: () => void }) {
   const version = "version" in state ? state.version : "";
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: 遮罩点外关闭（待统一 Modal 组件化收敛）；onClick 已改 onMouseDown 与其余弹层一致
     <div
       className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 backdrop-blur-[2px]"
-      onClick={(e) => {
+      onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
@@ -135,7 +136,9 @@ function UpdateDialog({ state, onClose }: { state: UpdateState; onClose: () => v
             <div className="mt-4 h-2 overflow-hidden rounded-full bg-bg-hover">
               <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${state.percent}%` }} />
             </div>
-            <div className="mt-2 text-[12px] text-text-tertiary">正在下载 {state.version}… {Math.round(state.percent)}%</div>
+            <div className="mt-2 text-[12px] text-text-tertiary">
+              正在下载 {state.version}… {Math.round(state.percent)}%
+            </div>
             <div className="mt-4 flex justify-end">
               <button
                 type="button"
