@@ -9,6 +9,7 @@
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import TurndownService from "turndown";
 import { type Static, Type } from "typebox";
+import { fetchPublic } from "./ssrf.js";
 
 const schema = Type.Object({
   query: Type.String({ description: "Search query (natural language, in any script)" }),
@@ -101,30 +102,20 @@ async function searchBing(query: string, timeoutMs: number, signal?: AbortSignal
   const ensearch = isCJK ? "" : "&ensearch=1";
   const lang = isCJK ? "zh-CN,zh;q=0.9,en;q=0.8" : "en-US,en;q=0.9";
   const url = `https://www.bing.com/search?q=${encodeURIComponent(query)}${ensearch}`;
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const onAbort = () => controller.abort();
-  signal?.addEventListener("abort", onAbort);
-  try {
-    const res = await fetch(url, {
-      redirect: "follow",
-      headers: {
-        "User-Agent": USER_AGENT,
-        "Accept-Language": lang,
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      },
-      signal: controller.signal,
-    });
-    if (!res.ok) throw new Error(`Bing returned HTTP ${res.status}`);
-    const html = await res.text();
-    // 整页转 Markdown 再解析：标题链接即搜索结果，天然免疫 DOM 类名变化
-    const markdown = getTurndown().turndown(html);
-    return parseSearchMarkdown(markdown, 10);
-  } finally {
-    clearTimeout(timer);
-    signal?.removeEventListener("abort", onAbort);
-  }
+  // 评审 R3-C7：与 WebFetch 同一 SSRF 防护（URL 虽由我们构造，重定向/内容类型/响应上限同款兜底）
+  const res = await fetchPublic(url, {
+    headers: {
+      "User-Agent": USER_AGENT,
+      "Accept-Language": lang,
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    },
+    timeoutMs,
+    signal,
+  });
+  const html = res.body;
+  // 整页转 Markdown 再解析：标题链接即搜索结果，天然免疫 DOM 类名变化
+  const markdown = getTurndown().turndown(html);
+  return parseSearchMarkdown(markdown, 10);
 }
 
 export function createWebSearchTool(): ToolDefinition {

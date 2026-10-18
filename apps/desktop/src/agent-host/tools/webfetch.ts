@@ -8,6 +8,7 @@
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import TurndownService from "turndown";
 import { type Static, Type } from "typebox";
+import { fetchPublic } from "./ssrf.js";
 
 const schema = Type.Object({
   url: Type.String({ description: "Absolute URL to fetch (http/https only)" }),
@@ -128,47 +129,39 @@ function cacheSet(url: string, data: PageData): void {
 }
 
 async function fetchPage(url: string, timeoutMs: number, signal?: AbortSignal): Promise<PageData> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  const onAbort = () => controller.abort();
-  signal?.addEventListener("abort", onAbort);
-  try {
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      },
-      redirect: "follow",
-      signal: controller.signal,
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const contentType = res.headers.get("content-type") ?? "";
-    const body = await res.text();
-    if (!contentType.includes("html")) {
-      return {
-        at: Date.now(),
-        contentType: contentType || "unknown",
-        fullText: normalizeLines(body.slice(0, MAX_CHARS * 2)),
-      };
-    }
-    // 整页转 Markdown：不猜 main/article 容器， Turndown 已剔除 script/style/nav/footer
-    let md: string;
-    try {
-      md = turndown.turndown(body);
-    } catch {
-      md = body.replace(/<[^>]+>/g, " ");
-    }
+  // 评审 R3-C7：SSRF 防护 + 响应体上限都在 fetchPublic 里（私网/回环/metadata 拦截、
+  // 重定向逐跳复检、流式 2MB 上限、内容类型白名单）
+  const res = await fetchPublic(url, {
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    },
+    timeoutMs,
+    signal,
+  });
+  const contentType = res.contentType;
+  const body = res.body;
+  if (!contentType.includes("html")) {
     return {
       at: Date.now(),
-      title: extractTitle(body),
       contentType: contentType || "unknown",
-      fullText: normalizeLines(md.replace(/\n{3,}/g, "\n\n").trim()),
+      fullText: normalizeLines(body.slice(0, MAX_CHARS * 2)),
     };
-  } finally {
-    clearTimeout(timer);
-    signal?.removeEventListener("abort", onAbort);
   }
+  // 整页转 Markdown：不猜 main/article 容器， Turndown 已剔除 script/style/nav/footer
+  let md: string;
+  try {
+    md = turndown.turndown(body);
+  } catch {
+    md = body.replace(/<[^>]+>/g, " ");
+  }
+  return {
+    at: Date.now(),
+    title: extractTitle(body),
+    contentType: contentType || "unknown",
+    fullText: normalizeLines(md.replace(/\n{3,}/g, "\n\n").trim()),
+  };
 }
 
 export function createWebFetchTool(): ToolDefinition {
