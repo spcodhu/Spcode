@@ -62,7 +62,11 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
     });
   }, [items, registrySessions]);
 
-  useEffect(() => setSelected(0), []);
+  // 查询变化后重置选中项（停留在旧下标会越界/高亮错位——评审 R3-C11）
+  // biome-ignore lint/correctness/useExhaustiveDependencies: query 是刻意的触发信号，effect 体内不引用
+  useEffect(() => setSelected(0), [query]);
+  // 结果集收缩时收拢下标
+  useEffect(() => setSelected((i) => Math.min(i, Math.max(0, rows.length - 1))), [rows.length]);
 
   const open = (row: Row) => {
     if (sessions[row.entry.id]) setActive(row.entry.id);

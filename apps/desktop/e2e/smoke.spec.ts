@@ -35,10 +35,11 @@ test.describe("Spcode 冒烟 E2E", () => {
     await expect(window.getByRole("button", { name: "配额" })).toBeVisible();
     await expect(window.getByRole("button", { name: "记忆" })).toBeVisible();
 
-    // 默认落在用量页
-    await expect(window.getByRole("heading", { name: "用量" })).toBeVisible();
+    // 默认落在通用页（评审 R3-C11：原默认「用量」是调试残留）
+    await expect(window.getByRole("heading", { name: "通用" })).toBeVisible();
 
-    // 新增区块：趋势曲线与活跃热点图（新鲜安装无数据也要渲染骨架）
+    // 切到用量页：趋势曲线与活跃热点图（新鲜安装无数据也要渲染骨架）
+    await window.getByRole("button", { name: "用量" }).click();
     await expect(window.getByTestId("usage-trend")).toBeVisible();
     await expect(window.getByTestId("usage-heatmap")).toBeVisible();
     await expect(window.getByTestId("usage-streak-longest")).toBeVisible();

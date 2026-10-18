@@ -77,6 +77,8 @@ export type RemoteEvent =
    */
   | { type: "permission.resolved"; requestId: string; approved: boolean; by: "local" | "remote" }
   | { type: "question.request"; request: QuestionRequest }
+  /** 提问已结清（任一端回答/超时/会话终结）：对端撤下同 requestId 的提问卡（评审 R3-C11） */
+  | { type: "question.resolved"; requestId: string }
   | { type: "schedule.fired"; taskId: string; name: string; sessionId: string }
   | { type: "sessions.changed" }
   /** 断线补拉响应：session.output.since 的结果，按 seq 升序（只含 > afterSeq 的 chunk） */

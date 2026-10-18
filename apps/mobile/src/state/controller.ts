@@ -113,6 +113,10 @@ function handleEvent(event: RemoteEventExt): void {
     case "question.request":
       s.pushQuestion(event.request);
       break;
+    case "question.resolved":
+      // 双端撤卡：另一端已回答/超时（评审 R3-C11）
+      s.dropQuestion(event.requestId);
+      break;
     case "schedule.fired":
       void refreshSchedules();
       break;

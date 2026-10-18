@@ -239,7 +239,7 @@ interface StoreState {
   openSessionById(id: string): Promise<void>;
   deleteSession(id: string): Promise<void>;
   setActive(id: string): void;
-  sendPrompt(text: string, images?: ImageAttachment[], files?: { name: string; size: number }[]): Promise<void>;
+  sendPrompt(text: string, images?: ImageAttachment[], files?: { name: string; size: number }[]): Promise<boolean>;
   abort(): Promise<void>;
   /** 手动压缩当前会话上下文（结果以压缩分隔线形式进入消息流；错误走 lastError） */
   compactSession(): Promise<void>;
@@ -391,6 +391,9 @@ let unsubscribeUpdateState: (() => void) | null = null;
 /** 草稿持久化订阅幂等标记 + 防抖定时器（500ms 合并不停打字产生的连续写盘） */
 let draftsPersistSubscribed = false;
 let draftsPersistTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** materializeDraft 的 in-flight 锁（评审 R3-C11：双击/连回车不会把同一草稿物化成两个会话） */
+const materializingDrafts = new Map<string, Promise<string>>();
 
 function scheduleDraftsPersist(drafts: Record<string, ComposerDraft>): void {
   if (draftsPersistTimer) clearTimeout(draftsPersistTimer);
@@ -730,8 +733,13 @@ export const useStore = create<StoreState>((set, get) => ({
         if (s.composerDrafts !== prev.composerDrafts) scheduleDraftsPersist(s.composerDrafts);
       });
     }
-    const settings = await window.spcode.getSettings();
-    set({ settings });
+    // 评审 R3-C11：getSettings 一次失败不能让应用永远卡在「启动中」——逐项兜底，ready 必达
+    try {
+      const settings = await window.spcode.getSettings();
+      set({ settings });
+    } catch (e) {
+      set({ lastError: `设置加载失败（${e instanceof Error ? e.message : String(e)}），可在设置页重试` });
+    }
     await get().refreshModels();
     const [registry, drafts] = await Promise.all([
       window.spcode.listSessions().catch(() => []),
@@ -743,9 +751,10 @@ export const useStore = create<StoreState>((set, get) => ({
   async refreshModels() {
     try {
       const models = await window.spcode.command<ModelInfo[]>({ type: "models.list" });
+      // 拿到结果才覆盖；空数组视为有效（确实没配置模型）
       set({ models: models ?? [] });
     } catch {
-      set({ models: [] });
+      // 评审 R3-C11：瞬时失败保留旧列表（此前 set({models:[]}) 会让模型菜单瞬间变「未配置」）
     }
   },
 
@@ -818,63 +827,15 @@ export const useStore = create<StoreState>((set, get) => ({
     return id;
   },
 
-  async materializeDraft(draftId) {
+  materializeDraft(draftId) {
+    // in-flight 幂等：同一草稿的并发物化共享同一个 Promise（评审 R3-C11）
+    const inflight = materializingDrafts.get(draftId);
+    if (inflight) return inflight;
     const draft = get().sessions[draftId];
-    if (!draft?.draft) return draftId;
-    const id = crypto.randomUUID();
-    const info = await window.spcode.command<HostSessionInfo>({
-      type: "session.create",
-      payload: {
-        sessionId: id,
-        mode: draft.meta.mode,
-        cwd: draft.meta.cwd,
-        model: draft.meta.model ?? undefined,
-        thinkingLevel: draft.meta.thinkingLevel,
-      },
-    });
-    const now = Date.now();
-    set((s) => {
-      const pruned = pruneDrafts(s, draftId);
-      const sessions = { ...pruned.sessions };
-      delete sessions[draftId];
-      sessions[id] = {
-        ...draft,
-        draft: undefined,
-        hostAwake: true,
-        sessionFile: info.sessionFile ?? null,
-        sandbox: info.sandbox,
-        meta: { ...draft.meta, id, model: info.model, thinkingLevel: info.thinkingLevel, updatedAt: now },
-        supportedThinkingLevels: info.supportedThinkingLevels ?? draft.supportedThinkingLevels,
-      };
-      return {
-        sessions,
-        sessionOrder: [id, ...pruned.sessionOrder.filter((x) => x !== draftId)],
-        activeSessionId: s.activeSessionId === draftId ? id : s.activeSessionId,
-        registrySessions: [
-          {
-            id,
-            mode: draft.meta.mode,
-            cwd: draft.meta.cwd,
-            title: draft.meta.title,
-            model: info.model,
-            thinkingLevel: info.thinkingLevel,
-            sessionFile: null,
-            planMode: draft.planMode,
-            planFile: null,
-            createdAt: draft.meta.createdAt,
-            updatedAt: now,
-          },
-          ...s.registrySessions,
-        ],
-      };
-    });
-    // 草稿期开了计划模式：落盘后同步给宿主
-    if (draft.planMode) {
-      await window.spcode
-        .command({ type: "session.setPlanMode", payload: { sessionId: id, enabled: true } })
-        .catch(() => {});
-    }
-    return id;
+    if (!draft?.draft) return Promise.resolve(draftId);
+    const p = doMaterializeDraft(draftId).finally(() => materializingDrafts.delete(draftId));
+    materializingDrafts.set(draftId, p);
+    return p;
   },
 
   async openSession(entry) {
@@ -1063,17 +1024,20 @@ export const useStore = create<StoreState>((set, get) => ({
 
   async sendPrompt(text, images, files) {
     const activeId = get().activeSessionId;
-    if (!activeId || (!text.trim() && !images?.length && !files?.length)) return;
+    if (!activeId || (!text.trim() && !images?.length && !files?.length)) return false;
     // 草稿会话：首次发送时才真正创建并写入历史（避免空会话刷屏侧栏）
     let sessionId = activeId;
     if (get().sessions[sessionId]?.draft) {
       try {
         sessionId = await get().materializeDraft(sessionId);
       } catch (e) {
+        // 物化失败：什么都没落（消息没进会话、宿主没收到）——返回 false 让调用方恢复草稿
         set({ lastError: e instanceof Error ? e.message : String(e) });
-        return;
+        return false;
       }
     }
+    // 运行中发送 = steer 插话：只追加用户消息，不动正在流式的 assistant 占位（deltas 继续流入它）
+    const running = get().sessions[sessionId]?.running === true;
     set((s) =>
       touchSession(s, sessionId, (draft) => {
         draft.messages.push({
@@ -1084,16 +1048,18 @@ export const useStore = create<StoreState>((set, get) => ({
           ...(files?.length ? { files } : {}),
           streaming: false,
         });
-        // 立即创建 assistant 流式占位：加载动画随点击发送同时出现，
-        // 不等引擎首个 text/thinking delta（思考型模型首 token 可能数秒）
-        draft.messages.push({
-          id: nextMsgId(),
-          role: "assistant",
-          segments: [],
-          streaming: true,
-        });
-        draft.running = true;
-        draft.runStartedAt = Date.now();
+        if (!running) {
+          // 立即创建 assistant 流式占位：加载动画随点击发送同时出现，
+          // 不等引擎首个 text/thinking delta（思考型模型首 token 可能数秒）
+          draft.messages.push({
+            id: nextMsgId(),
+            role: "assistant",
+            segments: [],
+            streaming: true,
+          });
+          draft.running = true;
+          draft.runStartedAt = Date.now();
+        }
         if (!draft.messages.some((m) => m.role === "user" && messageText(m) !== text)) {
           draft.meta = { ...draft.meta, title: cleanSessionTitle(text) || "图片消息" };
         }
@@ -1112,15 +1078,19 @@ export const useStore = create<StoreState>((set, get) => ({
         type: "session.prompt",
         payload: { sessionId, text, ...(images?.length ? { images } : {}) },
       });
+      return true;
     } catch (e) {
-      set((s) =>
-        touchSession(s, sessionId, (draft) => {
-          draft.running = false;
-          draft.runStartedAt = undefined;
-          settleStreamingTail(draft);
-        }),
-      );
+      if (!running) {
+        set((s) =>
+          touchSession(s, sessionId, (draft) => {
+            draft.running = false;
+            draft.runStartedAt = undefined;
+            settleStreamingTail(draft);
+          }),
+        );
+      }
       set({ lastError: e instanceof Error ? e.message : String(e) });
+      return false;
     }
   },
 
@@ -1308,6 +1278,10 @@ export const useStore = create<StoreState>((set, get) => ({
           if (s.pendingQuestions.some((q) => q.requestId === event.request.requestId)) return s;
           return { ...s, pendingQuestions: [...s.pendingQuestions, event.request] };
         }
+        case "question.resolved": {
+          // 超时/abort/回答/对端已答：撤卡（评审 R3-C11）
+          return { ...s, pendingQuestions: s.pendingQuestions.filter((q) => q.requestId !== event.requestId) };
+        }
         case "permission.request": {
           if (s.pendingPermissions.some((p) => p.requestId === event.request.requestId)) return s;
           return { ...s, pendingPermissions: [...s.pendingPermissions, event.request] };
@@ -1381,4 +1355,64 @@ async function ensureAwake(sessionId: string): Promise<void> {
   } catch {
     // 唤醒失败保持 asleep 标记，下次激活重试（宿主侧命令幂等，重复激活无害）
   }
+}
+
+/** materializeDraft 的真正实现（并发入口由 store action 里的 materializingDrafts 锁合并） */
+async function doMaterializeDraft(draftId: string): Promise<string> {
+  const draft = useStore.getState().sessions[draftId];
+  if (!draft?.draft) return draftId;
+  const id = crypto.randomUUID();
+  const info = await window.spcode.command<HostSessionInfo>({
+    type: "session.create",
+    payload: {
+      sessionId: id,
+      mode: draft.meta.mode,
+      cwd: draft.meta.cwd,
+      model: draft.meta.model ?? undefined,
+      thinkingLevel: draft.meta.thinkingLevel,
+    },
+  });
+  const now = Date.now();
+  useStore.setState((s) => {
+    const pruned = pruneDrafts(s, draftId);
+    const sessions = { ...pruned.sessions };
+    delete sessions[draftId];
+    sessions[id] = {
+      ...draft,
+      draft: undefined,
+      hostAwake: true,
+      sessionFile: info.sessionFile ?? null,
+      sandbox: info.sandbox,
+      meta: { ...draft.meta, id, model: info.model, thinkingLevel: info.thinkingLevel, updatedAt: now },
+      supportedThinkingLevels: info.supportedThinkingLevels ?? draft.supportedThinkingLevels,
+    };
+    return {
+      sessions,
+      sessionOrder: [id, ...pruned.sessionOrder.filter((x) => x !== draftId)],
+      activeSessionId: s.activeSessionId === draftId ? id : s.activeSessionId,
+      registrySessions: [
+        {
+          id,
+          mode: draft.meta.mode,
+          cwd: draft.meta.cwd,
+          title: draft.meta.title,
+          model: info.model,
+          thinkingLevel: info.thinkingLevel,
+          sessionFile: null,
+          planMode: draft.planMode,
+          planFile: null,
+          createdAt: draft.meta.createdAt,
+          updatedAt: now,
+        },
+        ...s.registrySessions,
+      ],
+    };
+  });
+  // 草稿期开了计划模式：落盘后同步给宿主
+  if (draft.planMode) {
+    await window.spcode
+      .command({ type: "session.setPlanMode", payload: { sessionId: id, enabled: true } })
+      .catch(() => {});
+  }
+  return id;
 }

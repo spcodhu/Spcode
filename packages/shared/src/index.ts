@@ -286,6 +286,8 @@ export type HostEvent =
    */
   | { type: "permission.resolved"; requestId: string; approved: boolean; by: "local" | "remote" }
   | { type: "question.request"; request: QuestionRequest }
+  /** 提问已被结清（回答/超时/会话终结）：渲染层与主进程据此撤下提问卡（评审 R3-C11） */
+  | { type: "question.resolved"; requestId: string }
   /** 会话注册表发生变化（如定时任务新建会话）：渲染进程应重新拉取列表 */
   | { type: "sessions.changed" }
   /** 定时任务触发：已为其创建会话并注入 prompt */

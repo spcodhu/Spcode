@@ -99,13 +99,24 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const previewText = needPreview ? resolveImageRefs(text, attachments) : "";
 
   const send = () => {
-    if (!canSend || running) return;
+    // 运行中不拦截：发送即 steer 插话（后端 session.prompt 在运行中走 steer，评审 R3-C11）
+    if (!canSend) return;
     const value = text.trim() + buildFileBlocks(files);
     const imgs = attachments;
     const fileMeta = files.map(({ name, size }) => ({ name, size }));
-    // 发送即清空草稿（与旧语义一致：乐观清空，不等引擎响应）
+    // 乐观清空 + 失败恢复快照（评审 R3-C11：发送失败不再丢整段输入）
+    const snapshot = useStore.getState().composerDrafts[draftKey];
     clearComposerDraft(draftKey);
-    void sendPrompt(value, imgs.length ? imgs : undefined, fileMeta.length ? fileMeta : undefined);
+    void sendPrompt(value, imgs.length ? imgs : undefined, fileMeta.length ? fileMeta : undefined).then((ok) => {
+      if (!ok && snapshot) {
+        setComposerDraft(draftKey, {
+          text: snapshot.text,
+          attachments: snapshot.attachments,
+          files: snapshot.files,
+          inputMode: snapshot.inputMode,
+        });
+      }
+    });
     requestAnimationFrame(() => {
       if (mdMode) mdEditorRef.current?.focus();
       else textareaRef.current?.focus();
@@ -400,8 +411,8 @@ export function Composer({ sessionId }: { sessionId: string }) {
               onThinkingChange={(lv) => void setThinkingLevel(lv)}
             />
 
-            {/* 发送 / 停止 */}
-            {running ? (
+            {/* 发送 / 停止（运行中并存：发送 = steer 插话，不打断当前运行） */}
+            {running && (
               <button
                 type="button"
                 onClick={() => void abort()}
@@ -410,17 +421,16 @@ export function Composer({ sessionId }: { sessionId: string }) {
               >
                 <span className="text-[11px]">■</span>
               </button>
-            ) : (
-              <button
-                type="button"
-                onClick={send}
-                disabled={!canSend}
-                title="发送"
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-accent text-white transition-colors hover:bg-accent-dim disabled:opacity-30"
-              >
-                <Icon name="arrowUp" size={16} strokeWidth={2.2} />
-              </button>
             )}
+            <button
+              type="button"
+              onClick={send}
+              disabled={!canSend}
+              title={running ? "插话（追加进当前运行）" : "发送"}
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-accent text-white transition-colors hover:bg-accent-dim disabled:opacity-30"
+            >
+              <Icon name="arrowUp" size={16} strokeWidth={2.2} />
+            </button>
           </div>
         </div>
       </div>

@@ -77,6 +77,10 @@ export class RemoteEventAggregator {
         this.flush(event.request.sessionId);
         this.emit({ type: "question.request", request: event.request });
         break;
+      case "question.resolved":
+        // 与权限同语义的双端撤卡（评审 R3-C11）：任一端回答/超时后对端撤下提问卡
+        this.emit({ type: "question.resolved", requestId: event.requestId });
+        break;
       case "schedule.fired":
         this.emit({ type: "schedule.fired", taskId: event.taskId, name: event.name, sessionId: event.sessionId });
         break;

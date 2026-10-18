@@ -11,7 +11,14 @@
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { type HostCommand, type HostEvent, IPC, type PermissionMode, type PermissionRequest } from "@spcode/shared";
+import {
+  type HostCommand,
+  type HostEvent,
+  IPC,
+  type PermissionMode,
+  type PermissionRequest,
+  type QuestionRequest,
+} from "@spcode/shared";
 import { type UtilityProcess, utilityProcess, type WebContents } from "electron";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -83,6 +90,8 @@ export class AgentBridge {
   private listeners = new Set<EventListener>();
   /** 渲染进程未决的权限请求（带超时兜底——评审 P1-1） */
   private pendingPermissions = new Map<string, { request: PermissionRequest; timer: ReturnType<typeof setTimeout> }>();
+  /** 渲染进程未决的结构化提问（重播给重建窗口用；评审 R3-C11）——宿主侧 30 分钟超时会发 question.resolved 兜底 */
+  private pendingQuestions = new Map<string, QuestionRequest>();
   private getPermissionMode: () => PermissionMode;
   private getPermissionRules: () => string[];
 
@@ -142,6 +151,7 @@ export class AgentBridge {
         // 宿主已死，其内的权限请求随之蒸发；清掉转发记录，避免重启后错配
         for (const p of this.pendingPermissions.values()) clearTimeout(p.timer);
         this.pendingPermissions.clear();
+        this.pendingQuestions.clear();
         this.broadcast({ type: "host.error", message: err.message, fatal: true });
       });
       child.once("error", (e) => rejectReady(e));
@@ -161,6 +171,17 @@ export class AgentBridge {
     }
     if (event.type === "permission.request") {
       this.adjudicate(event.request);
+      return;
+    }
+    // 提问跟踪（评审 R3-C11）：request 记账、resolved 销账，bindWindow 据此重播
+    if (event.type === "question.request") {
+      this.pendingQuestions.set(event.request.requestId, event.request);
+      this.broadcast(event);
+      return;
+    }
+    if (event.type === "question.resolved") {
+      this.pendingQuestions.delete(event.requestId);
+      this.broadcast(event);
       return;
     }
     this.broadcast(event);
@@ -196,7 +217,10 @@ export class AgentBridge {
 
   /** 渲染进程回复结构化提问（AskUserQuestion 工具） */
   replyQuestion(requestId: string, answers: Record<string, string>): void {
+    this.pendingQuestions.delete(requestId);
     this.post({ type: "question.reply", payload: { requestId, answers } });
+    // 双端撤卡（与 permission.resolved 同语义）：宿主侧 resolve 后会再广播一次，幂等
+    this.emitLocal({ type: "question.resolved", requestId });
   }
 
   private post(cmd: HostCommand): void {
@@ -241,9 +265,12 @@ export class AgentBridge {
   }
 
   bindWindow(wc: WebContents): () => void {
-    // 重播未决权限请求：macOS 关窗不退出，新窗口重建后仍应看到等待中的确认卡片
+    // 重播未决权限请求与提问：macOS 关窗不退出，新窗口重建后仍应看到等待中的卡片
     for (const p of this.pendingPermissions.values()) {
       if (!wc.isDestroyed()) wc.send(IPC.hostEvent, { type: "permission.request", request: p.request });
+    }
+    for (const q of this.pendingQuestions.values()) {
+      if (!wc.isDestroyed()) wc.send(IPC.hostEvent, { type: "question.request", request: q });
     }
     return this.onEvent((event) => {
       if (!wc.isDestroyed()) wc.send(IPC.hostEvent, event);

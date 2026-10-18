@@ -24,7 +24,7 @@ const NAV: { id: PageId; label: string; icon: string }[] = [
 ];
 
 export function SettingsPage({ onClose }: { onClose: () => void }) {
-  const [page, setPage] = useState<PageId>("usage");
+  const [page, setPage] = useState<PageId>("general");
 
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: 遮罩点外关闭，Esc 另有键盘关闭（评审 R3：待统一 Modal 组件化时收敛）

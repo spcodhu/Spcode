@@ -137,8 +137,9 @@ export function Sidebar({
     for (const r of sp.sessions) await deleteSession(r.id);
   };
 
+  /** 清空聊天列表：遍历全量注册表（评审 R3-C11：chats 展示只截取前 20 条，不能按它删） */
   const clearAllChats = async () => {
-    for (const r of chats) await deleteSession(r.id);
+    for (const r of registrySessions.filter((x) => x.mode === "chat")) await deleteSession(r.id);
   };
 
   return (
@@ -537,7 +538,8 @@ function SessionRow({
         type="button"
         onClick={(e) => {
           e.stopPropagation();
-          onDelete();
+          // 评审 R3-C11：行内删除与菜单删除同款二次确认（误点不可恢复）
+          if (window.confirm(`确定删除会话「${r.title}」吗？该操作不可恢复。`)) onDelete();
         }}
         title="删除会话"
         className="hidden shrink-0 text-text-tertiary hover:text-danger group-hover:block"

@@ -201,8 +201,13 @@ function requestPermission(request: PermissionRequest): Promise<boolean> {
 function askQuestion(request: QuestionRequest): Promise<Record<string, string>> {
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
-      // 空答案 = 用户未作答（工具侧渲染为 dismissed），比永久挂死更可恢复
-      if (pendingQuestions.delete(request.requestId)) resolve({});
+      // 空答案 = 用户未作答（工具侧渲染为 dismissed），比永久挂死更可恢复；
+      // 同时广播 question.resolved 让 UI 撤卡（评审 R3-C11：此前卡片会永久残留）
+      if (pendingQuestions.delete(request.requestId)) {
+        clearTimeout(timer);
+        resolve({});
+        emit({ type: "question.resolved", requestId: request.requestId });
+      }
     }, QUESTION_TIMEOUT_MS);
     pendingQuestions.set(request.requestId, { sessionId: request.sessionId, resolve, timer });
     emit({ type: "question.request", request });
@@ -222,6 +227,7 @@ function settlePendingForSession(sessionId: string): void {
     pendingQuestions.delete(rid);
     clearTimeout(q.timer);
     q.resolve({});
+    emit({ type: "question.resolved", requestId: rid });
   }
 }
 
@@ -368,6 +374,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
       pendingQuestions.delete(cmd.payload.requestId);
       clearTimeout(q.timer);
       q.resolve(cmd.payload.answers);
+      emit({ type: "question.resolved", requestId: cmd.payload.requestId });
     }
     return;
   }
