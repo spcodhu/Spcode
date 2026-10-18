@@ -718,6 +718,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
 /** Spcode 全局数据目录（记忆、设置、用量、会话索引都放在这里） */
 export const SPCODE_HOME_DIRNAME = ".spcode";
 
+/** 密钥字段回传渲染层时的掩码（写回同值 = 未修改，主进程还原真值；评审 R3-C8） */
+export const SECRET_MASK = "••••••••";
+
 /**
  * 配对 OTP 的 KDF 参数（协议 v2，双端必须一致——mobile/desktop 各自实现但共用本常量）：
  * key = sha256 迭代 PAIR_KDF_ITERATIONS 轮，第 0 轮输入为 `PAIR_KDF_DOMAIN + otp`，后续轮输入为上一轮摘要。

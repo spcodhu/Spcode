@@ -138,6 +138,9 @@ export function renameSession(
   return true;
 }
 
+/** 会话 id 白名单（评审 R3-C8：id 参与拼文件路径，防 `../../` 路径穿越删任意 .md） */
+const SESSION_ID_SAFE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+
 /**
  * 删除会话：注册表移除 + 计划文件（~/.spcode/plans/<id>.md）清理 + 宿主活跃实例释放，
  * 最后广播 sessions.changed（渲染进程刷新列表，远程端同步各设备）。
@@ -148,8 +151,10 @@ export async function removeSession(
   sessionId: string,
 ): Promise<void> {
   deps.registry.remove(sessionId);
-  // 计划文件随会话一并清理
-  rmSync(join(deps.plansDir ?? join(resolveSpcodeHome(), "plans"), `${sessionId}.md`), { force: true });
+  // 计划文件随会话一并清理（id 过白名单后才允许拼路径）
+  if (SESSION_ID_SAFE.test(sessionId)) {
+    rmSync(join(deps.plansDir ?? join(resolveSpcodeHome(), "plans"), `${sessionId}.md`), { force: true });
+  }
   // 宿主里的活跃实例也一并释放
   await deps.bridge
     .call({ id: `dispose-${sessionId}`, type: "session.dispose", payload: { sessionId } })

@@ -19,6 +19,7 @@ import {
   type PickedFile,
   type ScheduleTask,
   type ScheduleTaskInput,
+  SECRET_MASK,
   type SessionMode,
 } from "@spcode/shared";
 import { executeSearch, isAdvancedSearchReady } from "@spcode/shared/advanced-search";
@@ -38,7 +39,7 @@ import {
 } from "./session-helpers.js";
 import { SessionRegistry } from "./session-registry.js";
 import { searchSessions } from "./session-search.js";
-import { SettingsStore } from "./settings-store.js";
+import { redactSettingsForRenderer, restoreMaskedSecrets, SettingsStore } from "./settings-store.js";
 import { downloadUpdate, getUpdateState, ignoreVersion, installUpdate, setupAutoUpdater } from "./updater.js";
 import { UsageLedger } from "./usage-ledger.js";
 
@@ -496,10 +497,13 @@ function registerIpc(): void {
 
   // 高级搜索「测试连接」：主进程发真实请求，返回成功条数或失败原因（渲染进程直连会撞 CSP/CORS）
   ipcMain.handle(IPC.searchTest, async (_e, config: AdvancedSearchConfig) => {
-    if (!isAdvancedSearchReady(config))
+    // 掩码密钥还原（渲染层拿到的是掩码，原样回传时用存储的真值——评审 R3-C8）
+    const resolved =
+      config.apiKey === SECRET_MASK ? { ...config, apiKey: settings.get().advancedSearch?.apiKey ?? "" } : config;
+    if (!isAdvancedSearchReady(resolved))
       return { ok: false as const, error: "配置不完整（baseUrl / apiKey / 响应映射）" };
     try {
-      const results = await executeSearch(config, "test", 3, 15_000);
+      const results = await executeSearch(resolved, "test", 3, 15_000);
       return { ok: true as const, count: results.length };
     } catch (err) {
       return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
