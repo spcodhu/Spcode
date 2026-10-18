@@ -1269,6 +1269,9 @@ export const useStore = create<StoreState>((set, get) => ({
           return touchSession(s, event.sessionId, (draft) => {
             if (draft.messages.length === 0) {
               draft.messages = historyToMessages(event.messages);
+              // 恢复会话时上下文环不归零：用投影中最后一条有效 assistant usage 初始化
+              // （压缩点之前的 usage 已被宿主作废为 null，不会显示失真的大数字）
+              if (event.lastUsage) draft.lastUsage = event.lastUsage;
             }
           });
         case "session.todo":

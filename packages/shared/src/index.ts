@@ -264,7 +264,13 @@ export type HostEvent =
   | { type: "ready" }
   | { type: "response"; id: string; success: boolean; data?: unknown; error?: string }
   | { type: "session.event"; sessionId: string; event: unknown }
-  | { type: "session.history"; sessionId: string; messages: unknown[] }
+  | {
+      type: "session.history";
+      sessionId: string;
+      messages: unknown[];
+      /** 恢复会话时的上下文环初始值（投影中最后一条有效 assistant usage；压缩点之前的已作废为 null） */
+      lastUsage?: UsageRecord | null;
+    }
   | { type: "session.usage"; sessionId: string; usage: UsageRecord }
   | { type: "session.todo"; sessionId: string; todos: TodoItem[] }
   /** AI 通过 RenameSession 工具主动起的会话标题 */

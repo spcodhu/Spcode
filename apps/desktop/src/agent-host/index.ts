@@ -295,7 +295,7 @@ async function getOrRevive(sessionId: string): Promise<SessionController | null>
   });
   sessions.set(sessionId, ctl);
   // 唤醒后回放历史：渲染进程只在本地为空时采用（session.history 处理器有 guard）
-  emit({ type: "session.history", sessionId, messages: ctl.history() });
+  emit({ type: "session.history", sessionId, messages: ctl.history(), lastUsage: ctl.lastUsageForRing() });
   return ctl;
 }
 
@@ -480,7 +480,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         sessions.set(cmd.payload.sessionId, ctl);
         // 先回响应，再推历史（渲染进程按序处理）
         respond(id, true, ctl.info());
-        emit({ type: "session.history", sessionId: cmd.payload.sessionId, messages: ctl.history() });
+        emit({ type: "session.history", sessionId: cmd.payload.sessionId, messages: ctl.history(), lastUsage: ctl.lastUsageForRing() });
         break;
       }
       case "session.fork": {
@@ -521,7 +521,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         sessions.set(newSessionId, ctl);
         respond(id, true, ctl.info());
         // Fork 出的会话自带完整历史（渲染进程按序处理：先响应后历史）
-        emit({ type: "session.history", sessionId: newSessionId, messages: ctl.history() });
+        emit({ type: "session.history", sessionId: newSessionId, messages: ctl.history(), lastUsage: ctl.lastUsageForRing() });
         break;
       }
       case "session.hibernate": {
@@ -549,7 +549,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         sessions.set(cmd.payload.sessionId, ctl);
         respond(id, true, ctl.info());
         // 历史回放：渲染进程只在本地消息为空时采用（重复激活不会刷掉现有消息）
-        emit({ type: "session.history", sessionId: cmd.payload.sessionId, messages: ctl.history() });
+        emit({ type: "session.history", sessionId: cmd.payload.sessionId, messages: ctl.history(), lastUsage: ctl.lastUsageForRing() });
         break;
       }
       case "memory.read": {
