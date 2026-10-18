@@ -42,6 +42,9 @@ function defaultDenyRead(spcodeHome: string): string[] {
     join(home, ".netrc"),
     join(home, ".config", "gh"),
     join(spcodeHome, "agent", "auth.json"),
+    // 评审 R3-C3：settings.json 含飞书 appSecret/搜索 apiKey；remote/ 含配对私钥与推送 VAPID
+    join(spcodeHome, "settings.json"),
+    join(spcodeHome, "remote"),
   ];
 }
 

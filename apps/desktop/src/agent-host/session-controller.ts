@@ -30,6 +30,7 @@ import type {
 } from "@spcode/shared";
 import { cleanSessionTitle } from "@spcode/shared";
 import { isAdvancedSearchReady } from "@spcode/shared/advanced-search";
+import { resolveSpcodeHome } from "@spcode/shared/node";
 import { MemoryDistiller } from "./distill.js";
 import type { MemoryStore } from "./memory-store.js";
 import { maybeMicrocompact } from "./microcompact.js";
@@ -44,6 +45,7 @@ import {
   PLAN_MODE_WRITE_BLOCK_REASON,
 } from "./plan-mode.js";
 import { createSandboxedBashTool, matchesExcludedCommand } from "./sandbox/bash-tool.js";
+import { createGuardedFsTools, type FsGuardPolicy, judgeFsToolCall } from "./sandbox/fs-guard.js";
 import { getSandboxService } from "./sandbox/manager.js";
 import { createAdvancedSearchTool } from "./tools/advanced-search.js";
 import { createAskUserQuestionTool } from "./tools/ask-user.js";
@@ -245,6 +247,18 @@ export class SessionController {
     if (opts.getSandboxSettings) sandbox.configure(opts.getSandboxSettings());
     const sandboxState = await sandbox.ensureReady();
 
+    // 文件工具路径守卫（评审 R3-C3）：pi 内置 fs 工具不在 OS 沙盒内，这里是它们的边界。
+    // 实时读设置（extraDenyRead/extraAllowWrite 热生效）；硬 deny 与沙盒 denyRead 同源。
+    const getFsPolicy = (): FsGuardPolicy => {
+      const sb = opts.getSandboxSettings?.();
+      return {
+        cwd,
+        spcodeHome: resolveSpcodeHome(),
+        extraDenyRead: sb?.filesystem.extraDenyRead ?? [],
+        extraAllowWrite: sb?.filesystem.extraAllowWrite ?? [],
+      };
+    };
+
     // ExitPlanMode 的批准回调晚绑定：工具注册早于 controller 构造（同 renameProbe 模式）
     const exitPlanCtx: { isOn: () => boolean; onApproved: () => Promise<void> } = {
       isOn: () => false,
@@ -266,6 +280,8 @@ export class SessionController {
         ...(sandboxState.state === "active"
           ? [createSandboxedBashTool(cwd, { allowBypass: true, getSettings: opts.getSandboxSettings })]
           : []),
+        // 路径守卫版 read/write/edit：同名覆盖内置（进程内 fs 不受 OS 沙盒约束，这里是边界）
+        ...createGuardedFsTools(cwd, getFsPolicy),
         createWebSearchTool(),
         // 高级搜索：仅当用户在设置页配置了完整可用的搜索 API 才注册，
         // 没配置时工具列表里根本没有它（模型无从误调）。配置变更对己创建会话不生效，新会话生效。
@@ -377,6 +393,24 @@ export class SessionController {
         if (!READONLY_TOOLS.has(toolName)) {
           return { block: true, reason: PLAN_MODE_WRITE_BLOCK_REASON };
         }
+        return undefined;
+      }
+      // 文件路径守卫（评审 R3-C3）：fs 类工具先过路径判定——deny 硬拦；prompt 走 danger 级弹窗
+      // （任何权限模式都弹，act/免审批规则不适用）。批准后放行，不再走后续风险流。
+      const fsVerdict = judgeFsToolCall(ctx.toolCall.name, ctx.toolCall.arguments, getFsPolicy());
+      if (fsVerdict?.action === "deny") {
+        return { block: true, reason: `Spcode path policy: ${fsVerdict.reason}` };
+      }
+      if (fsVerdict?.action === "prompt") {
+        const approved = await opts.requestPermission({
+          requestId: randomUUID(),
+          sessionId: opts.sessionId,
+          toolName: ctx.toolCall.name,
+          args: ctx.toolCall.arguments,
+          risk: "danger",
+          sandboxed: false,
+        });
+        if (!approved) return { block: true, reason: "User denied this tool call in Spcod permission dialog." };
         return undefined;
       }
       const risk = classifyToolRisk(ctx.toolCall.name, ctx.toolCall.arguments);

@@ -3,9 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- 评审 R3-C3：img-src 收紧为 'self' data:——模型输出的远程图片（https:）是零点击数据外泄通道
+         （提示注入可把机密拼进图片 URL，渲染即发出请求，无需用户点击）。本地/内联图片不受影响。 -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:"
     />
     <title>Spcod</title>
   </head>
