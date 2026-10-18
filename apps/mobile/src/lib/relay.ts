@@ -25,10 +25,12 @@ export function deriveChannelId(desktopPkB64: string): string {
   return [...digest].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-/** relay hosts 项 → 设备侧 ws url：`wss://<relay>/channel/<channelId>?role=device` */
-export function relayWsUrl(host: string, desktopPkB64: string): string {
+/** relay hosts 项 → 设备侧 ws url：`wss://<relay>/channel/<channelId>?role=device&device=<deviceId>`
+ *  （device 参数让 relay 离线队列按设备分槽补投——评审 R3-C9；缺省兼容旧 relay，收 "*" 槽） */
+export function relayWsUrl(host: string, desktopPkB64: string, deviceId?: string): string {
   const base = host.slice(RELAY_HOST_PREFIX.length).replace(/\/+$/, "");
-  return `${base}/channel/${deriveChannelId(desktopPkB64)}?role=device`;
+  const dev = deviceId ? `&device=${encodeURIComponent(deviceId)}` : "";
+  return `${base}/channel/${deriveChannelId(desktopPkB64)}?role=device${dev}`;
 }
 
 /**

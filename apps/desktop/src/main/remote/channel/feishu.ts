@@ -277,6 +277,9 @@ export class FeishuChannel {
     string,
     { request: PermissionRequest; sent: { openId: string; messageId: string }[] }
   >();
+  /** /bind 连续失败计数与锁定（评审 R3-C9：6 位验证码 5 分钟窗口需要防在线爆破） */
+  private bindFailures = 0;
+  private bindLockedUntil = 0;
 
   constructor(deps: FeishuChannelDeps) {
     this.deps = deps;
@@ -390,15 +393,33 @@ export class FeishuChannel {
     }
   }
 
-  /** /bind <code>：验证码匹配（未过期、单次）→ 记入白名单并落盘 */
+  /** /bind <code>：验证码匹配（未过期、单次）→ 记入白名单并落盘；连续 5 次错误作废当前验证码并锁定 10 分钟 */
   private async handleBind(openId: string, code: string): Promise<void> {
+    const now = this.now();
+    if (now < this.bindLockedUntil) {
+      await this.safeSend(() =>
+        this.api!.sendText(
+          openId,
+          `❌ 尝试次数过多，已锁定。请 ${Math.ceil((this.bindLockedUntil - now) / 60000)} 分钟后到桌面端设置页重新获取验证码。`,
+        ),
+      );
+      return;
+    }
     const win = this.bindCode;
-    if (!win || this.now() >= win.expiresAt || code !== win.code) {
+    if (!win || now >= win.expiresAt || code !== win.code) {
+      this.bindFailures += 1;
+      if (this.bindFailures >= 5) {
+        // 作废当前验证码 + 锁定 10 分钟（与桌面配对 OTP 同口径，评审 R3-C9）
+        this.bindCode = null;
+        this.bindFailures = 0;
+        this.bindLockedUntil = now + 10 * 60_000;
+      }
       await this.safeSend(() => this.api!.sendText(openId, "❌ 验证码错误或已过期，请到桌面端设置页查看最新验证码。"));
       return;
     }
     this.bindCode = null; // 单次有效：成功即作废
-    this.allowlist.set(openId, { openId, boundAt: this.now() });
+    this.bindFailures = 0;
+    this.allowlist.set(openId, { openId, boundAt: now });
     this.persistStore();
     await this.safeSend(() => this.api!.sendText(openId, "✅ 绑定成功！发送 /help 查看可用指令。"));
   }
@@ -590,6 +611,9 @@ export class FeishuChannel {
     const value = action.value;
     try {
       if (value.action === "permission" && typeof value.requestId === "string") {
+        // 纵深防御（评审 R3-C9）：requestId 必须对应一张在途权限卡，
+        // 否则白名单用户可对任意猜测的 requestId 注入裁决
+        if (!this.permissionCards.has(value.requestId)) return;
         // by="remote"：bridge 广播 permission.resolved，桌面端撤卡 + 本通道更新原卡片
         await this.dispatch({
           type: "permission.reply",

@@ -95,10 +95,10 @@ describe("TailscaleManager enable / disable", () => {
     expect(ts.status().enabled).toBe(false);
     expect(ts.status().url).toBeNull();
 
-    // 未开启时 disable 是空操作
+    // 评审 R3-C9：disable 无条件执行 off（幂等）——内存态丢失后残留映射必须可清理
     calls.length = 0;
     await ts.disable();
-    expect(calls.length).toBe(0);
+    expect(calls.some((c) => c.join(" ") === "serve --https=443 off")).toBe(true);
   });
 
   it("tailscale 不可用时 enable 返回 null 且不执行 serve", async () => {

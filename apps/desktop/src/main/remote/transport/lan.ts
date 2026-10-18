@@ -127,7 +127,8 @@ export class LanTransport implements RemoteTransport {
   async start(): Promise<void> {
     if (this.server) return;
     const server = createServer((req, res) => this.serveHttp(req.url ?? "/", res));
-    const wss = new WebSocketServer({ noServer: true });
+    // maxPayload 与 relay 同口径（评审 R3-C9：默认 100MB 太大）
+    const wss = new WebSocketServer({ noServer: true, maxPayload: 256 * 1024 });
     server.on("upgrade", (req, socket, head) => {
       let pathname = "/";
       try {
@@ -148,6 +149,8 @@ export class LanTransport implements RemoteTransport {
         resolvePromise();
       });
     });
+    // 运行期 server 错误（如客户端异常断开触发）不能是未捕获异常（评审 R3-C9）
+    server.on("error", (err) => console.warn("[remote/lan] server error", err));
     const addr = server.address();
     this.boundPort = typeof addr === "object" && addr ? addr.port : this.opts.port;
     this.server = server;
@@ -164,8 +167,10 @@ export class LanTransport implements RemoteTransport {
     this.peers.clear();
     await new Promise<void>((resolvePromise) => {
       wss?.close();
+      // closeAllConnections：主动掐掉 keep-alive 连接，否则端口不释放、重启 EADDRINUSE（评审 R3-C9）
+      server.closeAllConnections?.();
       server.close(() => resolvePromise());
-      // server.close 只在所有连接结束后回调；WS 已在上面逐个 close，500ms 兜底
+      // server.close 只在所有连接结束后回调；500ms 兜底
       setTimeout(resolvePromise, 500).unref();
     });
   }
@@ -208,8 +213,16 @@ export class LanTransport implements RemoteTransport {
         res.writeHead(403).end("forbidden");
         return;
       }
-      const target = existsSync(abs) && statSync(abs).isFile() ? abs : resolve(dir, "index.html");
-      if (existsSync(target) && statSync(target).isFile()) {
+      // statSync 与 existsSync 之间有 TOCTOU 窗口（评审 R3-C9）：异常按不存在处理
+      const safeStatIsFile = (p: string): boolean => {
+        try {
+          return statSync(p).isFile();
+        } catch {
+          return false;
+        }
+      };
+      const target = existsSync(abs) && safeStatIsFile(abs) ? abs : resolve(dir, "index.html");
+      if (existsSync(target) && safeStatIsFile(target)) {
         res.writeHead(200, { "content-type": MIME[extname(target).toLowerCase()] ?? "application/octet-stream" });
         createReadStream(target).pipe(res);
         return;

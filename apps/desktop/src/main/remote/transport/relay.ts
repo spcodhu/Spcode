@@ -155,6 +155,8 @@ export class RelayTransport implements RemoteTransport {
     this.ws = null;
     if (ws) {
       ws.removeAllListeners();
+      // 残余 error 事件（close 握手失败等）无监听即 throw——留一个空监听兜底（评审 R3-C9）
+      ws.on("error", () => {});
       ws.close();
     }
     // 停用时拆除全部虚拟连接（RemoteServer 据此清理对端状态）
@@ -247,6 +249,7 @@ export class RelayTransport implements RemoteTransport {
       this.ws = null;
       this.state = "connecting";
       ws.removeAllListeners();
+      ws.on("error", () => {}); // 同上：残余 error 兜底
       this.scheduleReconnect();
     };
     ws.on("close", onDown);

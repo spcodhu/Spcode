@@ -52,8 +52,8 @@ function wsUrlOf(host: string): string {
 }
 
 /** host 项 → 实际 ws url：relay 前缀项走 channel 路径，其余为 LAN 直连 */
-function connectUrlOf(host: string, desktopPk: string): string {
-  return isRelayHost(host) ? relayWsUrl(host, desktopPk) : wsUrlOf(host);
+function connectUrlOf(host: string, desktopPk: string, deviceId?: string): string {
+  return isRelayHost(host) ? relayWsUrl(host, desktopPk, deviceId) : wsUrlOf(host);
 }
 
 /** 等一帧满足条件的消息；超时或断连即 reject */
@@ -298,7 +298,7 @@ export class RemoteClient {
     this.relay = isRelayHost(host);
     let ws: WebSocket;
     try {
-      ws = await connectWs(connectUrlOf(host, this.record.desktopPk));
+      ws = await connectWs(connectUrlOf(host, this.record.desktopPk, this.record.deviceId));
     } catch (err) {
       this.scheduleReconnect(err instanceof Error ? err.message : "连接失败");
       return;

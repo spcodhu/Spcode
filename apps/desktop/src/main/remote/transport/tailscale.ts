@@ -136,9 +136,11 @@ export class TailscaleManager {
     return this.servingUrl;
   }
 
-  /** 关闭 serve（仅在我们认为已开启时执行 off；失败只记日志） */
+  /**
+   * 关闭 serve。评审 R3-C9：不再依赖内存态 serving——进程重启后内存态丢失，
+   * 但 `tailscale serve --bg` 的映射是节点级持久的；无条件执行 off（幂等，未开启时无操作）。
+   */
   async disable(): Promise<void> {
-    if (!this.serving) return;
     this.serving = false;
     this.servingUrl = null;
     const r = await this.run(["serve", "--https=443", "off"], CMD_TIMEOUT_MS);

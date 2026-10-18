@@ -143,7 +143,7 @@ describe("RemoteClient：relay 通道", () => {
 
   it("连接 URL 走 channel 路径；auth 与加密帧外层带 deviceId", async () => {
     const ws = await startToReady();
-    expect(ws.url).toBe(`wss://relay.test/channel/${deriveChannelId(desktop.publicKey)}?role=device`);
+    expect(ws.url).toBe(`wss://relay.test/channel/${deriveChannelId(desktop.publicKey)}?role=device&device=dev-1`);
 
     const auth = JSON.parse(ws.sent[0]!);
     expect(auth).toEqual({ t: "auth", publicKey: phone.publicKey, deviceId: "dev-1", nextSeq: 0 });

@@ -172,11 +172,16 @@ export class RemoteServer {
       });
     }
     if (relayUrl && !this.relayTransport) {
-      this.relayTransport = new RelayTransport({
-        url: relayUrl,
-        channelId: deriveChannelId(this.pairing.getIdentity().publicKey),
-        log: (msg, extra) => console.warn(`[remote/relay] ${msg}`, extra ?? ""),
-      });
+      // 评审 R3-C9：非法 relayUrl 会在 connect() 里同步抛（new WebSocket），挡在入口
+      if (!/^wss?:\/\//.test(relayUrl)) {
+        console.warn(`[remote/relay] 非法 relayUrl（应为 wss:// 开头）：${relayUrl}`);
+      } else {
+        this.relayTransport = new RelayTransport({
+          url: relayUrl,
+          channelId: deriveChannelId(this.pairing.getIdentity().publicKey),
+          log: (msg, extra) => console.warn(`[remote/relay] ${msg}`, extra ?? ""),
+        });
+      }
     }
     // relayUrl 被清空：停掉自建的 relay transport（注入的由调用方管理）
     if (!relayUrl && this.relayTransport && this.deps.relayTransport === undefined) {
