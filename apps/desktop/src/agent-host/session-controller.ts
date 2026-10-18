@@ -6,7 +6,6 @@
  * 自研工具（WebSearch/WebFetch/TodoWrite/AskUserQuestion/Task）在这里注册。
  * Token 用量在 message_end 事件里提取，单独走 usage 通道上抛。
  */
-import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { getSupportedThinkingLevels, type Model } from "@earendil-works/pi-ai";
@@ -34,18 +33,16 @@ import { resolveSpcodeHome } from "@spcode/shared/node";
 import { MemoryDistiller } from "./distill.js";
 import type { MemoryStore } from "./memory-store.js";
 import { maybeMicrocompact } from "./microcompact.js";
+import { createBeforeToolCallGate } from "./permission-gate.js";
 import {
-  isPlanModeSafeCommand,
   NORMAL_MODE_TOOLS,
-  PLAN_MODE_BASH_BLOCK_REASON,
   PLAN_MODE_CUSTOM_TYPE,
   PLAN_MODE_OFF_MESSAGE,
   PLAN_MODE_ON_MESSAGE,
   PLAN_MODE_TOOLS,
-  PLAN_MODE_WRITE_BLOCK_REASON,
 } from "./plan-mode.js";
-import { createSandboxedBashTool, matchesExcludedCommand } from "./sandbox/bash-tool.js";
-import { createGuardedFsTools, type FsGuardPolicy, judgeFsToolCall } from "./sandbox/fs-guard.js";
+import { createSandboxedBashTool } from "./sandbox/bash-tool.js";
+import { createGuardedFsTools, type FsGuardPolicy } from "./sandbox/fs-guard.js";
 import { getSandboxService } from "./sandbox/manager.js";
 import { createAdvancedSearchTool } from "./tools/advanced-search.js";
 import { createAskUserQuestionTool } from "./tools/ask-user.js";
@@ -58,7 +55,7 @@ import { createWebSearchTool } from "./tools/websearch.js";
 import { createWritePlanTool } from "./tools/write-plan.js";
 
 /** 工具风险分级：只读工具自动放行，写类/Shell 要确认（renamesession 无副作用，只读；writeplan/exitplanmode 只写应用自身目录/只改模式状态，只读） */
-const READONLY_TOOLS = new Set([
+export const READONLY_TOOLS = new Set([
   "read",
   "grep",
   "find",
@@ -140,7 +137,7 @@ export function classifyToolRisk(toolName: string, args: unknown): ToolRisk {
   return "write";
 }
 
-function extractCommand(args: unknown): string | null {
+export function extractCommand(args: unknown): string | null {
   if (args && typeof args === "object" && "command" in args) {
     const c = (args as { command?: unknown }).command;
     return typeof c === "string" ? c : null;
@@ -314,6 +311,7 @@ export class SessionController {
           thinkingLevel: opts.thinkingLevel ?? "medium",
           depth: 0,
           getSandboxSettings: opts.getSandboxSettings,
+          requestPermission: opts.requestPermission,
         }),
       ],
     });
@@ -379,97 +377,16 @@ export class SessionController {
       if (usage) opts.emitUsage(usage);
     });
 
-    // 权限网关：挂在 pi 的 beforeToolCall 钩子上
-    session.agent.beforeToolCall = async (ctx) => {
-      // 计划模式门禁(实时读取 planMode,运行中切换也立即生效):
-      // bash 走只读白名单,放行且不再弹权限;写类调用本不该出现在计划工具集里,兜底拦截
-      if (ctl.planMode) {
-        const toolName = ctx.toolCall.name.toLowerCase();
-        if (toolName === "bash" || toolName === "powershell") {
-          const cmd = extractCommand(ctx.toolCall.arguments);
-          if (cmd && isPlanModeSafeCommand(cmd)) return undefined;
-          return { block: true, reason: PLAN_MODE_BASH_BLOCK_REASON };
-        }
-        if (!READONLY_TOOLS.has(toolName)) {
-          return { block: true, reason: PLAN_MODE_WRITE_BLOCK_REASON };
-        }
-        return undefined;
-      }
-      // 文件路径守卫（评审 R3-C3）：fs 类工具先过路径判定——deny 硬拦；prompt 走 danger 级弹窗
-      // （任何权限模式都弹，act/免审批规则不适用）。批准后放行，不再走后续风险流。
-      const fsVerdict = judgeFsToolCall(ctx.toolCall.name, ctx.toolCall.arguments, getFsPolicy());
-      if (fsVerdict?.action === "deny") {
-        return { block: true, reason: `Spcode path policy: ${fsVerdict.reason}` };
-      }
-      if (fsVerdict?.action === "prompt") {
-        const approved = await opts.requestPermission({
-          requestId: randomUUID(),
-          sessionId: opts.sessionId,
-          toolName: ctx.toolCall.name,
-          args: ctx.toolCall.arguments,
-          risk: "danger",
-          sandboxed: false,
-        });
-        if (!approved) return { block: true, reason: "User denied this tool call in Spcod permission dialog." };
-        return undefined;
-      }
-      const risk = classifyToolRisk(ctx.toolCall.name, ctx.toolCall.arguments);
-      if (risk === "readonly") return undefined;
-      // 沙盒联动（创建时固定，与工具注册同生命周期）：
-      // - 仅 bash/powershell 受沙盒约束；edit/write 等进程内文件工具不享受自动放行
-      // - 沙盒内 write 级命令在 autoAllow 开启时免审批（内核边界已兜底）
-      // - outward（对外动作）/danger 仍弹窗——沙盒管不住语义级后果
-      // - 逃生舱（dangerouslyDisableSandbox=true）：严格模式直接拒；否则强制弹窗（bypass 标记），
-      //   不享受 autoAllow——批准后命令在沙盒外以完整权限执行
-      // - excludedCommands（沙盒外白名单）命中的命令不经沙盒，不享受 autoAllow，走普通权限流
-      const sandboxed = sandboxState.state === "active";
-      const isShellTool = DANGER_TOOL_NAMES.has(ctx.toolCall.name.toLowerCase());
-      const sandboxSettings = opts.getSandboxSettings?.();
-      const bypassRequested =
-        isShellTool &&
-        sandboxed &&
-        (ctx.toolCall.arguments as { dangerouslyDisableSandbox?: unknown } | null)?.dangerouslyDisableSandbox === true;
-      if (bypassRequested) {
-        if (!sandboxSettings?.allowUnsandboxedCommands) {
-          return {
-            block: true,
-            reason:
-              "Sandbox strict mode: dangerouslyDisableSandbox is disabled (sandbox.allowUnsandboxedCommands=false). Run the command inside the sandbox or ask the user to allow it in Settings → Sandbox.",
-          };
-        }
-        const approved = await opts.requestPermission({
-          requestId: randomUUID(),
-          sessionId: opts.sessionId,
-          toolName: ctx.toolCall.name,
-          args: ctx.toolCall.arguments,
-          risk,
-          sandboxed: false,
-          bypass: true,
-        });
-        if (approved) return undefined;
-        return { block: true, reason: "User denied this tool call in Spcod permission dialog." };
-      }
-      const cmd = extractCommand(ctx.toolCall.arguments);
-      const excludedHit =
-        isShellTool &&
-        sandboxed &&
-        cmd !== null &&
-        (sandboxSettings?.excludedCommands ?? []).some((r) => matchesExcludedCommand(cmd, r));
-      const effectiveSandboxed = sandboxed && isShellTool && !excludedHit;
-      if (effectiveSandboxed && risk === "write" && sandboxSettings?.autoAllow) {
-        return undefined;
-      }
-      const approved = await opts.requestPermission({
-        requestId: randomUUID(),
-        sessionId: opts.sessionId,
-        toolName: ctx.toolCall.name,
-        args: ctx.toolCall.arguments,
-        risk,
-        sandboxed: effectiveSandboxed,
-      });
-      if (approved) return undefined;
-      return { block: true, reason: "User denied this tool call in Spcod permission dialog." };
-    };
+    // 权限网关：挂在 pi 的 beforeToolCall 钩子上（实现已抽 permission-gate.ts，
+    // 与 Task 子代理共享同一裁决链——评审 R3-C4）
+    session.agent.beforeToolCall = createBeforeToolCallGate({
+      sessionId: opts.sessionId,
+      isPlanMode: () => ctl.planMode,
+      getFsPolicy,
+      getSandboxSettings: opts.getSandboxSettings,
+      sandboxState,
+      requestPermission: opts.requestPermission,
+    });
 
     return ctl;
   }

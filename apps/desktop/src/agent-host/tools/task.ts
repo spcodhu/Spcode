@@ -10,9 +10,12 @@
 import type { Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
-import type { SandboxSettings } from "@spcode/shared";
+import type { PermissionRequest, SandboxSettings } from "@spcode/shared";
+import { resolveSpcodeHome } from "@spcode/shared/node";
 import { type Static, Type } from "typebox";
+import { createBeforeToolCallGate } from "../permission-gate.js";
 import { createSandboxedBashTool } from "../sandbox/bash-tool.js";
+import { createGuardedFsTools, type FsGuardPolicy } from "../sandbox/fs-guard.js";
 import { getSandboxService } from "../sandbox/manager.js";
 
 /** 可获得 Task 工具的会话深度上限：0=主会话、1=子代理可嵌套，2 起不再提供 */
@@ -34,6 +37,8 @@ export interface TaskToolContext {
   depth: number;
   /** 沙盒设置 getter（主会话透传；子代理 bash 与主会话同边界） */
   getSandboxSettings?: () => SandboxSettings;
+  /** 权限网关通道（主会话透传，评审 R3-C4：子代理的写/危险操作同样弹窗裁决） */
+  requestPermission: (req: PermissionRequest) => Promise<boolean>;
 }
 
 export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
@@ -50,10 +55,21 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
       const sandbox = getSandboxService();
       if (ctx.getSandboxSettings) sandbox.configure(ctx.getSandboxSettings());
       const sandboxState = await sandbox.ensureReady();
+      // 文件路径守卫与主会话同策略（R3-C3/C4）：子会话注册守卫版 read/write/edit
+      const getFsPolicy = (): FsGuardPolicy => {
+        const sb = ctx.getSandboxSettings?.();
+        return {
+          cwd: ctx.cwd,
+          spcodeHome: resolveSpcodeHome(),
+          extraDenyRead: sb?.filesystem.extraDenyRead ?? [],
+          extraAllowWrite: sb?.filesystem.extraAllowWrite ?? [],
+        };
+      };
       const customTools: ToolDefinition[] = [
-        // 子会话不挂权限网关（无 beforeToolCall），沙盒是唯一防线——绝不能给子代理
-        // 开放 dangerouslyDisableSandbox 逃生舱参数，否则就是无审批逃逸口
+        // 子会话沙盒 bash：不开放 dangerouslyDisableSandbox 逃生舱参数
+        // （逃生舱批准权属用户与主会话，子代理不得自行申请）
         ...(sandboxState.state === "active" ? [createSandboxedBashTool(ctx.cwd, { allowBypass: false })] : []),
+        ...createGuardedFsTools(ctx.cwd, getFsPolicy),
         // 子会话深度 +1；达到上限后子会话不再拿到 Task（评审 P2-5：让条件与头注释同口径）
         ...(ctx.depth + 1 < MAX_TASK_DEPTH ? [createTaskTool({ ...ctx, depth: ctx.depth + 1 })] : []),
       ];
@@ -66,6 +82,15 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
         thinkingLevel: ctx.thinkingLevel as any,
         sessionManager: SessionManager.inMemory(),
         customTools: customTools.length > 0 ? customTools : undefined,
+      });
+      // 权限网关（R3-C4）：子代理与主会话同一裁决链（计划模式例外——计划模式下 Task 不挂载）
+      session.agent.beforeToolCall = createBeforeToolCallGate({
+        sessionId: `task-subagent@${ctx.cwd}`,
+        isPlanMode: () => false,
+        getFsPolicy,
+        getSandboxSettings: ctx.getSandboxSettings,
+        sandboxState,
+        requestPermission: ctx.requestPermission,
       });
       try {
         const onAbort = () => void session.abort();
