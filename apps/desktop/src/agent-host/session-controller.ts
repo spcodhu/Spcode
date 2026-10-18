@@ -27,6 +27,7 @@ import { cleanSessionTitle } from "@spcode/shared";
 import { isAdvancedSearchReady } from "@spcode/shared/advanced-search";
 import { MemoryDistiller } from "./distill.js";
 import type { MemoryStore } from "./memory-store.js";
+import { maybeMicrocompact } from "./microcompact.js";
 import { createSandboxedBashTool, matchesExcludedCommand } from "./sandbox/bash-tool.js";
 import { getSandboxService } from "./sandbox/manager.js";
 import {
@@ -344,6 +345,9 @@ export class SessionController {
       if (event.type === "agent_start") ctl.running = true;
       if (event.type === "agent_settled") {
         ctl.running = false;
+        // 渐进式压缩第一层：接近触发线时先无损折叠旧工具结果，
+        // 让引擎的全量 LLM 摘要压缩更晚（甚至不再）触发
+        maybeMicrocompact(session, opts.piSettings);
         distiller.schedule(session);
         ctl.maybeGenerateFallbackTitle();
       }
