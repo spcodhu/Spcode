@@ -86,8 +86,19 @@ describe("执行路径", () => {
       allowBypass: false,
       settings: makeSettings({ excludedCommands: ["echo excluded"] }),
     });
+    const r = await run(tool, { command: "echo excluded" });
+    expect(r.text).toContain("excluded");
+  });
+
+  it("excludedCommands 不适用复合命令（评审 R3-C5：首段命中不能让整条出沙盒）", async () => {
+    const tool = makeTool({
+      allowBypass: false,
+      settings: makeSettings({ excludedCommands: ["echo excluded"] }),
+    });
+    // 沙盒关闭 + 复合命令不命中白名单 → 走沙盒路径 fail-closed
     const r = await run(tool, { command: "echo excluded && echo done" });
-    expect(r.text).toContain("done");
+    expect(r.text).not.toContain("done");
+    expect(r.text).toContain("sandbox");
   });
 
   it("普通命令在沙盒不可用时 fail-closed（exit 126，不裸跑）", async () => {

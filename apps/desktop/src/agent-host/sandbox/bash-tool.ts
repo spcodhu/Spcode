@@ -54,11 +54,16 @@ const sandboxedBashSchema = Type.Object({
   ),
 });
 
-/** excludedCommands 前缀匹配（与主进程 matchesPermissionRule 同语义：token 边界 + 首条管道段） */
+/** 含 shell 元字符的复合命令一律不匹配（与主进程 matchesPermissionRule 同语义，评审 R3-C5） */
+const SHELL_METACHARS = /[;|&<>\n`$]/;
+
+/** excludedCommands 前缀匹配（token 边界）；复合命令不适用白名单（整条都会在沙盒外执行） */
 export function matchesExcludedCommand(command: string, rule: string): boolean {
-  const cmd = (command.split(/[|;&\n]/)[0] ?? "").trim().replace(/\s+/g, " ");
   const r = rule.trim().replace(/\s+/g, " ");
-  if (!cmd || !r) return false;
+  if (!r) return false;
+  if (SHELL_METACHARS.test(command)) return false; // 必须在空白归一前判（\n 会被归一成空格）
+  const cmd = command.trim().replace(/\s+/g, " ");
+  if (!cmd) return false;
   return cmd === r || (cmd.startsWith(r) && cmd[r.length] === " ");
 }
 

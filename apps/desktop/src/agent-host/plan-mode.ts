@@ -155,23 +155,36 @@ const SAFE_PKG_SUBCOMMANDS = new Set([
   "audit",
 ]);
 
-/** 段分隔符:管道、与或、分号 */
-const SEGMENT_SPLIT = /\|\||&&|[|;]/;
+/** 段分隔符:管道、与或、分号、换行（评审 R3-C5：换行不分段则 "cat a\nrm -rf x" 首词 cat 即放行整串） */
+const SEGMENT_SPLIT = /\|\||&&|[|;\n]/;
 
 /** find 的这些旗标能删文件/执行命令/写文件,命中即不安全 */
-const DANGEROUS_FIND_FLAGS = new Set(["-delete", "-exec", "-execdir", "-ok", "-okdir", "-fls", "-fprintf"]);
+const DANGEROUS_FIND_FLAGS = new Set([
+  "-delete",
+  "-exec",
+  "-execdir",
+  "-ok",
+  "-okdir",
+  "-fls",
+  "-fprintf",
+  "-fprint",
+  "-fprint0",
+]);
 
 /**
  * 计划态 bash 命令安全性判定。
- * 按管道/连接符拆段,逐段检查首词(及其子命令)是否在只读白名单内;
+ * 按管道/连接符/换行拆段,逐段检查首词(及其子命令)是否在只读白名单内;
  * 命令替换与输出重定向一律拒绝(它们能藏写操作)。
+ * 评审 R3-C5：重定向判定改为任意 >/< 字符即拒（含无空格 `echo hi>x`、`2>`、`&>` 形态）——
+ * 计划模式是只读承诺，宁可误拦合法读取也不放写。
  */
 export function isPlanModeSafeCommand(command: string): boolean {
   const cmd = command.trim();
   if (!cmd) return false;
-  // 命令替换 $(...) / `...` 与重定向 > >> 直接拒绝
+  // 命令替换 $(...) / `...` 一律拒绝
   if (/`|\$\(/.test(cmd)) return false;
-  if (/(^|\s)>>?/.test(cmd)) return false;
+  // 任意重定向字符一律拒绝（含无空格、fd 前缀、&> 形态）
+  if (/[<>]/.test(cmd)) return false;
   for (const segment of cmd.split(SEGMENT_SPLIT)) {
     const tokens = segment.trim().split(/\s+/).filter(Boolean);
     if (tokens.length === 0) continue;
@@ -193,12 +206,73 @@ export function isPlanModeSafeCommand(command: string): boolean {
         // 两个及以上位置参数是写(git config key value);key=value 形式也是写
         if (!hasReadFlag && positional.length >= 2) return false;
         if (positional.some((t) => t.includes("="))) return false;
+        // --unset/--unset-all/--add/--replace-all/--rename-section/--remove-section 等写旗标一律拒
+        if (rest.some((t) => /^--(unset|add|replace|rename|remove)/.test(t))) return false;
+        continue;
+      }
+      // 评审 R3-C5：branch/tag/remote 只允许只读形态（裸列表/-a/-v/--list/--show-current/show/get-url），
+      // 其余（-d/-D/-m/-f/位置参数=创建/add/remove/set-url/prune 等）一律拒
+      if (sub === "branch" || sub === "tag") {
+        const rest = tokens.slice(tokens.indexOf(sub) + 1);
+        const READ_FLAGS = new Set([
+          "-a",
+          "--all",
+          "-v",
+          "--verbose",
+          "-vv",
+          "--list",
+          "-l",
+          "--show-current",
+          "-n",
+          "--points-at",
+          "--sort",
+          "--contains",
+          "--no-contains",
+          "--merged",
+          "--no-merged",
+          "--format",
+          "--column",
+          "--no-column",
+          "--color",
+          "--no-color",
+          "-q",
+          "--quiet",
+        ]);
+        for (const t of rest) {
+          if (t.startsWith("-")) {
+            // 带值旗标的值不单独校验（--format 后跟什么都只是格式串）
+            if (
+              !READ_FLAGS.has(t) &&
+              !t.startsWith("--sort=") &&
+              !t.startsWith("--format=") &&
+              !t.startsWith("--points-at=") &&
+              !t.startsWith("--contains=") &&
+              !t.startsWith("--column=") &&
+              !t.startsWith("--color=")
+            )
+              return false;
+          } else {
+            return false; // 位置参数 = 创建/删除分支或打标签
+          }
+        }
+        continue;
+      }
+      if (sub === "remote") {
+        // 只放行 git remote / -v / show / get-url
+        const rest = tokens.slice(tokens.indexOf("remote") + 1).filter((t) => !t.startsWith("-"));
+        if (rest.length > 0 && rest[0] !== "show" && rest[0] !== "get-url") return false;
+        continue;
       }
       continue;
     }
     if (bin === "npm" || bin === "pnpm" || bin === "yarn") {
       const sub = tokens.slice(1).find((t) => !t.startsWith("-"));
       if (!sub || !SAFE_PKG_SUBCOMMANDS.has(sub)) return false;
+      // npm/pnpm/yarn audit 只允许纯审计（audit fix 会改 package-lock/node_modules）
+      if (sub === "audit") {
+        const rest = tokens.slice(tokens.indexOf(sub) + 1).filter((t) => !t.startsWith("-"));
+        if (rest.length > 0) return false;
+      }
       continue;
     }
     return false;

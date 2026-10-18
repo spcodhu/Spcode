@@ -74,6 +74,47 @@ describe("isPlanModeSafeCommand:bash 只读白名单", () => {
   it("读环境变量仍可用 printenv", () => {
     expect(isPlanModeSafeCommand("printenv PATH")).toBe(true);
   });
+
+  it("评审 R3-C5 逃逸回归：换行分段/无空格重定向/git 写形态/find 写旗标/audit fix", () => {
+    for (const cmd of [
+      "cat a.txt\nrm -rf /tmp/x", // 换行不分段则首词 cat 放行整串
+      "echo hi>x.md", // 无空格重定向
+      "echo hi 2>/dev/null", // fd 重定向
+      "echo hi &> log", // &> 重定向
+      "git branch -D feature", // 强删分支
+      "git branch new-feature", // 建分支（位置参数）
+      "git tag v1.0", // 打标签
+      "git tag -d v1.0", // 删标签
+      "git remote add evil https://evil/x.git", // 写 remote
+      "git remote set-url origin https://evil/x.git",
+      "git config --unset user.name", // 写 config
+      "find . -fprint out.txt", // find 写文件
+      "find . -fprint0 out.txt",
+      "npm audit fix", // 改 package-lock/node_modules
+    ]) {
+      expect(isPlanModeSafeCommand(cmd), cmd).toBe(false);
+    }
+  });
+
+  it("评审 R3-C5 不误伤：git branch/tag/remote/config 的只读形态仍放行", () => {
+    for (const cmd of [
+      "git branch",
+      "git branch -a",
+      "git branch -v",
+      "git branch --show-current",
+      "git tag",
+      "git tag -l",
+      "git remote",
+      "git remote -v",
+      "git remote show origin",
+      "git remote get-url origin",
+      "git config --get user.name",
+      "npm audit",
+      "npm audit --json",
+    ]) {
+      expect(isPlanModeSafeCommand(cmd), cmd).toBe(true);
+    }
+  });
 });
 
 describe("classifyToolRisk:计划工具分级", () => {
