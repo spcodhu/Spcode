@@ -108,7 +108,7 @@ export class AgentBridge {
 
   start(): Promise<void> {
     if (this.readyPromise) return this.readyPromise;
-    this.readyPromise = new Promise((resolveReady, rejectReady) => {
+    this.readyPromise = new Promise<void>((resolveReady, rejectReady) => {
       const entry = join(__dirname, "agent-host.mjs");
       const child = utilityProcess.fork(entry, [], {
         serviceName: "spcode-agent-host",
@@ -134,6 +134,9 @@ export class AgentBridge {
         this.child = null;
         this.readyPromise = null;
         const err = new Error(`agent-host exited (code ${code})`);
+        // 评审 R3-C10：宿主在 ready 前退出，必须 reject 在途 readyPromise——
+        // 否则 await start() 永久悬挂（连 call() 的 30s 超时都在它之后才设置）
+        rejectReady(err);
         for (const p of this.pending.values()) p.reject(err);
         this.pending.clear();
         // 宿主已死，其内的权限请求随之蒸发；清掉转发记录，避免重启后错配
@@ -205,25 +208,29 @@ export class AgentBridge {
     this.post(cmd);
   }
 
-  /** 发送带 id 的命令并等待响应；默认 30s 超时（宿主卡死时 UI 不再无限转圈——评审 P1-8） */
+  /** 发送带 id 的命令并等待响应；默认 30s 超时（宿主卡死时 UI 不再无限转圈——评审 P1-8）。
+   *  总超时包住 start()：宿主启动即崩时 readyPromise 会拒绝（R3-C10），这里再兜一层竞态 */
   async call<T = unknown>(cmd: Extract<HostCommand, { id: string }>, opts?: { timeoutMs?: number }): Promise<T> {
-    await this.start();
     const timeoutMs = opts?.timeoutMs ?? CALL_TIMEOUT_MS;
+    let timer: ReturnType<typeof setTimeout>;
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`宿主命令 ${cmd.type} 超过 ${Math.round(timeoutMs / 1000)}s 未响应`)),
+        timeoutMs,
+      );
+    });
+    try {
+      return await Promise.race([this.callInner<T>(cmd), timeout]);
+    } finally {
+      clearTimeout(timer!);
+      this.pending.delete(cmd.id); // 超时/失败清账（迟到响应落地即弃，不泄漏挂账）
+    }
+  }
+
+  private async callInner<T>(cmd: Extract<HostCommand, { id: string }>): Promise<T> {
+    await this.start();
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(cmd.id);
-        reject(new Error(`宿主命令 ${cmd.type} 超过 ${Math.round(timeoutMs / 1000)}s 未响应`));
-      }, timeoutMs);
-      this.pending.set(cmd.id, {
-        resolve: (v) => {
-          clearTimeout(timer);
-          resolve(v as T);
-        },
-        reject: (e) => {
-          clearTimeout(timer);
-          reject(e);
-        },
-      });
+      this.pending.set(cmd.id, { resolve: resolve as (v: unknown) => void, reject });
       this.post(cmd);
     });
   }
