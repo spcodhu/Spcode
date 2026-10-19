@@ -80,6 +80,22 @@ async function getJson(url: string, apiKey: string, signal?: AbortSignal): Promi
   }
 }
 
+/**
+ * 宽进严出地取数值：上游额度接口的字段类型不稳定（数字/数字字符串/缺字段/带单位字符串）。
+ * 无法解析成有限数一律返回 null——绝不让 NaN 流进 usedPercent（配额页曾显示「剩余 NaN%」）。
+ */
+function toFinite(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** 已用百分比：clamp 到 0..100，非有限值返回 null（调用方降级为文字行） */
+function usedPercentOf(limit: number, used: number | null): number | null {
+  if (used === null || !Number.isFinite(used) || !(limit > 0)) return null;
+  return Math.min(100, Math.max(0, used));
+}
+
 function balanceRow(balance: string, currency?: string): QuotaLimit {
   return { label: "可用余额", usedPercent: null, text: `${currency ?? ""}${balance}`, resetText: null };
 }
@@ -116,13 +132,53 @@ const moonshotAdapter: QuotaAdapter = {
   },
 };
 
+/** 额度窗口时长 → 可读标签（未知单位回落「窗口额度」） */
+function windowLabel(window?: { duration?: number; timeUnit?: string }): string {
+  const d = toFinite(window?.duration);
+  if (d === null || d <= 0) return "窗口额度";
+  const unit = window?.timeUnit;
+  if (unit === "TIME_UNIT_MINUTE") return d % 60 === 0 ? `${d / 60} 小时额度` : `${d} 分钟额度`;
+  if (unit === "TIME_UNIT_HOUR") return `${d} 小时额度`;
+  if (unit === "TIME_UNIT_DAY") return `${d} 天额度`;
+  if (unit === "TIME_UNIT_WEEK") return `${d} 周额度`;
+  return "窗口额度";
+}
+
+/**
+ * 单行额度的口径归一（导出供单测）：
+ * remaining 优先 → 否则用 used 反推 → 两者都不可用则 usedPercent=null（文字行，不产生 NaN）。
+ */
+export function quotaLimitOf(args: {
+  label: string;
+  limit: unknown;
+  remaining?: unknown;
+  used?: unknown;
+  resetTime?: string;
+}): QuotaLimit | null {
+  const limit = toFinite(args.limit);
+  if (limit === null || limit <= 0) return null;
+  const remaining = toFinite(args.remaining);
+  const used = toFinite(args.used);
+  let usedPct: number | null = null;
+  if (remaining !== null) usedPct = ((limit - remaining) / limit) * 100;
+  else if (used !== null) usedPct = (used / limit) * 100;
+  const pct = usedPct === null ? null : usedPercentOf(limit, usedPct);
+  return {
+    label: args.label,
+    usedPercent: pct,
+    // usedPercent 未知时给出原始额度量，避免整行只剩一个标签
+    text: pct === null ? `额度 ${formatTokens(limit)}` : `${Math.round(100 - pct)}%`,
+    resetText: args.resetTime ? formatReset(Date.parse(args.resetTime)) : null,
+  };
+}
+
 /** Kimi For Coding /v1/usages 响应 → 额度行（导出供单测） */
 export function parseKimiCodingUsages(body: unknown): { plan: string | null; limits: QuotaLimit[] } {
   const b = body as {
-    usage?: { limit?: string; remaining?: string; resetTime?: string };
+    usage?: { limit?: unknown; remaining?: unknown; used?: unknown; resetTime?: string };
     limits?: {
       window?: { duration?: number; timeUnit?: string };
-      detail?: { limit?: string; remaining?: string; resetTime?: string };
+      detail?: { limit?: unknown; remaining?: unknown; used?: unknown; resetTime?: string };
     }[];
   };
   const rows: QuotaLimit[] = [];
@@ -130,28 +186,26 @@ export function parseKimiCodingUsages(body: unknown): { plan: string | null; lim
   for (const l of b?.limits ?? []) {
     const d = l?.detail;
     if (!d) continue;
-    const limit = Number(d.limit);
-    const remaining = Number(d.remaining);
-    if (!(limit > 0)) continue;
-    const usedPct = Math.max(0, ((limit - remaining) / limit) * 100);
-    const hours = l.window?.duration && l.window.timeUnit === "TIME_UNIT_MINUTE" ? l.window.duration / 60 : null;
-    rows.push({
-      label: hours ? `${hours} 小时额度` : "窗口额度",
-      usedPercent: usedPct,
-      text: `${Math.round(100 - usedPct)}%`,
-      resetText: d.resetTime ? formatReset(Date.parse(d.resetTime)) : null,
+    const row = quotaLimitOf({
+      label: windowLabel(l.window),
+      limit: d.limit,
+      remaining: d.remaining,
+      used: d.used,
+      resetTime: d.resetTime,
     });
+    if (row) rows.push(row);
   }
   // 总量额度（每周）
   const u = b?.usage;
-  if (u && Number(u.limit) > 0) {
-    const usedPct = Math.max(0, ((Number(u.limit) - Number(u.remaining)) / Number(u.limit)) * 100);
-    rows.push({
+  if (u) {
+    const row = quotaLimitOf({
       label: "每周额度",
-      usedPercent: usedPct,
-      text: `${Math.round(100 - usedPct)}%`,
-      resetText: u.resetTime ? formatReset(Date.parse(u.resetTime)) : null,
+      limit: u.limit,
+      remaining: u.remaining,
+      used: u.used,
+      resetTime: u.resetTime,
     });
+    if (row) rows.push(row);
   }
   if (rows.length === 0) throw new Error("无配额信息");
   return { plan: "Kimi For Coding", limits: rows };
@@ -186,11 +240,12 @@ const zaiAdapter: QuotaAdapter = {
     const d = data.data;
     if (!d) throw new Error("无配额信息");
     const rows: QuotaLimit[] = (d.limits ?? []).map((l) => {
-      const pct = l.percentage ?? null;
+      // percentage 可能是 null/NaN/字符串：非有限值降级为未知（不渲染 NaN%）
+      const pct = usedPercentOf(100, toFinite(l.percentage));
       return {
         label: limitLabel(l.type),
         usedPercent: pct,
-        text: pct != null ? `${Math.max(0, 100 - pct).toFixed(0)}%` : String(l.remaining ?? "—"),
+        text: pct != null ? `${Math.round(100 - pct)}%` : String(l.remaining ?? "—"),
         resetText: l.nextResetTime ? formatReset(l.nextResetTime) : null,
       };
     });
@@ -214,11 +269,19 @@ const dashscopeAdapter: QuotaAdapter = {
         limits: [{ label: "额度", usedPercent: null, text: "暂不支持在线查询", resetText: null }],
       };
     }
-    const used = data.used_quota ?? 0;
-    const pct = data.total_quota > 0 ? Math.round((used / data.total_quota) * 100) : null;
+    const total = toFinite(data.total_quota);
+    const used = toFinite(data.used_quota) ?? 0;
+    const pct = total !== null && total > 0 ? usedPercentOf(total, (used / total) * 100) : null;
     return {
       plan: "Token Plan",
-      limits: [{ label: "总额度", usedPercent: pct, text: pct != null ? `${100 - pct}%` : null, resetText: null }],
+      limits: [
+        {
+          label: "总额度",
+          usedPercent: pct,
+          text: pct != null ? `${Math.round(100 - pct)}%` : null,
+          resetText: null,
+        },
+      ],
     };
   },
 };

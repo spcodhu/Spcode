@@ -96,9 +96,10 @@ function ProviderSection({ info }: { info: QuotaInfo }) {
 /**
  * 单行额度：进度条表示已消耗占比，右侧同时标出「剩余 / 已用」两个口径，
  * 避免只剩一个数字时分不清是余量还是消耗量。
+ * usedPercent 非有限值（上游缺字段/脏数据）一律降级为文字行——绝不渲染 NaN。
  */
 function LimitRow({ limit: l }: { limit: QuotaLimit }) {
-  if (l.usedPercent == null) {
+  if (l.usedPercent == null || !Number.isFinite(l.usedPercent)) {
     return (
       <div className="flex items-center gap-4">
         <span className="w-20 shrink-0 text-[13px] text-text-secondary">{l.label}</span>
