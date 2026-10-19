@@ -70,6 +70,10 @@ export interface SpcodeApi {
   getAppVersion(): Promise<string>;
   /** 高级搜索「测试连接」：主进程发真实请求验证配置 */
   searchTest(config: AdvancedSearchConfig): Promise<{ ok: true; count: number } | { ok: false; error: string }>;
+  /** 会话 git 改动（评审 R3-F2）：基线状态 / diff 内容 / 还原（stash push 可恢复） */
+  sessionGitState(id: string): Promise<{ hasBaseline: boolean; changed: boolean; stat: string }>;
+  sessionGitDiff(id: string): Promise<{ stat: string; patch: string; untracked: string[] } | null>;
+  sessionGitRevert(id: string): Promise<string | null>;
   /** 远程控制：状态（开关/监听地址/设备列表/当前配对窗口） */
   remoteStatus(): Promise<RemoteStatus>;
   /** 远程控制开关（可选同时设置端口；null = 随机端口），返回最新状态 */
@@ -175,6 +179,15 @@ const api: SpcodeApi = {
   },
   searchTest(config) {
     return ipcRenderer.invoke(IPC.searchTest, config);
+  },
+  sessionGitState(id) {
+    return ipcRenderer.invoke(IPC.sessionGitState, id);
+  },
+  sessionGitDiff(id) {
+    return ipcRenderer.invoke(IPC.sessionGitDiff, id);
+  },
+  sessionGitRevert(id) {
+    return ipcRenderer.invoke(IPC.sessionGitRevert, id);
   },
   remoteStatus() {
     return ipcRenderer.invoke(IPC.remoteStatus);

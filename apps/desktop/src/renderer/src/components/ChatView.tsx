@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { type ChatMessage, groupMessagesForRender, useStore } from "../store";
 import { Composer } from "./Composer";
 import { SessionEmptyState } from "./EmptyState";
+import { GitChangesBar } from "./GitChangesBar";
 import { AssistantRunItem, MessageItem, NoticeItem } from "./MessageItem";
 import { QuestionInline } from "./QuestionCard";
 import { RunStatusBar } from "./RunStatusBar";
@@ -74,6 +75,8 @@ export function ChatView({ sessionId }: { sessionId: string }) {
       )}
       {/* 当前会话的待回答提问：内嵌在输入框上方，不全局弹窗 */}
       <QuestionInline sessionId={sessionId} />
+      {/* 会话改动条（R3-F2）：git 仓库里跑过的会话，改动可见/可还原 */}
+      <GitChangesBar sessionId={sessionId} />
       {/* 运行状态条：常驻输入框正上方，不随消息流滚动（模型当前动作/等待态/耗时） */}
       <RunStatusBar
         sessionId={sessionId}

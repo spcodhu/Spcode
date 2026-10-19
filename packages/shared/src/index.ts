@@ -504,6 +504,10 @@ export const IPC = {
   searchTest: "spcode:search-test",
   /** renderer -> main (invoke)：会话标题+正文全文搜索 */
   searchSessions: "spcode:search-sessions",
+  /** renderer -> main (invoke)：会话 git 改动查看/还原（评审 R3-F2） */
+  sessionGitState: "spcode:session-git-state",
+  sessionGitDiff: "spcode:session-git-diff",
+  sessionGitRevert: "spcode:session-git-revert",
   /** renderer -> main (invoke)：远程控制状态/开关/配对/解绑 */
   remoteStatus: "spcode:remote-status",
   remoteSetEnabled: "spcode:remote-set-enabled",

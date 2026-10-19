@@ -30,6 +30,7 @@ import { DraftsStore } from "./drafts-store.js";
 import { QuotaService } from "./quota-service.js";
 import { RemoteServer } from "./remote/index.js";
 import { Scheduler } from "./scheduler.js";
+import { type GitBaseline, gitBaseline, gitDiff, gitStashPush, gitStatusPorcelain, hasChanges } from "./session-git.js";
 import {
   backfillSessionFile,
   buildForkRegistryEntry,
@@ -109,6 +110,8 @@ const settings = new SettingsStore();
 const draftsStore = new DraftsStore();
 const registry = new SessionRegistry();
 const ledger = new UsageLedger();
+/** 会话 git 基线（评审 R3-F2）：项目会话首次 prompt 前记录，驱动「查看改动/还原」 */
+const gitBaselines = new Map<string, GitBaseline>();
 const quota = new QuotaService(undefined, (providerId) => ledger.providerUsage(providerId));
 const bridge = new AgentBridge({
   getPermissionMode: () => settings.get().permissionMode,
@@ -291,6 +294,12 @@ function registerIpc(): void {
         const title = cleanSessionTitle(cmd.payload.text);
         if (title) registry.patch(entry.id, { title, updatedAt: Date.now() });
       }
+      // 评审 R3-F2：项目会话首次 prompt 前记 git 基线（会话级「还原到会话开始前」的锚点）
+      if (entry?.cwd && !gitBaselines.has(cmd.payload.sessionId)) {
+        void gitBaseline(entry.cwd).then((base) => {
+          if (base && !gitBaselines.has(cmd.payload.sessionId)) gitBaselines.set(cmd.payload.sessionId, base);
+        });
+      }
     }
 
     // 恢复/唤醒会话：把注册表里的计划模式状态捎带给宿主（渲染进程不感知这个字段）
@@ -348,9 +357,35 @@ function registerIpc(): void {
   );
   ipcMain.handle(IPC.scheduleDelete, (_e, id: string) => scheduler.remove(id));
   ipcMain.handle(IPC.scheduleRunNow, (_e, id: string) => scheduler.runNow(id));
-  ipcMain.handle(IPC.removeSession, (_e, id: string) =>
-    removeSessionEverywhere({ registry, bridge, events: bridge }, id),
-  );
+  ipcMain.handle(IPC.removeSession, (_e, id: string) => {
+    gitBaselines.delete(id);
+    return removeSessionEverywhere({ registry, bridge, events: bridge }, id);
+  });
+
+  // 评审 R3-F2：会话 git 改动查看/还原（仅项目会话；基线不存在 = 非 git 仓库或 chat 会话）
+  ipcMain.handle(IPC.sessionGitState, async (_e, id: string) => {
+    const entry = registry.get(id);
+    const base = gitBaselines.get(id);
+    if (!entry?.cwd || !base) return { hasBaseline: false, changed: false, stat: "" };
+    const cur = await gitStatusPorcelain(entry.cwd);
+    if (cur === null) return { hasBaseline: true, changed: false, stat: "" };
+    const changed = hasChanges(base, cur);
+    let stat = "";
+    if (changed) stat = (await gitDiff(entry.cwd))?.stat ?? "";
+    return { hasBaseline: true, changed, stat };
+  });
+  ipcMain.handle(IPC.sessionGitDiff, async (_e, id: string) => {
+    const entry = registry.get(id);
+    if (!entry?.cwd || !gitBaselines.has(id)) return null;
+    return gitDiff(entry.cwd);
+  });
+  ipcMain.handle(IPC.sessionGitRevert, async (_e, id: string) => {
+    const entry = registry.get(id);
+    if (!entry?.cwd || !gitBaselines.has(id)) return null;
+    // 还原 = stash push（可恢复）：改动进 stash，git stash pop 可找回
+    const out = await gitStashPush(entry.cwd, `spcode rewind: ${entry.title} @${new Date().toISOString()}`);
+    return out;
+  });
 
   ipcMain.handle(IPC.usageSummary, (_e, days?: number) => ledger.summarize(days ?? 14));
   ipcMain.handle(IPC.usageAggregate, (_e, range: "today" | "week" | "all") => ledger.aggregateRange(range ?? "week"));
