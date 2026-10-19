@@ -1,6 +1,6 @@
-import type { AdvancedSearchConfig, AdvancedSearchProtocol } from "@spcode/shared";
+import type { AdvancedSearchConfig, AdvancedSearchProtocol, SandboxStatusReport } from "@spcode/shared";
 import { inferMapping, isAdvancedSearchReady, PRESET_ENDPOINTS } from "@spcode/shared/advanced-search";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
 import { McpPage } from "./McpPage";
@@ -782,20 +782,52 @@ function PermissionRulesSection() {
 }
 
 /**
- * 沙盒设置：总开关/自动放行/逃生舱/本地端口/网络白名单/沙盒外白名单/额外路径。
+ * 沙盒设置：真实运行状态 + 总开关/自动放行/逃生舱/本地端口/网络白名单/沙盒外白名单/额外路径。
  * 列表用「每行一条」的 textarea 编辑，失焦保存（空行与 # 注释行忽略）。
+ *
+ * 「启用命令沙盒」不是单纯的偏好开关：它决定会话创建时是否用沙盒版 bash 覆盖内置 bash，
+ * 从而用内核边界（macOS Seatbelt / Linux bubblewrap）换取沙盒内写类命令免审批。
+ * 工具集在会话创建时固定，所以开关只对新会话生效——这点必须在 UI 上写清，
+ * 否则用户会以为“开了但没用”。
  */
 function SandboxSection() {
   const settings = useStore((s) => s.settings);
   const saveSettings = useStore((s) => s.saveSettings);
   const sandbox = settings?.sandbox;
+  /** 宿主侧真实状态（null = 还没查回来） */
+  const [status, setStatus] = useState<SandboxStatusReport | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  const refreshStatus = useCallback(() => {
+    setChecking(true);
+    void window.spcode
+      .sandboxStatus()
+      .then(setStatus)
+      .catch(() => setStatus(null))
+      .finally(() => setChecking(false));
+  }, []);
+
+  // 进入分区（设置加载完）查一次；任何 sandbox 字段变更后也会重查（初始化是惰性的）
+  useEffect(() => {
+    if (!sandbox) return;
+    refreshStatus();
+  }, [sandbox, refreshStatus]);
+
   if (!sandbox) return null;
   const platformSupported = window.navigator.userAgent.includes("Mac") || window.navigator.userAgent.includes("Linux");
 
-  const patch = (p: Partial<typeof sandbox>) => void saveSettings({ sandbox: { ...sandbox, ...p } });
+  const patch = (p: Partial<typeof sandbox>) => {
+    void saveSettings({ sandbox: { ...sandbox, ...p } });
+  };
 
   return (
     <div className="space-y-3" data-testid="sandbox-settings">
+      <SandboxStatusLine status={status} checking={checking} onRefresh={refreshStatus} />
+      <div className="rounded-xl border border-border bg-bg-elevated px-4 py-2.5 text-[12px] leading-5 text-text-tertiary">
+        <span className="text-text-secondary">仅对新会话生效：</span>
+        bash 工具在会话创建时就确定了（沙盒版或内置版），已打开的会话沿用创建时的工具集；改动后请新建或重新打开会话。
+      </div>
+
       {!platformSupported && (
         <div className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3 text-[12px] text-warning">
           当前平台暂不支持沙盒（Windows 支持规划中），命令仅靠审批网关约束。
@@ -818,11 +850,14 @@ function SandboxSection() {
         <div>
           <div className="text-[14px] text-text-primary">启用命令沙盒</div>
           <div className="mt-0.5 text-[12px] text-text-tertiary">
-            bash 命令在 OS 级边界内执行：写入限工作目录与缓存，~/.ssh 等敏感路径禁读，网络按白名单放行。对新会话生效
+            bash 命令在 OS 级边界内执行：写入限工作目录与缓存，~/.ssh
+            等敏感路径禁读，网络按白名单放行；同时可用下方「免审批」换掉逐条确认
           </div>
         </div>
         <Switch on={sandbox.enabled} onChange={(v) => patch({ enabled: v })} label="启用命令沙盒" />
       </div>
+
+      <SandboxBehaviorTable enabled={sandbox.enabled} autoAllow={sandbox.autoAllow} />
 
       <div className="flex items-center justify-between rounded-xl border border-border bg-bg-elevated px-4 py-3">
         <div>
@@ -891,6 +926,97 @@ function SandboxSection() {
         values={sandbox.filesystem.extraAllowWrite}
         onSave={(list) => patch({ filesystem: { ...sandbox.filesystem, extraAllowWrite: list } })}
       />
+    </div>
+  );
+}
+
+function SandboxStatusLine({
+  status,
+  checking,
+  onRefresh,
+}: {
+  status: SandboxStatusReport | null;
+  checking: boolean;
+  onRefresh: () => void;
+}) {
+  const platform = status?.platform ?? "";
+  const mechanism =
+    platform === "darwin" ? "macOS Seatbelt（sandbox-exec）" : platform === "linux" ? "Linux bubblewrap" : platform;
+  const view = !status
+    ? { dot: "bg-text-tertiary", title: "正在读取沙盒状态…", tone: "text-text-tertiary" }
+    : status.state === "active"
+      ? {
+          dot: "bg-accent",
+          title: `内核边界已生效 · ${mechanism}`,
+          tone: "text-accent",
+        }
+      : status.state === "disabled"
+        ? { dot: "bg-warning", title: "已关闭：命令以你的完整权限执行", tone: "text-warning" }
+        : { dot: "bg-danger", title: "沙盒不可用", tone: "text-danger" };
+  return (
+    <div
+      className="flex items-start justify-between gap-3 rounded-xl border border-border bg-bg-elevated px-4 py-3"
+      data-testid="sandbox-status"
+      data-state={status?.state ?? "unknown"}
+    >
+      <div className="min-w-0">
+        <div className={`flex items-center gap-2 text-[13px] font-medium ${view.tone}`}>
+          <span aria-hidden className={`h-[7px] w-[7px] shrink-0 rounded-full ${view.dot}`} />
+          <span className="truncate">{view.title}</span>
+        </div>
+        {status?.state === "unavailable" && status.reason && (
+          <div className="mt-1 break-words text-[12px] leading-5 text-text-tertiary">原因：{status.reason}</div>
+        )}
+        {status?.state === "active" && !status.autoAllow && (
+          <div className="mt-1 text-[12px] text-text-tertiary">
+            免审批已关闭：沙盒内的写类命令仍会逐条弹窗（边界仍由内核强制）
+          </div>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={onRefresh}
+        disabled={checking}
+        className="mt-0.5 flex shrink-0 items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-[12px] text-text-secondary transition-colors hover:border-border-strong hover:text-text-primary disabled:opacity-50"
+      >
+        <Icon name="refresh" size={12} className={checking ? "animate-spin" : ""} />
+        {checking ? "检测中…" : "重新检测"}
+      </button>
+    </div>
+  );
+}
+
+/** 开启/关闭两套行为速查：让「这个开关到底管什么」在界面上可自证 */
+function SandboxBehaviorTable({ enabled, autoAllow }: { enabled: boolean; autoAllow: boolean }) {
+  const rows = [
+    {
+      label: "命令执行",
+      active: "内核边界内（写入限工作目录/缓存，敏感路径禁读，网络白名单）",
+      off: "以你的完整权限直接执行，无内核边界",
+    },
+    {
+      label: "写类命令审批",
+      active: autoAllow ? "免弹窗（沙盒内自动放行）" : "逐条弹窗（免审批已关闭）",
+      off: "逐条弹窗（免审批选项不生效）",
+    },
+    { label: "危险/对外动作", active: "仍然弹窗（git push、rm -rf 等）", off: "仍然弹窗" },
+    { label: "网络白名单", active: "生效（未列入域名首次访问弹窗）", off: "不生效（可自由访问网络）" },
+  ];
+  return (
+    <div className="overflow-hidden rounded-xl border border-border" data-testid="sandbox-behavior-table">
+      <div className="grid grid-cols-[110px_1fr] gap-x-3 border-b border-border bg-bg-hover/40 px-4 py-2 text-[11.5px] text-text-tertiary">
+        <span />
+        <span>{enabled ? "当前：沙盒开启" : "当前：沙盒关闭"}</span>
+      </div>
+      {rows.map((r, i) => (
+        <div
+          key={r.label}
+          className={`grid grid-cols-[110px_1fr] gap-x-3 px-4 py-2 text-[12px] ${i > 0 ? "border-t border-border/60" : ""}`}
+        >
+          <span className="text-text-tertiary">{r.label}</span>
+          <span className="text-text-secondary">{enabled ? r.active : r.off}</span>
+        </div>
+      ))}
     </div>
   );
 }

@@ -14,6 +14,7 @@ import {
   type QuotaInfo,
   type RemotePairingInfo,
   type RemoteStatus,
+  type SandboxStatusReport,
   type ScheduleTask,
   type ScheduleTaskInput,
   type SessionRegistryEntry,
@@ -49,6 +50,8 @@ export interface SpcodeApi {
     byModel: Record<string, import("@spcode/shared").UsageAggregate>;
   }>;
   quotaQuery(force?: boolean): Promise<QuotaInfo[]>;
+  /** 沙盒运行状态（设置页展示真实状态与不可用原因） */
+  sandboxStatus(): Promise<SandboxStatusReport>;
   /** 选择项目文件夹 */
   pickDirectory(): Promise<string | null>;
   /** 在 Finder/资源管理器中显示路径 */
@@ -140,6 +143,9 @@ const api: SpcodeApi = {
   },
   quotaQuery(force?: boolean) {
     return ipcRenderer.invoke(IPC.quotaQuery, force);
+  },
+  sandboxStatus() {
+    return ipcRenderer.invoke(IPC.sandboxStatus);
   },
   pickDirectory() {
     return ipcRenderer.invoke(IPC.pickDirectory);

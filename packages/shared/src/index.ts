@@ -269,6 +269,11 @@ export type HostCommand =
   | { id: string; type: "models.list" }
   | { id: string; type: "models.catalog" }
   | { id: string; type: "memory.read" }
+  /**
+   * 沙盒运行状态查询（设置页可观测性）：返回内核边界是否真的生效、不可用的原因。
+   * 会惰性触发 SandboxManager 初始化（首次约 1–2s），调用方需带超时。
+   */
+  | { id: string; type: "sandbox.status" }
   /** AI 生成主题：可选指定模型（默认取设置里的默认模型，缺省退回可用列表首个） */
   | { id: string; type: "theme.generate"; payload: { description: string; model?: ModelRef } }
   | { type: "memory.setDistillEnabled"; payload: { enabled: boolean } }
@@ -484,6 +489,8 @@ export const IPC = {
   usageSummary: "spcode:usage-summary",
   usageAggregate: "spcode:usage-aggregate",
   quotaQuery: "spcode:quota-query",
+  /** renderer -> main (invoke)：沙盒运行状态（是否真的启用内核边界/不可用原因） */
+  sandboxStatus: "spcode:sandbox-status",
   /** renderer -> main (invoke)：字体与主题文件操作 */
   pickFontFile: "spcode:pick-font-file",
   getFontData: "spcode:get-font-data",
@@ -720,6 +727,22 @@ export const DEFAULT_SANDBOX_SETTINGS: SandboxSettings = {
     extraDenyWrite: [],
   },
 };
+
+/**
+ * 沙盒运行状态快照（设置页展示用）。
+ * state=active 才是「内核边界真的生效」；disabled = 用户关了总开关；
+ * unavailable = 平台/依赖/初始化失败——reason 就是用户在 UI 上看到的解释。
+ */
+export interface SandboxStatusReport {
+  state: "active" | "disabled" | "unavailable";
+  reason?: string;
+  /** 当前平台（darwin = Seatbelt；linux = bubblewrap；win32 = 暂不支持） */
+  platform: string;
+  /** 设置页当前开关快照（可能与 state 不一致，正好用来解释“为何没生效”） */
+  enabled: boolean;
+  autoAllow: boolean;
+  allowUnsandboxedCommands: boolean;
+}
 
 export interface CustomTheme {
   name: string;

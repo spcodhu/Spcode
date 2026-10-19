@@ -73,6 +73,14 @@ test.describe("Spcode 冒烟 E2E", () => {
     const section = window.getByTestId("sandbox-settings");
     await expect(section).toBeVisible();
 
+    // 真实运行状态条：要么已生效，要么已关闭/不可用（附原因），不能是空的
+    const statusLine = section.getByTestId("sandbox-status");
+    await expect(statusLine).toBeVisible();
+    // 首次查询会惰性拉起宿主并初始化沙盒（1–2s），给足超时
+    await expect(statusLine).toHaveAttribute("data-state", /active|disabled|unavailable/, { timeout: 20000 });
+    await expect(statusLine).toContainText(/内核边界已生效|已关闭|沙盒不可用/);
+    await expect(section.getByTestId("sandbox-behavior-table")).toBeVisible();
+
     // 总开关默认开；关闭时出现红色风险警告，重开后消失
     const toggle = section.getByRole("switch", { name: "启用命令沙盒" });
     await expect(toggle).toHaveAttribute("aria-checked", "true");

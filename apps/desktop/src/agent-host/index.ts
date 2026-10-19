@@ -28,6 +28,7 @@ import type {
   PermissionRequest,
   QuestionRequest,
   SandboxSettings,
+  SandboxStatusReport,
 } from "@spcode/shared";
 import { DEFAULT_COMPACTION_SETTINGS, DEFAULT_SANDBOX_SETTINGS } from "@spcode/shared";
 import { resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
@@ -424,6 +425,22 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
           true,
           available.map((m) => toModelInfo(m)),
         );
+        break;
+      }
+      case "sandbox.status": {
+        // 设置页可观测性：内核边界到底生效没有、不可用的原因是什么。
+        // ensureReady 会惰性初始化 SandboxManager（首次 1–2s）；未启用时直接返回 disabled。
+        const sandbox = getSandboxService();
+        const state = await sandbox.ensureReady();
+        const snapshot = sandbox.settingsSnapshot();
+        respond(id, true, {
+          state: state.state,
+          reason: state.state === "unavailable" ? state.reason : undefined,
+          platform: process.platform,
+          enabled: snapshot.enabled,
+          autoAllow: snapshot.autoAllow,
+          allowUnsandboxedCommands: snapshot.allowUnsandboxedCommands,
+        } satisfies SandboxStatusReport);
         break;
       }
       case "models.catalog": {

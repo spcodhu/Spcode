@@ -17,6 +17,7 @@ import {
   type HostEvent,
   IPC,
   type PickedFile,
+  type SandboxStatusReport,
   type ScheduleTask,
   type ScheduleTaskInput,
   SECRET_MASK,
@@ -416,6 +417,29 @@ function registerIpc(): void {
   ipcMain.handle(IPC.usageSummary, (_e, days?: number) => ledger.summarize(days ?? 14));
   ipcMain.handle(IPC.usageAggregate, (_e, range: "today" | "week" | "all") => ledger.aggregateRange(range ?? "week"));
   ipcMain.handle(IPC.quotaQuery, (_e, force?: boolean) => quota.queryAll({ force: force === true }));
+
+  // 沙盒运行状态：经 agent-host 查询（SandboxManager 只存在于宿主进程）。
+  // 首次查询会惰性初始化沙盒（1–2s），故单独设 10s 超时；失败降级为带原因的 unavailable。
+  ipcMain.handle(IPC.sandboxStatus, async (): Promise<SandboxStatusReport> => {
+    const snapshot = settings.get().sandbox;
+    const fallback = {
+      enabled: snapshot.enabled,
+      autoAllow: snapshot.autoAllow,
+      allowUnsandboxedCommands: snapshot.allowUnsandboxedCommands,
+      platform: process.platform,
+    };
+    try {
+      return await bridge.call<SandboxStatusReport>(AgentBridge.withId({ type: "sandbox.status" }), {
+        timeoutMs: 10_000,
+      });
+    } catch (err) {
+      return {
+        ...fallback,
+        state: snapshot.enabled ? "unavailable" : "disabled",
+        reason: snapshot.enabled ? `宿主未响应：${err instanceof Error ? err.message : String(err)}` : "沙盒已关闭",
+      };
+    }
+  });
 
   ipcMain.handle(IPC.revealPath, (_e, p: string) => {
     if (typeof p === "string" && p.trim()) shell.showItemInFolder(p);
