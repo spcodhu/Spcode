@@ -24,6 +24,15 @@ vi.mock("electron", () => ({
 
 import { Notifier } from "../src/main/notifier.js";
 
+/**
+ * Dock 徽标是 macOS 专有能力（app.dock 为 undefined，产品代码里按 platform 提前 return），
+ * 因此徽标断言只能在 darwin 上生效；通知（Notification）在所有平台都要断言。
+ */
+const expectBadge = (value: string) => {
+  if (process.platform !== "darwin") return;
+  expect(badgeValues.at(-1)).toBe(value);
+};
+
 describe("Notifier", () => {
   beforeEach(() => {
     shown.length = 0;
@@ -36,23 +45,23 @@ describe("Notifier", () => {
 
     n.notifyApprovalNeeded("permission", "r1", "bash 等待批准");
     expect(shown).toHaveLength(1);
-    expect(badgeValues.at(-1)).toBe("1");
+    expectBadge("1");
 
     focused = true;
     n.notifyApprovalNeeded("question", "r2", "提问");
     expect(shown).toHaveLength(1); // 聚焦时抑制
-    expect(badgeValues.at(-1)).toBe("2");
+    expectBadge("2");
 
     n.resolveApproval("r1");
     n.resolveApproval("r2");
-    expect(badgeValues.at(-1)).toBe("");
+    expectBadge("");
   });
 
   it("通知开关关闭时：不发通知但徽标仍计数", () => {
     const n = new Notifier({ isEnabled: () => false, getWindow: () => null });
     n.notifyApprovalNeeded("permission", "r1", "t");
     expect(shown).toHaveLength(0);
-    expect(badgeValues.at(-1)).toBe("1");
+    expectBadge("1");
   });
 
   it("长任务完成才通知（<15s 的短回合不打扰）", () => {

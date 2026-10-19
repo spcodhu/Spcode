@@ -5,7 +5,7 @@
  */
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   createGuardedFsTools,
@@ -36,7 +36,8 @@ describe("resolveFsPath", () => {
     expect(resolveFsPath(cwd, "src/a.ts")).toBe(join(cwd, "src/a.ts"));
     expect(resolveFsPath(cwd, "@src/a.ts")).toBe(join(cwd, "src/a.ts"));
     expect(resolveFsPath(cwd, "~/x")).toBe(join(homedir(), "x"));
-    expect(resolveFsPath(cwd, "/abs/./y/../z")).toBe("/abs/z");
+    // 绝对路径预期值按平台算：Windows 上 "/abs/./y/../z" 是「当前盘符的根」→ D:\abs\z
+    expect(resolveFsPath(cwd, "/abs/./y/../z")).toBe(resolve("/abs/z"));
   });
 });
 
@@ -81,11 +82,18 @@ describe("judgeFsPath 判定矩阵", () => {
     expect(judgeFsPath(allowed, "write", join(root, "allowed", "a.txt")).action).toBe("allow");
   });
 
-  it("符号链接逃逸：cwd 内链接指向 ~/.ssh 按真实路径硬拒", () => {
+  it("符号链接逃逸：cwd 内链接指向硬拒目录按真实路径硬拒", () => {
+    // 用 policy 自己的硬拒目录（~/.spcode/remote 存配对密钥）做靶子，不依赖
+    // 开发机/CI 上 ~/.ssh 是否存在——旧写法在干净 Windows runner 上指向不存在的目录，
+    // realpath 落空后退化成「cwd 内路径」直接放行，测试假红（真实安全语义未受影响）。
+    const denyTarget = join(spcodeHome, "remote");
+    mkdirSync(denyTarget, { recursive: true });
     const link = join(cwd, "escape-link");
     mkdirSync(cwd, { recursive: true });
-    symlinkSync(join(homedir(), ".ssh"), link);
-    expect(judgeFsPath(policy, "read", join(link, "id_ed25519")).action).toBe("deny");
+    rmSync(link, { recursive: true, force: true });
+    // Windows 建目录符号链接需要开发者模式/管理员；junction 无需特权，语义同为目录链接
+    symlinkSync(denyTarget, link, process.platform === "win32" ? "junction" : "dir");
+    expect(judgeFsPath(policy, "read", join(link, "device.key")).action).toBe("deny");
   });
 
   it("extraDenyRead 生效", () => {

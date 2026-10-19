@@ -83,11 +83,23 @@ function defaultCacheWritePaths(): string[] {
   ];
 }
 
-/** pathA 是否等于或位于 pathB 之内（不解析符号链接，纯路径判断；大小写随平台语义从简） */
-export function isPathInside(pathA: string, pathB: string): boolean {
-  const a = resolve(pathA);
-  const b = resolve(pathB);
-  return a === b || a.startsWith(b + sep);
+/**
+ * pathA 是否等于或位于 pathB 之内（不解析符号链接，纯路径判断）。
+ *
+ * Windows 文件系统大小写不敏感：不统一小写时 `C:\Users\X\.SSH` 会绕过 deny 清单
+ * （macOS 默认大小写不敏感但允许构造成大小写敏感卷，按 POSIX 语义处理即可）。
+ * 末尾分隔符先归一，避免 `C:\dir\` + sep 拼出双分隔符导致 startsWith 失败。
+ */
+export function isPathInside(pathA: string, pathB: string, opts?: { caseInsensitive?: boolean }): boolean {
+  const caseInsensitive = opts?.caseInsensitive ?? process.platform === "win32";
+  const norm = (p: string): string => {
+    const abs = resolve(p);
+    const trimmed = abs.length > 1 && abs.endsWith(sep) ? abs.slice(0, -1) : abs;
+    return caseInsensitive ? trimmed.toLowerCase() : trimmed;
+  };
+  const a = norm(pathA);
+  const b = norm(pathB);
+  return a === b || a.startsWith(b.endsWith(sep) ? b : b + sep);
 }
 
 export interface BuildSandboxConfigOptions {

@@ -62,6 +62,19 @@ describe("config-builder（平台无关）", () => {
     expect(isPathInside(fakeSpcodeHome, fakeSpcodeHome)).toBe(true);
     expect(isPathInside(workDir, fakeSpcodeHome)).toBe(false);
   });
+
+  it("isPathInside：Windows 语义下大小写不敏感（否则 .SSH 可绕过 deny 清单）", () => {
+    // 显式传 caseInsensitive，使该断言在 macOS/Linux 的 CI 上也能验证 Windows 分支
+    const upper = `${fakeSpcodeHome.toUpperCase()}/scratch`;
+    expect(isPathInside(upper, fakeSpcodeHome, { caseInsensitive: true })).toBe(true);
+    expect(isPathInside(join(fakeSpcodeHome, "scratch"), fakeSpcodeHome, { caseInsensitive: true })).toBe(true);
+    expect(isPathInside("/tmp/other", fakeSpcodeHome, { caseInsensitive: true })).toBe(false);
+  });
+
+  it("isPathInside：不因前缀同名目录误判（/a/bc 不在 /a/b 内）", () => {
+    expect(isPathInside(`${workDir}-sibling`, workDir)).toBe(false);
+    expect(isPathInside(workDir, workDir, { caseInsensitive: true })).toBe(true);
+  });
 });
 
 describe.skipIf(!isMac)("沙盒内核行为（macOS seatbelt 真跑）", () => {
