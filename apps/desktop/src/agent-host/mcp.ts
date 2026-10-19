@@ -35,6 +35,25 @@ function normalizeContent(content: unknown): { type: "text"; text: string }[] {
   });
 }
 
+/**
+ * Windows 启动命令归一。
+ *
+ * MCP SDK 的 StdioClientTransport 用 `shell: false` 直接 spawn，而 Windows 上
+ * npx / uvx / pnpm 都是 `.cmd` 包装器 → 直接 spawn 会 ENOENT（用户配了服务器却永远连不上）。
+ * 这里统一经 `cmd.exe /c` 启动（Claude Desktop 等客户端的做法）；已是 .exe/.com
+ * （含 process.execPath 这种 node.exe）则原样启动，避免多包一层 shell 影响信号/退出码。
+ * 导出供单测（平台参数可注入，macOS/Linux CI 也能验证 Windows 分支）。
+ */
+export function normalizeStdioLaunch(
+  command: string,
+  args: string[],
+  platform: NodeJS.Platform = process.platform,
+): { command: string; args: string[] } {
+  if (platform !== "win32") return { command, args };
+  if (/\.(exe|com)$/i.test(command.trim())) return { command, args };
+  return { command: "cmd.exe", args: ["/c", command, ...args] };
+}
+
 function fingerprintOf(name: string, cfg: McpServerConfig): string {
   return JSON.stringify([name, cfg.command, cfg.args ?? [], cfg.env ?? {}]);
 }
@@ -66,9 +85,10 @@ export class McpManager {
   }
 
   private async connect(name: string, cfg: McpServerConfig): Promise<ServerHandle> {
+    const launch = normalizeStdioLaunch(cfg.command, cfg.args ?? []);
     const transport = new StdioClientTransport({
-      command: cfg.command,
-      args: cfg.args ?? [],
+      command: launch.command,
+      args: launch.args,
       env: { ...process.env, ...(cfg.env ?? {}) } as Record<string, string>,
       stderr: "pipe",
     });

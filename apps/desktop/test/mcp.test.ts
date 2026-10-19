@@ -6,10 +6,32 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { McpManager } from "../src/agent-host/mcp.js";
+import { McpManager, normalizeStdioLaunch } from "../src/agent-host/mcp.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE = join(__dirname, "helpers", "mini-mcp-server.mjs");
+
+describe("normalizeStdioLaunch（Windows 命令包装器）", () => {
+  it("非 Windows：命令与参数原样透传", () => {
+    expect(normalizeStdioLaunch("npx", ["-y", "server"], "darwin")).toEqual({ command: "npx", args: ["-y", "server"] });
+    expect(normalizeStdioLaunch("npx", ["-y", "server"], "linux")).toEqual({ command: "npx", args: ["-y", "server"] });
+  });
+
+  it("Windows：npx/uvx 等 .cmd 包装器经 cmd.exe /c 启动（shell:false 直接 spawn 会 ENOENT）", () => {
+    expect(normalizeStdioLaunch("npx", ["-y", "server"], "win32")).toEqual({
+      command: "cmd.exe",
+      args: ["/c", "npx", "-y", "server"],
+    });
+    expect(normalizeStdioLaunch("uvx", ["mcp-server"], "win32").command).toBe("cmd.exe");
+    expect(normalizeStdioLaunch("pnpm", ["dlx", "x"], "win32").args).toEqual(["/c", "pnpm", "dlx", "x"]);
+  });
+
+  it("Windows：.exe/.com 可执行文件不再套 shell", () => {
+    const node = "C:\\Program Files\\nodejs\\node.exe";
+    expect(normalizeStdioLaunch(node, ["server.mjs"], "win32")).toEqual({ command: node, args: ["server.mjs"] });
+    expect(normalizeStdioLaunch("C:\\tools\\x.COM", [], "win32").command).toBe("C:\\tools\\x.COM");
+  });
+});
 
 describe("McpManager（真实 stdio fixture 服务器）", () => {
   it("连接后枚举工具（mcp__ 前缀命名）并可调用；isError 透传", async () => {

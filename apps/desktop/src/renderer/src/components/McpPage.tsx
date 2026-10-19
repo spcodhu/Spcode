@@ -122,6 +122,10 @@ export function McpPage() {
             className="rounded-lg border border-border bg-bg-main px-3 py-2 text-[13px] text-text-primary outline-none focus:border-accent"
           />
         </div>
+        <div className="mt-2 text-[11.5px] leading-5 text-text-tertiary">
+          stdio 传输：npx / uvx 等命令直接填即可（Windows 下会自动经 cmd.exe 启动）。
+          修改对已打开的会话不生效，需新建会话。
+        </div>
         <input
           value={argsText}
           onChange={(e) => setArgsText(e.target.value)}
