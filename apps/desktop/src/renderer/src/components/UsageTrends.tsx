@@ -33,9 +33,19 @@ interface Series {
   values: number[];
 }
 
-export function UsageTrends({ summary }: { summary: DailyUsage[] }) {
+export function UsageTrends({
+  summary,
+  colorIndexOf,
+}: {
+  summary: DailyUsage[];
+  /** 模型 → 稳定色号（与环形图/图例同源，切区间不变色） */
+  colorIndexOf: Map<string, number>;
+}) {
   const [days, setDays] = useState(7);
   const [model, setModel] = useState(ALL_MODELS);
+
+  /** 序列色号：优先用全局稳定色号；「其他」等合成序列排在最后 */
+  const seriesColor = (key: string, fallback: number) => chartVar(colorIndexOf.get(key) ?? 100 + fallback);
 
   // 窗口日历日（升序，含当天）
   const dates = useMemo(() => {
@@ -134,7 +144,7 @@ export function UsageTrends({ summary }: { summary: DailyUsage[] }) {
           </div>
         </div>
         <div className="mt-4">
-          <TrendChart dates={dates} series={series} />
+          <TrendChart dates={dates} series={series} seriesColor={seriesColor} />
         </div>
       </section>
 
@@ -186,7 +196,15 @@ function StreakStat({ testId, label, value, hint }: { testId: string; label: str
 // 趋势曲线（纯 SVG，viewBox 自适应宽度）
 // ---------------------------------------------------------------------------
 
-function TrendChart({ dates, series }: { dates: string[]; series: Series[] }) {
+function TrendChart({
+  dates,
+  series,
+  seriesColor,
+}: {
+  dates: string[];
+  series: Series[];
+  seriesColor: (key: string, fallback: number) => string;
+}) {
   const W = 840;
   const H = 240;
   const padL = 58;
@@ -256,7 +274,7 @@ function TrendChart({ dates, series }: { dates: string[]; series: Series[] }) {
               key={s.key}
               d={s.values.map((v, i) => `${i === 0 ? "M" : "L"}${xAt(i).toFixed(1)} ${yAt(v).toFixed(1)}`).join(" ")}
               fill="none"
-              stroke={chartVar(si)}
+              stroke={seriesColor(s.key, si)}
               strokeWidth={2}
               strokeLinejoin="round"
               strokeLinecap="round"
@@ -291,12 +309,12 @@ function TrendChart({ dates, series }: { dates: string[]; series: Series[] }) {
         )}
       </svg>
 
-      {/* 多序列时给图例（与环形图一致：色点按序号同源） */}
+      {/* 多序列时给图例（色点与环形图/柱状图同源色号） */}
       {series.length > 1 && (
         <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 px-2">
           {series.map((s, i) => (
             <span key={s.key} className="flex items-center gap-1.5 text-[11.5px] text-text-tertiary">
-              <span className="h-2 w-2 rounded-full" style={{ background: chartVar(i) }} />
+              <span className="h-2 w-2 rounded-full" style={{ background: seriesColor(s.key, i) }} />
               {s.label}
             </span>
           ))}

@@ -50,6 +50,13 @@
   --chart-4: #5b9bd5;
   --chart-5: #b083d8;
   --chart-6: #d9a045;
+  /* 7–12 用于模型多于 6 个的场景（不再用取模循环导致不同模型同色） */
+  --chart-7: #4bb3b8;
+  --chart-8: #c76d5b;
+  --chart-9: #8fa95a;
+  --chart-10: #6f7fd4;
+  --chart-11: #c58ab5;
+  --chart-12: #a0a0a8;
 }
 
 html,

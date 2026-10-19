@@ -1,11 +1,78 @@
-/** 图表与日期公用工具（用量页环形图 / 趋势曲线 / 热点图共用） */
+/** 图表与日期公用工具（用量页环形图 / 趋势柱状图 / 热点图共用） */
 import type { UsageAggregate } from "@spcode/shared";
 
-export const CHART_COLORS = ["--chart-1", "--chart-2", "--chart-3", "--chart-4", "--chart-5", "--chart-6"] as const;
+/**
+ * 模型色板（样式表 :root 里定义，随主题无关）。
+ * 12 色足够覆盖常见用法；超出后用黄金角色相派生，绝不与已有色号重复。
+ */
+export const CHART_COLORS = [
+  "--chart-1",
+  "--chart-2",
+  "--chart-3",
+  "--chart-4",
+  "--chart-5",
+  "--chart-6",
+  "--chart-7",
+  "--chart-8",
+  "--chart-9",
+  "--chart-10",
+  "--chart-11",
+  "--chart-12",
+] as const;
 
-/** 色板 CSS 变量引用（样式表 :root 里定义，随主题无关） */
+/** 色板之外的派生色：黄金角步长，相邻色号差异最大（暗色主题下用中亮度保证可读） */
+function derivedColor(i: number): string {
+  const hue = Math.round((i * 137.508) % 360);
+  return `hsl(${hue} 62% 64%)`;
+}
+
+/** 色号 → CSS 颜色引用；同一色号在环形图/图例/柱状图三处必然同色 */
 export function chartVar(i: number): string {
-  return `var(${CHART_COLORS[i % CHART_COLORS.length]})`;
+  const idx = Math.max(0, Math.trunc(i));
+  const name = CHART_COLORS[idx];
+  return name ? `var(${name})` : derivedColor(idx);
+}
+
+/**
+ * 模型 → 稳定色号（按全量用量降序，同量按名字升序）。
+ * 用全量而非当前区间排名，切区间/切模型筛选时颜色不会跳变。
+ */
+export function modelColorIndex(totals: Map<string, number>): Map<string, number> {
+  const keys = [...totals.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([k]) => k);
+  return new Map(keys.map((k, i) => [k, i]));
+}
+
+/**
+ * 环形图扇区占比（与输入同长度，非正值给 0）。
+ *
+ * 关键不变量：**每个大于 0 的值至少拿到 minRatio 的扇区**。
+ * 旧实现直接 `frac*C - 3` 当弧长，0.2% 的模型算出来是 0（甚至负数）→
+ * stroke-dasharray 为 0 → 整段不可见，饼图就“永远只有两种颜色”。
+ * 最小扇区的差额按真实占比从其余扇区等比回撤，总和仍恰为 1。
+ */
+export function donutSegments(values: number[], minRatio = 0.012): number[] {
+  const out = values.map(() => 0);
+  const positive = values.map((v, i) => ({ v: v > 0 ? v : 0, i })).filter((x) => x.v > 0);
+  const total = positive.reduce((n, x) => n + x.v, 0);
+  if (total <= 0) return out;
+  const m = positive.length;
+  // 扇区太多时最小扇区不能吞掉整个圆（m*min 必须 < 1）
+  const min = Math.min(minRatio, 1 / (2 * m));
+  const rest = 1 - min * m;
+  for (const { v, i } of positive) out[i] = min + (v / total) * rest;
+  return out;
+}
+
+/** 一组值 → 累计堆叠区间（柱状图用；忽略非正值，越界已 clamp） */
+export function stackSegments(values: number[]): { start: number; end: number }[] {
+  const out: { start: number; end: number }[] = [];
+  let cursor = 0;
+  for (const v of values) {
+    const val = Number.isFinite(v) && v > 0 ? v : 0;
+    out.push({ start: cursor, end: cursor + val });
+    cursor += val;
+  }
+  return out;
 }
 
 /** provider/modelId → 末段短名（超长截断） */
@@ -17,6 +84,14 @@ export function shortModelName(model: string): string {
 /** 聚合口径的 token 总量（输入 + 输出 + 缓存读写） */
 export function tokensOf(agg: UsageAggregate): number {
   return agg.input + agg.output + agg.cacheRead + agg.cacheWrite;
+}
+
+/** 占比文案：>0 但四舍五入会变成 0% 的扇区显示「<1%」，不让人误以为“没算进去” */
+export function formatShare(part: number, total: number): string {
+  if (!(total > 0)) return "—";
+  const pct = (part / total) * 100;
+  if (pct > 0 && pct < 1) return "<1%";
+  return `${Math.round(pct)}%`;
 }
 
 /** 本地时区 YYYY-MM-DD（与主进程 UsageLedger.dateOf 同一口径） */

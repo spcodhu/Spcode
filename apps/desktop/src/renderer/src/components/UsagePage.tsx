@@ -1,6 +1,6 @@
 import type { UsageAggregate } from "@spcode/shared";
 import { useEffect, useMemo, useState } from "react";
-import { chartVar, shortModelName, tokensOf } from "../chart";
+import { chartVar, donutSegments, formatShare, modelColorIndex, shortModelName, tokensOf } from "../chart";
 import { formatZh } from "../format";
 import { Icon } from "./Icon";
 import { type DailyUsage, UsageTrends } from "./UsageTrends";
@@ -45,6 +45,25 @@ export function UsagePage() {
       .sort((a, b) => b.tokens - a.tokens);
   }, [data]);
 
+  /**
+   * 模型 → 色号：按全量用量（summary 覆盖 1000 个活跃日）排名分配，
+   * 这样切「今日/近7天/累计」或改模型筛选时颜色不会跳变，
+   * 环形图、图例、柱状图三处也必然同色。
+   */
+  const colorIndexOf = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const day of summary) {
+      for (const [key, agg] of Object.entries(day.byModel)) {
+        totals.set(key, (totals.get(key) ?? 0) + tokensOf(agg));
+      }
+    }
+    // summary 还没回来时先用当前区间填上，避免首帧无色
+    for (const m of models) if (!totals.has(m.model)) totals.set(m.model, m.tokens);
+    return modelColorIndex(totals);
+  }, [summary, models]);
+
+  const colorOf = (model: string, fallback: number) => chartVar(colorIndexOf.get(model) ?? fallback);
+
   const total = data?.total;
   const totalTokens = total ? tokensOf(total) : 0;
   const top = models[0];
@@ -83,20 +102,24 @@ export function UsagePage() {
           {/* 左：环形图 + 全模型图例 */}
           <div className="w-[380px] shrink-0 rounded-2xl border border-border bg-bg-elevated p-6">
             <div className="flex justify-center">
-              <DonutChart models={models} totalTokens={totalTokens} centerText={`${topShare}%`} />
+              <DonutChart models={models} totalTokens={totalTokens} centerText={`${topShare}%`} colorOf={colorOf} />
             </div>
-            {/* 每个模型一行：色点与环形图弧段同序号，保证颜色一一对应 */}
-            <div className="mt-6 space-y-1">
+            {/* 每个模型一行：色点与环形图弧段同源色号，保证颜色一一对应 */}
+            <div className="mt-6 max-h-64 space-y-1 overflow-y-auto pr-1">
               {models.map((m, i) => (
                 <div key={m.model} className="flex items-center gap-2.5 py-1.5 text-[13px]">
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-[3px]" style={{ background: chartVar(i) }} />
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-[3px]"
+                    style={{ background: colorOf(m.model, i) }}
+                    data-testid="usage-legend-color"
+                  />
                   <span className="min-w-0 flex-1 truncate font-medium text-text-primary" title={m.model}>
                     {shortModelName(m.model)}
                   </span>
                   <span className="shrink-0 text-text-tertiary">{m.count} 次</span>
                   <span className="shrink-0 text-text-primary">{formatZh(m.tokens)}</span>
                   <span className="w-10 shrink-0 text-right text-text-tertiary">
-                    {totalTokens > 0 ? `${Math.round((m.tokens / totalTokens) * 100)}%` : "—"}
+                    {formatShare(m.tokens, totalTokens)}
                   </span>
                 </div>
               ))}
@@ -118,8 +141,8 @@ export function UsagePage() {
         </div>
       )}
 
-      {/* 趋势曲线 + 活跃热点图（无数据时也渲染骨架，保留打卡 0 天与空网格） */}
-      <UsageTrends summary={summary} />
+      {/* 趋势柱状图 + 活跃热点图（无数据时也渲染骨架，保留打卡 0 天与空网格） */}
+      <UsageTrends summary={summary} colorIndexOf={colorIndexOf} />
     </div>
   );
 }
@@ -132,43 +155,50 @@ function DonutChart({
   models,
   totalTokens,
   centerText,
+  colorOf,
 }: {
   models: { model: string; tokens: number }[];
   totalTokens: number;
   centerText: string;
+  colorOf: (model: string, fallback: number) => string;
 }) {
   const R = 80;
   const C = 2 * Math.PI * R;
-  const top = models.slice(0, 5);
-  const restTokens = models.slice(5).reduce((n, m) => n + m.tokens, 0);
-  const segments = restTokens > 0 ? [...top, { model: "其他", tokens: restTokens }] : top;
+  // 每个有量的模型都至少占一小段弧（否则 0.2% 的模型会因弧长为 0 而完全消失）
+  const fractions = donutSegments(models.map((m) => m.tokens));
 
-  let offset = C * 0.25; // 从 12 点方向开始
-  const arcs = segments.map((seg, i) => {
-    const frac = totalTokens > 0 ? seg.tokens / totalTokens : 0;
-    const len = Math.max(0, frac * C - 3); // 段间留缝
-    const arc = { seg, i, dash: `${len} ${C - len}`, offset: -offset };
-    offset += frac * C;
+  let cursor = C * 0.25; // 从 6 点方向开始（与原实现视觉一致）
+  const arcs = models.map((seg, i) => {
+    const len = (fractions[i] ?? 0) * C;
+    // 段间留缝只在弧足够长时才减，避免小扇区被缝隙吃掉
+    const draw = Math.max(0.75, len > 8 ? len - 3 : len);
+    const arc = { seg, i, dash: `${draw} ${C - draw}`, offset: -cursor };
+    cursor += len;
     return arc;
   });
 
   return (
     <svg width="220" height="220" viewBox="0 0 220 220" role="img" aria-label="按模型的用量占比环图">
       <circle cx="110" cy="110" r={R} fill="none" stroke="var(--color-bg-hover)" strokeWidth="26" />
-      {arcs.map(({ seg, i, dash, offset: o }) => (
-        <circle
-          key={seg.model}
-          cx="110"
-          cy="110"
-          r={R}
-          fill="none"
-          stroke={chartVar(i)}
-          strokeWidth="26"
-          strokeDasharray={dash}
-          strokeDashoffset={o}
-          strokeLinecap="butt"
-        />
-      ))}
+      {arcs.map(({ seg, i, dash, offset: o }) =>
+        // 占比为 0 的模型不画弧（图例仍保留该行，显示 0%）
+        fractions[i] === 0 ? null : (
+          <circle
+            key={seg.model}
+            cx="110"
+            cy="110"
+            r={R}
+            fill="none"
+            stroke={colorOf(seg.model, i)}
+            strokeWidth="26"
+            strokeDasharray={dash}
+            strokeDashoffset={o}
+            strokeLinecap="butt"
+            data-testid="usage-donut-arc"
+            data-model={seg.model}
+          />
+        ),
+      )}
       <text
         x="110"
         y="110"
@@ -176,7 +206,7 @@ function DonutChart({
         dominantBaseline="central"
         fontSize="30"
         fontWeight="600"
-        fill="var(--chart-1)"
+        fill={models[0] ? colorOf(models[0].model, 0) : "var(--color-text-primary)"}
       >
         {centerText}
       </text>
