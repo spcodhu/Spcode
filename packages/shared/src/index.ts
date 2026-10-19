@@ -612,6 +612,8 @@ export interface AppSettings {
   monoFontFamily: string;
   /** 自动更新开关（需要已配置更新源） */
   autoUpdate: boolean;
+  /** 桌面通知：权限/提问/长任务完成且窗口未聚焦时发系统通知（评审 R3-F4） */
+  desktopNotifications: boolean;
   /** 接收测试版更新；undefined = 跟随当前版本形态（beta 版收 beta，稳定版只收稳定） */
   betaUpdates?: boolean;
   /** 在更新弹窗里点了「忽略此版本」的版本号；该版本不再提示，更高版本仍会提示 */
@@ -775,6 +777,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   uiFontFamily: "",
   monoFontFamily: "",
   autoUpdate: true,
+  desktopNotifications: true,
   memoryDistill: true,
   quickQuota: true,
   disabledProviders: [],

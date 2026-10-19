@@ -159,6 +159,21 @@ function GeneralPage() {
         />
       </div>
 
+      {/* 评审 R3-F4 */}
+      <div className="mt-2 flex items-center justify-between rounded-xl border border-border bg-bg-elevated px-4 py-3">
+        <div>
+          <div className="text-[14px] text-text-primary">桌面通知</div>
+          <div className="mt-0.5 text-[12px] text-text-tertiary">
+            窗口不在前台时，审批请求/提问/长任务完成发系统通知（macOS 同步 Dock 徽标）
+          </div>
+        </div>
+        <Switch
+          on={settings?.desktopNotifications ?? true}
+          onChange={(v) => void saveSettings({ desktopNotifications: v })}
+          label="桌面通知"
+        />
+      </div>
+
       <SectionTitle>上下文压缩</SectionTitle>
       <CompactionSection />
 

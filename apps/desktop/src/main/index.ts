@@ -27,6 +27,7 @@ import { resolveSpcodeHome } from "@spcode/shared/node";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { AgentBridge } from "./agent-bridge.js";
 import { DraftsStore } from "./drafts-store.js";
+import { Notifier } from "./notifier.js";
 import { QuotaService } from "./quota-service.js";
 import { RemoteServer } from "./remote/index.js";
 import { Scheduler } from "./scheduler.js";
@@ -117,6 +118,11 @@ const bridge = new AgentBridge({
   getPermissionMode: () => settings.get().permissionMode,
   getPermissionRules: () => settings.get().permissionRules,
 });
+/** 桌面通知（R3-F4）：窗口未聚焦时的审批/提问/长任务完成提醒 + Dock 徽标 */
+const notifier = new Notifier({
+  isEnabled: () => settings.get().desktopNotifications !== false,
+  getWindow: () => mainWindow,
+});
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -176,6 +182,26 @@ function createWindow(): void {
 
 function watchSessionLifecycle(): void {
   bridge.onEvent((event: HostEvent) => {
+    // 通知（R3-F4）：审批/提问到达与结清、长任务完成
+    if (event.type === "permission.request") {
+      notifier.notifyApprovalNeeded("permission", event.request.requestId, `${event.request.toolName} 等待批准`);
+      return;
+    }
+    if (event.type === "permission.resolved") {
+      notifier.resolveApproval(event.requestId);
+      return;
+    }
+    if (event.type === "question.request") {
+      notifier.notifyApprovalNeeded("question", event.request.requestId, "Agent 在等你回答");
+      return;
+    }
+    if (event.type === "question.resolved") {
+      notifier.resolveApproval(event.requestId);
+      return;
+    }
+    if (event.type === "session.event") {
+      notifier.noteSessionEvent(event.sessionId, event.event as { type?: string });
+    }
     // 用量落账
     if (event.type === "session.usage") {
       ledger.append(event.usage);
