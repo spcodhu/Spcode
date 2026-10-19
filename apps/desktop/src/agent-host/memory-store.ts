@@ -11,9 +11,10 @@
  * 注入发生在会话创建时（appendSystemPrompt）；蒸馏发生在 agent_settled 后，
  * 由 distill.ts 驱动模型把值得长期保留的事实写回 MEMORY.md 与当日日志。
  */
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 import { baseName } from "@spcode/shared";
+import { writeFileAtomic } from "@spcode/shared/node";
 
 const MEMORY_MD_MAX_CHARS = 3200; // ≈800 tokens 的中文上限
 const SOUL_MD_MAX_CHARS = 2000;
@@ -81,7 +82,7 @@ export class MemoryStore {
   }
 
   private readCapped(relPath: string, maxChars: number): string {
-    const file = join(this.home, relPath);
+    const file = isAbsolute(relPath) ? relPath : join(this.home, relPath);
     if (!existsSync(file)) return "";
     let text = readFileSync(file, "utf-8").trim();
     if (text.length > maxChars) {
@@ -90,14 +91,43 @@ export class MemoryStore {
     return text;
   }
 
-  /** 项目目录 → 项目记忆文件名 */
+  /** 项目记忆文件路径：新格式 <slug>-<hash>.md 优先；旧格式（纯 slug，R3-C13 前）存在则迁移改名 */
+  private projectFile(cwd: string): string {
+    const dir = join(this.memoryDir, "projects");
+    const next = join(dir, `${MemoryStore.projectSlug(cwd)}.md`);
+    if (existsSync(next)) return next;
+    // 旧格式查找（纯 slug 无哈希）
+    const base = baseName(cwd.replace(/[\\/]+$/, "")) || "root";
+    const old = join(
+      dir,
+      `${
+        base
+          .replace(/[^\p{L}\p{N}._-]+/gu, "_")
+          .replace(/^_+|_+$/g, "")
+          .slice(0, 60) || "root"
+      }.md`,
+    );
+    if (existsSync(old)) {
+      try {
+        writeFileAtomic(next, readFileSync(old, "utf-8"));
+        rmSync(old);
+      } catch {
+        return old; // 迁移失败先用旧的（下次再试）
+      }
+    }
+    return next;
+  }
+  /** 项目目录 → 项目记忆文件名（basename + 路径短哈希：两个同名目录不再共享一份记忆——评审 R3-C13） */
   static projectSlug(cwd: string): string {
     const base = baseName(cwd.replace(/[\\/]+$/, "")) || "root";
     const slug = base
       .replace(/[^\p{L}\p{N}._-]+/gu, "_")
       .replace(/^_+|_+$/g, "")
       .slice(0, 60);
-    return slug || "root";
+    // 短哈希：djb2 变体（非加密用途，只消碰撞），hex 8 位足够区分同名项目
+    let h = 5381;
+    for (let i = 0; i < cwd.length; i++) h = ((h << 5) + h + cwd.charCodeAt(i)) >>> 0;
+    return `${slug || "root"}-${h.toString(16).padStart(8, "0")}`;
   }
 
   /** 组装注入系统提示的记忆块 */
@@ -110,10 +140,7 @@ export class MemoryStore {
     const memory = this.readCapped("MEMORY.md", MEMORY_MD_MAX_CHARS);
     if (memory) parts.push(`<long-term-memory>\n${memory}\n</long-term-memory>`);
     if (isProject && cwd) {
-      const proj = this.readCapped(
-        join("memory", "projects", `${MemoryStore.projectSlug(cwd)}.md`),
-        PROJECT_MD_MAX_CHARS,
-      );
+      const proj = this.readCapped(this.projectFile(cwd), PROJECT_MD_MAX_CHARS);
       if (proj) parts.push(`<project-memory project="${cwd}">\n${proj}\n</project-memory>`);
     }
     const lessons = this.readCapped(join("memory", "lessons.md"), 1200);
@@ -142,21 +169,42 @@ export class MemoryStore {
     appendFileSync(file, `\n## ${time}\n\n${text.trim()}\n`, "utf-8");
   }
 
-  /** 用蒸馏产物整体替换 MEMORY.md 的 ## Notes 段（容量超限按行截断，不截在行中间） */
+  /**
+   * 用蒸馏产物替换 MEMORY.md 的 ## Notes 段（评审 R3-C13）：
+   * - 只替换 ## Notes 段，保留用户手写的其他段落（原实现整文件重建，自定义段落会被静默抹掉）
+   * - 原子写（崩溃不再截断丢全部记忆）
+   * - 容量超限按行截断，不截在行中间
+   */
   writeMemoryNotes(notesMarkdown: string): void {
     const file = join(this.home, "MEMORY.md");
-    let body = `# MEMORY.md - 中期记忆\n\n## Notes\n${notesMarkdown.trim()}\n`;
+    const existing = existsSync(file) ? readFileSync(file, "utf-8") : "";
+    const notes = notesMarkdown.trim();
+
+    let body: string;
+    if (!existing.trim()) {
+      body = `# MEMORY.md - 中期记忆\n\n## Notes\n${notes}\n`;
+    } else {
+      // 有 ## Notes 段则原位替换，没有则在文件头（首个 ## 之前或标题行后）插入
+      const sectionRe = /(^|\n)## Notes\n[\s\S]*?(?=\n## |$)/;
+      if (sectionRe.test(existing)) {
+        body = existing.replace(sectionRe, (m) => `${m.startsWith("\n") ? "\n" : ""}## Notes\n${notes}\n`);
+      } else {
+        const lines = existing.split("\n");
+        const titleEnd = lines[0]?.startsWith("#") ? 1 : 0;
+        lines.splice(titleEnd, 0, "", `## Notes\n${notes}`);
+        body = lines.join("\n");
+      }
+    }
     if (body.length > MEMORY_MD_MAX_CHARS) {
       const cut = body.slice(0, MEMORY_MD_MAX_CHARS);
       const lastNl = cut.lastIndexOf("\n");
       body = `${lastNl > 0 ? cut.slice(0, lastNl) : cut}\n`;
     }
-    writeFileSync(file, body, "utf-8");
+    writeFileAtomic(file, body);
   }
 
   appendProjectMemory(cwd: string, text: string): void {
-    const file = join(this.memoryDir, "projects", `${MemoryStore.projectSlug(cwd)}.md`);
-    appendFileSync(file, `\n${text.trim()}\n`, "utf-8");
+    appendFileSync(this.projectFile(cwd), `\n${text.trim()}\n`, "utf-8");
   }
 
   appendLesson(text: string): void {

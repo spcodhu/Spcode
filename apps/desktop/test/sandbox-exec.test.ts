@@ -66,13 +66,24 @@ describe("config-builder（平台无关）", () => {
 
 describe.skipIf(!isMac)("沙盒内核行为（macOS seatbelt 真跑）", () => {
   let wrap: (cmd: string) => Promise<string>;
+  /** 嵌套沙盒环境（如被另一个 sandboxed harness 包着跑 CI/评审）里 mux 代理的 unix socket 绑定会被外层内核拒绝——
+   *  此时本套件不可能成立，整体跳过（窄判定：仅 initialize 阶段的 EPERM bind 才触发跳过） */
+  let nestedSandboxBlocked = false;
 
   beforeAll(async () => {
     const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
     const cfg = buildSandboxRuntimeConfig({ cwd: workDir, spcodeHome: fakeSpcodeHome, settings });
-    await SandboxManager.initialize(cfg);
-    // 等网络代理就绪，避免首个请求撞上代理启动窗口
-    await SandboxManager.waitForNetworkInitialization();
+    try {
+      await SandboxManager.initialize(cfg);
+      // 等网络代理就绪，避免首个请求撞上代理启动窗口
+      await SandboxManager.waitForNetworkInitialization();
+    } catch (err) {
+      if (err instanceof Error && /EPERM|operation not permitted/i.test(err.message)) {
+        nestedSandboxBlocked = true;
+        return;
+      }
+      throw err;
+    }
     wrap = (cmd: string) => SandboxManager.wrapWithSandbox(cmd);
   }, 30_000);
 
