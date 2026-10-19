@@ -12,6 +12,7 @@ import {
   HEAT_WEEKS,
   niceCeil,
   shortModelName,
+  stackSegments,
   tokensOf,
 } from "../chart";
 import { formatZh } from "../format";
@@ -116,14 +117,43 @@ export function UsageTrends({
 
   const streak = useMemo(() => computeStreaks(summary.map((s) => s.date)), [summary]);
 
+  /** 当前区间+筛选的 token 总量（与柱高同源，不是全局总量） */
+  const windowTotal = useMemo(() => {
+    let sum = 0;
+    for (const d of dates) {
+      const byModel = daily.get(d);
+      if (!byModel) continue;
+      if (model === ALL_MODELS) {
+        for (const v of Object.values(byModel)) sum += v;
+      } else {
+        sum += byModel[model] ?? 0;
+      }
+    }
+    return sum;
+  }, [dates, daily, model]);
+
+  const scopeLabel = `${days === 1 ? "今日" : `近 ${days} 天`} · ${model === ALL_MODELS ? "全部模型" : shortModelName(model)}`;
+
   return (
     <>
-      {/* Token 趋势曲线 */}
+      {/* Token 消耗：按模型堆叠的柱状图 */}
       <section className="mt-6 rounded-2xl border border-border bg-bg-elevated p-6" data-testid="usage-trend">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-[15px] font-semibold text-text-primary">Token 趋势</h2>
-            <p className="mt-0.5 text-[12px] text-text-tertiary">每日 token 消耗曲线（输入 + 输出 + 缓存读写）</p>
+            <h2 className="text-[15px] font-semibold text-text-primary">Token 消耗</h2>
+            <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+              <span
+                className="text-[22px] font-semibold leading-7 text-text-primary tabular-nums"
+                data-testid="usage-trend-total"
+                title={`${windowTotal.toLocaleString("en-US")} tokens`}
+              >
+                {formatZh(windowTotal)}
+              </span>
+              <span className="text-[12px] text-text-tertiary">tokens · {scopeLabel}</span>
+            </div>
+            <p className="mt-1 text-[12px] text-text-tertiary">
+              每日一支柱，柱内颜色为各模型占比（输入 + 输出 + 缓存读写）
+            </p>
           </div>
           <div className="flex items-center gap-3">
             <div className="flex rounded-full bg-bg-hover p-0.5">
@@ -144,7 +174,7 @@ export function UsageTrends({
           </div>
         </div>
         <div className="mt-4">
-          <TrendChart dates={dates} series={series} seriesColor={seriesColor} />
+          <StackedBarChart dates={dates} series={series} seriesColor={seriesColor} />
         </div>
       </section>
 
@@ -193,10 +223,15 @@ function StreakStat({ testId, label, value, hint }: { testId: string; label: str
 }
 
 // ---------------------------------------------------------------------------
-// 趋势曲线（纯 SVG，viewBox 自适应宽度）
+// 堆叠柱状图（纯 SVG，viewBox 自适应宽度）
 // ---------------------------------------------------------------------------
 
-function TrendChart({
+/**
+ * 每天一支柱，柱内按模型堆叠（色号与环形图/图例同源）。
+ * 用堆叠柱而不是折线：多模型时一眼能看出「某天是谁把量顶上去了」，
+ * 且不会被多条线交叉糊成一团。悬停用原生 <title> 给当日各模型明细。
+ */
+function StackedBarChart({
   dates,
   series,
   seriesColor,
@@ -218,10 +253,12 @@ function TrendChart({
   const hasData = series.length > 0 && max > 0;
   const yMax = niceCeil(max);
 
-  const xAt = (i: number) => (dates.length > 1 ? padL + (i / (dates.length - 1)) * plotW : padL + plotW / 2);
   const yAt = (v: number) => padT + plotH - (v / yMax) * plotH;
-  const step = dates.length > 1 ? plotW / (dates.length - 1) : plotW;
-  const labelStep = Math.max(1, Math.ceil(dates.length / 6));
+  const step = plotW / Math.max(1, dates.length);
+  // 柱宽随柱子数量收缩，但至少留 1px 可见；两侧各留 1px 间隙
+  const barW = Math.max(1, step - (step > 4 ? 2 : 0.5));
+  const xAt = (i: number) => padL + i * step + (step - barW) / 2;
+  const labelStep = Math.max(1, Math.ceil(dates.length / 8));
   const ticks = [0, 1 / 3, 2 / 3, 1].map((t) => t * yMax);
 
   return (
@@ -230,7 +267,7 @@ function TrendChart({
         viewBox={`0 0 ${W} ${H}`}
         className="h-auto w-full"
         role="img"
-        aria-label="按日 token 消耗趋势曲线"
+        aria-label="按日 token 消耗堆叠柱状图"
         data-testid="usage-trend-chart"
       >
         {/* Y 轴刻度线与标签 */}
@@ -258,39 +295,64 @@ function TrendChart({
           </g>
         ))}
 
-        {/* X 轴日期标签 */}
+        {/* X 轴日期标签（按需抽稀，100 天窗口也不糊） */}
         {dates.map((d, i) =>
           i % labelStep === 0 || i === dates.length - 1 ? (
-            <text key={d} x={xAt(i)} y={H - 8} textAnchor="middle" fontSize={10} fill="var(--color-text-tertiary)">
+            <text
+              key={d}
+              x={xAt(i) + barW / 2}
+              y={H - 8}
+              textAnchor="middle"
+              fontSize={10}
+              fill="var(--color-text-tertiary)"
+            >
               {d.slice(5)}
             </text>
           ) : null,
         )}
 
-        {/* 各模型折线 */}
+        {/* 每日堆叠柱：自下而上按序列顺序堆各模型 */}
         {hasData &&
-          series.map((s, si) => (
-            <path
-              key={s.key}
-              d={s.values.map((v, i) => `${i === 0 ? "M" : "L"}${xAt(i).toFixed(1)} ${yAt(v).toFixed(1)}`).join(" ")}
-              fill="none"
-              stroke={seriesColor(s.key, si)}
-              strokeWidth={2}
-              strokeLinejoin="round"
-              strokeLinecap="round"
-            />
-          ))}
+          dates.map((d, i) => {
+            const values = series.map((s) => s.values[i] ?? 0);
+            const spans = stackSegments(values);
+            return (
+              <g key={d}>
+                {spans.map((sp, si) => {
+                  const len = sp.end - sp.start;
+                  if (!(len > 0)) return null;
+                  const y = yAt(sp.end);
+                  const h = Math.max(0.5, yAt(sp.start) - y);
+                  const s = series[si];
+                  if (!s) return null;
+                  return (
+                    <rect
+                      key={s.key}
+                      x={xAt(i)}
+                      y={y}
+                      width={barW}
+                      height={h}
+                      fill={seriesColor(s.key, si)}
+                      data-testid="usage-bar-seg"
+                      data-model={s.key}
+                    />
+                  );
+                })}
+              </g>
+            );
+          })}
 
         {/* 每日悬浮命中区：原生 <title> 提示当日各模型明细 */}
         {hasData &&
           dates.map((d, i) => {
-            const x1 = Math.max(padL, xAt(i) - step / 2);
-            const x2 = Math.min(padL + plotW, xAt(i) + step / 2);
             const total = series.reduce((n, s) => n + (s.values[i] ?? 0), 0);
-            const parts = series.map((s) => `${s.label} ${formatZh(s.values[i] ?? 0)}`).join("、");
+            const parts = series
+              .filter((s) => (s.values[i] ?? 0) > 0)
+              .map((s) => `${s.label} ${formatZh(s.values[i] ?? 0)}`)
+              .join("、");
             return (
-              <rect key={d} x={x1} y={padT} width={Math.max(0, x2 - x1)} height={plotH} fill="transparent">
-                <title>{`${d} · ${formatZh(total)} tokens（${parts}）`}</title>
+              <rect key={`hit-${d}`} x={padL + i * step} y={padT} width={step} height={plotH} fill="transparent">
+                <title>{`${d} · ${formatZh(total)} tokens${parts ? `（${parts}）` : ""}`}</title>
               </rect>
             );
           })}
@@ -309,7 +371,7 @@ function TrendChart({
         )}
       </svg>
 
-      {/* 多序列时给图例（色点与环形图/柱状图同源色号） */}
+      {/* 多序列时给图例（色点与环形图/柱内分段同源色号） */}
       {series.length > 1 && (
         <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 px-2">
           {series.map((s, i) => (
