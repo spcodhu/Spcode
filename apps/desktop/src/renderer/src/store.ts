@@ -735,15 +735,14 @@ export function historyToMessages(messages: unknown[]): ChatMessage[] {
         });
       }
     } else if (m.role === "assistant") {
-      // 错误回合（content 为空，只有 stopReason=error + errorMessage）：回放为错误卡，
-      // 否则重启后这条“任务被中断”的痕迹会彻底消失（旧实现的坑）。
-      if (m.stopReason === "error" && m.errorMessage?.trim()) {
-        out.push(makeRunErrorNotice(m.errorMessage.trim()));
-        continue;
-      }
+      // 错误回合：content 可能为空（额度/鉴权类不可重试），但也可能已流出一部分正文——
+      // 先回放已有的段，再追加错误卡；否则重启后「任务被中断」的痕迹会彻底消失（旧实现的坑）。
       const segments = contentToSegments(m.content, toolResults);
       if (segments.length > 0) {
         out.push({ id: nextMsgId(), role: "assistant", segments, streaming: false });
+      }
+      if (m.stopReason === "error" && m.errorMessage?.trim()) {
+        out.push(makeRunErrorNotice(m.errorMessage.trim()));
       }
     }
   }

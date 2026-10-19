@@ -123,4 +123,11 @@ describe("historyToMessages：错误回合重启后仍留痕", () => {
     expect(notice?.notice?.kind).toBe("runError");
     expect(notice?.notice?.kind === "runError" && notice.notice.errorKind).toBe("quota");
   });
+
+  it("错误回合已流出一部分正文时：正文保留，错误卡跟在后面", () => {
+    const out = historyToMessages([
+      { role: "assistant", content: [{ type: "text", text: "我先看下" }], stopReason: "error", errorMessage: "429" },
+    ]);
+    expect(out.map((m) => m.role)).toEqual(["assistant", "notice"]);
+  });
 });
