@@ -1,6 +1,7 @@
 import { memo, type ReactNode, useEffect, useRef, useState } from "react";
 import { formatFileSize } from "../format";
-import { type ChatMessage, flattenSegments, messageText, type ToolCallState } from "../store";
+import { partitionRun } from "../run-view";
+import { type ChatMessage, flattenSegments, messageText, type ToolCallState, useStore } from "../store";
 import { summarizeArgs, toolLabel } from "../tooling";
 import { DiffPatch } from "./DiffBlock";
 import { Icon } from "./Icon";
@@ -207,14 +208,14 @@ export const NoticeItem = memo(NoticeItemImpl);
  */
 function AssistantRunItemImpl({ messages, active }: { messages: ChatMessage[]; active: boolean }) {
   const segments = flattenSegments(messages);
-  const toolCount = segments.reduce((n, s) => n + (s.kind === "tools" ? s.calls.length : 0), 0);
-  const hasWork = segments.some((s) => s.kind !== "text");
-  const hasText = segments.some((s) => s.kind === "text");
-  // 首/尾工作段：左轨从首个圆点画到最后一个圆点，两端不留悬线
-  const workIdxs = segments.map((s, i) => (s.kind === "text" ? -1 : i)).filter((i) => i >= 0);
-  const firstWorkIdx = workIdxs[0] ?? -1;
-  const lastWorkIdx = workIdxs[workIdxs.length - 1] ?? -1;
-
+  /** 执行过程展示档位（设置 → 外观）；精简 = 只显示最新一次阶段化输出 */
+  const mode = useStore((s) => s.settings?.activityDisplay ?? "full");
+  /** 精简模式下「查看完整过程」临时切回完整视图（不改设置） */
+  const [forceFull, setForceFull] = useState(false);
+  const view = partitionRun(segments, { active, mode, forceFull });
+  const toolCount = view.work.reduce((n, s) => n + (s.kind === "tools" ? s.calls.length : 0), 0);
+  const hasWork = view.work.length > 0;
+  const showCompactReveal = mode === "compact" && !forceFull && view.hiddenInCompact;
   const [workOpen, setWorkOpen] = useState(active);
   useEffect(() => setWorkOpen(active), [active]);
 
@@ -232,6 +233,7 @@ function AssistantRunItemImpl({ messages, active }: { messages: ChatMessage[]; a
           ) : (
             <span className="text-text-secondary transition-colors group-hover:text-text-primary">
               工作完成{toolCount > 0 ? ` · ${toolCount} 步` : ""}
+              {view.stageCount > 0 ? ` · ${view.stageCount} 段过程输出` : ""}
             </span>
           )}
           <Icon
@@ -242,24 +244,38 @@ function AssistantRunItemImpl({ messages, active }: { messages: ChatMessage[]; a
         </button>
       )}
 
-      {segments.map((seg, si) => {
-        if (seg.kind === "text") {
-          return <Markdown key={seg.id} text={seg.text} />;
-        }
-        const railStart = si === firstWorkIdx;
-        const railEnd = si === lastWorkIdx;
+      {view.work.map((seg, si) => {
+        // 时间线左轨从首个圆点画到最后一个圆点（阶段输出也是其中一行）
+        const railStart = si === 0;
+        const railEnd = si === view.work.length - 1;
         return (
           <WorkEntry key={seg.id} open={workOpen}>
             {seg.kind === "thinking" ? (
               <ThinkingRow text={seg.text} streaming={!seg.done && active} railStart={railStart} railEnd={railEnd} />
-            ) : (
+            ) : seg.kind === "tools" ? (
               <ToolRowGroup calls={seg.calls} railStart={railStart} railEnd={railEnd} />
+            ) : (
+              <StageOutputRow text={seg.text} railStart={railStart} railEnd={railEnd} />
             )}
           </WorkEntry>
         );
       })}
 
-      {active && !hasText && !hasWork && <ThinkingHeader streaming />}
+      {view.inline.map((seg) => (seg.kind === "text" ? <Markdown key={seg.id} text={seg.text} /> : null))}
+
+      {showCompactReveal && (
+        <button
+          type="button"
+          onClick={() => setForceFull(true)}
+          className="mt-1 flex items-center gap-1 rounded-md py-0.5 text-[12px] text-text-tertiary transition-colors hover:text-text-secondary"
+          data-testid="run-reveal-full"
+        >
+          <Icon name="eye" size={12} />
+          查看完整过程（{view.foldedCount} 步）
+        </button>
+      )}
+
+      {active && view.inline.length === 0 && !hasWork && <ThinkingHeader streaming />}
     </div>
   );
 }
@@ -443,6 +459,39 @@ function ThinkingRow({
           className="ml-6 mb-1.5 max-h-64 overflow-y-auto whitespace-pre-wrap border-l-2 border-thinking/20 pl-3 pr-2 pt-0.5 text-[12px] leading-6 text-text-tertiary"
         >
           {text || "…"}
+        </div>
+      }
+    />
+  );
+}
+
+/**
+ * 阶段化输出条目（中间轮次的说明：「我先读一下…」「已经改好了」）。
+ * 任务结束后它们与思考/命令一起收进「工作完成」，默认只给一行首行摘要，
+ * 点击展开完整 Markdown——既不干扰最终总结的阅读，也不丢信息。
+ */
+function StageOutputRow({ text, railStart, railEnd }: { text: string; railStart?: boolean; railEnd?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const preview = firstLine(text);
+  return (
+    <TimelineEntry
+      dot="bg-accent/45"
+      railStart={railStart}
+      railEnd={railEnd}
+      open={open}
+      onClick={() => setOpen(!open)}
+      head={
+        <>
+          <span className="shrink-0 text-[11.5px] text-text-tertiary">阶段输出</span>
+          <span className="min-w-0 flex-1 truncate text-[12px] text-text-tertiary transition-colors group-hover:text-text-secondary">
+            {preview}
+          </span>
+          <RowChevron open={open} />
+        </>
+      }
+      detail={
+        <div className="ml-6 mb-1.5 border-l-2 border-accent/20 pl-3 pr-2 pt-0.5 text-[12.5px] leading-6 text-text-secondary">
+          <Markdown text={text} />
         </div>
       }
     />

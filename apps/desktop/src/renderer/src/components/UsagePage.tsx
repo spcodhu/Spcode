@@ -102,7 +102,7 @@ export function UsagePage() {
           {/* 左：环形图 + 全模型图例 */}
           <div className="w-[380px] shrink-0 rounded-2xl border border-border bg-bg-elevated p-6">
             <div className="flex justify-center">
-              <DonutChart models={models} totalTokens={totalTokens} centerText={`${topShare}%`} colorOf={colorOf} />
+              <DonutChart models={models} centerText={`${topShare}%`} colorOf={colorOf} />
             </div>
             {/* 每个模型一行：色点与环形图弧段同源色号，保证颜色一一对应 */}
             <div className="mt-6 max-h-64 space-y-1 overflow-y-auto pr-1">
@@ -153,12 +153,10 @@ export function UsagePage() {
 
 function DonutChart({
   models,
-  totalTokens,
   centerText,
   colorOf,
 }: {
   models: { model: string; tokens: number }[];
-  totalTokens: number;
   centerText: string;
   colorOf: (model: string, fallback: number) => string;
 }) {

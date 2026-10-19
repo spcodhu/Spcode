@@ -25,6 +25,10 @@ export function sanitizeAppSettings(input: Partial<AppSettings>): Partial<AppSet
   if (out.permissionMode !== undefined && out.permissionMode !== "ask" && out.permissionMode !== "act") {
     delete out.permissionMode;
   }
+  // 枚举：执行过程展示档位（非法值回落 full）
+  if (out.activityDisplay !== undefined && out.activityDisplay !== "full" && out.activityDisplay !== "compact") {
+    delete out.activityDisplay;
+  }
   // 布尔字段
   for (const k of ["memoryDistill", "quickQuota", "autoUpdate", "betaUpdates"] as const) {
     if (out[k] !== undefined && typeof out[k] !== "boolean") delete out[k];
