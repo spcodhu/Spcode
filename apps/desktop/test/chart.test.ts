@@ -12,6 +12,7 @@ import {
   HEAT_WEEKS,
   modelColorIndex,
   niceCeil,
+  stackedDailyMax,
   stackSegments,
 } from "../src/renderer/src/chart.js";
 
@@ -188,6 +189,25 @@ describe("formatShare", () => {
     expect(formatShare(67_800_000, 270_000_000)).toBe("25%");
     expect(formatShare(0, 100)).toBe("0%");
     expect(formatShare(1, 0)).toBe("—");
+  });
+});
+
+describe("stackedDailyMax", () => {
+  it("按每日堆叠总量取最大值（不是单序列最大值）", () => {
+    // 第 3 天：单序列最大 40，但堆叠总量 100 —— 刻度必须能容下 100
+    expect(
+      stackedDailyMax([
+        [10, 20, 40],
+        [5, 10, 30],
+        [1, 2, 30],
+      ]),
+    ).toBe(100);
+  });
+
+  it("空/非法值不参与计算", () => {
+    expect(stackedDailyMax([])).toBe(0);
+    expect(stackedDailyMax([[], []])).toBe(0);
+    expect(stackedDailyMax([[Number.NaN, -5, 7]])).toBe(7);
   });
 });
 

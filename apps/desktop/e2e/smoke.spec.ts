@@ -79,6 +79,8 @@ test.describe("Spcode 冒烟 E2E", () => {
     // 首次查询会惰性拉起宿主并初始化沙盒（1–2s），给足超时
     await expect(statusLine).toHaveAttribute("data-state", /active|disabled|unavailable/, { timeout: 20000 });
     await expect(statusLine).toContainText(/内核边界已生效|已关闭|沙盒不可用/);
+    // 开关默认开时状态不能自相矛盾地报「已关闭」（曾因未下发设置给 SandboxService 而谎报）
+    await expect(statusLine).not.toContainText("已关闭");
     await expect(section.getByTestId("sandbox-behavior-table")).toBeVisible();
 
     // 总开关默认开；关闭时出现红色风险警告，重开后消失

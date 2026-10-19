@@ -12,6 +12,7 @@ import {
   HEAT_WEEKS,
   niceCeil,
   shortModelName,
+  stackedDailyMax,
   stackSegments,
   tokensOf,
 } from "../chart";
@@ -249,7 +250,8 @@ function StackedBarChart({
   const plotW = W - padL - padR;
   const plotH = H - padT - padB;
 
-  const max = Math.max(0, ...series.flatMap((s) => s.values));
+  // 刻度必须按「每日堆叠总量」取，不是单序列最大值——否则柱子会顶破最高刻度线
+  const max = stackedDailyMax(series.map((s) => s.values));
   const hasData = series.length > 0 && max > 0;
   const yMax = niceCeil(max);
 

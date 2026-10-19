@@ -63,6 +63,24 @@ export function donutSegments(values: number[], minRatio = 0.012): number[] {
   return out;
 }
 
+/**
+ * 每日堆叠总量的最大值（柱状图 Y 轴刻度用）。
+ * 必须按「堆叠后」的总量取：按单序列最大值取会让柱子顶破最高刻度线。
+ */
+export function stackedDailyMax(series: number[][]): number {
+  const days = series.reduce((n, s) => Math.max(n, s.length), 0);
+  let max = 0;
+  for (let i = 0; i < days; i++) {
+    let sum = 0;
+    for (const s of series) {
+      const v = s[i];
+      if (typeof v === "number" && Number.isFinite(v) && v > 0) sum += v;
+    }
+    if (sum > max) max = sum;
+  }
+  return max;
+}
+
 /** 一组值 → 累计堆叠区间（柱状图用；忽略非正值，越界已 clamp） */
 export function stackSegments(values: number[]): { start: number; end: number }[] {
   const out: { start: number; end: number }[] = [];

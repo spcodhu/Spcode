@@ -429,8 +429,10 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
       }
       case "sandbox.status": {
         // 设置页可观测性：内核边界到底生效没有、不可用的原因是什么。
-        // ensureReady 会惰性初始化 SandboxManager（首次 1–2s）；未启用时直接返回 disabled。
+        // 必须先把主进程下发的设置灌进服务：SandboxService 在首次会话创建时才 configure，
+        // 没有会话时它的 settings 为 null，status() 会误报 disabled（开关明明开着）。
         const sandbox = getSandboxService();
+        sandbox.configure(sandboxSettings);
         const state = await sandbox.ensureReady();
         const snapshot = sandbox.settingsSnapshot();
         respond(id, true, {
