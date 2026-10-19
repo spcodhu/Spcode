@@ -102,11 +102,16 @@ export const MessageItem = memo(MessageItemImpl);
 /**
  * 通知分隔线（压缩完成/失败等）：居中细线 + 小字，不打断阅读流。
  * 压缩通知带摘要时可点击展开全文（恢复会话回放时摘要同样可见）。
+ *
+ * runError（额度不足/鉴权失败/限流耗尽…中断）是与上述完全不同的东西：
+ * 它不是仪式性分隔线，而是「任务被掐断了」——渲染成危险色卡片，
+ * 标题 + 处理建议 + 折叠的原始错误，且重启后仍可见（historyToMessages 回放）。
  */
 function NoticeItemImpl({ message }: { message: ChatMessage }) {
   const text = messageText(message);
-  const summary = message.notice?.summary;
+  const summary = message.notice?.kind === "compaction" ? message.notice.summary : undefined;
   const [open, setOpen] = useState(false);
+  if (message.notice?.kind === "runError") return <RunErrorCard notice={message.notice} />;
   return (
     <div className="my-5">
       <button
@@ -136,6 +141,49 @@ function NoticeItemImpl({ message }: { message: ChatMessage }) {
           <Markdown text={summary} />
         </div>
       )}
+    </div>
+  );
+}
+
+/** 运行被错误中断的持久错误卡（额度不足/凭证/限流/超长/网络） */
+function RunErrorCard({ notice }: { notice: Extract<NonNullable<ChatMessage["notice"]>, { kind: "runError" }> }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div
+      className="my-4 rounded-xl border border-danger/40 bg-danger/8 px-4 py-3"
+      data-testid="run-error-card"
+      data-error-kind={notice.errorKind}
+    >
+      <div className="flex items-start gap-2">
+        <Icon name="alert" size={15} className="mt-0.5 shrink-0 text-danger" />
+        <div className="min-w-0 flex-1">
+          <div className="text-[13.5px] font-semibold text-danger">{notice.title}</div>
+          <div className="mt-1 text-[12.5px] leading-5 text-text-secondary">{notice.hint}</div>
+          {notice.attempt && notice.attempt > 0 ? (
+            <div className="mt-1 text-[11.5px] text-text-tertiary">自动重试 {notice.attempt} 次后仍未恢复</div>
+          ) : null}
+          {notice.raw && (
+            <button
+              type="button"
+              onClick={() => setOpen((v) => !v)}
+              className="mt-1.5 flex items-center gap-1 text-[11.5px] text-text-tertiary transition-colors hover:text-text-secondary"
+              data-testid="run-error-detail-toggle"
+            >
+              详情
+              <Icon
+                name="chevronDown"
+                size={11}
+                className={`transition-transform duration-150 ${open ? "rotate-180" : ""}`}
+              />
+            </button>
+          )}
+          {open && notice.raw && (
+            <pre className="mono mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-bg-main px-3 py-2 text-[11.5px] leading-5 text-text-tertiary">
+              {notice.raw}
+            </pre>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

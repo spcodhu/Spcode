@@ -29,6 +29,7 @@ import type {
   UsageRecord,
 } from "@spcode/shared";
 import { baseName, cleanSessionTitle } from "@spcode/shared";
+import { classifyRunError, type RunErrorKind } from "@spcode/shared/run-error";
 import { create } from "zustand";
 import { formatCompact } from "./format";
 
@@ -69,13 +70,25 @@ export interface ChatMessage {
   /**
    * 通知类消息的负载（role === "notice" 时存在）。
    * compaction：一次上下文压缩的分隔线（tokensBefore→tokensAfter，summary 可展开）。
+   * runError：运行被错误中断的错误卡（额度不足/鉴权失败/限流耗尽…，可展开原始错误）。
    */
-  notice?: {
-    kind: "compaction";
-    tokensBefore?: number;
-    tokensAfter?: number;
-    summary?: string;
-  };
+  notice?:
+    | {
+        kind: "compaction";
+        tokensBefore?: number;
+        tokensAfter?: number;
+        summary?: string;
+      }
+    | {
+        kind: "runError";
+        errorKind: RunErrorKind;
+        title: string;
+        hint: string;
+        /** 上游原始错误（英文，工程向；默认折叠） */
+        raw?: string;
+        /** >0 表示自动重试过 N 次仍失败 */
+        attempt?: number;
+      };
 }
 
 /** 消息的全部正文文本（user 标题、测试断言用） */
@@ -169,6 +182,13 @@ export interface SessionState {
   hostAwake?: boolean;
   /** 草稿会话：仅本地占位，不进注册表；首次发送消息时才真正创建（Finch 式懒创建） */
   draft?: boolean;
+  /**
+   * 本回合刚发生的模型错误（message_end 写入）。先不落错误卡：
+   * 若随后 auto_retry 成功则清除；到 agent_settled 仍是错误才插入错误卡。
+   */
+  pendingError?: { message: string; at: number };
+  /** 引擎自动重试状态（auto_retry_start/end 驱动；运行状态条据此显示「Ns 后重试」） */
+  retry?: { attempt: number; maxAttempts: number; delayMs: number; errorMessage: string };
 }
 
 /** 宿主 session.create/open/activate 响应（ctl.info() 的渲染进程侧镜像） */
@@ -364,6 +384,30 @@ function friendlyCompactionError(message: string): string {
 }
 
 /**
+ * 运行被错误中断的错误卡（额度不足/鉴权失败/限流耗尽/上下文超长/网络）。
+ * 与压缩通知同为 notice 角色，但渲染成危险色卡片而不是分隔线。
+ */
+export function makeRunErrorNotice(raw: string, attempt?: number): ChatMessage {
+  const info = classifyRunError(raw);
+  return {
+    id: nextMsgId(),
+    role: "notice",
+    segments: [
+      { kind: "text", id: nextMsgId(), text: `${info.title}${attempt ? `（重试 ${attempt} 次后仍失败）` : ""}` },
+    ],
+    streaming: false,
+    notice: {
+      kind: "runError",
+      errorKind: info.kind,
+      title: info.title,
+      hint: info.hint,
+      raw,
+      ...(attempt && attempt > 0 ? { attempt } : {}),
+    },
+  };
+}
+
+/**
  * 宿主事件订阅句柄（模块级）。
  * StrictMode 下 App 的挂载 effect 会跑两次，init() 随之重入；
  * 订阅必须幂等，否则每个 HostEvent 被应用两遍（回复气泡重复、用量翻倍）。
@@ -453,7 +497,25 @@ function settleStreamingTail(session: SessionState): void {
   }
 }
 
-function applySessionEvent(session: SessionState, event: Record<string, unknown>): void {
+/**
+ * 清掉尾部的空 assistant 占位。
+ * 错误回合（stopReason=error）的 content 为空，message_end 会留下一条空白消息，
+ * 渲染出来就是一块无内容的空隙，且它已不是 streaming，settleStreamingTail 管不了。
+ */
+function dropEmptyTail(session: SessionState): void {
+  for (let i = session.messages.length - 1; i >= 0; i--) {
+    const m = session.messages[i];
+    if (m?.role === "notice") continue;
+    if (m?.role === "assistant" && !m.streaming && isEmptyMessage(m)) {
+      session.messages.splice(i, 1);
+      continue;
+    }
+    return;
+  }
+}
+
+/** 把一条原始会话事件应用到会话状态上（导出供单测：纯状态变换，无副作用） */
+export function applySessionEvent(session: SessionState, event: Record<string, unknown>): void {
   const type = event.type as string;
   switch (type) {
     case "message_update": {
@@ -467,7 +529,12 @@ function applySessionEvent(session: SessionState, event: Record<string, unknown>
       break;
     }
     case "message_end": {
-      const msg = event.message as { role?: string; content?: unknown };
+      const msg = event.message as {
+        role?: string;
+        content?: unknown;
+        stopReason?: string;
+        errorMessage?: string;
+      };
       if (msg.role === "assistant") {
         const cur = ensureStreamingMessage(session);
         if (cur.segments.length === 0 && Array.isArray(msg.content)) {
@@ -476,6 +543,43 @@ function applySessionEvent(session: SessionState, event: Record<string, unknown>
         }
         for (const s of cur.segments) if (s.kind === "thinking") s.done = true;
         cur.streaming = false;
+        // 错误回合（额度不足/鉴权失败/限流耗尽…）：先记账，到 agent_settled 才落错误卡。
+        // 先落卡会在「自动重试后成功」时留下误导性的红卡。
+        if (msg.stopReason === "error") {
+          session.pendingError = {
+            message: msg.errorMessage?.trim() || "模型请求失败（引擎未返回详细原因）",
+            at: Date.now(),
+          };
+        } else if (msg.stopReason === "stop") {
+          // 成功的回合清账：前面的错误已被重试救回
+          session.pendingError = undefined;
+        }
+        // aborted：用户主动取消，既不留错误卡也不清上一次未能展示的错误（下个 settled 统一处理）
+      }
+      break;
+    }
+    case "auto_retry_start": {
+      // 引擎在自动重试（2s → 4s → …）：状态条要可见，否则用户以为卡死/中断
+      const e = event as { attempt?: number; maxAttempts?: number; delayMs?: number; errorMessage?: string };
+      session.retry = {
+        attempt: e.attempt ?? 1,
+        maxAttempts: e.maxAttempts ?? 3,
+        delayMs: e.delayMs ?? 0,
+        errorMessage: e.errorMessage ?? "",
+      };
+      break;
+    }
+    case "auto_retry_end": {
+      const e = event as { success?: boolean; finalError?: string };
+      session.retry = undefined;
+      if (e.success) {
+        // 重试救回来了：清账，不留红卡
+        session.pendingError = undefined;
+      } else if (/cancel(?:l)?ed|abort/i.test(e.finalError ?? "")) {
+        // 用户在重试退避中取消：不是模型错误，不打扰
+        session.pendingError = undefined;
+      } else if (e.finalError?.trim()) {
+        session.pendingError = { message: e.finalError.trim(), at: Date.now() };
       }
       break;
     }
@@ -513,6 +617,8 @@ function applySessionEvent(session: SessionState, event: Record<string, unknown>
     case "agent_start":
       session.running = true;
       session.runStartedAt = Date.now();
+      session.pendingError = undefined;
+      session.retry = undefined;
       break;
     case "compaction_start":
       // 引擎开始压缩（自动阈值/溢出/手动）：状态条显示「正在压缩上下文…」
@@ -542,12 +648,20 @@ function applySessionEvent(session: SessionState, event: Record<string, unknown>
       }
       break;
     }
-    case "agent_settled":
+    case "agent_settled": {
       session.running = false;
       session.runStartedAt = undefined;
+      session.retry = undefined;
       // 运行结束（含 abort）：空占位消息不再转圈，有内容的定格
       settleStreamingTail(session);
+      dropEmptyTail(session);
+      // 回合以错误收场（额度不足/鉴权失败/限流耗尽…）：落一张持久的错误卡。
+      // 这是唯一提示通道——旧实现什么都不显示，任务“凭空中断”。
+      const err = session.pendingError;
+      session.pendingError = undefined;
+      if (err) session.messages.push(makeRunErrorNotice(err.message));
       break;
+    }
   }
 }
 
@@ -584,7 +698,14 @@ export function historyToMessages(messages: unknown[]): ChatMessage[] {
     }
   }
   for (const raw of messages) {
-    const m = raw as { role?: string; content?: unknown; summary?: string; tokensBefore?: number };
+    const m = raw as {
+      role?: string;
+      content?: unknown;
+      summary?: string;
+      tokensBefore?: number;
+      stopReason?: string;
+      errorMessage?: string;
+    };
     if (m.role === "compactionSummary") {
       // 压缩检查点：回放为分隔线（压缩前的历史已折叠成摘要，可从线上展开查看）
       out.push(
@@ -614,6 +735,12 @@ export function historyToMessages(messages: unknown[]): ChatMessage[] {
         });
       }
     } else if (m.role === "assistant") {
+      // 错误回合（content 为空，只有 stopReason=error + errorMessage）：回放为错误卡，
+      // 否则重启后这条“任务被中断”的痕迹会彻底消失（旧实现的坑）。
+      if (m.stopReason === "error" && m.errorMessage?.trim()) {
+        out.push(makeRunErrorNotice(m.errorMessage.trim()));
+        continue;
+      }
       const segments = contentToSegments(m.content, toolResults);
       if (segments.length > 0) {
         out.push({ id: nextMsgId(), role: "assistant", segments, streaming: false });

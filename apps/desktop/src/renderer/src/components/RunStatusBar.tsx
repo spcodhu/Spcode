@@ -17,6 +17,7 @@ const DOT_CLASS: Record<RunStatus["kind"], string> = {
   working: "bg-accent",
   permission: "bg-warning",
   question: "bg-accent",
+  retry: "bg-danger",
 };
 
 export function RunStatusBar({ sessionId, onJumpToBottom }: { sessionId: string; onJumpToBottom: () => void }) {
@@ -36,7 +37,7 @@ export function RunStatusBar({ sessionId, onJumpToBottom }: { sessionId: string;
 
   if (!status) return null;
   const elapsed = startedAt ? Math.max(0, Math.floor((now - startedAt) / 1000)) : 0;
-  const shimmer = status.kind !== "permission" && status.kind !== "question";
+  const shimmer = status.kind !== "permission" && status.kind !== "question" && status.kind !== "retry";
 
   return (
     <div className="shrink-0 px-6 pb-1.5">

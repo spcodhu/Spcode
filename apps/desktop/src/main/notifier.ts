@@ -1,12 +1,15 @@
 /**
- * 桌面通知（评审 R3-F4）：权限请求/结构化提问/长任务完成时，窗口未聚焦才发系统通知。
+ * 桌面通知（评审 R3-F4）：权限请求/结构化提问/长任务完成/任务因错误中断时，窗口未聚焦才发系统通知。
  * 点击通知聚焦主窗口。macOS 上同步 Dock 徽标（待处理审批数）。
  *
  * 降噪纪律：
  * - 窗口聚焦时一律不发（用户正盯着）；
  * - 任务完成通知要求运行时长 > 15s（短回合不值得打扰）；
+ * - 失败通知不受时长限制：任务被额度/鉴权/网络掐断必须告知；
  * - 通知正文不含命令/输出等业务内容（只给类型与标题）。
  */
+
+import { classifyRunError } from "@spcode/shared/run-error";
 import { app, type BrowserWindow, Notification } from "electron";
 
 /** 长跑阈值：低于此时长的回合完成不打扰 */
@@ -21,6 +24,8 @@ export class Notifier {
   private readonly pendingApprovals = new Set<string>();
   /** sessionId → 运行开始时刻（agent_start 记录，agent_settled 结算） */
   private readonly runStartedAt = new Map<string, number>();
+  /** sessionId → 本回合最后一次模型错误（message_end 记录，agent_settled 结算） */
+  private readonly runError = new Map<string, string>();
 
   constructor(private readonly deps: NotifierDeps) {}
 
@@ -39,19 +44,37 @@ export class Notifier {
     if (this.pendingApprovals.delete(requestId)) this.syncBadge();
   }
 
-  /** 宿主事件流：agent_start/settled 跟踪运行时长，长任务完成且未聚焦时通知 */
-  noteSessionEvent(sessionId: string, event: { type?: string }): void {
+  /** 宿主事件流：agent_start/settled 跟踪运行时长，长任务完成或失败且未聚焦时通知 */
+  noteSessionEvent(sessionId: string, event: { type?: string; message?: unknown }): void {
     if (event.type === "agent_start") {
       this.runStartedAt.set(sessionId, Date.now());
+      this.runError.delete(sessionId);
+      return;
+    }
+    // 错误回合只带 stopReason=error + errorMessage，content 为空（额度/鉴权类不可重试）
+    if (event.type === "message_end") {
+      const msg = event.message as { role?: string; stopReason?: string; errorMessage?: string } | undefined;
+      if (msg?.role === "assistant" && msg.stopReason === "error" && msg.errorMessage?.trim()) {
+        this.runError.set(sessionId, msg.errorMessage.trim());
+      } else if (msg?.role === "assistant" && msg.stopReason === "stop") {
+        this.runError.delete(sessionId);
+      }
       return;
     }
     if (event.type !== "agent_settled") return;
     const started = this.runStartedAt.get(sessionId);
     this.runStartedAt.delete(sessionId);
-    if (!started || Date.now() - started < LONG_RUN_MS) return;
+    const error = this.runError.get(sessionId);
+    this.runError.delete(sessionId);
     if (!this.deps.isEnabled()) return;
     const win = this.deps.getWindow();
     if (win?.isFocused()) return;
+    // 任务被错误中断：不受长跑阈值限制（这正是用户最需要知道的事）
+    if (error) {
+      this.show(classifyRunError(error).title, "点击查看详情与处理建议");
+      return;
+    }
+    if (!started || Date.now() - started < LONG_RUN_MS) return;
     this.show("任务完成", "会话已运行完毕，点击查看");
   }
 

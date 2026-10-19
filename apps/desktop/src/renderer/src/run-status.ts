@@ -10,7 +10,7 @@ import type { SessionState } from "./store";
 import { summarizeArgs, toolLabel } from "./tooling";
 
 export interface RunStatus {
-  kind: "thinking" | "tool" | "text" | "working" | "permission" | "question";
+  kind: "thinking" | "tool" | "text" | "working" | "permission" | "question" | "retry";
   /** 主文案（如「思考中…」「正在改文件」） */
   label: string;
   /** 工具参数摘要（kind === "tool" 时可能有） */
@@ -19,7 +19,7 @@ export interface RunStatus {
 
 /**
  * 状态推导：
- * 优先级：待答提问 > 待批权限 > 当前阶段（思考/工具/输出/回合间隙）。
+ * 优先级：待答提问 > 待批权限 > 自动重试 > 当前阶段（思考/工具/输出/回合间隙）。
  */
 export function deriveRunStatus(
   session: SessionState | undefined,
@@ -35,6 +35,16 @@ export function deriveRunStatus(
   const perm = pendingPermissions.find((p) => p.sessionId === sessionId);
   if (perm) {
     return { kind: "permission", label: `等待权限确认 · ${toolLabel(perm.toolName)}` };
+  }
+  // 引擎自动重试（额度/限流/网络抖动）：不显示的话用户只会看到界面卡住
+  if (session.retry) {
+    const secs = Math.max(1, Math.ceil(session.retry.delayMs / 1000));
+    const attempt = `${session.retry.attempt}/${session.retry.maxAttempts}`;
+    return {
+      kind: "retry",
+      label: `请求失败，${secs}s 后重试（${attempt}）`,
+      detail: shortReason(session.retry.errorMessage),
+    };
   }
   const last = session.messages[session.messages.length - 1];
   // 回合间隙（上一条消息已定格，下一回合未开始）或无消息：兜底「正在工作…」
@@ -53,6 +63,13 @@ export function deriveRunStatus(
   if (seg.kind === "text") return { kind: "text", label: "正在输出…" };
   // 末段是已完成的思考：下一动作未到，按工作间隙处理
   return { kind: "working", label: "正在工作…" };
+}
+
+/** 错误原因精简：去首行/去 provider 前缀噪声，供状态条同行展示（完整内容在错误卡） */
+export function shortReason(message: string, max = 60): string {
+  const line = message.split("\n").find((l) => l.trim()) ?? "";
+  const trimmed = line.trim().replace(/^\w*Error:\s*/i, "");
+  return trimmed.length > max ? `${trimmed.slice(0, max)}…` : trimmed;
 }
 
 /** 耗时格式化：12s / 1:05 */

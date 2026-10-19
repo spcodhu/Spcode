@@ -72,4 +72,33 @@ describe("Notifier", () => {
       vi.useRealTimers();
     }
   });
+
+  it("额度不足导致回合失败：短回合也要通知，标题分类为额度", () => {
+    vi.useFakeTimers();
+    try {
+      const n = new Notifier({ isEnabled: () => true, getWindow: () => null });
+      n.noteSessionEvent("s1", { type: "agent_start" });
+      n.noteSessionEvent("s1", {
+        type: "message_end",
+        message: { role: "assistant", stopReason: "error", errorMessage: "402 Insufficient Balance" },
+      });
+      n.noteSessionEvent("s1", { type: "agent_settled" });
+      expect(shown).toHaveLength(1);
+      expect(shown[0]?.title).toContain("额度");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("错误被重试救回（后续 stop 回合）不发失败通知", () => {
+    const n = new Notifier({ isEnabled: () => true, getWindow: () => null });
+    n.noteSessionEvent("s1", { type: "agent_start" });
+    n.noteSessionEvent("s1", {
+      type: "message_end",
+      message: { role: "assistant", stopReason: "error", errorMessage: "429 rate limit" },
+    });
+    n.noteSessionEvent("s1", { type: "message_end", message: { role: "assistant", stopReason: "stop" } });
+    n.noteSessionEvent("s1", { type: "agent_settled" });
+    expect(shown).toHaveLength(0);
+  });
 });

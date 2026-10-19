@@ -15,6 +15,7 @@ const PATHS: Record<string, string> = {
   archive: "M3 4h18v4H3zm2 4v12h14V8m-9 4h4",
   globe: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zm-10-10h20M12 2c3 3 3 15 0 20-3-5-3-17 0-20z",
   info: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zm0-6v-4m0-4h.01",
+  alert: "M12 3 2 21h20zM12 9v5m0 3h.01",
   plus: "M12 5v14M5 12h14",
   arrowUp: "M12 19V5m-7 7 7-7 7 7",
   folder: "M3 7a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z",
