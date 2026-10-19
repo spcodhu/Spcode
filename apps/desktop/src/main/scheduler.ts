@@ -18,7 +18,7 @@ import { join } from "node:path";
 import type { ScheduleTask, ScheduleTaskInput } from "@spcode/shared";
 import { readJsonFile, resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
 
-/** 任务条目的最低结构要求：关键字段类型正确即收，其余字段宽进 */
+/** 任务条目的最低结构要求：关键字段类型正确 + 值域合法（hour 0-23 / minute 0-59 / weekday 0-6）即收 */
 function validateTasks(data: unknown): ScheduleTask[] | null {
   if (!Array.isArray(data)) return null;
   const FREQUENCIES = new Set(["once", "hourly", "daily", "weekday", "weekly"]);
@@ -28,6 +28,13 @@ function validateTasks(data: unknown): ScheduleTask[] | null {
     if (typeof r.id !== "string" || typeof r.name !== "string" || typeof r.prompt !== "string") return null;
     if (typeof r.frequency !== "string" || !FREQUENCIES.has(r.frequency)) return null;
     if (typeof r.hour !== "number" || typeof r.minute !== "number" || typeof r.enabled !== "boolean") return null;
+    // 值域（评审 R3-C14：minute=999 会进位错乱、weekday=7 会显示「每周undefined」）
+    if (!Number.isInteger(r.hour) || r.hour < 0 || r.hour > 23) return null;
+    if (!Number.isInteger(r.minute) || r.minute < 0 || r.minute > 59) return null;
+    const wd = r.weekday;
+    if (wd !== undefined && wd !== null && (typeof wd !== "number" || !Number.isInteger(wd) || wd < 0 || wd > 6)) {
+      return null;
+    }
   }
   return data as ScheduleTask[];
 }
@@ -130,8 +137,12 @@ export class Scheduler {
 
   start(): void {
     if (this.timer) return;
-    this.timer = setInterval(() => void this.tick(), TICK_MS);
-    void this.tick();
+    // tick 内部异常（persist 写盘失败等）不能成为未处理拒绝（评审 R3-C14）
+    this.timer = setInterval(
+      () => void this.tick().catch((err) => console.warn("[scheduler] tick 失败", err)),
+      TICK_MS,
+    );
+    void this.tick().catch((err) => console.warn("[scheduler] tick 失败", err));
   }
 
   stop(): void {
@@ -139,11 +150,20 @@ export class Scheduler {
     this.timer = null;
   }
 
-  /** 手动触发一次（试运行）：不影响到点判定，但记录运行状态 */
+  /** 手动触发一次（试运行）：记账与 tick 同口径（lastRunAt 更新会影响同周期去重——手动跑过就不再补跑） */
   async runNow(id: string): Promise<string> {
     const task = this.list().find((t) => t.id === id);
     if (!task) throw new Error(`任务不存在：${id}`);
-    return this.fireOne(task);
+    const nowMs = this.opts.now?.() ?? Date.now();
+    this.markRun(task.id, nowMs);
+    try {
+      const sessionId = await this.fireOne(task);
+      this.markStatus(task.id, "ok");
+      return sessionId;
+    } catch (err) {
+      this.markStatus(task.id, "error", err instanceof Error ? err.message : String(err));
+      throw err;
+    }
   }
 
   async tick(): Promise<void> {

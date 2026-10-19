@@ -2,9 +2,9 @@
  * 定时任务调度器单测：isDue 到点判定（五种频率）+ tick 触发/补跑/错误语义。
  * 持久化指向临时文件；时钟与 fire 全部注入。
  */
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type { ScheduleTask } from "@spcode/shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { isDue, Scheduler } from "../src/main/scheduler.js";
@@ -168,10 +168,13 @@ describe("Scheduler.tick", () => {
     expect(fired).toHaveLength(1);
   });
 
-  it("runNow 手动触发：不影响周期占位，只记状态", async () => {
+  it("runNow 手动触发：记状态与 lastRunAt；同周期稍后的到点仍正常触发", async () => {
+    const MON_AM = MON; // 上午
+    const MON_PM = MON + 10 * 3600_000; // 当天 20:00
+    let now = MON_AM;
     const { sched, fired } = setup(
       async () => "s-manual",
-      () => MON,
+      () => now,
     );
     const t = sched.create({
       name: "手动",
@@ -184,9 +187,13 @@ describe("Scheduler.tick", () => {
     });
     await sched.runNow(t.id);
     expect(fired).toEqual([t.id]);
-    // 晚上 20:00 到点时仍应正常触发（runNow 不占周期）
-    const { lastRunAt } = sched.list()[0];
-    expect(lastRunAt).toBeUndefined();
+    // 评审 R3-C14：runNow 与 tick 同口径记账（lastRunAt/lastStatus 都更新）
+    expect(sched.list()[0]?.lastRunAt).toBe(MON_AM);
+    expect(sched.list()[0]?.lastStatus).toBe("ok");
+    // 晚上 20:00 到点时仍应正常触发（上午的手动跑不占晚上周期：lastRunAt < 今日 slot）
+    now = MON_PM;
+    await sched.tick();
+    expect(fired).toEqual([t.id, t.id]);
   });
 
   it("CRUD 与持久化：更新/删除落盘，新实例能读回", async () => {
@@ -209,5 +216,49 @@ describe("Scheduler.tick", () => {
     expect(reloaded.list()[0].enabled).toBe(false);
     reloaded.remove(t.id);
     expect(new Scheduler({ file, fire: async () => "s" }).list()).toHaveLength(0);
+  });
+});
+
+describe("评审 R3-C14：值域校验", () => {
+  it("hour/minute/weekday 超界的坏条目整体视为损坏（备份 + 重建空表）", () => {
+    dir = dir || mkdtempSync(join(tmpdir(), "spcode-sched-"));
+    const file = join(dir, `bad-${Math.random().toString(36).slice(2)}.json`);
+    writeFileSync(
+      file,
+      JSON.stringify([
+        {
+          id: "t1",
+          name: "x",
+          prompt: "p",
+          target: { kind: "chat" },
+          frequency: "weekly",
+          hour: 9,
+          minute: 0,
+          weekday: 7,
+          enabled: true,
+          createdAt: 1,
+        },
+      ]),
+    );
+    const sched = new Scheduler({ file, fire: async () => "s-x" });
+    expect(sched.list()).toEqual([]); // 坏条目按空表重建
+    expect(readdirSync(dirname(file)).some((f) => f.startsWith(basename(file) + ".corrupt-"))).toBe(true);
+  });
+
+  it("合法边界值通过（weekday 0/6、hour 0/23、minute 0/59）", () => {
+    dir = dir || mkdtempSync(join(tmpdir(), "spcode-sched-"));
+    const file = join(dir, `ok-${Math.random().toString(36).slice(2)}.json`);
+    const sched = new Scheduler({ file, fire: async () => "s-x" });
+    const t = sched.create({
+      name: "边界",
+      prompt: "p",
+      target: { kind: "chat" },
+      frequency: "weekly",
+      hour: 23,
+      minute: 59,
+      weekday: 6,
+      enabled: true,
+    });
+    expect(sched.list().some((x) => x.id === t.id)).toBe(true);
   });
 });
