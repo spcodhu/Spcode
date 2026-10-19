@@ -2,6 +2,7 @@ import { memo, type ReactNode, useEffect, useRef, useState } from "react";
 import { formatFileSize } from "../format";
 import { type ChatMessage, flattenSegments, messageText, type ToolCallState } from "../store";
 import { summarizeArgs, toolLabel } from "../tooling";
+import { DiffPatch } from "./DiffBlock";
 import { Icon } from "./Icon";
 import { ImageLightbox } from "./ImageLightbox";
 import { Markdown } from "./Markdown";
@@ -474,7 +475,14 @@ function ToolRow({
       }
       detail={
         <div className="ml-6 mb-1.5 rounded-lg border border-border bg-bg-elevated/60 px-3 py-2">
-          <pre className="max-h-40 overflow-auto text-xs leading-5 text-text-tertiary">{formatArgs(toolCall.args)}</pre>
+          {/* 评审 R3-F1：edit/write 有 patch 时渲染 diff（比原始 JSON 参数可读得多） */}
+          {toolCall.patch ? (
+            <DiffPatch patch={toolCall.patch} />
+          ) : (
+            <pre className="max-h-40 overflow-auto text-xs leading-5 text-text-tertiary">
+              {formatArgs(toolCall.args)}
+            </pre>
+          )}
           {toolCall.output && (
             <pre className="mt-2 max-h-64 overflow-auto border-t border-border pt-2 text-xs leading-5 text-text-secondary">
               {toolCall.output.slice(0, 4000)}

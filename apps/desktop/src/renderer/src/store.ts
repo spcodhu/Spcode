@@ -42,6 +42,8 @@ export interface ToolCallState {
   args: unknown;
   status: "running" | "done" | "error";
   output: string;
+  /** edit/write 的 unified patch（pi details.patch，评审 R3-F1：消息流里渲染 diff） */
+  patch?: string;
 }
 
 /**
@@ -501,6 +503,10 @@ function applySessionEvent(session: SessionState, event: Record<string, unknown>
       if (tc) {
         tc.status = (event.isError as boolean) ? "error" : "done";
         tc.output = extractResultText((event as { result?: unknown }).result);
+        // 评审 R3-F1：edit/write 工具结果 details 里带 unified patch，存下来给 diff 渲染
+        const details = ((event as { result?: unknown }).result as { details?: { patch?: unknown } } | undefined)
+          ?.details;
+        if (typeof details?.patch === "string" && details.patch) tc.patch = details.patch;
       }
       break;
     }
