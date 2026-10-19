@@ -21,6 +21,21 @@ Spcode 的 bash/powershell 工具命令在 OS 级沙盒内执行，由内核强�
 fail-closed 原则：沙盒包装失败的命令不会被执行（绝不静默裸跑）；
 唯一合法的无沙盒路径是逃生舱（见下）或设置页关闭沙盒。
 
+## 设置页开关的真实语义
+
+「启用命令沙盒」不是偏好开关，而是决定**会话创建时**是否用沙盒版 bash 覆盖内置 bash：
+
+| 开关 | 工具集 | 审批 | 网络白名单 |
+|---|---|---|---|
+| 开 | 沙盒版 bash（内核边界） | `autoAllow` 开时沙盒内 write 免弹窗；danger/outward 仍弹 | 生效 |
+| 关 | pi 内置 bash（进程权限直跑） | 每条 write/outward 都弹窗（`autoAllow` 失效） | 不生效 |
+
+- 工具集在会话创建时固定，**改动只对新会话生效**（已打开会话沿用创建时的工具集）。
+- `read`/`write`/`edit` 由进程内路径守卫（`fs-guard`）约束，与本开关无关。
+- 设置页顶部状态条经宿主 `sandbox.status` 实时查询（会先 `configure` 主进程下发的设置再
+  `ensureReady`，避免无会话时误报 disabled），显示生效机制或不可用原因；
+  `unavailable` 的 `reason`（如 Linux 缺 bwrap/socat/rg）不再被吞掉。
+
 ## 默认边界
 
 **文件写入（allow-only）**：会话工作目录、系统临时目录、开发工具缓存
