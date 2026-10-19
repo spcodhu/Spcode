@@ -9,7 +9,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { getSupportedThinkingLevels, type Model } from "@earendil-works/pi-ai";
-import type { AgentSession, AgentSessionEvent, ModelRuntime } from "@earendil-works/pi-coding-agent";
+import type { AgentSession, AgentSessionEvent, ModelRuntime, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -178,6 +178,8 @@ export interface SessionControllerOptions {
   getAdvancedSearchConfig?: () => AdvancedSearchConfig | null;
   /** 沙盒设置（主进程设置页下发，实时读取；enabled 且平台可用时 bash 走 OS 级沙盒） */
   getSandboxSettings?: () => SandboxSettings;
+  /** MCP 工具表快照（评审 R3-F3；会话创建时取，mcp__server__tool 经权限网关） */
+  getMcpTools?: () => ToolDefinition[];
   /**
    * 共享 pi SettingsManager（压缩设置载体）：引擎每轮压缩判断实时读取，
    * 主进程下发新配置后活跃会话即时生效。缺省时 pi 自建（读 ~/.spcode/agent/settings.json）。
@@ -281,6 +283,8 @@ export class SessionController {
           : []),
         // 路径守卫版 read/write/edit：同名覆盖内置（进程内 fs 不受 OS 沙盒约束，这里是边界）
         ...createGuardedFsTools(cwd, getFsPolicy),
+        // MCP 工具（R3-F3）：配置下发后新会话生效；mcp__server__tool 经权限网关（默认 write 风险）
+        ...(opts.getMcpTools?.() ?? []),
         createWebSearchTool(),
         // 高级搜索：仅当用户在设置页配置了完整可用的搜索 API 才注册，
         // 没配置时工具列表里根本没有它（模型无从误调）。配置变更对己创建会话不生效，新会话生效。

@@ -276,6 +276,8 @@ export type HostCommand =
   | { type: "search.setAdvancedConfig"; payload: { config: AdvancedSearchConfig | null } }
   /** 沙盒设置下发（设置页变更后推送；宿主就绪时重推）。对已创建会话不生效，新会话生效 */
   | { type: "sandbox.setConfig"; payload: { config: SandboxSettings } }
+  /** MCP 服务器配置下发（设置页变更后推送；宿主就绪时重推）。对已创建会话不生效，新会话生效 */
+  | { type: "mcp.setServers"; payload: { servers: Record<string, McpServerConfig> } }
   /**
    * 压缩设置下发（设置页变更后推送；宿主就绪时重推）。
    * 与沙盒不同：pi 引擎每次压缩判断都实时读 SettingsManager，活跃会话即时生效。
@@ -558,6 +560,16 @@ export function normalizeReleaseNotes(
     .join("\n\n");
 }
 
+/** MCP 服务器配置（评审 R3-F3，MVP：stdio 传输） */
+export interface McpServerConfig {
+  /** 可执行文件（如 npx / uvx / 绝对路径） */
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+  /** 缺省启用；false = 停用但保留配置 */
+  enabled?: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // 应用设置（主进程持久化）
 // ---------------------------------------------------------------------------
@@ -622,6 +634,8 @@ export interface AppSettings {
   sandbox: SandboxSettings;
   /** 上下文压缩：阈值/保留窗口/开关（下发 pi 引擎，活跃会话实时生效） */
   compaction: CompactionSettings;
+  /** MCP 服务器（stdio）：设置页维护，新会话生效；工具经权限网关裁决 */
+  mcpServers: Record<string, McpServerConfig>;
   /**
    * 免审批规则（权限卡「总允许」沉淀，Finch 式）：命令前缀列表，仅匹配 bash/powershell。
    * 命中且 risk 为 write/outward 时免弹窗；danger 级永远不免。主进程裁决时读取。
@@ -770,6 +784,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   advancedSearch: null,
   sandbox: DEFAULT_SANDBOX_SETTINGS,
   compaction: DEFAULT_COMPACTION_SETTINGS,
+  mcpServers: {},
   permissionRules: [],
   remote: {
     enabled: false,

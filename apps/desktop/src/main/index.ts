@@ -507,6 +507,10 @@ function registerIpc(): void {
     if ("compaction" in patch) {
       bridge.push({ type: "compaction.setConfig", payload: { config: next.compaction } });
     }
+    // MCP 服务器配置实时下发宿主（对已创建会话不生效，新会话生效——工具列表创建时固定）
+    if ("mcpServers" in patch) {
+      bridge.push({ type: "mcp.setServers", payload: { servers: next.mcpServers } });
+    }
     // 远程控制开关/端口变更：即时启停（改动最小的方式——由 IPC 层显式触发）
     if ("remote" in patch) {
       void remote.applySettings();
@@ -628,6 +632,7 @@ if (!app.requestSingleInstanceLock()) {
         bridge.push({ type: "search.setAdvancedConfig", payload: { config: settings.get().advancedSearch } });
         bridge.push({ type: "sandbox.setConfig", payload: { config: settings.get().sandbox } });
         bridge.push({ type: "compaction.setConfig", payload: { config: settings.get().compaction } });
+        bridge.push({ type: "mcp.setServers", payload: { servers: settings.get().mcpServers } });
       }
     });
     // 评审 R3-C15：后台服务（宿主/远程）启动失败不能让窗口永远建不起来——窗口先建，服务各自兜底

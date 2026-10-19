@@ -3,6 +3,7 @@ import { inferMapping, isAdvancedSearchReady, PRESET_ENDPOINTS } from "@spcode/s
 import { useEffect, useRef, useState } from "react";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
+import { McpPage } from "./McpPage";
 import { ModelsPage } from "./ModelsPage";
 import { QuotaPage } from "./QuotaPage";
 import { RemotePage } from "./RemotePage";
@@ -10,7 +11,7 @@ import { UsagePage } from "./UsagePage";
 import { Select } from "./ui/Select";
 import { Switch } from "./ui/Switch";
 
-type PageId = "general" | "appearance" | "models" | "usage" | "quota" | "remote" | "memory" | "about";
+type PageId = "general" | "appearance" | "models" | "usage" | "quota" | "remote" | "mcp" | "memory" | "about";
 
 const NAV: { id: PageId; label: string; icon: string }[] = [
   { id: "general", label: "通用", icon: "gear" },
@@ -19,6 +20,7 @@ const NAV: { id: PageId; label: string; icon: string }[] = [
   { id: "usage", label: "用量", icon: "chart" },
   { id: "quota", label: "配额", icon: "gauge" },
   { id: "remote", label: "远程控制", icon: "globe" },
+  { id: "mcp", label: "MCP", icon: "toolbox" },
   { id: "memory", label: "记忆", icon: "brain" },
   { id: "about", label: "关于", icon: "info" },
 ];
@@ -77,6 +79,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
             {page === "quota" && <QuotaPage />}
             {page === "remote" && <RemotePage />}
             {page === "memory" && <MemoryPage />}
+            {page === "mcp" && <McpPage />}
             {page === "about" && <AboutPage />}
           </div>
         </div>

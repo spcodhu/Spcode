@@ -33,6 +33,7 @@ import { DEFAULT_COMPACTION_SETTINGS, DEFAULT_SANDBOX_SETTINGS } from "@spcode/s
 import { resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
 import { exportSessionContext } from "./export-context.js";
 import { HibernationManager } from "./hibernation.js";
+import { getMcpManager } from "./mcp.js";
 import { MemoryStore } from "./memory-store.js";
 import { getSandboxService } from "./sandbox/manager.js";
 import { SessionController } from "./session-controller.js";
@@ -348,6 +349,7 @@ async function createController(params: {
     isDistillEnabled: () => distillEnabled,
     getAdvancedSearchConfig: () => advancedSearchConfig,
     getSandboxSettings: () => sandboxSettings,
+    getMcpTools: () => getMcpManager().tools(),
     piSettings,
   });
 }
@@ -379,6 +381,9 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
   }
   if (cmd.type === "shutdown") {
     hibernation.disposeAll();
+    await getMcpManager()
+      .disposeAll()
+      .catch(() => {});
     for (const s of sessions.values()) await s.dispose().catch(() => {});
     process.exit(0);
   }
@@ -392,6 +397,13 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
   }
   if (cmd.type === "sandbox.setConfig") {
     sandboxSettings = cmd.payload.config;
+    return;
+  }
+  if (cmd.type === "mcp.setServers") {
+    // 新服务器连接是异步的，失败的服务器静默跳过（记日志）；对已创建会话不生效
+    void getMcpManager()
+      .syncServers(cmd.payload.servers)
+      .catch((err) => console.warn("[mcp] 同步失败", err));
     return;
   }
   if (cmd.type === "compaction.setConfig") {
