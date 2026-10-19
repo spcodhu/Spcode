@@ -17,39 +17,37 @@ export type { QuotaInfo, QuotaLimit } from "@spcode/shared";
 // 密钥读取（pi auth.json，只读）
 // ---------------------------------------------------------------------------
 
+/**
+ * 从 pi auth.json 提取各厂商密钥（评审 R3-C15：按 pi 的凭证 schema 精确读取，
+ * 不再用 /key|token|secret/ 启发式猜——后者遇到非标准字段会把普通字符串当 key 发给第三方）。
+ * 支持的形态：{ provider: { type: "api_key", key } } 与 { provider: { type: "oauth", accessToken/refreshToken } }。
+ */
 function readAuthKeys(agentDir: string): Record<string, string> {
   const file = join(agentDir, "auth.json");
   if (!existsSync(file)) return {};
   try {
     const raw = JSON.parse(readFileSync(file, "utf-8")) as unknown;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
     const out: Record<string, string> = {};
-    collectKeys(raw, out);
+    for (const [providerId, cred] of Object.entries(raw as Record<string, unknown>)) {
+      if (!cred || typeof cred !== "object" || Array.isArray(cred)) continue;
+      const c = cred as Record<string, unknown>;
+      if (c.type === "api_key" && typeof c.key === "string" && c.key) {
+        out[providerId] = c.key;
+      } else if (c.type === "oauth") {
+        const token =
+          typeof c.accessToken === "string"
+            ? c.accessToken
+            : typeof c.refreshToken === "string"
+              ? c.refreshToken
+              : null;
+        if (token) out[providerId] = token;
+      }
+    }
     return out;
   } catch {
     return {};
   }
-}
-
-function collectKeys(node: unknown, out: Record<string, string>, providerHint?: string): void {
-  if (!node || typeof node !== "object") return;
-  if (Array.isArray(node)) {
-    for (const item of node) collectKeys(item, out, providerHint);
-    return;
-  }
-  const obj = node as Record<string, unknown>;
-  for (const [k, v] of Object.entries(obj)) {
-    if (typeof v === "string" && v.length > 8 && /key|token|secret/i.test(k) && providerHint) {
-      out[providerHint] = v;
-    } else if (typeof v === "string" && v.length > 8 && isProviderId(k)) {
-      out[k] = v;
-    } else if (v && typeof v === "object") {
-      collectKeys(v, out, isProviderId(k) ? k : providerHint);
-    }
-  }
-}
-
-function isProviderId(s: string): boolean {
-  return /^[a-z][a-z0-9-]{2,30}$/i.test(s) && !/^(version|type|kind)$/i.test(s);
 }
 
 // ---------------------------------------------------------------------------
@@ -237,6 +235,8 @@ function limitLabel(type?: string): string {
 }
 
 function formatReset(ts: number): string {
+  // 评审 R3-C15：上游 resetTime 解析失败（NaN）不输出「NaN月NaN日」
+  if (!Number.isFinite(ts)) return "";
   const d = new Date(ts);
   const now = Date.now();
   if (d.getTime() - now < 86_400_000) {

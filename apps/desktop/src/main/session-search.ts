@@ -29,11 +29,11 @@ export async function searchSessions(
     const titleMatch = entry.title.toLowerCase().includes(q);
     const hits = entry.sessionFile ? await searchSessionFile(entry.sessionFile, q) : [];
     if (titleMatch || hits.length > 0) results.push({ id: entry.id, titleMatch, hits });
-    if (results.length >= MAX_RESULTS) break;
   }
-  // 标题命中优先，其余保持注册表传入顺序（已按更新时间倒序）
+  // 标题命中优先，其余保持注册表传入顺序（已按更新时间倒序）。
+  // 评审 R3-C15：先排序后截断——原实现截断在排序前，标题命中可能被挤出结果集
   results.sort((a, b) => Number(b.titleMatch) - Number(a.titleMatch));
-  return results;
+  return results.slice(0, MAX_RESULTS);
 }
 
 async function searchSessionFile(file: string, q: string): Promise<SessionSearchHit[]> {

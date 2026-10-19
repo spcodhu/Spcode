@@ -20,7 +20,7 @@ const fakeModel = { provider: "test", id: "m" } as unknown as Model<never>;
 
 describe("generateFallbackTitle", () => {
   it("剥掉引号与结尾标点，输出净标题", async () => {
-    const title = await generateFallbackTitle(
+    const { title } = await generateFallbackTitle(
       stubRuntime("「小米 17 Pro 无故关机排查」。"),
       fakeModel,
       "我的小米 17 Pro 手机无故一直在关机是什么原因？",
@@ -29,7 +29,7 @@ describe("generateFallbackTitle", () => {
   });
 
   it("压平换行与多余空白", async () => {
-    const title = await generateFallbackTitle(
+    const { title } = await generateFallbackTitle(
       stubRuntime("大模型应急运维\n\n  工程师职责"),
       fakeModel,
       "大模型应急运维工程师的任务主要是什么？",
@@ -38,7 +38,7 @@ describe("generateFallbackTitle", () => {
   });
 
   it("超长输出截断到 20 字", async () => {
-    const title = await generateFallbackTitle(
+    const { title } = await generateFallbackTitle(
       stubRuntime("这是一个非常非常非常长的标题它不应该超过二十个字所以必须被截断"),
       fakeModel,
       "随便问点啥",
@@ -47,8 +47,8 @@ describe("generateFallbackTitle", () => {
   });
 
   it("空输出 / 纯标点输出返回 null", async () => {
-    expect(await generateFallbackTitle(stubRuntime("   "), fakeModel, "x")).toBeNull();
-    expect(await generateFallbackTitle(stubRuntime("。。。"), fakeModel, "x")).toBeNull();
+    expect((await generateFallbackTitle(stubRuntime("   "), fakeModel, "x")).title).toBeNull();
+    expect((await generateFallbackTitle(stubRuntime("。。。"), fakeModel, "x")).title).toBeNull();
   });
 
   it("非 text 块被忽略", async () => {
@@ -60,6 +60,6 @@ describe("generateFallbackTitle", () => {
         ],
       }),
     } as unknown as ModelRuntime;
-    expect(await generateFallbackTitle(rt, fakeModel, "Java 后端转大模型怎么走")).toBe("Java 后端转型");
+    expect((await generateFallbackTitle(rt, fakeModel, "Java 后端转大模型怎么走")).title).toBe("Java 后端转型");
   });
 });

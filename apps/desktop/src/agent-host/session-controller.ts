@@ -215,6 +215,7 @@ export class SessionController {
       /** 恢复的会话不跑兜底（尊重已有标题） */
       isResumed: boolean;
     },
+    private readonly emitUsageCb: (usage: UsageRecord) => void,
   ) {}
 
   static async create(opts: SessionControllerOptions): Promise<SessionController> {
@@ -333,6 +334,7 @@ export class SessionController {
         enabled: !opts.noTitleAutomation,
         isResumed: !!opts.sessionFile,
       },
+      opts.emitUsage,
     );
 
     // ExitPlanMode 晚绑定回调接到 controller 上
@@ -361,6 +363,8 @@ export class SessionController {
       agentDir: opts.agentDir,
       modelRuntime: opts.modelRuntime,
       isEnabled: opts.isDistillEnabled,
+      emitUsage: (usage) => opts.emitUsage(usage), // 蒸馏消耗计账（R3-C15）
+      sessionId: opts.sessionId,
     });
     ctl.distiller = distiller;
     session.subscribe((event) => {
@@ -478,11 +482,39 @@ export class SessionController {
     if (!model) return;
     this.fallbackTitleTried = true;
     void generateFallbackTitle(this.runtime, model as Model<never>, this.firstUserText)
-      .then((title) => {
+      .then((result) => {
+        // 计账（评审 R3-C15）：兜底标题是一次真实模型调用，计入用量账本
+        if (result?.usage) this.emitUsageRecord(result.usage);
         // 小调用期间模型可能刚好主动改名了，主动命名优先
-        if (title && !t.renamedByAgent.fired) t.onRename?.(title);
+        if (result?.title && !t.renamedByAgent.fired) t.onRename?.(result.title);
       })
       .catch(() => {});
+  }
+
+  /** 兜底标题等辅助调用的 usage 上抛（与会话用量同通道，归属本会话） */
+  private emitUsageRecord(u: {
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; total?: number };
+  }): void {
+    const model = this.currentModelRef();
+    if (!model) return;
+    this.emitUsageCb({
+      sessionId: this.sessionId,
+      model,
+      timestamp: Date.now(),
+      input: u.input ?? 0,
+      output: u.output ?? 0,
+      cacheRead: u.cacheRead ?? 0,
+      cacheWrite: u.cacheWrite ?? 0,
+      costInput: u.cost?.input ?? 0,
+      costOutput: u.cost?.output ?? 0,
+      costCacheRead: u.cost?.cacheRead ?? 0,
+      costCacheWrite: u.cost?.cacheWrite ?? 0,
+      costTotal: u.cost?.total ?? 0,
+    });
   }
 
   async abort(): Promise<void> {
@@ -528,7 +560,16 @@ export async function generateFallbackTitle(
   runtime: ModelRuntime,
   model: Model<never>,
   userText: string,
-): Promise<string | null> {
+): Promise<{
+  title: string | null;
+  usage?: {
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; total?: number };
+  };
+}> {
   const prompt = [
     "给下面的用户请求起一个精炼的会话标题，用于侧边栏会话列表展示。",
     "要求：不超过 15 个字；与用户用语言一致；概括意图而不是照抄原文；",
@@ -550,7 +591,7 @@ export async function generateFallbackTitle(
     .replace(/^[\s"'「『《〈（(【[]+|[\s"'」』》〉）)】\]。．.!！?？:：;；,，、…·~—-]+$/g, "")
     .slice(0, 20)
     .trim();
-  return title || null;
+  return { title: title || null, usage: result.usage };
 }
 
 // ---------------------------------------------------------------------------

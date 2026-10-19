@@ -3,7 +3,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
@@ -407,18 +407,24 @@ function registerIpc(): void {
       const name = basename(file);
       const ext = name.includes(".") ? (name.split(".").pop()?.toLowerCase() ?? "") : "";
       try {
-        const buf = readFileSync(file);
-        const size = buf.byteLength;
+        // 先 stat 后读（评审 R3-C15：原实现先 readFileSync 再判大小，2GB 文件直接卡死主进程）
+        const size = statSync(file).size;
         if (PICK_IMAGE_EXTS.has(ext)) {
           if (size > 10 * 1024 * 1024) {
             out.push({ kind: "rejected", name, size, reason: "图片超过 10MB" });
-          } else {
-            const mimeType = ext === "jpg" ? "image/jpeg" : `image/${ext}`;
-            out.push({ kind: "image", name, mimeType, data: buf.toString("base64") });
+            continue;
           }
-        } else if (size > 200 * 1024) {
+          const buf = readFileSync(file);
+          const mimeType = ext === "jpg" ? "image/jpeg" : `image/${ext}`;
+          out.push({ kind: "image", name, mimeType, data: buf.toString("base64") });
+          continue;
+        }
+        if (size > 200 * 1024) {
           out.push({ kind: "rejected", name, size, reason: "文本文件超过 200KB" });
-        } else if (PICK_TEXT_EXTS.has(ext) || !looksBinary(buf)) {
+          continue;
+        }
+        const buf = readFileSync(file);
+        if (PICK_TEXT_EXTS.has(ext) || !looksBinary(buf)) {
           out.push({ kind: "text", name, size, text: buf.toString("utf-8") });
         } else {
           out.push({ kind: "rejected", name, size, reason: "二进制文件无法作为文本发送" });
@@ -569,6 +575,9 @@ if (!app.requestSingleInstanceLock()) {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
+    } else {
+      // 评审 R3-C15：关窗状态下（macOS）双开第二实例要重建窗口，而不是静默无事发生
+      createWindow();
     }
   });
 
@@ -586,10 +595,18 @@ if (!app.requestSingleInstanceLock()) {
         bridge.push({ type: "compaction.setConfig", payload: { config: settings.get().compaction } });
       }
     });
-    await bridge.start();
+    // 评审 R3-C15：后台服务（宿主/远程）启动失败不能让窗口永远建不起来——窗口先建，服务各自兜底
+    try {
+      await bridge.start();
+    } catch (err) {
+      console.error("[main] agent-host 启动失败", err);
+    }
     scheduler.start();
-    // settings.remote.enabled 时启动局域网 HTTP+WS 服务（未启用则空操作）
-    await remote.applySettings();
+    try {
+      await remote.applySettings();
+    } catch (err) {
+      console.error("[main] 远程服务启动失败", err);
+    }
     createWindow();
     setupAutoUpdater({
       isEnabled: () => settings.get().autoUpdate,

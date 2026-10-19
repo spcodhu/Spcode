@@ -38,8 +38,9 @@ function validateVapid(data: unknown): VapidKeys | null {
 function validateSubscriptions(data: unknown): Record<string, StoredSubscription> | null {
   if (!data || typeof data !== "object" || Array.isArray(data)) return null;
   const out: Record<string, StoredSubscription> = {};
+  // 评审 R3-C15：逐条过滤坏订阅（原实现一条坏→整份作废覆盖，全部设备推送静默丢失）
   for (const [deviceId, v] of Object.entries(data as Record<string, unknown>)) {
-    if (!isValidSubscription(v)) return null;
+    if (!isValidSubscription(v)) continue;
     const rec = v as StoredSubscription;
     out[deviceId] = { ...rec, updatedAt: typeof rec.updatedAt === "number" ? rec.updatedAt : 0 };
   }

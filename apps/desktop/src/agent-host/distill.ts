@@ -8,6 +8,7 @@
  */
 import type { AgentSession, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
+import type { UsageRecord } from "@spcode/shared";
 import type { MemoryStore } from "./memory-store.js";
 
 const DISTILL_MIN_MESSAGES = 4;
@@ -33,6 +34,10 @@ export class MemoryDistiller {
       modelRuntime: ModelRuntime;
       /** 蒸馏总开关（设置页「自动记忆蒸馏」，评审 P0-4：静默计费必须可见可关） */
       isEnabled?: () => boolean;
+      /** 蒸馏消耗计账（评审 R3-C15：辅助模型调用不再静默——计入用量账本，归属原会话） */
+      emitUsage?: (usage: UsageRecord) => void;
+      /** 归属会话 id（计账用） */
+      sessionId?: string;
     },
   ) {}
 
@@ -79,6 +84,8 @@ export class MemoryDistiller {
         await worker.prompt(prompt);
         const output = worker.getLastAssistantText() ?? "";
         if (output.trim()) this.apply(output);
+        // 计账：蒸馏 worker 的模型消耗归属原会话（静默烧钱 → 可见）
+        this.emitWorkerUsage(worker);
       } finally {
         await worker.dispose();
       }
@@ -113,6 +120,40 @@ export class MemoryDistiller {
 
   get stats() {
     return { distilledCount: this.distilledCount };
+  }
+
+  /** 从蒸馏 worker 会话提取最后一条 assistant 消息的 usage 并上抛（有 emitUsage 且有会话归属时） */
+  private emitWorkerUsage(worker: AgentSession): void {
+    if (!this.opts.emitUsage || !this.opts.sessionId) return;
+    const model = worker.model;
+    if (!model) return;
+    for (let i = worker.messages.length - 1; i >= 0; i--) {
+      const m = worker.messages[i] as { role?: string; usage?: unknown; timestamp?: number } | undefined;
+      if (m?.role !== "assistant" || !m.usage || typeof m.usage !== "object") continue;
+      const u = m.usage as Partial<{
+        input: number;
+        output: number;
+        cacheRead: number;
+        cacheWrite: number;
+        cost: Partial<{ input: number; output: number; cacheRead: number; cacheWrite: number; total: number }>;
+      }>;
+      const cost = u.cost ?? {};
+      this.opts.emitUsage({
+        sessionId: this.opts.sessionId,
+        model: { provider: model.provider, modelId: model.id },
+        timestamp: typeof m.timestamp === "number" ? m.timestamp : Date.now(),
+        input: u.input ?? 0,
+        output: u.output ?? 0,
+        cacheRead: u.cacheRead ?? 0,
+        cacheWrite: u.cacheWrite ?? 0,
+        costInput: cost.input ?? 0,
+        costOutput: cost.output ?? 0,
+        costCacheRead: cost.cacheRead ?? 0,
+        costCacheWrite: cost.cacheWrite ?? 0,
+        costTotal: cost.total ?? 0,
+      });
+      return;
+    }
   }
 }
 
