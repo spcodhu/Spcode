@@ -189,6 +189,8 @@ export interface SessionState {
   pendingError?: { message: string; at: number };
   /** 引擎自动重试状态（auto_retry_start/end 驱动；运行状态条据此显示「Ns 后重试」） */
   retry?: { attempt: number; maxAttempts: number; delayMs: number; errorMessage: string };
+  /** 上一次运行自动重试耗尽时的尝试次数（错误卡标注「重试 N 次后仍失败」） */
+  retryFailed?: number;
 }
 
 /** 宿主 session.create/open/activate 响应（ctl.info() 的渲染进程侧镜像） */
@@ -570,16 +572,20 @@ export function applySessionEvent(session: SessionState, event: Record<string, u
       break;
     }
     case "auto_retry_end": {
-      const e = event as { success?: boolean; finalError?: string };
+      const e = event as { success?: boolean; finalError?: string; attempt?: number };
+      const attempt = e.attempt ?? session.retry?.attempt;
       session.retry = undefined;
       if (e.success) {
         // 重试救回来了：清账，不留红卡
         session.pendingError = undefined;
+        session.retryFailed = undefined;
       } else if (/cancel(?:l)?ed|abort/i.test(e.finalError ?? "")) {
         // 用户在重试退避中取消：不是模型错误，不打扰
         session.pendingError = undefined;
+        session.retryFailed = undefined;
       } else if (e.finalError?.trim()) {
         session.pendingError = { message: e.finalError.trim(), at: Date.now() };
+        session.retryFailed = attempt;
       }
       break;
     }
@@ -619,6 +625,7 @@ export function applySessionEvent(session: SessionState, event: Record<string, u
       session.runStartedAt = Date.now();
       session.pendingError = undefined;
       session.retry = undefined;
+      session.retryFailed = undefined;
       break;
     case "compaction_start":
       // 引擎开始压缩（自动阈值/溢出/手动）：状态条显示「正在压缩上下文…」
@@ -658,8 +665,10 @@ export function applySessionEvent(session: SessionState, event: Record<string, u
       // 回合以错误收场（额度不足/鉴权失败/限流耗尽…）：落一张持久的错误卡。
       // 这是唯一提示通道——旧实现什么都不显示，任务“凭空中断”。
       const err = session.pendingError;
+      const attempts = session.retryFailed;
       session.pendingError = undefined;
-      if (err) session.messages.push(makeRunErrorNotice(err.message));
+      session.retryFailed = undefined;
+      if (err) session.messages.push(makeRunErrorNotice(err.message, attempts));
       break;
     }
   }

@@ -90,15 +90,23 @@ describe("applySessionEvent：错误回合的可见性", () => {
     expect(s.messages.some((m) => m.notice?.kind === "runError")).toBe(false);
   });
 
-  it("重试耗尽后的最终错误：带上错误原因", () => {
+  it("重试耗尽后的最终错误：带上错误原因与重试次数", () => {
     const s = makeSession();
     applySessionEvent(s, { type: "agent_start" });
     applySessionEvent(s, errorEnd("503 Service Unavailable"));
     applySessionEvent(s, { type: "auto_retry_start", attempt: 3, maxAttempts: 3, delayMs: 8000, errorMessage: "503" });
-    applySessionEvent(s, { type: "auto_retry_end", success: false, finalError: "503 Service Unavailable" });
+    applySessionEvent(s, {
+      type: "auto_retry_end",
+      success: false,
+      attempt: 3,
+      finalError: "503 Service Unavailable",
+    });
     applySessionEvent(s, { type: "agent_settled" });
     const card = s.messages.find((m) => m.notice?.kind === "runError");
     expect(card?.notice?.kind === "runError" && card.notice.raw).toBe("503 Service Unavailable");
+    expect(card?.notice?.kind === "runError" && card.notice.attempt).toBe(3);
+    // 卡片正文要能读到「重试 3 次后仍失败」
+    expect(card ? JSON.stringify(card.segments) : "").toContain("重试 3 次后仍失败");
   });
 
   it("重试中状态条显示重试进度与原因摘要", () => {
