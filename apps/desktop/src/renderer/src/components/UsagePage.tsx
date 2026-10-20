@@ -2,6 +2,7 @@ import type { UsageAggregate } from "@spcode/shared";
 import { useEffect, useMemo, useState } from "react";
 import { chartVar, donutSegments, formatShare, modelColorIndex, shortModelName, tokensOf } from "../chart";
 import { formatZh } from "../format";
+import { ChartDot, useChartTip } from "./ChartTip";
 import { Icon } from "./Icon";
 import { type DailyUsage, UsageTrends } from "./UsageTrends";
 
@@ -66,8 +67,6 @@ export function UsagePage() {
 
   const total = data?.total;
   const totalTokens = total ? tokensOf(total) : 0;
-  const top = models[0];
-  const topShare = top && totalTokens > 0 ? Math.round((top.tokens / totalTokens) * 100) : 0;
 
   return (
     <div>
@@ -93,53 +92,25 @@ export function UsagePage() {
         </div>
       </div>
 
-      {totalTokens === 0 ? (
-        <div className="mt-16 text-center text-[13px] text-text-tertiary">
-          该区间还没有用量记录，跑几轮对话后这里会有统计。
-        </div>
-      ) : (
-        <div className="mt-6 flex gap-5">
-          {/* 左：环形图 + 全模型图例 */}
-          <div className="w-[380px] shrink-0 rounded-2xl border border-border bg-bg-elevated p-6">
-            <div className="flex justify-center">
-              <DonutChart models={models} centerText={`${topShare}%`} colorOf={colorOf} />
-            </div>
-            {/* 每个模型一行：色点与环形图弧段同源色号，保证颜色一一对应 */}
-            <div className="mt-6 max-h-64 space-y-1 overflow-y-auto pr-1">
-              {models.map((m, i) => (
-                <div key={m.model} className="flex items-center gap-2.5 py-1.5 text-[13px]">
-                  <span
-                    className="h-2.5 w-2.5 shrink-0 rounded-[3px]"
-                    style={{ background: colorOf(m.model, i) }}
-                    data-testid="usage-legend-color"
-                  />
-                  <span className="min-w-0 flex-1 truncate font-medium text-text-primary" title={m.model}>
-                    {shortModelName(m.model)}
-                  </span>
-                  <span className="shrink-0 text-text-tertiary">{m.count} 次</span>
-                  <span className="shrink-0 text-text-primary">{formatZh(m.tokens)}</span>
-                  <span className="w-10 shrink-0 text-right text-text-tertiary">
-                    {formatShare(m.tokens, totalTokens)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
+      {/* 区间没用量的日子（比如今天还没开工）也要保留原始结构：
+          饼图空环 + 指标卡归零 + 图例区换成一句说明，切区间时页面不会整个塌掉 */}
+      <div className="mt-6 flex gap-5" data-testid="usage-overview">
+        {/* 左：环形图 + 全模型图例（悬浮/点击联动高亮） */}
+        <DonutCard models={models} totalTokens={totalTokens} colorOf={colorOf} />
 
-          {/* 右：统计卡 */}
-          <div className="flex flex-1 flex-col gap-4">
-            <BigStatCard icon="cpu" value={formatZh(totalTokens)} label="总 Token" />
-            <BigStatCard icon="zap" value={(total?.count ?? 0).toLocaleString()} label="请求次数" />
-            <BigStatCard
-              icon="arrowUp"
-              value={formatZh((total?.input ?? 0) + (total?.cacheWrite ?? 0))}
-              label="输入 Token"
-              extra={total && total.cacheRead > 0 ? `缓存 ${formatZh(total.cacheRead)}` : undefined}
-            />
-            <BigStatCard icon="chart" value={formatZh(total?.output ?? 0)} label="输出 Token" />
-          </div>
+        {/* 右：统计卡（无数据时显示 0，结构照旧） */}
+        <div className="flex flex-1 flex-col gap-4">
+          <BigStatCard icon="cpu" value={formatZh(totalTokens)} label="总 Token" />
+          <BigStatCard icon="zap" value={(total?.count ?? 0).toLocaleString()} label="请求次数" />
+          <BigStatCard
+            icon="arrowUp"
+            value={formatZh((total?.input ?? 0) + (total?.cacheWrite ?? 0))}
+            label="输入 Token"
+            extra={total && total.cacheRead > 0 ? `缓存 ${formatZh(total.cacheRead)}` : undefined}
+          />
+          <BigStatCard icon="chart" value={formatZh(total?.output ?? 0)} label="输出 Token" />
         </div>
-      )}
+      </div>
 
       {/* 趋势柱状图 + 活跃热点图（无数据时也渲染骨架，保留打卡 0 天与空网格） */}
       <UsageTrends summary={summary} colorIndexOf={colorIndexOf} />
@@ -148,22 +119,26 @@ export function UsagePage() {
 }
 
 // ---------------------------------------------------------------------------
-// 环形图（纯 SVG，stroke-dasharray 分段）
+// 左侧卡片：环形图 + 全模型图例（纯 SVG，stroke-dasharray 分段）
 // ---------------------------------------------------------------------------
 
-function DonutChart({
+function DonutCard({
   models,
-  centerText,
+  totalTokens,
   colorOf,
 }: {
-  models: { model: string; tokens: number }[];
-  centerText: string;
+  models: { model: string; tokens: number; count: number }[];
+  totalTokens: number;
   colorOf: (model: string, fallback: number) => string;
 }) {
+  const tip = useChartTip();
   const R = 80;
   const C = 2 * Math.PI * R;
   // 每个有量的模型都至少占一小段弧（否则 0.2% 的模型会因弧长为 0 而完全消失）
   const fractions = donutSegments(models.map((m) => m.tokens));
+  const activeId = tip.activeId;
+  // 中心文案跟随高亮：没悬浮时显示占比最大的模型，悬浮/锁定时显示该模型
+  const focused = models.find((m) => m.model === activeId) ?? models[0];
 
   let cursor = C * 0.25; // 从 6 点方向开始（与原实现视觉一致）
   const arcs = models.map((seg, i) => {
@@ -174,41 +149,109 @@ function DonutChart({
     cursor += len;
     return arc;
   });
+  // 高亮的弧最后画：叠加时压在其他弧上面，不会被相邻小扇区盖住
+  const ordered = [...arcs].sort((a, b) => Number(a.seg.model === activeId) - Number(b.seg.model === activeId));
 
   return (
-    <svg width="220" height="220" viewBox="0 0 220 220" role="img" aria-label="按模型的用量占比环图">
-      <circle cx="110" cy="110" r={R} fill="none" stroke="var(--color-bg-hover)" strokeWidth="26" />
-      {arcs.map(({ seg, i, dash, offset: o }) =>
-        // 占比为 0 的模型不画弧（图例仍保留该行，显示 0%）
-        fractions[i] === 0 ? null : (
-          <circle
-            key={seg.model}
-            cx="110"
-            cy="110"
-            r={R}
-            fill="none"
-            stroke={colorOf(seg.model, i)}
-            strokeWidth="26"
-            strokeDasharray={dash}
-            strokeDashoffset={o}
-            strokeLinecap="butt"
-            data-testid="usage-donut-arc"
-            data-model={seg.model}
-          />
-        ),
+    <div
+      ref={tip.containerRef}
+      className="relative w-[380px] shrink-0 rounded-2xl border border-border bg-bg-elevated p-6"
+      data-testid="usage-donut-card"
+      {...tip.handlers}
+    >
+      <div className="flex justify-center">
+        <svg width="220" height="220" viewBox="0 0 220 220" role="img" aria-label="按模型的用量占比环图">
+          <circle cx="110" cy="110" r={R} fill="none" stroke="var(--color-bg-hover)" strokeWidth="26" />
+          {ordered.map(({ seg, i, dash, offset: o }) => {
+            // 占比为 0 的模型不画弧（图例仍保留该行，显示 0%）
+            if (fractions[i] === 0) return null;
+            const active = seg.model === activeId;
+            const dim = !!activeId && !active;
+            return (
+              <circle
+                key={seg.model}
+                cx="110"
+                cy="110"
+                r={R}
+                fill="none"
+                stroke={colorOf(seg.model, i)}
+                strokeWidth={active ? 30 : 26}
+                strokeDasharray={dash}
+                strokeDashoffset={o}
+                strokeLinecap="butt"
+                className="cursor-pointer transition-[opacity,stroke-width] duration-150"
+                style={{ opacity: dim ? 0.28 : 1 }}
+                data-tip-id={seg.model}
+                data-testid="usage-donut-arc"
+                data-model={seg.model}
+              />
+            );
+          })}
+          <text
+            x="110"
+            y="110"
+            textAnchor="middle"
+            dominantBaseline="central"
+            fontSize="30"
+            fontWeight="600"
+            fill={focused ? colorOf(focused.model, 0) : "var(--color-text-tertiary)"}
+          >
+            {focused ? formatShare(focused.tokens, totalTokens) : "—"}
+          </text>
+        </svg>
+      </div>
+
+      {models.length > 0 ? (
+        // 每个模型一行：色点与环形图弧段同源色号；悬浮/点击与饼图联动高亮。
+        // 用 data-tip-hl 而不是 data-tip-id：图例行本身已有全部数字，再弹卡片会盖住相邻行。
+        <div className="mt-6 max-h-64 space-y-1 overflow-y-auto pr-1">
+          {models.map((m, i) => (
+            <div
+              key={m.model}
+              data-tip-hl={m.model}
+              data-testid="usage-legend-row"
+              data-model={m.model}
+              className={`flex cursor-pointer items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-[13px] transition-colors ${
+                m.model === activeId ? "bg-bg-hover" : ""
+              }`}
+            >
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-[3px]"
+                style={{ background: colorOf(m.model, i) }}
+                data-testid="usage-legend-color"
+              />
+              <span className="min-w-0 flex-1 truncate font-medium text-text-primary" title={m.model}>
+                {shortModelName(m.model)}
+              </span>
+              <span className="shrink-0 text-text-tertiary">{m.count} 次</span>
+              <span className="shrink-0 text-text-primary">{formatZh(m.tokens)}</span>
+              <span className="w-10 shrink-0 text-right text-text-tertiary">{formatShare(m.tokens, totalTokens)}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-6 rounded-xl border border-dashed border-border px-4 py-6 text-center text-[12px] leading-5 text-text-tertiary">
+          该区间还没有用量记录，跑几轮对话后这里会有统计。
+        </div>
       )}
-      <text
-        x="110"
-        y="110"
-        textAnchor="middle"
-        dominantBaseline="central"
-        fontSize="30"
-        fontWeight="600"
-        fill={models[0] ? colorOf(models[0].model, 0) : "var(--color-text-primary)"}
-      >
-        {centerText}
-      </text>
-    </svg>
+
+      {tip.render((id) => {
+        const i = models.findIndex((m) => m.model === id);
+        const m = models[i];
+        if (!m) return null;
+        return (
+          <div>
+            <div className="truncate font-medium text-text-primary">{shortModelName(m.model)}</div>
+            <div className="mt-1 flex items-center gap-1.5">
+              <ChartDot color={colorOf(m.model, i)} />
+              <span className="text-text-primary tabular-nums">{formatZh(m.tokens)}</span>
+              <span className="text-text-tertiary">tokens · {formatShare(m.tokens, totalTokens)}</span>
+            </div>
+            <div className="text-text-tertiary">{m.count} 次请求</div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

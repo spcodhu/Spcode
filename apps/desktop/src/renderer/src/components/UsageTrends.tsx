@@ -17,6 +17,7 @@ import {
   tokensOf,
 } from "../chart";
 import { formatZh } from "../format";
+import { ChartDot, useChartTip } from "./ChartTip";
 import { Select } from "./ui/Select";
 
 export type DailyUsage = Awaited<ReturnType<Window["spcode"]["usageSummary"]>>[number];
@@ -153,7 +154,7 @@ export function UsageTrends({
               <span className="text-[12px] text-text-tertiary">tokens · {scopeLabel}</span>
             </div>
             <p className="mt-1 text-[12px] text-text-tertiary">
-              每日一支柱，柱内颜色为各模型占比（输入 + 输出 + 缓存读写）
+              每日一支柱，柱内颜色为各模型占比（输入 + 输出 + 缓存读写）· 悬停看当天明细，点击锁定
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -185,7 +186,7 @@ export function UsageTrends({
           <div>
             <h2 className="text-[15px] font-semibold text-text-primary">使用热点图</h2>
             <p className="mt-0.5 text-[12px] text-text-tertiary">
-              最近 {HEAT_WEEKS} 周，每格一天，颜色越深当天消耗越多
+              最近 {HEAT_WEEKS} 周，每格一天，颜色越深当天消耗越多 · 悬停看当天用量，点击锁定
             </p>
           </div>
           <div className="flex items-center gap-6">
@@ -241,6 +242,7 @@ function StackedBarChart({
   series: Series[];
   seriesColor: (key: string, fallback: number) => string;
 }) {
+  const tip = useChartTip();
   const W = 840;
   const H = 240;
   const padL = 58;
@@ -262,9 +264,35 @@ function StackedBarChart({
   const xAt = (i: number) => padL + i * step + (step - barW) / 2;
   const labelStep = Math.max(1, Math.ceil(dates.length / 8));
   const ticks = [0, 1 / 3, 2 / 3, 1].map((t) => t * yMax);
+  // 当前高亮的日（悬浮优先，其次点击锁定）：其余日变暗，只留当日与模型明细
+  const activeIdx = tip.activeId ? dates.indexOf(tip.activeId) : -1;
+
+  /** 提示卡片内容：当日总量 + 各模型构成（色点与柱内分段同源） */
+  const bodyOf = (id: string) => {
+    const i = dates.indexOf(id);
+    if (i < 0) return null;
+    const rows = series
+      .map((s, si) => ({ key: s.key, label: s.label, value: s.values[i] ?? 0, color: seriesColor(s.key, si) }))
+      .filter((r) => r.value > 0)
+      .sort((a, b) => b.value - a.value);
+    const total = rows.reduce((n, r) => n + r.value, 0);
+    return (
+      <div>
+        <div className="font-medium text-text-primary">{id}</div>
+        <div className="mt-0.5 tabular-nums">{formatZh(total)} tokens</div>
+        {rows.map((r) => (
+          <div key={r.key} className="mt-1 flex items-center gap-1.5">
+            <ChartDot color={r.color} />
+            <span className="min-w-0 flex-1 truncate">{r.label}</span>
+            <span className="shrink-0 text-text-primary tabular-nums">{formatZh(r.value)}</span>
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   return (
-    <div>
+    <div className="relative" ref={tip.containerRef} {...tip.handlers}>
       <svg
         viewBox={`0 0 ${W} ${H}`}
         className="h-auto w-full"
@@ -297,6 +325,20 @@ function StackedBarChart({
           </g>
         ))}
 
+        {/* 高亮日的竖向底色：其余日变暗时，这一列才不会跟着消失 */}
+        {activeIdx >= 0 && (
+          <rect
+            x={padL + activeIdx * step}
+            y={padT}
+            width={step}
+            height={plotH}
+            rx={Math.min(4, step / 3)}
+            fill="var(--color-text-primary)"
+            opacity={0.07}
+            data-testid="usage-bar-cursor"
+          />
+        )}
+
         {/* X 轴日期标签（按需抽稀，100 天窗口也不糊） */}
         {dates.map((d, i) =>
           i % labelStep === 0 || i === dates.length - 1 ? (
@@ -313,13 +355,17 @@ function StackedBarChart({
           ) : null,
         )}
 
-        {/* 每日堆叠柱：自下而上按序列顺序堆各模型 */}
+        {/* 每日堆叠柱：自下而上按序列顺序堆各模型；高亮日以外整体变暗（仍可见当日对比） */}
         {hasData &&
           dates.map((d, i) => {
             const values = series.map((s) => s.values[i] ?? 0);
             const spans = stackSegments(values);
             return (
-              <g key={d}>
+              <g
+                key={d}
+                className="transition-opacity duration-150"
+                style={{ opacity: activeIdx >= 0 && activeIdx !== i ? 0.32 : 1 }}
+              >
                 {spans.map((sp, si) => {
                   const len = sp.end - sp.start;
                   if (!(len > 0)) return null;
@@ -344,20 +390,22 @@ function StackedBarChart({
             );
           })}
 
-        {/* 每日悬浮命中区：原生 <title> 提示当日各模型明细 */}
+        {/* 每日悬浮/点击命中区：容器统一处理事件，这里只标 data-tip-id */}
         {hasData &&
-          dates.map((d, i) => {
-            const total = series.reduce((n, s) => n + (s.values[i] ?? 0), 0);
-            const parts = series
-              .filter((s) => (s.values[i] ?? 0) > 0)
-              .map((s) => `${s.label} ${formatZh(s.values[i] ?? 0)}`)
-              .join("、");
-            return (
-              <rect key={`hit-${d}`} x={padL + i * step} y={padT} width={step} height={plotH} fill="transparent">
-                <title>{`${d} · ${formatZh(total)} tokens${parts ? `（${parts}）` : ""}`}</title>
-              </rect>
-            );
-          })}
+          dates.map((d, i) => (
+            <rect
+              key={`hit-${d}`}
+              x={padL + i * step}
+              y={padT}
+              width={step}
+              height={plotH}
+              fill="transparent"
+              className="cursor-pointer"
+              data-tip-id={d}
+              data-testid="usage-bar-hit"
+              data-date={d}
+            />
+          ))}
 
         {!hasData && (
           <text
@@ -372,6 +420,8 @@ function StackedBarChart({
           </text>
         )}
       </svg>
+
+      {tip.render(bodyOf)}
 
       {/* 多序列时给图例（色点与环形图/柱内分段同源色号） */}
       {series.length > 1 && (
@@ -398,9 +448,10 @@ const HEAT_LEVEL_CLASSES = ["bg-bg-hover", "bg-accent/25", "bg-accent/45", "bg-a
 const WEEKDAY_LABELS = ["周一", "", "周三", "", "周五", "", ""];
 
 function Heatmap({ totals }: { totals: Map<string, number> }) {
+  const tip = useChartTip();
   const slots = useMemo(() => buildHeatGrid(totals), [totals]);
   return (
-    <div className="w-full">
+    <div className="relative w-full" ref={tip.containerRef} {...tip.handlers}>
       {/* 单一网格拉满卡片宽：第 1 列 = 周内日标签，后 26 列 = 月份行 + 7 天格子（列主序）。
           列宽 1fr、格子 aspect-square：格子随可用宽度等比放大并保持正方形 */}
       <div
@@ -427,20 +478,30 @@ function Heatmap({ totals }: { totals: Map<string, number> }) {
           ) : (
             <div
               key={slot.id}
-              className={`aspect-square w-full rounded-[2px] ${
+              className={`aspect-square w-full rounded-[2px] transition-transform duration-100 ${
                 slot.future ? "bg-transparent" : HEAT_LEVEL_CLASSES[slot.level]
-              }`}
-              title={
-                slot.future
-                  ? undefined
-                  : slot.tokens > 0
-                    ? `${slot.date} · ${formatZh(slot.tokens)} tokens`
-                    : `${slot.date} · 无用量`
-              }
+              } ${
+                !slot.future && slot.date === tip.activeId
+                  ? "relative z-10 scale-[1.18] ring-2 ring-text-primary/70"
+                  : ""
+              } ${slot.future ? "" : "cursor-pointer"}`}
+              // 未来的格子不可交互（没有用量）；其余给出 id，容器统一处理悬浮/点击
+              data-tip-id={slot.future ? undefined : slot.date}
+              data-testid={slot.future ? undefined : "usage-heat-cell"}
+              data-date={slot.future ? undefined : slot.date}
             />
           ),
         )}
       </div>
+      {tip.render((id) => {
+        const tokens = totals.get(id) ?? 0;
+        return (
+          <div>
+            <div className="font-medium text-text-primary">{id}</div>
+            <div className="mt-0.5 tabular-nums">{tokens > 0 ? `${formatZh(tokens)} tokens` : "无用量"}</div>
+          </div>
+        );
+      })}
     </div>
   );
 }
