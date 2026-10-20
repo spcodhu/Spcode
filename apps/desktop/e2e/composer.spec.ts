@@ -107,6 +107,22 @@ test.describe("输入框：长文本模式", () => {
 });
 
 test.describe("输入框：高度自适应", () => {
+  test("空输入框默认就接近两行高，不再贴着工具栏", async () => {
+    const app = await launchApp();
+    const window = await app.firstWindow();
+
+    await window.getByRole("button", { name: /新建聊天/ }).click();
+    const composer = window.getByPlaceholder(/说点什么/);
+    await expect(composer).toBeVisible({ timeout: 15000 });
+
+    // 行高 24px：默认 min-height 44px ≈ 一行半、接近两行（旧实现空框只有 1 行 24px）
+    const height = await composer.evaluate((el) => el.clientHeight);
+    expect(height).toBeGreaterThanOrEqual(42);
+    expect(height).toBeLessThanOrEqual(50);
+
+    await app.close();
+  });
+
   test("多行输入：高度随内容增长、超出上限后 textarea 自身滚动，外层 padding 不随滚动消失", async () => {
     const app = await launchApp();
     const window = await app.firstWindow();

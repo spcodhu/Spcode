@@ -425,9 +425,12 @@ button:disabled {
 }
 
 /* 普通输入框：高度随内容自适应，滚动交给 textarea 自身——
-   不用 JS 重算 height，避免每次输入先归零再撑开时把外层 scrollTop 夹回顶部 */
+   不用 JS 重算 height，避免每次输入先归零再撑开时把外层 scrollTop 夹回顶部。
+   field-sizing: content 会让空输入框塌成 1 行（rows 属性不再作为高度下限），
+   因此显式给 min-height：行高 24px × 约 1.8 行 ≈ 44px，默认就是「一行半、接近两行」的高度 */
 .composer-textarea {
   field-sizing: content;
+  min-height: 44px;
 }
 .md-editor:empty::before {
   content: attr(data-placeholder);
