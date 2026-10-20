@@ -70,7 +70,7 @@ export interface ChatMessage {
   /**
    * 通知类消息的负载（role === "notice" 时存在）。
    * compaction：一次上下文压缩的分隔线（tokensBefore→tokensAfter，summary 可展开）。
-   * runError：运行被错误中断的错误卡（额度不足/鉴权失败/限流耗尽…，可展开原始错误）。
+   * runError：运行被错误中断的错误卡（额度不足/鉴权失败/限流耗尽…，原始错误直接展示）。
    */
   notice?:
     | {
@@ -84,7 +84,7 @@ export interface ChatMessage {
         errorKind: RunErrorKind;
         title: string;
         hint: string;
-        /** 上游原始错误（英文，工程向；默认折叠） */
+        /** 上游原始错误（英文，工程向；卡片里直接展示，不折叠） */
         raw?: string;
         /** >0 表示自动重试过 N 次仍失败 */
         attempt?: number;

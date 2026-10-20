@@ -57,7 +57,7 @@ const CATALOG: Record<RunErrorKind, { title: string; hint: string }> = {
   },
   other: {
     title: "任务因错误中断",
-    hint: "展开「详情」查看原始错误；必要时切换模型或稍后重试。",
+    hint: "原始错误见下方；必要时切换模型或稍后重试。",
   },
 };
 

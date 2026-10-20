@@ -50,5 +50,7 @@ describe("classifyRunError", () => {
     expect(info.kind).toBe("other");
     expect(info.title).toBeTruthy();
     expect(info.hint).toBeTruthy();
+    // 原始错误现在直接铺在错误卡里，建议文案不该再让人去点一个「详情」
+    expect(info.hint).not.toContain("详情");
   });
 });

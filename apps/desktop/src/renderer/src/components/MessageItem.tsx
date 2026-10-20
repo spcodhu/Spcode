@@ -106,7 +106,8 @@ export const MessageItem = memo(MessageItemImpl);
  *
  * runError（额度不足/鉴权失败/限流耗尽…中断）是与上述完全不同的东西：
  * 它不是仪式性分隔线，而是「任务被掐断了」——渲染成危险色卡片，
- * 标题 + 处理建议 + 折叠的原始错误，且重启后仍可见（historyToMessages 回放）。
+ * 标题 + 处理建议 + 原始错误（直接展示，不再藏在一个「详情」按钮后面），
+ * 且重启后仍可见（historyToMessages 回放）。
  */
 function NoticeItemImpl({ message }: { message: ChatMessage }) {
   const text = messageText(message);
@@ -148,7 +149,6 @@ function NoticeItemImpl({ message }: { message: ChatMessage }) {
 
 /** 运行被错误中断的持久错误卡（额度不足/凭证/限流/超长/网络） */
 function RunErrorCard({ notice }: { notice: Extract<NonNullable<ChatMessage["notice"]>, { kind: "runError" }> }) {
-  const [open, setOpen] = useState(false);
   return (
     <div
       className="my-4 rounded-xl border border-danger/40 bg-danger/8 px-4 py-3"
@@ -163,23 +163,12 @@ function RunErrorCard({ notice }: { notice: Extract<NonNullable<ChatMessage["not
           {notice.attempt && notice.attempt > 0 ? (
             <div className="mt-1 text-[11.5px] text-text-tertiary">自动重试 {notice.attempt} 次后仍未恢复</div>
           ) : null}
+          {/* 原始错误直接铺在外面：排查时最想看的就是这句话，多一次点击都是阻碍 */}
           {notice.raw && (
-            <button
-              type="button"
-              onClick={() => setOpen((v) => !v)}
-              className="mt-1.5 flex items-center gap-1 text-[11.5px] text-text-tertiary transition-colors hover:text-text-secondary"
-              data-testid="run-error-detail-toggle"
+            <pre
+              className="mono mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-bg-main px-3 py-2 text-[11.5px] leading-5 text-text-secondary"
+              data-testid="run-error-raw"
             >
-              详情
-              <Icon
-                name="chevronDown"
-                size={11}
-                className={`transition-transform duration-150 ${open ? "rotate-180" : ""}`}
-              />
-            </button>
-          )}
-          {open && notice.raw && (
-            <pre className="mono mt-1.5 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg border border-border bg-bg-main px-3 py-2 text-[11.5px] leading-5 text-text-tertiary">
               {notice.raw}
             </pre>
           )}
