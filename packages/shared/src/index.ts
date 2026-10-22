@@ -629,12 +629,6 @@ export interface AppSettings {
   memoryDistill: boolean;
   /** 模型行悬浮时显示配额卡片 */
   quickQuota: boolean;
-  /**
-   * 执行过程展示档位：
-   * - full（默认）：思考/命令/每轮阶段输出都可见，运行结束后统一收进「工作完成」，只留最终总结；
-   * - compact（类 Codex）：只显示最新一次模型阶段化输出，思考与命令轨迹隐藏。
-   */
-  activityDisplay: "full" | "compact";
   /** 停用的供应商与单个模型（模型页开关） */
   disabledProviders: string[];
   disabledModels: string[];
@@ -809,7 +803,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   desktopNotifications: true,
   memoryDistill: true,
   quickQuota: true,
-  activityDisplay: "full",
   disabledProviders: [],
   disabledModels: [],
   uiFontFile: "",

@@ -1,8 +1,8 @@
-import { memo, type ReactNode, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { formatFileSize } from "../format";
-import { partitionRun } from "../run-view";
-import { type ChatMessage, flattenSegments, messageText, type ToolCallState, useStore } from "../store";
-import { summarizeArgs, toolLabel } from "../tooling";
+import { type ActivitySegment, buildRunBlocks } from "../run-activity";
+import { type ChatMessage, flattenSegments, messageText, type ToolCallState } from "../store";
+import { isCommandTool, summarizeArgs, toolLabel } from "../tooling";
 import { DiffPatch } from "./DiffBlock";
 import { Icon } from "./Icon";
 import { ImageLightbox } from "./ImageLightbox";
@@ -181,93 +181,51 @@ function RunErrorCard({ notice }: { notice: Extract<NonNullable<ChatMessage["not
 export const NoticeItem = memo(NoticeItemImpl);
 
 /**
- * 一次任务运行的渲染单元：把运行内所有回合的段拍平成一条时间线，
- * 严格按到达顺序从上往下渲染 —— 正文原位显示，思考/工具是时间线上
- * 的一行弱化条目（左轨 + 圆点），绝不发生"插叙"。
- *
- * 轨迹呈现参考 Codex CLI / Claude Code / Copilot CLI 的通行做法：
- * - 一行一步：每个工具调用一行「动作标签 + 参数摘要」，无边框卡片
- * - 思考不占版面：完成后收成一行「思考 · 首行摘要」，点击展开全文；
- *   流式期间实时展开，完成后自动收起
- * - 整体可折叠：运行中自动展开（跟踪动态），结束后自动收起（读正文）
- * - 阶段输出不抢版面：运行结束后，除最后一段总结外的所有正文与思考/命令
- *   一起收进折叠区（行头「工作完成 · N 步 · M 段过程输出」），点击可逐条展开
- * - 精简档位（设置 → 外观）：只留最新一次阶段输出，提供「查看完整过程」入口
- * - 任意行可展开完整参数与输出，执行轨迹可完整追溯
+ * 一次任务运行的渲染单元（Qoder 风格）：
+ * - 连续的思考/工具调用收进一个可折叠的「活动组」，组头显示
+ *   「正在执行中 · Ns」（运行中）或「已处理」（结束后）；
+ * - 正文（阶段性说明与最终总结）按到达顺序内联在组与组之间；
+ * - 组内一步一行：状态圆点（进行中/完成/失败）+ 动作标签 + 参数摘要，
+ *   点击展开完整输入与输出；
+ * - 运行中且没有正在流出的正文/思考时，尾部显示「继续思考中…」。
  *
  * active 由外层传入（会话 running && 最后一个运行）：回合间隙所有消息的
  * streaming 都是 false，若用消息级状态驱动折叠会在回合之间闪合闪开。
  */
-function AssistantRunItemImpl({ messages, active }: { messages: ChatMessage[]; active: boolean }) {
+function AssistantRunItemImpl({
+  messages,
+  active,
+  startedAt,
+}: {
+  messages: ChatMessage[];
+  active: boolean;
+  startedAt?: number;
+}) {
   const segments = flattenSegments(messages);
-  /** 执行过程展示档位（设置 → 外观）；精简 = 只显示最新一次阶段化输出 */
-  const mode = useStore((s) => s.settings?.activityDisplay ?? "full");
-  /** 精简模式下「查看完整过程」临时切回完整视图（不改设置） */
-  const [forceFull, setForceFull] = useState(false);
-  const view = partitionRun(segments, { active, mode, forceFull });
-  const toolCount = view.work.reduce((n, s) => n + (s.kind === "tools" ? s.calls.length : 0), 0);
-  const hasWork = view.work.length > 0;
-  const showCompactReveal = mode === "compact" && !forceFull && view.hiddenInCompact;
-  const [workOpen, setWorkOpen] = useState(active);
-  useEffect(() => setWorkOpen(active), [active]);
+  const blocks = buildRunBlocks(segments);
+  // 只有运行中、且位于最末尾的活动组才是「进行中」——一旦后面接上正文，这组就已完成
+  const activeGroupIdx = active && blocks[blocks.length - 1]?.kind === "activity" ? blocks.length - 1 : -1;
+  const lastMessage = messages[messages.length - 1];
+  const streamingTail = lastMessage?.streaming ? lastMessage.segments[lastMessage.segments.length - 1] : undefined;
+  // 正文/思考正在流式输出时内容就在眼前，不再重复「继续思考中」
+  const streamingContent =
+    streamingTail?.kind === "text" || (streamingTail?.kind === "thinking" && !streamingTail.done);
 
   return (
     <div className="mb-6">
-      {hasWork && (
-        <button
-          type="button"
-          onClick={() => setWorkOpen(!workOpen)}
-          className="group mb-1 flex items-center gap-1.5 rounded-md py-0.5 text-[13px]"
-        >
-          <span className={`h-3 w-[2px] rounded-full ${active ? "bg-accent" : "bg-border-strong"}`} />
-          {active ? (
-            <span className="thinking-shimmer">正在工作…</span>
-          ) : (
-            <span className="text-text-secondary transition-colors group-hover:text-text-primary">
-              工作完成{toolCount > 0 ? ` · ${toolCount} 步` : ""}
-              {view.stageCount > 0 ? ` · ${view.stageCount} 段过程输出` : ""}
-            </span>
-          )}
-          <Icon
-            name="chevronDown"
-            size={12}
-            className={`text-text-tertiary transition-transform duration-150 ${workOpen ? "rotate-180" : ""}`}
+      {blocks.map((block, i) =>
+        block.kind === "text" ? (
+          <Markdown key={block.key} text={block.text} />
+        ) : (
+          <ActivityGroup
+            key={block.key}
+            segments={block.segments}
+            active={active && i === activeGroupIdx}
+            startedAt={i === activeGroupIdx ? startedAt : undefined}
           />
-        </button>
+        ),
       )}
-
-      {view.work.map((seg, si) => {
-        // 时间线左轨从首个圆点画到最后一个圆点（阶段输出也是其中一行）
-        const railStart = si === 0;
-        const railEnd = si === view.work.length - 1;
-        return (
-          <WorkEntry key={seg.id} open={workOpen}>
-            {seg.kind === "thinking" ? (
-              <ThinkingRow text={seg.text} streaming={!seg.done && active} railStart={railStart} railEnd={railEnd} />
-            ) : seg.kind === "tools" ? (
-              <ToolRowGroup calls={seg.calls} railStart={railStart} railEnd={railEnd} />
-            ) : (
-              <StageOutputRow text={seg.text} railStart={railStart} railEnd={railEnd} />
-            )}
-          </WorkEntry>
-        );
-      })}
-
-      {view.inline.map((seg) => (seg.kind === "text" ? <Markdown key={seg.id} text={seg.text} /> : null))}
-
-      {showCompactReveal && (
-        <button
-          type="button"
-          onClick={() => setForceFull(true)}
-          className="mt-1 flex items-center gap-1 rounded-md py-0.5 text-[12px] text-text-tertiary transition-colors hover:text-text-secondary"
-          data-testid="run-reveal-full"
-        >
-          <Icon name="eye" size={12} />
-          查看完整过程（{view.foldedCount} 步）
-        </button>
-      )}
-
-      {active && view.inline.length === 0 && !hasWork && <ThinkingHeader streaming />}
+      {active && !streamingContent && <ContinueThinking />}
     </div>
   );
 }
@@ -280,101 +238,124 @@ function AssistantRunItemImpl({ messages, active }: { messages: ChatMessage[]; a
  */
 export const AssistantRunItem = memo(AssistantRunItemImpl, (prev, next) => {
   if (prev.active || next.active) return false;
+  if (prev.startedAt !== next.startedAt) return false;
   if (prev.messages.length !== next.messages.length) return false;
   return prev.messages.every((m, i) => m === next.messages[i]);
 });
 
-/** 工作条目（思考/工具行）：随运行头整体显隐，折叠走 grid 行高动画。
- *  注意：这里不能加行间距（pb-*），否则时间线左轨会被切成虚线；
- *  行间节奏由 TimelineEntry 自身的 py 控制，左轨自然连续。 */
-function WorkEntry({ open, children }: { open: boolean; children: ReactNode }) {
-  return (
-    <div className="collapse-grid" data-open={open}>
-      <div className="collapse-inner">{children}</div>
-    </div>
-  );
-}
-
-/** Kimi 风格思考头：细竖条 + 状态文字 + 小箭头，无边框盒子 */
-function ThinkingHeader({ streaming, open }: { streaming: boolean; open?: boolean }) {
-  return (
-    <span className="flex items-center gap-1.5 text-[13px]">
-      <span className="h-3 w-[2px] rounded-full bg-thinking/70" />
-      {streaming ? (
-        <span className="thinking-shimmer">思考中…</span>
-      ) : (
-        <span className="text-text-secondary transition-colors group-hover:text-text-primary">思考已完成</span>
-      )}
-      {open !== undefined && (
-        <Icon
-          name="chevronDown"
-          size={12}
-          className={`text-text-tertiary transition-transform duration-150 ${open ? "rotate-180" : ""}`}
-        />
-      )}
-    </span>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// 轨迹时间线：左轨 + 圆点 + 单行条目（思考 / 工具调用共用一套骨架）
-// ---------------------------------------------------------------------------
-
 /**
- * 时间线条目外壳：左轨细线 + 状态圆点 + 可点击行头 + 展开详情区。
- * 左轨跨越行头与详情区，相邻条目首尾相接自动连成一条连续轨道；
- * 轨道从首个圆点画到最后一个圆点，两端不留悬线。
+ * 活动组：一步一行的时间线，外层一条细轨。
+ * 运行中自动展开跟踪动态，结束后自动收起（用户手动开合不受影响）。
  */
-function TimelineEntry({
-  dot,
-  railStart,
-  railEnd,
-  open,
-  onClick,
-  head,
-  detail,
+function ActivityGroup({
+  segments,
+  active,
+  startedAt,
 }: {
-  dot: string;
-  railStart?: boolean;
-  railEnd?: boolean;
-  open: boolean;
-  onClick: () => void;
-  head: ReactNode;
-  detail: ReactNode;
+  segments: ActivitySegment[];
+  active: boolean;
+  startedAt?: number;
 }) {
+  const [open, setOpen] = useState(active);
+  useEffect(() => setOpen(active), [active]);
+  const elapsed = useElapsedSeconds(startedAt, active);
+
   return (
-    <div className="relative">
-      {!(railStart && railEnd) && (
-        <span
-          aria-hidden
-          className={`absolute left-[7px] w-px bg-border ${
-            railStart ? "top-[13px] bottom-0" : railEnd ? "top-0 h-[13px]" : "inset-y-0"
-          }`}
-        />
-      )}
-      <span aria-hidden className={`absolute left-[4px] top-[9px] h-[7px] w-[7px] rounded-full ${dot}`} />
+    <div className="mb-1 min-w-0" data-testid="run-activity" data-state={active ? "running" : "done"}>
       <button
         type="button"
-        onClick={onClick}
-        className="group flex w-full items-center gap-2 rounded-md py-[3px] pl-6 pr-1 text-left transition-colors hover:bg-bg-hover/50"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        data-testid="run-activity-header"
+        className="group grid min-h-8 w-full grid-cols-[20px_minmax(0,1fr)] items-center gap-2 rounded-md py-1.5 text-left text-[13px] leading-5 text-text-tertiary transition-colors hover:text-text-secondary"
       >
-        {head}
+        <span className="flex size-5 items-center justify-center rounded-md border border-border bg-bg-elevated text-text-tertiary shadow-sm transition-colors group-hover:text-text-secondary">
+          <Icon
+            name="chevronRight"
+            size={12}
+            className={`transition-transform duration-150 ${open ? "rotate-90" : ""}`}
+          />
+        </span>
+        <span className="min-w-0 truncate">
+          {active ? "正在执行中" : "已处理"}
+          {elapsed !== undefined && <span className="tabular-nums"> · {elapsed}s</span>}
+        </span>
       </button>
+
       <div className="collapse-grid" data-open={open}>
-        <div className="collapse-inner">{detail}</div>
+        <div className="collapse-inner">
+          <div className="ml-[10px] border-l border-border pb-1 pl-4">
+            <div className="min-w-0 space-y-0.5" data-testid="run-activity-steps">
+              {segments.map((seg) =>
+                seg.kind === "thinking" ? (
+                  <ThinkingRow key={seg.id} text={seg.text} streaming={!seg.done && active} />
+                ) : (
+                  <ToolRowGroup key={seg.id} calls={seg.calls} />
+                ),
+              )}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-/** 行头右侧的展开箭头 */
-function RowChevron({ open }: { open: boolean }) {
+/** 进行中的活动组用运行起始时间计算耗时（Qoder：正在执行中 · 7s） */
+function useElapsedSeconds(startedAt: number | undefined, active: boolean): number | undefined {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active || startedAt === undefined) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [active, startedAt]);
+  if (!active || startedAt === undefined) return undefined;
+  return Math.max(0, Math.floor((now - startedAt) / 1000));
+}
+
+/** 步骤状态圆点：进行中空心环旋转、完成绿底勾、失败红底叉 */
+function StepStatusIcon({ status }: { status: "running" | "done" | "error" }) {
+  if (status === "running") {
+    return (
+      <span
+        aria-hidden
+        className="size-3.5 shrink-0 animate-spin rounded-full border-[1.5px] border-border-strong border-t-text-tertiary motion-reduce:animate-none"
+      />
+    );
+  }
   return (
-    <Icon
-      name="chevronDown"
-      size={11}
-      className={`shrink-0 text-text-tertiary opacity-0 transition-all duration-150 group-hover:opacity-100 ${open ? "rotate-180 opacity-100" : ""}`}
-    />
+    <span
+      aria-hidden
+      className={`flex size-3.5 shrink-0 items-center justify-center rounded-full text-white ${
+        status === "error" ? "bg-danger" : "bg-success"
+      }`}
+    >
+      <Icon name={status === "error" ? "x" : "check"} size={9} strokeWidth={3} />
+    </span>
+  );
+}
+
+/** 尾部思考指示（Qoder：四点图标 + 继续思考中…） */
+function ContinueThinking() {
+  return (
+    <div
+      className="flex min-h-7 items-center gap-2 px-0.5 py-1 text-[13px] leading-5 text-text-tertiary"
+      data-testid="run-continue-thinking"
+    >
+      <span className="flex size-5 shrink-0 items-center justify-center" aria-hidden>
+        <span className="grid grid-cols-2 gap-[3px]">
+          {[0, 1, 2, 3].map((i) => (
+            <span
+              key={i}
+              className="size-[3px] animate-pulse rounded-full bg-text-tertiary"
+              style={{ animationDelay: `${i * 140}ms` }}
+            />
+          ))}
+        </span>
+      </span>
+      <span className="thinking-shimmer">继续思考中…</span>
+    </div>
   );
 }
 
@@ -385,31 +366,19 @@ function firstLine(text: string): string {
 }
 
 /**
- * 思考条目：完成后收成一行「思考 · 首行摘要」，点击展开全文；
- * 流式期间行头为「思考中…」流光并实时展开正文；空思考直接不渲染（去重）。
+ * 思考条目：完成后收成一行「已思考 · 首行摘要」，点击展开全文；
+ * 流式期间行头为「思考中」并自动展开、跟随滚动。
  */
-function ThinkingRow({
-  text,
-  streaming,
-  railStart,
-  railEnd,
-}: {
-  text: string;
-  streaming: boolean;
-  railStart?: boolean;
-  railEnd?: boolean;
-}) {
+function ThinkingRow({ text, streaming }: { text: string; streaming: boolean }) {
   const [open, setOpen] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
   /** 贴底跟随标记：用户上翻暂停跟随，回滚到底部附近后恢复 */
   const stickRef = useRef(true);
 
-  // 流式开始时重置贴底状态
   useEffect(() => {
     if (streaming) stickRef.current = true;
   }, [streaming]);
 
-  // 流式期间思考文本增长时自动滚到底（仅在用户未上翻时）
   // biome-ignore lint/correctness/useExhaustiveDependencies: text 仅作内容增长信号驱动滚动，effect 体内只用 ref
   useEffect(() => {
     const el = bodyRef.current;
@@ -421,166 +390,128 @@ function ThinkingRow({
   const expanded = streaming || open;
 
   return (
-    <TimelineEntry
-      dot={streaming ? "bg-thinking animate-pulse" : "bg-thinking/35"}
-      railStart={railStart}
-      railEnd={railEnd}
-      open={expanded}
-      onClick={() => setOpen(!open)}
-      head={
-        <>
-          <span className="shrink-0 text-[11.5px] text-text-tertiary">
-            {streaming ? <span className="thinking-shimmer">思考中…</span> : "思考"}
+    <div className="min-w-0" data-testid="run-thinking">
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => setOpen(!open)}
+        className="group flex min-h-6 w-full min-w-0 items-center gap-2 rounded-md py-0.5 text-left transition-colors hover:bg-bg-hover/40"
+      >
+        <StepStatusIcon status={streaming ? "running" : "done"} />
+        <span className="min-w-0 flex-1 truncate text-[13px] leading-5">
+          <span className={streaming ? "thinking-shimmer" : "text-text-secondary"}>
+            {streaming ? "思考中" : "已思考"}
           </span>
-          {!streaming && (
-            <span className="min-w-0 flex-1 truncate text-[12px] text-text-tertiary transition-colors group-hover:text-text-secondary">
-              {preview}
-            </span>
+          {!streaming && preview && (
+            <>
+              <span className="text-text-tertiary"> · </span>
+              <span className="text-text-tertiary">{preview}</span>
+            </>
           )}
-          {streaming && <span className="flex-1" />}
-          {!streaming && <RowChevron open={open} />}
-        </>
-      }
-      detail={
-        <div
-          ref={bodyRef}
-          onScroll={(e) => {
-            const el = e.currentTarget;
-            stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
-          }}
-          className="ml-6 mb-1.5 max-h-64 overflow-y-auto whitespace-pre-wrap border-l-2 border-thinking/20 pl-3 pr-2 pt-0.5 text-[12px] leading-6 text-text-tertiary"
-        >
-          {text || "…"}
+        </span>
+      </button>
+      <div className="collapse-grid" data-open={expanded}>
+        <div className="collapse-inner">
+          <div
+            ref={bodyRef}
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+            }}
+            className="ml-5 mt-0.5 mb-1 max-h-48 overflow-y-auto whitespace-pre-wrap rounded-md bg-bg-elevated/70 px-2.5 py-1.5 text-[11.5px] leading-5 text-text-tertiary"
+          >
+            {text || "…"}
+          </div>
         </div>
-      }
-    />
+      </div>
+    </div>
   );
 }
 
-/**
- * 阶段化输出条目（中间轮次的说明：「我先读一下…」「已经改好了」）。
- * 任务结束后它们与思考/命令一起收进「工作完成」，默认只给一行首行摘要，
- * 点击展开完整 Markdown——既不干扰最终总结的阅读，也不丢信息。
- */
-function StageOutputRow({ text, railStart, railEnd }: { text: string; railStart?: boolean; railEnd?: boolean }) {
-  const [open, setOpen] = useState(false);
-  const preview = firstLine(text);
-  return (
-    <TimelineEntry
-      dot="bg-accent/45"
-      railStart={railStart}
-      railEnd={railEnd}
-      open={open}
-      onClick={() => setOpen(!open)}
-      head={
-        <>
-          <span className="shrink-0 text-[11.5px] text-text-tertiary">阶段输出</span>
-          <span className="min-w-0 flex-1 truncate text-[12px] text-text-tertiary transition-colors group-hover:text-text-secondary">
-            {preview}
-          </span>
-          <RowChevron open={open} />
-        </>
-      }
-      detail={
-        <div className="ml-6 mb-1.5 border-l-2 border-accent/20 pl-3 pr-2 pt-0.5 text-[12.5px] leading-6 text-text-secondary">
-          <Markdown text={text} />
-        </div>
-      }
-    />
-  );
+/** 终端命令动作在行头带运行状态（Qoder：终端命令 已运行 / 运行中 / 运行失败） */
+function toolStepTitle(name: string, status: ToolCallState["status"]): string {
+  if (!isCommandTool(name)) return toolLabel(name);
+  if (status === "running") return "终端命令 运行中";
+  if (status === "error") return "终端命令 运行失败";
+  return "终端命令 已运行";
 }
 
 /**
- * 一段连续工具调用：每个调用一行「动作标签 + 参数摘要」（完整轨迹一目了然），
- * 点击行展开完整参数与输出；运行中行头流光，错误行摘要标红。
+ * 一段连续工具调用：每个调用一行「状态圆点 + 动作标签 + 参数摘要」，
+ * 点击行展开完整输入与输出。
  */
-function ToolRowGroup({
-  calls,
-  railStart,
-  railEnd,
-}: {
-  calls: ToolCallState[];
-  railStart?: boolean;
-  railEnd?: boolean;
-}) {
+function ToolRowGroup({ calls }: { calls: ToolCallState[] }) {
   return (
-    <div>
-      {calls.map((tc, i) => (
-        <ToolRow
-          key={tc.id}
-          toolCall={tc}
-          railStart={railStart && i === 0}
-          railEnd={railEnd && i === calls.length - 1}
-        />
+    <div className="min-w-0">
+      {calls.map((tc) => (
+        <ToolRow key={tc.id} toolCall={tc} />
       ))}
     </div>
   );
 }
 
-function ToolRow({
-  toolCall,
-  railStart,
-  railEnd,
-}: {
-  toolCall: ToolCallState;
-  railStart?: boolean;
-  railEnd?: boolean;
-}) {
+function ToolRow({ toolCall }: { toolCall: ToolCallState }) {
   const [open, setOpen] = useState(false);
-  const running = toolCall.status === "running";
   const error = toolCall.status === "error";
-  const dot = running ? "bg-warning animate-pulse" : error ? "bg-danger" : "bg-border-strong";
   const summary = summarizeArgs(toolCall.name, toolCall.args);
 
   return (
-    <TimelineEntry
-      dot={dot}
-      railStart={railStart}
-      railEnd={railEnd}
-      open={open}
-      onClick={() => setOpen(!open)}
-      head={
-        <>
-          <span
-            className="min-w-[52px] max-w-[112px] shrink-0 truncate text-[11.5px] text-text-tertiary"
-            title={toolCall.name}
-          >
-            {toolLabel(toolCall.name)}
-          </span>
-          <span
-            className={`mono min-w-0 flex-1 truncate text-[12px] ${
-              running
-                ? "thinking-shimmer"
-                : error
-                  ? "text-danger/90"
-                  : "text-text-secondary transition-colors group-hover:text-text-primary"
-            }`}
-            title={summary}
-          >
-            {summary}
-          </span>
-          <RowChevron open={open} />
-        </>
-      }
-      detail={
-        <div className="ml-6 mb-1.5 rounded-lg border border-border bg-bg-elevated/60 px-3 py-2">
-          {/* 评审 R3-F1：edit/write 有 patch 时渲染 diff（比原始 JSON 参数可读得多） */}
-          {toolCall.patch ? (
-            <DiffPatch patch={toolCall.patch} />
-          ) : (
-            <pre className="max-h-40 overflow-auto text-xs leading-5 text-text-tertiary">
-              {formatArgs(toolCall.args)}
-            </pre>
+    <div className="min-w-0" data-testid="run-tool-step" data-tool={toolCall.name} data-status={toolCall.status}>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className="group flex min-h-6 w-full min-w-0 items-center gap-2 rounded-md py-0.5 text-left transition-colors hover:bg-bg-hover/40"
+      >
+        <StepStatusIcon status={toolCall.status} />
+        <span className="min-w-0 flex-1 truncate text-[13px] leading-5 text-text-secondary">
+          <span title={toolCall.name}>{toolStepTitle(toolCall.name, toolCall.status)}</span>
+          {summary && (
+            <>
+              <span className="text-text-tertiary"> · </span>
+              <span className="mono text-[12px] text-text-tertiary" title={summary}>
+                {summary}
+              </span>
+            </>
           )}
-          {toolCall.output && (
-            <pre className="mt-2 max-h-64 overflow-auto border-t border-border pt-2 text-xs leading-5 text-text-secondary">
-              {toolCall.output.slice(0, 4000)}
-              {toolCall.output.length > 4000 ? "\n…（已截断）" : ""}
-            </pre>
-          )}
+        </span>
+      </button>
+      <div className="collapse-grid" data-open={open}>
+        <div className="collapse-inner">
+          <div
+            className="ml-5 mt-1 mb-1 overflow-hidden rounded-md bg-bg-elevated/70 px-2.5 py-1.5"
+            data-testid="run-step-detail"
+          >
+            {/* 评审 R3-F1：edit/write 有 patch 时渲染 diff（比原始 JSON 参数可读得多） */}
+            {toolCall.patch ? (
+              <DiffPatch patch={toolCall.patch} />
+            ) : (
+              <>
+                <div className="text-[10.5px] leading-4 text-text-tertiary">输入</div>
+                <pre className="mono max-h-40 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-[18px] text-text-secondary">
+                  {formatArgs(toolCall.args)}
+                </pre>
+              </>
+            )}
+            {toolCall.output && (
+              <>
+                <div className={`mt-1 text-[10.5px] leading-4 ${error ? "text-danger/70" : "text-text-tertiary"}`}>
+                  响应
+                </div>
+                <pre
+                  className={`mono max-h-48 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-[18px] ${
+                    error ? "text-danger/90" : "text-text-secondary"
+                  }`}
+                >
+                  {toolCall.output.slice(0, 4000)}
+                  {toolCall.output.length > 4000 ? "\n…（已截断）" : ""}
+                </pre>
+              </>
+            )}
+          </div>
         </div>
-      }
-    />
+      </div>
+    </div>
   );
 }
 

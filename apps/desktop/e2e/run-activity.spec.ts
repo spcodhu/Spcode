@@ -4,14 +4,14 @@ import { expect, test } from "@playwright/test";
 import { launchApp } from "./helpers";
 
 /**
- * 执行过程展示回归：
- * - 完整模式（默认）：任务结束后中间阶段的输出与思考/命令一起收进「工作完成」，
- *   只留最终总结在页面上（否则多轮输出的历史会淹没总结）；
- * - 精简模式：只显示最新一次阶段化输出，提供「查看完整过程」入口。
+ * 步骤交互回归（Qoder 风格活动组）：
+ * - 连续思考/工具调用折叠成一个「已处理」活动组，步骤默认收起；
+ * - 组内一步一行，点击步骤展开输入/响应；
+ * - 所有阶段性正文按到达顺序常驻，不再有完整/精简两档。
  */
 
-const PROJECT_CWD = "/tmp/spcode-e2e-run-display";
-const SESSION_ID = "e2e-run-display-1";
+const PROJECT_CWD = "/tmp/spcode-e2e-run-activity";
+const SESSION_ID = "e2e-run-activity-1";
 const THINKING = "先确认 README 的现有结构";
 const STAGE1 = "我先看下这份 README，再决定改哪几段。";
 const STAGE2 = "已经改好了，接下来更新目录。";
@@ -19,14 +19,14 @@ const FINAL = "改完了：新增快速开始，重排了配置说明。";
 
 function seed(home: string): void {
   mkdirSync(PROJECT_CWD, { recursive: true });
-  const sessionsDir = join(home, "agent", "sessions", "-tmp-spcode-e2e-run-display");
+  const sessionsDir = join(home, "agent", "sessions", "-tmp-spcode-e2e-run-activity");
   mkdirSync(sessionsDir, { recursive: true });
-  const sessionFile = join(sessionsDir, "2026-02-01T00-00-00-000Z_e2erundisplay1.jsonl");
+  const sessionFile = join(sessionsDir, "2026-02-01T00-00-00-000Z_e2erunactivity1.jsonl");
   let n = 0;
   let parentId: string | null = null;
   // 会话投影按 parentId 链构树：每条消息必须挂在前一条后面，否则只会回放出最后一条
   const entry = (message: unknown) => {
-    const id = `aaaa${String(++n).padStart(4, "0")}`;
+    const id = `bbbb${String(++n).padStart(4, "0")}`;
     const line = JSON.stringify({
       type: "message",
       id,
@@ -68,7 +68,7 @@ function seed(home: string): void {
     JSON.stringify({
       type: "session",
       version: 3,
-      id: "e2erundisplay1",
+      id: "e2erunactivity1",
       timestamp: "2026-02-01T00:00:00.000Z",
       cwd: PROJECT_CWD,
     }),
@@ -94,7 +94,7 @@ function seed(home: string): void {
           id: SESSION_ID,
           mode: "project",
           cwd: PROJECT_CWD,
-          title: "E2E 运行展示",
+          title: "E2E 步骤交互",
           model: null,
           thinkingLevel: "medium",
           sessionFile,
@@ -110,56 +110,44 @@ function seed(home: string): void {
 }
 
 async function openSession(window: Awaited<ReturnType<Awaited<ReturnType<typeof launchApp>>["firstWindow"]>>) {
-  const row = window.locator("div.group", { hasText: "E2E 运行展示" }).first();
+  const row = window.locator("div.group", { hasText: "E2E 步骤交互" }).first();
   await expect(row).toBeVisible({ timeout: 15000 });
   await row.click();
   await expect(window.getByText(FINAL)).toBeVisible({ timeout: 15000 });
 }
 
-test("完整模式：结束后只留最终总结，中间阶段输出收进「工作完成」", async () => {
+test("步骤交互：完成后折叠为活动组，正文按顺序常驻", async () => {
   const app = await launchApp({ seed });
   const window = await app.firstWindow();
   await openSession(window);
 
-  // 折叠行头给出步数与过程输出段数
-  const header = window.getByRole("button", { name: /工作完成/ }).first();
-  await expect(header).toBeVisible();
-  await expect(header).toContainText("段过程输出");
-  // 中间阶段输出与思考/命令一起进折叠容器（collapse-grid data-open=false 即收起）
-  const stage = window.getByText(/阶段输出/).first();
-  await expect(stage).toBeAttached();
-  expect(await stage.evaluate((el) => el.closest(".collapse-grid")?.getAttribute("data-open"))).toBe("false");
-  expect(await window.locator(".collapse-grid[data-open='false']").count()).toBeGreaterThan(0);
-
-  // 展开后折叠容器打开（中间阶段输出随之可见）
-  await header.click();
-  await expect(window.locator(".collapse-grid[data-open='true']").first()).toBeAttached();
-  expect(await stage.evaluate((el) => el.closest(".collapse-grid")?.getAttribute("data-open"))).toBe("true");
-
-  await app.close();
-});
-
-test("精简模式：只显示最新一次输出，并给出「查看完整过程」入口", async () => {
-  const app = await launchApp({ seed });
-  const window = await app.firstWindow();
-  await openSession(window);
-
-  // 切成精简模式（设置 → 外观 → 执行过程）
-  await window.getByTitle("设置", { exact: true }).click();
-  await window.getByRole("button", { name: "外观" }).click();
-  const group = window.getByTestId("activity-display");
-  await expect(group).toBeVisible();
-  await window.getByTestId("activity-display-compact").click();
-  await window.getByTitle("关闭设置").click();
-
+  // 所有阶段性正文都在（不再有完整/精简两档）
+  await expect(window.getByText(STAGE1)).toBeVisible();
+  await expect(window.getByText(STAGE2)).toBeVisible();
   await expect(window.getByText(FINAL)).toBeVisible();
-  await expect(window.getByTestId("run-reveal-full").first()).toBeVisible();
-  // 精简模式下默认没有「工作完成」折叠区（思考/命令/中间输出全隐藏）
-  await expect(window.getByRole("button", { name: /工作完成/ })).toHaveCount(0);
+  await expect(window.getByTestId("run-reveal-full")).toHaveCount(0);
 
-  // 展开完整过程 → 折叠行头回来
-  await window.getByTestId("run-reveal-full").first().click();
-  await expect(window.getByRole("button", { name: /工作完成/ }).first()).toBeVisible();
+  // 被正文打断的两段步骤各自成组，结束后都是收起态
+  const groups = window.getByTestId("run-activity");
+  await expect(groups).toHaveCount(2);
+  await expect(groups.first()).toHaveAttribute("data-state", "done");
+  const headers = window.getByTestId("run-activity-header");
+  await expect(headers).toHaveCount(2);
+  await expect(headers.first()).toHaveAttribute("aria-expanded", "false");
+
+  // 展开第一组：看到读文件步骤
+  await headers.first().click();
+  await expect(headers.first()).toHaveAttribute("aria-expanded", "true");
+  const firstGroup = groups.first();
+  const steps = firstGroup.getByTestId("run-tool-step");
+  await expect(steps).toHaveCount(1);
+  await expect(steps.first()).toHaveAttribute("data-tool", "read");
+  await expect(steps.first()).toHaveAttribute("data-status", "done");
+
+  // 点击步骤展开输入/响应面板
+  await steps.first().getByRole("button").click();
+  await expect(steps.first().getByRole("button")).toHaveAttribute("aria-expanded", "true");
+  await expect(firstGroup.getByTestId("run-step-detail")).toBeVisible();
 
   await app.close();
 });

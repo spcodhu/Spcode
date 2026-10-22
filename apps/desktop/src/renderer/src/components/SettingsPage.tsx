@@ -543,45 +543,6 @@ function AppearancePage() {
           </div>
         ))}
       </div>
-
-      <SectionTitle>执行过程</SectionTitle>
-      <div className="flex gap-2" data-testid="activity-display">
-        {(
-          [
-            {
-              id: "full" as const,
-              label: "完整",
-              desc: "思考、命令、每轮阶段输出都可见；运行结束后统一收进「工作完成」，只留最终总结",
-            },
-            {
-              id: "compact" as const,
-              label: "精简（类 Codex）",
-              desc: "只显示最新一次模型阶段化输出，思考与命令隐藏；需要时可在运行处展开完整过程",
-            },
-          ] as const
-        ).map((m) => (
-          <button
-            type="button"
-            key={m.id}
-            onClick={() => void saveSettings({ activityDisplay: m.id })}
-            data-testid={`activity-display-${m.id}`}
-            className={`flex-1 rounded-xl border px-4 py-3 text-left ${
-              (settings?.activityDisplay ?? "full") === m.id
-                ? "border-accent/50 bg-accent-soft"
-                : "border-border hover:bg-bg-hover"
-            }`}
-          >
-            <div
-              className={`text-[14px] font-medium ${
-                (settings?.activityDisplay ?? "full") === m.id ? "text-accent" : "text-text-primary"
-              }`}
-            >
-              {m.label}
-            </div>
-            <div className="mt-0.5 text-[12px] leading-5 text-text-tertiary">{m.desc}</div>
-          </button>
-        ))}
-      </div>
     </div>
   );
 }

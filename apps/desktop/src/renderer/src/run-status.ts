@@ -7,7 +7,7 @@
 
 import type { PermissionRequest, QuestionRequest } from "@spcode/shared";
 import type { SessionState } from "./store";
-import { summarizeArgs, toolLabel } from "./tooling";
+import { isCommandTool, summarizeArgs, toolLabel } from "./tooling";
 
 export interface RunStatus {
   kind: "thinking" | "tool" | "text" | "working" | "permission" | "question" | "retry";
@@ -56,7 +56,8 @@ export function deriveRunStatus(
     const running = [...seg.calls].reverse().find((c) => c.status === "running");
     if (running) {
       const detail = summarizeArgs(running.name, running.args);
-      return { kind: "tool", label: `正在${toolLabel(running.name)}`, detail: detail || undefined };
+      const label = isCommandTool(running.name) ? "正在运行终端命令" : `正在${toolLabel(running.name)}`;
+      return { kind: "tool", label, detail: detail || undefined };
     }
     return { kind: "working", label: "正在工作…" };
   }

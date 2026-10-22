@@ -59,6 +59,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
                 key={item.key}
                 messages={item.messages}
                 active={session.running && idx === items.length - 1}
+                startedAt={session.running && idx === items.length - 1 ? session.runStartedAt : undefined}
               />
             ),
           )}

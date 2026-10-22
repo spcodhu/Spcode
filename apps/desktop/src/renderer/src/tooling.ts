@@ -3,19 +3,19 @@
  * 供消息时间线（MessageItem）与运行状态条（run-status）共用。
  */
 
-/** 工具名的中文动作标签（Finch 风格：读文件/改文件/命令/搜索…） */
+/** 工具名的中文动作标签（与 Qoder 的步骤文案一致：读取文件/编辑文件/终端命令…） */
 const TOOL_LABELS: Record<string, string> = {
-  read: "读文件",
-  write: "写文件",
-  edit: "改文件",
-  bash: "命令",
-  powershell: "命令",
-  grep: "代码搜索",
-  glob: "找文件",
-  find: "找文件",
-  ls: "列目录",
-  websearch: "搜索",
-  webfetch: "抓取",
+  read: "读取文件",
+  write: "写入文件",
+  edit: "编辑文件",
+  bash: "终端命令",
+  powershell: "终端命令",
+  grep: "搜索内容",
+  glob: "查找文件",
+  find: "查找文件",
+  ls: "列出目录",
+  websearch: "搜索网页",
+  webfetch: "打开网页",
   todowrite: "计划",
   askuserquestion: "提问",
   task: "子任务",
@@ -26,8 +26,15 @@ const TOOL_LABELS: Record<string, string> = {
   skill: "技能",
 };
 
+const COMMAND_TOOLS = new Set(["bash", "powershell", "shell", "exec_command"]);
+
 export function toolLabel(name: string): string {
   return TOOL_LABELS[name.toLowerCase()] ?? name;
+}
+
+/** 终端类工具：步骤行显示「终端命令 已运行」这类状态文案，状态条显示「正在运行终端命令」 */
+export function isCommandTool(name: string): boolean {
+  return COMMAND_TOOLS.has(name.toLowerCase());
 }
 
 export function summarizeArgs(name: string, args: unknown): string {

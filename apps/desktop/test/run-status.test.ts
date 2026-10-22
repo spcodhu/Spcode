@@ -102,8 +102,25 @@ describe("deriveRunStatus", () => {
     });
     const st = deriveRunStatus(s, [], [], "s1");
     expect(st?.kind).toBe("tool");
-    expect(st?.label).toBe("正在改文件");
+    expect(st?.label).toBe("正在编辑文件");
     expect(st?.detail).toBe("/b.ts");
+  });
+
+  it("终端命令执行中 → 正在运行终端命令（与步骤行文案一致）", () => {
+    const s = makeSession({
+      messages: [
+        assistantMsg([
+          {
+            kind: "tools",
+            id: "1",
+            calls: [{ id: "c1", name: "bash", args: { command: "ls" }, status: "running", output: "" }],
+          },
+        ]),
+      ],
+    });
+    const st = deriveRunStatus(s, [], [], "s1");
+    expect(st?.label).toBe("正在运行终端命令");
+    expect(st?.detail).toBe("ls");
   });
 
   it("工具全部完成（等待下一回合）→ 正在工作…", () => {
