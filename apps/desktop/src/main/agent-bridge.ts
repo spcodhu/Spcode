@@ -11,6 +11,7 @@
 import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { QuestionAnswers } from "@spcode/shared";
 import {
   type HostCommand,
   type HostEvent,
@@ -19,6 +20,7 @@ import {
   type PermissionRequest,
   type QuestionRequest,
 } from "@spcode/shared";
+import { i18n } from "@spcode/shared/i18n";
 import { type UtilityProcess, utilityProcess, type WebContents } from "electron";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -142,7 +144,7 @@ export class AgentBridge {
         console.error(`[agent-bridge] host exited with code ${code}`);
         this.child = null;
         this.readyPromise = null;
-        const err = new Error(`agent-host exited (code ${code})`);
+        const err = new Error(i18n.t("common:hostExited", { code }));
         // 评审 R3-C10：宿主在 ready 前退出，必须 reject 在途 readyPromise——
         // 否则 await start() 永久悬挂（连 call() 的 30s 超时都在它之后才设置）
         rejectReady(err);
@@ -165,7 +167,7 @@ export class AgentBridge {
       if (p) {
         this.pending.delete(event.id);
         if (event.success) p.resolve(event.data);
-        else p.reject(new Error(event.error ?? "unknown host error"));
+        else p.reject(new Error(event.error ?? i18n.t("integration:host.unknownError")));
       }
       return;
     }
@@ -216,7 +218,8 @@ export class AgentBridge {
   }
 
   /** 渲染进程回复结构化提问（AskUserQuestion 工具） */
-  replyQuestion(requestId: string, answers: Record<string, string>): void {
+  replyQuestion(requestId: string, answers: QuestionAnswers): void {
+    if (!this.pendingQuestions.has(requestId)) return;
     this.pendingQuestions.delete(requestId);
     this.post({ type: "question.reply", payload: { requestId, answers } });
     // 双端撤卡（与 permission.resolved 同语义）：宿主侧 resolve 后会再广播一次，幂等
@@ -239,7 +242,10 @@ export class AgentBridge {
     let timer: ReturnType<typeof setTimeout>;
     const timeout = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(
-        () => reject(new Error(`宿主命令 ${cmd.type} 超过 ${Math.round(timeoutMs / 1000)}s 未响应`)),
+        () =>
+          reject(
+            new Error(i18n.t("integration:host.timeout", { command: cmd.type, seconds: Math.round(timeoutMs / 1000) })),
+          ),
         timeoutMs,
       );
     });

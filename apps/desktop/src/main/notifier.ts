@@ -9,6 +9,7 @@
  * - 通知正文不含命令/输出等业务内容（只给类型与标题）。
  */
 
+import { i18n } from "@spcode/shared/i18n";
 import { classifyRunError } from "@spcode/shared/run-error";
 import { app, type BrowserWindow, Notification } from "electron";
 
@@ -36,7 +37,7 @@ export class Notifier {
     if (!this.deps.isEnabled()) return;
     const win = this.deps.getWindow();
     if (win?.isFocused()) return;
-    this.show(kind === "permission" ? "需要审批" : "Agent 在提问", title);
+    this.show(i18n.t(kind === "permission" ? "main:notifications.approval" : "main:notifications.question"), title);
   }
 
   /** 审批/提问被结清（任一端裁决/超时） */
@@ -71,11 +72,11 @@ export class Notifier {
     if (win?.isFocused()) return;
     // 任务被错误中断：不受长跑阈值限制（这正是用户最需要知道的事）
     if (error) {
-      this.show(classifyRunError(error).title, "点击查看详情与处理建议");
+      this.show(classifyRunError(error).title, i18n.t("main:notifications.errorDetails"));
       return;
     }
     if (!started || Date.now() - started < LONG_RUN_MS) return;
-    this.show("任务完成", "会话已运行完毕，点击查看");
+    this.show(i18n.t("main:notifications.completed"), i18n.t("main:notifications.completedBody"));
   }
 
   private show(title: string, body: string): void {

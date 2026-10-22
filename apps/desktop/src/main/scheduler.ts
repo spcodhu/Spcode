@@ -16,6 +16,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { ScheduleTask, ScheduleTaskInput } from "@spcode/shared";
+import { i18n } from "@spcode/shared/i18n";
 import { readJsonFile, resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
 
 /** 任务条目的最低结构要求：关键字段类型正确 + 值域合法（hour 0-23 / minute 0-59 / weekday 0-6）即收 */
@@ -153,7 +154,7 @@ export class Scheduler {
   /** 手动触发一次（试运行）：记账与 tick 同口径（lastRunAt 更新会影响同周期去重——手动跑过就不再补跑） */
   async runNow(id: string): Promise<string> {
     const task = this.list().find((t) => t.id === id);
-    if (!task) throw new Error(`任务不存在：${id}`);
+    if (!task) throw new Error(i18n.t("main:scheduler.notFound", { id }));
     const nowMs = this.opts.now?.() ?? Date.now();
     this.markRun(task.id, nowMs);
     try {

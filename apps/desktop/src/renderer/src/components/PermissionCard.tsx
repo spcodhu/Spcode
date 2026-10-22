@@ -1,3 +1,4 @@
+import { Trans, useTranslation } from "react-i18next";
 import { useStore } from "../store";
 import { DiffReplace } from "./DiffBlock";
 
@@ -11,6 +12,7 @@ import { DiffReplace } from "./DiffBlock";
  * - 仅 bash/powershell 显示「总允许」（规则只匹配 shell 命令；network 域名询问等不适用）。
  */
 export function PermissionCard() {
+  const { t } = useTranslation("chat");
   const pending = useStore((s) => s.pendingPermissions);
   const reply = useStore((s) => s.replyPermission);
   const settings = useStore((s) => s.settings);
@@ -24,13 +26,15 @@ export function PermissionCard() {
   const isShell = request.toolName === "bash" || request.toolName === "powershell";
   const rule = isShell ? deriveRule(request.args) : null;
 
-  const title = bypass
-    ? "将在沙盒外执行（不受文件/网络边界约束），确认？"
-    : danger
-      ? "危险操作，确认执行？"
-      : outward
-        ? "对外动作（影响将推出本机），确认执行？"
-        : "Agent 请求执行操作";
+  const title = t(
+    bypass
+      ? "permission.bypassTitle"
+      : danger
+        ? "permission.dangerTitle"
+        : outward
+          ? "permission.outwardTitle"
+          : "permission.title",
+  );
   const severe = danger || outward || bypass;
 
   const allowAlways = () => {
@@ -57,13 +61,18 @@ export function PermissionCard() {
         <div className={`rounded-t-xl px-4 py-3 ${severe ? "bg-danger/10" : "bg-warning/10"}`}>
           <div className={`text-sm font-semibold ${severe ? "text-danger" : "text-warning"}`}>{title}</div>
           <div className="mt-0.5 text-xs text-text-tertiary">
-            工具：<code className="mono text-text-secondary">{request.toolName}</code>
+            <Trans
+              t={t}
+              i18nKey="permission.tool"
+              values={{ name: request.toolName }}
+              components={{ code: <code className="mono text-text-secondary" /> }}
+            />
             {request.sandboxed ? (
               <span
                 data-testid="permission-sandboxed-badge"
                 className="ml-2 rounded bg-accent/15 px-1.5 py-0.5 text-accent"
               >
-                沙盒内
+                {t("permission.sandboxed")}
               </span>
             ) : null}
             {bypass ? (
@@ -71,10 +80,10 @@ export function PermissionCard() {
                 data-testid="permission-bypass-badge"
                 className="ml-2 rounded bg-danger/15 px-1.5 py-0.5 text-danger"
               >
-                沙盒外
+                {t("permission.outside")}
               </span>
             ) : null}
-            {pending.length > 1 ? `（还有 ${pending.length - 1} 个待确认）` : ""}
+            {pending.length > 1 ? t("permission.pending", { count: pending.length - 1 }) : ""}
           </div>
         </div>
         {/* 评审 R3-F1：edit/write 审批展示 diff/文件预览（批准前看得见改了什么），其余展示参数 */}
@@ -86,17 +95,17 @@ export function PermissionCard() {
             onClick={() => reply(request.requestId, false)}
             className="rounded-md border border-border px-4 py-1.5 text-xs text-text-secondary hover:bg-bg-hover"
           >
-            拒绝
+            {t("permission.deny")}
           </button>
           {!danger && rule && (
             <button
               type="button"
               data-testid="permission-allow-always"
               onClick={allowAlways}
-              title={`以后「${rule} …」开头的命令不再询问${bypass ? "，并加入沙盒外白名单" : ""}（可在设置里移除）`}
+              title={t(bypass ? "permission.alwaysBypassHint" : "permission.alwaysHint", { rule })}
               className="rounded-md border border-border px-4 py-1.5 text-xs text-text-secondary hover:bg-bg-hover"
             >
-              总允许
+              {t("permission.always")}
             </button>
           )}
           <button
@@ -107,7 +116,7 @@ export function PermissionCard() {
               severe ? "bg-danger text-white hover:bg-danger/80" : "bg-accent text-bg-root hover:bg-accent-dim"
             }`}
           >
-            允许执行
+            {t("permission.allow")}
           </button>
         </div>
       </div>
@@ -140,6 +149,7 @@ function formatArgs(args: unknown): string {
 
 /** 审批卡参数预览（评审 R3-F1）：edit 渲染 oldText→newText 替换 diff，write 渲染目标路径+内容预览，其余 JSON */
 function ArgsPreview({ toolName, args }: { toolName: string; args: unknown }) {
+  const { t } = useTranslation("chat");
   const a = (args ?? {}) as { path?: unknown; edits?: unknown; content?: unknown };
   const name = toolName.toLowerCase();
   if (name === "edit" && typeof a.path === "string" && Array.isArray(a.edits)) {
@@ -153,7 +163,11 @@ function ArgsPreview({ toolName, args }: { toolName: string; args: unknown }) {
           // biome-ignore lint/suspicious/noArrayIndexKey: 审批卡静态列表不重排
           <DiffReplace key={i} oldText={String(e.oldText ?? "")} newText={String(e.newText ?? "")} />
         ))}
-        {edits.length > 3 && <div className="mt-1 text-xs text-text-tertiary">…还有 {edits.length - 3} 处修改</div>}
+        {edits.length > 3 && (
+          <div className="mt-1 text-xs text-text-tertiary">
+            {t("permission.moreEdits", { count: edits.length - 3 })}
+          </div>
+        )}
       </div>
     );
   }
@@ -162,12 +176,12 @@ function ArgsPreview({ toolName, args }: { toolName: string; args: unknown }) {
     return (
       <div className="max-h-72 overflow-auto px-4 py-3">
         <div className="mono mb-2 truncate text-xs text-text-tertiary" title={a.path}>
-          {a.path}（{content.length} 字符，整文件覆写）
+          {t("permission.overwrite", { path: a.path, count: content.length })}
         </div>
         {content && (
           <pre className="mono max-h-52 overflow-auto rounded-lg border border-border bg-bg-root/60 px-3 py-2 text-[12px] leading-5 text-text-secondary">
             {content.slice(0, 1200)}
-            {content.length > 1200 ? "\n…（预览截断）" : ""}
+            {content.length > 1200 ? t("permission.previewTruncated") : ""}
           </pre>
         )}
       </div>

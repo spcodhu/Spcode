@@ -4,7 +4,12 @@
  */
 import { randomUUID } from "node:crypto";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { QuestionRequest } from "@spcode/shared";
+import {
+  formatQuestionAnswers,
+  type QuestionAnswers,
+  type QuestionRequest,
+  validateQuestionAnswers,
+} from "@spcode/shared";
 import { type Static, Type } from "typebox";
 
 const questionSchema = Type.Object({
@@ -28,7 +33,7 @@ const questionSchema = Type.Object({
 
 type Params = Static<typeof questionSchema>;
 
-export type QuestionAnswerer = (request: QuestionRequest) => Promise<Record<string, string>>;
+export type QuestionAnswerer = (request: QuestionRequest) => Promise<QuestionAnswers>;
 
 export function createAskUserQuestionTool(sessionId: string, ask: QuestionAnswerer): ToolDefinition {
   return {
@@ -39,26 +44,24 @@ export function createAskUserQuestionTool(sessionId: string, ask: QuestionAnswer
     promptSnippet: "Ask the user structured multiple-choice questions when blocked",
     parameters: questionSchema,
     execute: async (_id, args: Params) => {
-      const answers = await ask({
+      const request: QuestionRequest = {
         requestId: randomUUID(),
         sessionId,
         questions: args.questions.map((q) => ({
           question: q.question,
           header: q.header,
           multiSelect: q.multiSelect,
-          options: q.options?.map((o) => ({ label: o.label, description: o.description })),
+          options: q.options?.map((o, i) => ({ value: `option-${i}`, label: o.label, description: o.description })),
         })),
-      });
-      // 协议键 = 题号索引（三端统一）；按索引还原题目文本渲染 Q/A（兼容旧客户端的文本键）
-      const text = Object.entries(answers)
-        .map(([k, a]) => {
-          const q = /^\d+$/.test(k) ? (args.questions[Number(k)]?.question ?? k) : k;
-          return `Q: ${q}\nA: ${a}`;
-        })
-        .join("\n\n");
+      };
+      const answers = validateQuestionAnswers(request, await ask(request)) ?? {};
+      const text = formatQuestionAnswers(request, answers);
       return {
         content: [{ type: "text", text: text || "User dismissed the question without answering." }],
-        details: { answers },
+        details: {
+          answers,
+          ...(!text ? { presentation: { key: "questions:ask.dismissed" } } : {}),
+        },
       };
     },
   };

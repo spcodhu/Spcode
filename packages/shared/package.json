@@ -8,9 +8,13 @@
     "./node": "./src/node.ts",
     "./advanced-search": "./src/advanced-search.ts",
     "./run-error": "./src/run-error.ts",
-    "./crypto": "./src/crypto.ts"
+    "./crypto": "./src/crypto.ts",
+    "./i18n": "./src/i18n/index.ts",
+    "./i18n/build": "./src/i18n/build.ts",
+    "./questions": "./src/questions.ts"
   },
   "dependencies": {
+    "i18next": "^26.5.5",
     "tweetnacl": "^1.0.3"
   }
 }

@@ -1,6 +1,8 @@
 import type { ScheduleFrequency, ScheduleTarget, ScheduleTask, ScheduleTaskInput } from "@spcode/shared";
 import { baseName, describeSchedule } from "@spcode/shared";
+import { getLocale } from "@spcode/shared/i18n";
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { formatRelative } from "../format";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
@@ -12,6 +14,7 @@ import { Switch } from "./ui/Switch";
  * 到点触发 = 新建聊天/项目会话并注入 prompt；会话标题固定为任务名。
  */
 export function SchedulePage({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation("settings");
   const [tasks, setTasks] = useState<ScheduleTask[] | null>(null);
   const [editing, setEditing] = useState<ScheduleTask | "new" | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -57,7 +60,7 @@ export function SchedulePage({ onClose }: { onClose: () => void }) {
         <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
           <span className="flex items-center gap-2 text-[14px] font-semibold text-text-primary">
             <Icon name="clock" size={15} className="text-text-tertiary" />
-            定时任务
+            {t("schedule.title")}
           </span>
           <div className="flex items-center gap-2">
             {editing === null && (
@@ -67,13 +70,13 @@ export function SchedulePage({ onClose }: { onClose: () => void }) {
                 className="flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-[12px] text-white hover:bg-accent-dim"
               >
                 <Icon name="plus" size={13} />
-                新建任务
+                {t("schedule.new")}
               </button>
             )}
             <button
               type="button"
               onClick={onClose}
-              title="关闭"
+              title={t("close")}
               className="rounded-lg p-1.5 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
             >
               <Icon name="x" size={16} />
@@ -92,54 +95,62 @@ export function SchedulePage({ onClose }: { onClose: () => void }) {
               }}
             />
           ) : tasks === null ? (
-            <div className="py-10 text-center text-[13px] text-text-tertiary">读取中…</div>
+            <div className="py-10 text-center text-[13px] text-text-tertiary">{t("loading")}</div>
           ) : tasks.length === 0 ? (
-            <div className="py-10 text-center text-[13px] text-text-tertiary">
-              还没有定时任务。建一个，比如「每天 09:00 生成今日晨报」。
-            </div>
+            <div className="py-10 text-center text-[13px] text-text-tertiary">{t("schedule.empty")}</div>
           ) : (
             <div className="space-y-2">
-              {tasks.map((t) => (
-                <div key={t.id} className="rounded-xl border border-border bg-bg-elevated px-4 py-3">
+              {tasks.map((item) => (
+                <div key={item.id} className="rounded-xl border border-border bg-bg-elevated px-4 py-3">
                   <div className="flex items-center gap-3">
-                    <Switch on={t.enabled} onChange={() => toggle(t)} label={`启用 ${t.name}`} />
+                    <Switch
+                      on={item.enabled}
+                      onChange={() => toggle(item)}
+                      label={t("enableName", { name: item.name })}
+                    />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-[14px] text-text-primary">{t.name}</div>
+                      <div className="truncate text-[14px] text-text-primary">{item.name}</div>
                       <div className="mt-0.5 text-[12px] text-text-tertiary">
-                        {describeSchedule(t)} ·{" "}
-                        {t.target.kind === "project" ? `项目 ${baseName(t.target.cwd)}` : "新聊天会话"}
-                        {t.lastStatus === "ok" && t.lastRunAt ? ` · 上次 ${formatRelative(t.lastRunAt)}` : ""}
-                        {t.lastStatus === "error" ? ` · 上次失败：${t.lastError ?? "未知错误"}` : ""}
+                        {describeSchedule(item)} ·{" "}
+                        {item.target.kind === "project"
+                          ? t("schedule.project", { name: baseName(item.target.cwd) })
+                          : t("schedule.chat")}
+                        {item.lastStatus === "ok" && item.lastRunAt
+                          ? t("schedule.lastRun", { time: formatRelative(item.lastRunAt) })
+                          : ""}
+                        {item.lastStatus === "error"
+                          ? t("schedule.lastError", { error: item.lastError ?? t("unknownError") })
+                          : ""}
                       </div>
                     </div>
                     <button
                       type="button"
-                      onClick={() => runNow(t)}
-                      disabled={runningId === t.id}
-                      title="立即运行一次"
+                      onClick={() => runNow(item)}
+                      disabled={runningId === item.id}
+                      title={t("schedule.runOnce")}
                       className="rounded-lg px-2.5 py-1.5 text-[12px] text-accent hover:bg-bg-hover disabled:opacity-40"
                     >
-                      {runningId === t.id ? "运行中…" : "立即运行"}
+                      {runningId === item.id ? t("schedule.running") : t("schedule.run")}
                     </button>
                     <button
                       type="button"
-                      onClick={() => setEditing(t)}
-                      title="编辑"
+                      onClick={() => setEditing(item)}
+                      title={t("schedule.edit")}
                       className="rounded-lg p-1.5 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
                     >
                       <Icon name="gear" size={14} />
                     </button>
                     <button
                       type="button"
-                      onClick={() => (confirmDelete === t.id ? remove(t.id) : setConfirmDelete(t.id))}
-                      title="删除"
+                      onClick={() => (confirmDelete === item.id ? remove(item.id) : setConfirmDelete(item.id))}
+                      title={t("schedule.delete")}
                       className={`rounded-lg p-1.5 text-[12px] ${
-                        confirmDelete === t.id
+                        confirmDelete === item.id
                           ? "text-danger"
                           : "text-text-tertiary hover:bg-bg-hover hover:text-danger"
                       }`}
                     >
-                      {confirmDelete === t.id ? "确认删除？" : <Icon name="x" size={14} />}
+                      {confirmDelete === item.id ? t("schedule.confirmDelete") : <Icon name="x" size={14} />}
                     </button>
                   </div>
                 </div>
@@ -149,7 +160,7 @@ export function SchedulePage({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="shrink-0 border-t border-border px-5 py-2 text-[11px] text-text-tertiary">
-          到点在后台新建会话并自动开跑；App 未运行时错过的任务，下次启动补跑一次。
+          {t("schedule.footer")}
         </div>
       </div>
     </div>
@@ -160,16 +171,6 @@ export function SchedulePage({ onClose }: { onClose: () => void }) {
 // 新建 / 编辑表单
 // ---------------------------------------------------------------------------
 
-const FREQ_OPTIONS: { value: ScheduleFrequency; label: string }[] = [
-  { value: "once", label: "单次" },
-  { value: "hourly", label: "每小时" },
-  { value: "daily", label: "每天" },
-  { value: "weekday", label: "工作日（周一至周五）" },
-  { value: "weekly", label: "每周" },
-];
-
-const WEEKDAY_OPTIONS = [1, 2, 3, 4, 5, 6, 0].map((d) => ({ value: String(d), label: `周${"日一二三四五六"[d]}` }));
-
 function TaskForm({
   task,
   onCancel,
@@ -179,7 +180,20 @@ function TaskForm({
   onCancel: () => void;
   onSaved: () => void;
 }) {
+  const { t } = useTranslation("settings");
+  const FREQ_OPTIONS: { value: ScheduleFrequency; label: string }[] = [
+    { value: "once", label: t("schedule.once") },
+    { value: "hourly", label: t("schedule.hourly") },
+    { value: "daily", label: t("schedule.daily") },
+    { value: "weekday", label: t("schedule.weekday") },
+    { value: "weekly", label: t("schedule.weekly") },
+  ];
+
   const registrySessions = useStore((s) => s.registrySessions);
+  const weekdayOptions = [1, 2, 3, 4, 5, 6, 0].map((day) => ({
+    value: String(day),
+    label: new Intl.DateTimeFormat(getLocale(), { weekday: "short" }).format(new Date(2024, 0, 7 + day)),
+  }));
 
   const [name, setName] = useState(task?.name ?? "");
   const [prompt, setPrompt] = useState(task?.prompt ?? "");
@@ -205,26 +219,38 @@ function TaskForm({
       if (r.mode === "project" && r.cwd) cwds.set(r.cwd, baseName(r.cwd));
     }
     return [
-      { value: "chat", label: "新聊天会话" },
-      ...[...cwds.entries()].map(([cwd, base]) => ({ value: cwd, label: `项目：${base}` })),
+      { value: "chat", label: t("schedule.chat") },
+      ...[...cwds.entries()].map(([cwd, base]) => ({ value: cwd, label: t("schedule.project", { name: base }) })),
     ];
-  }, [registrySessions]);
+  }, [registrySessions, t]);
 
   const hourOptions = useMemo(
-    () => Array.from({ length: 24 }, (_, h) => ({ value: String(h), label: `${String(h).padStart(2, "0")} 时` })),
-    [],
+    () =>
+      Array.from({ length: 24 }, (_, h) => ({
+        value: String(h),
+        label: t("schedule.hourValue", {
+          value: new Intl.NumberFormat(getLocale(), { minimumIntegerDigits: 2 }).format(h),
+        }),
+      })),
+    [t],
   );
   const minuteOptions = useMemo(
-    () => Array.from({ length: 60 }, (_, m) => ({ value: String(m), label: `${String(m).padStart(2, "0")} 分` })),
-    [],
+    () =>
+      Array.from({ length: 60 }, (_, m) => ({
+        value: String(m),
+        label: t("schedule.minuteValue", {
+          value: new Intl.NumberFormat(getLocale(), { minimumIntegerDigits: 2 }).format(m),
+        }),
+      })),
+    [t],
   );
 
   const save = async () => {
     if (saving) return;
     const trimmedName = name.trim();
     const trimmedPrompt = prompt.trim();
-    if (!trimmedName) return setError("给任务起个名字");
-    if (!trimmedPrompt) return setError("填写触发时要执行的指令");
+    if (!trimmedName) return setError(t("schedule.missingName"));
+    if (!trimmedPrompt) return setError(t("schedule.missingPrompt"));
 
     const target: ScheduleTarget = targetKind === "chat" ? { kind: "chat" } : { kind: "project", cwd: targetKind };
     const input: ScheduleTaskInput = {
@@ -239,8 +265,8 @@ function TaskForm({
     if (frequency === "weekly") input.weekday = Number(weekday);
     if (frequency === "once") {
       const ts = new Date(runAt).getTime();
-      if (!Number.isFinite(ts)) return setError("单次任务需要有效的触发时间");
-      if (!task && ts <= Date.now()) return setError("触发时间已经过去，往后排一点");
+      if (!Number.isFinite(ts)) return setError(t("schedule.invalidTime"));
+      if (!task && ts <= Date.now()) return setError(t("schedule.pastTime"));
       input.runAt = ts;
     }
 
@@ -265,42 +291,44 @@ function TaskForm({
           className="flex items-center gap-1 text-[13px] text-text-tertiary hover:text-text-primary"
         >
           <Icon name="chevronRight" size={13} style={{ transform: "rotate(180deg)" }} />
-          返回
+          {t("back")}
         </button>
-        <span className="text-[15px] font-semibold text-text-primary">{task ? "编辑任务" : "新建任务"}</span>
+        <span className="text-[15px] font-semibold text-text-primary">
+          {task ? t("schedule.editTask") : t("schedule.new")}
+        </span>
       </div>
 
       {error && <div className="mb-3 rounded-lg bg-danger/10 px-3 py-2 text-[12px] text-danger">{error}</div>}
 
-      <Field label="任务名称">
+      <Field label={t("schedule.name")}>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="如：每日晨报"
+          placeholder={t("schedule.namePlaceholder")}
           className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-[13px] outline-none focus:border-accent/50"
         />
       </Field>
 
-      <Field label="触发时执行的指令">
+      <Field label={t("schedule.prompt")}>
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          placeholder="如：汇总我昨天的用量和配额情况，给出今日建议"
+          placeholder={t("schedule.promptPlaceholder")}
           rows={4}
           className="w-full resize-y rounded-lg border border-border bg-bg-elevated px-3 py-2 text-[13px] leading-5 outline-none focus:border-accent/50"
         />
       </Field>
 
-      <Field label="执行目标">
+      <Field label={t("schedule.target")}>
         <Select value={targetKind} options={targetOptions} onChange={setTargetKind} />
       </Field>
 
-      <Field label="频率">
+      <Field label={t("schedule.frequency")}>
         <Select value={frequency} options={FREQ_OPTIONS} onChange={(v) => setFrequency(v as ScheduleFrequency)} />
       </Field>
 
       {frequency === "once" && (
-        <Field label="触发时间">
+        <Field label={t("schedule.runAt")}>
           <input
             type="datetime-local"
             value={runAt}
@@ -310,15 +338,15 @@ function TaskForm({
         </Field>
       )}
       {frequency === "hourly" && (
-        <Field label="每小时的第几分">
+        <Field label={t("schedule.minute")}>
           <Select value={minute} options={minuteOptions} onChange={setMinute} className="w-36" />
         </Field>
       )}
       {(frequency === "daily" || frequency === "weekday" || frequency === "weekly") && (
-        <Field label="触发时刻">
+        <Field label={t("schedule.time")}>
           <div className="flex items-center gap-2">
             {frequency === "weekly" && (
-              <Select value={weekday} options={WEEKDAY_OPTIONS} onChange={setWeekday} className="w-28" />
+              <Select value={weekday} options={weekdayOptions} onChange={setWeekday} className="w-28" />
             )}
             <Select value={hour} options={hourOptions} onChange={setHour} className="w-28" />
             <Select value={minute} options={minuteOptions} onChange={setMinute} className="w-28" />
@@ -332,7 +360,7 @@ function TaskForm({
           onClick={onCancel}
           className="rounded-lg px-4 py-2 text-[13px] text-text-tertiary hover:bg-bg-hover"
         >
-          取消
+          {t("cancel")}
         </button>
         <button
           type="button"
@@ -340,7 +368,7 @@ function TaskForm({
           disabled={saving}
           className="rounded-lg bg-accent px-4 py-2 text-[13px] text-white hover:bg-accent-dim disabled:opacity-40"
         >
-          {saving ? "保存中…" : task ? "保存修改" : "创建任务"}
+          {saving ? t("saving") : task ? t("schedule.saveChanges") : t("schedule.create")}
         </button>
       </div>
     </div>

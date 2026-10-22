@@ -125,7 +125,7 @@ describe("parseSearchResponse（预设协议）", () => {
 
   it("custom：缺 mapping 抛错，有 mapping 按映射解析", () => {
     const noMapping: AdvancedSearchConfig = { ...TAVILY_CONFIG, protocol: "custom" };
-    expect(() => parseSearchResponse(noMapping, {}, 10)).toThrow("映射");
+    expect(() => parseSearchResponse(noMapping, {}, 10)).toThrow("response mapping");
     const mapping = inferMapping(JSON.stringify({ results: [{ title: "t", url: "https://a.com", content: "c" }] }));
     const cfg: AdvancedSearchConfig = { ...noMapping, mapping };
     const out = parseSearchResponse(cfg, { results: [{ title: "t", url: "https://a.com", content: "c" }] }, 10);

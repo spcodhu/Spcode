@@ -1,5 +1,7 @@
+import { i18n } from "@spcode/shared/i18n";
 import { memo, useEffect, useRef, useState } from "react";
-import { formatFileSize } from "../format";
+import { useTranslation } from "react-i18next";
+import { formatCompact, formatFileSize } from "../format";
 import { type ActivitySegment, buildRunBlocks } from "../run-activity";
 import { type ChatMessage, flattenSegments, messageText, type ToolCallState } from "../store";
 import { isCommandTool, summarizeArgs, toolLabel } from "../tooling";
@@ -13,6 +15,7 @@ const COLLAPSE_LINES = 12;
 
 /** 用户消息气泡（含图片附件缩略图点击放大、文件附件 chips；长文本默认折叠） */
 function MessageItemImpl({ message }: { message: ChatMessage }) {
+  const { t } = useTranslation("chat");
   const text = messageText(message);
   const [previewIdx, setPreviewIdx] = useState<number | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -29,7 +32,7 @@ function MessageItemImpl({ message }: { message: ChatMessage }) {
               type="button"
               key={`${img.name}-${img.data.length}`}
               onClick={() => setPreviewIdx(i)}
-              title={`预览 ${img.name}`}
+              title={t("common.previewFile", { name: img.name })}
               className="cursor-zoom-in"
             >
               <img
@@ -46,7 +49,7 @@ function MessageItemImpl({ message }: { message: ChatMessage }) {
           {files.map((f) => (
             <span
               key={`${f.name}-${f.size}`}
-              title={`${f.name}（已随消息发送）`}
+              title={t("message.sentFile", { name: f.name })}
               className="flex items-center gap-1.5 rounded-lg border border-border bg-bg-elevated px-2 py-1 text-[12px] text-text-secondary"
             >
               <Icon name="fileText" size={12} className="text-text-tertiary" />
@@ -66,7 +69,7 @@ function MessageItemImpl({ message }: { message: ChatMessage }) {
                 onClick={() => setExpanded(true)}
                 className="mt-1 block text-[12px] text-accent transition-colors hover:text-accent-dim"
               >
-                …展开全部（共 {lineCount} 行 · {text.length} 字）
+                {t("message.expand", { lines: lineCount, characters: text.length })}
               </button>
             </>
           ) : (
@@ -78,7 +81,7 @@ function MessageItemImpl({ message }: { message: ChatMessage }) {
                   onClick={() => setExpanded(false)}
                   className="mt-1 block text-[12px] text-accent transition-colors hover:text-accent-dim"
                 >
-                  收起
+                  {t("common.collapse")}
                 </button>
               )}
             </>
@@ -110,8 +113,19 @@ export const MessageItem = memo(MessageItemImpl);
  * 且重启后仍可见（historyToMessages 回放）。
  */
 function NoticeItemImpl({ message }: { message: ChatMessage }) {
-  const text = messageText(message);
-  const summary = message.notice?.kind === "compaction" ? message.notice.summary : undefined;
+  const { t } = useTranslation("chat");
+  const compaction = message.notice?.kind === "compaction" ? message.notice : undefined;
+  const text = compaction
+    ? compaction.tokensBefore === undefined
+      ? t("message.compacted")
+      : compaction.tokensAfter === undefined
+        ? t("message.compactedBefore", { before: formatCompact(compaction.tokensBefore) })
+        : t("message.compactedRange", {
+            before: formatCompact(compaction.tokensBefore),
+            after: formatCompact(compaction.tokensAfter),
+          })
+    : messageText(message);
+  const summary = compaction?.summary;
   const [open, setOpen] = useState(false);
   if (message.notice?.kind === "runError") return <RunErrorCard notice={message.notice} />;
   return (
@@ -138,7 +152,7 @@ function NoticeItemImpl({ message }: { message: ChatMessage }) {
       {open && summary && (
         <div className="mt-3 rounded-xl border border-border bg-bg-elevated px-4 py-3 text-[13px] leading-relaxed text-text-secondary">
           <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-text-tertiary">
-            压缩摘要（模型上下文中看到的版本）
+            {t("message.compactionSummary")}
           </div>
           <Markdown text={summary} />
         </div>
@@ -149,6 +163,8 @@ function NoticeItemImpl({ message }: { message: ChatMessage }) {
 
 /** 运行被错误中断的持久错误卡（额度不足/凭证/限流/超长/网络） */
 function RunErrorCard({ notice }: { notice: Extract<NonNullable<ChatMessage["notice"]>, { kind: "runError" }> }) {
+  const { t } = useTranslation("chat");
+  const { t: errorT } = useTranslation("errors");
   return (
     <div
       className="my-4 rounded-xl border border-danger/40 bg-danger/8 px-4 py-3"
@@ -158,10 +174,14 @@ function RunErrorCard({ notice }: { notice: Extract<NonNullable<ChatMessage["not
       <div className="flex items-start gap-2">
         <Icon name="alert" size={15} className="mt-0.5 shrink-0 text-danger" />
         <div className="min-w-0 flex-1">
-          <div className="text-[13.5px] font-semibold text-danger">{notice.title}</div>
-          <div className="mt-1 text-[12.5px] leading-5 text-text-secondary">{notice.hint}</div>
+          <div className="text-[13.5px] font-semibold text-danger">{errorT(`run.${notice.errorKind}.title`)}</div>
+          <div className="mt-1 text-[12.5px] leading-5 text-text-secondary">
+            {errorT(`run.${notice.errorKind}.hint`)}
+          </div>
           {notice.attempt && notice.attempt > 0 ? (
-            <div className="mt-1 text-[11.5px] text-text-tertiary">自动重试 {notice.attempt} 次后仍未恢复</div>
+            <div className="mt-1 text-[11.5px] text-text-tertiary">
+              {t("message.retryExhausted", { count: notice.attempt })}
+            </div>
           ) : null}
           {/* 原始错误直接铺在外面：排查时最想看的就是这句话，多一次点击都是阻碍 */}
           {notice.raw && (
@@ -256,6 +276,7 @@ function ActivityGroup({
   active: boolean;
   startedAt?: number;
 }) {
+  const { t } = useTranslation("chat");
   const [open, setOpen] = useState(active);
   useEffect(() => setOpen(active), [active]);
   const elapsed = useElapsedSeconds(startedAt, active);
@@ -277,8 +298,8 @@ function ActivityGroup({
           />
         </span>
         <span className="min-w-0 truncate">
-          {active ? "正在执行中" : "已处理"}
-          {elapsed !== undefined && <span className="tabular-nums"> · {elapsed}s</span>}
+          {t(active ? "message.running" : "message.processed")}
+          {elapsed !== undefined && <span className="tabular-nums"> · {t("run.seconds", { seconds: elapsed })}</span>}
         </span>
       </button>
 
@@ -338,6 +359,7 @@ function StepStatusIcon({ status }: { status: "running" | "done" | "error" }) {
 
 /** 尾部思考指示（Qoder：四点图标 + 继续思考中…） */
 function ContinueThinking() {
+  const { t } = useTranslation("chat");
   return (
     <div
       className="flex min-h-7 items-center gap-2 px-0.5 py-1 text-[13px] leading-5 text-text-tertiary"
@@ -354,7 +376,7 @@ function ContinueThinking() {
           ))}
         </span>
       </span>
-      <span className="thinking-shimmer">继续思考中…</span>
+      <span className="thinking-shimmer">{t("message.continueThinking")}</span>
     </div>
   );
 }
@@ -370,6 +392,7 @@ function firstLine(text: string): string {
  * 流式期间行头为「思考中」并自动展开、跟随滚动。
  */
 function ThinkingRow({ text, streaming }: { text: string; streaming: boolean }) {
+  const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
   /** 贴底跟随标记：用户上翻暂停跟随，回滚到底部附近后恢复 */
@@ -400,7 +423,7 @@ function ThinkingRow({ text, streaming }: { text: string; streaming: boolean }) 
         <StepStatusIcon status={streaming ? "running" : "done"} />
         <span className="min-w-0 flex-1 truncate text-[13px] leading-5">
           <span className={streaming ? "thinking-shimmer" : "text-text-secondary"}>
-            {streaming ? "思考中" : "已思考"}
+            {t(streaming ? "message.thinking" : "message.thought")}
           </span>
           {!streaming && preview && (
             <>
@@ -431,9 +454,9 @@ function ThinkingRow({ text, streaming }: { text: string; streaming: boolean }) 
 /** 终端命令动作在行头带运行状态（Qoder：终端命令 已运行 / 运行中 / 运行失败） */
 function toolStepTitle(name: string, status: ToolCallState["status"]): string {
   if (!isCommandTool(name)) return toolLabel(name);
-  if (status === "running") return "终端命令 运行中";
-  if (status === "error") return "终端命令 运行失败";
-  return "终端命令 已运行";
+  if (status === "running") return i18n.t("chat:message.commandRunning");
+  if (status === "error") return i18n.t("chat:message.commandError");
+  return i18n.t("chat:message.commandDone");
 }
 
 /**
@@ -451,6 +474,7 @@ function ToolRowGroup({ calls }: { calls: ToolCallState[] }) {
 }
 
 function ToolRow({ toolCall }: { toolCall: ToolCallState }) {
+  const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
   const error = toolCall.status === "error";
   const summary = summarizeArgs(toolCall.name, toolCall.args);
@@ -487,7 +511,7 @@ function ToolRow({ toolCall }: { toolCall: ToolCallState }) {
               <DiffPatch patch={toolCall.patch} />
             ) : (
               <>
-                <div className="text-[10.5px] leading-4 text-text-tertiary">输入</div>
+                <div className="text-[10.5px] leading-4 text-text-tertiary">{t("message.input")}</div>
                 <pre className="mono max-h-40 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-[18px] text-text-secondary">
                   {formatArgs(toolCall.args)}
                 </pre>
@@ -496,7 +520,7 @@ function ToolRow({ toolCall }: { toolCall: ToolCallState }) {
             {toolCall.output && (
               <>
                 <div className={`mt-1 text-[10.5px] leading-4 ${error ? "text-danger/70" : "text-text-tertiary"}`}>
-                  响应
+                  {t("message.response")}
                 </div>
                 <pre
                   className={`mono max-h-48 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-[18px] ${
@@ -504,7 +528,7 @@ function ToolRow({ toolCall }: { toolCall: ToolCallState }) {
                   }`}
                 >
                   {toolCall.output.slice(0, 4000)}
-                  {toolCall.output.length > 4000 ? "\n…（已截断）" : ""}
+                  {toolCall.output.length > 4000 ? t("message.truncated") : ""}
                 </pre>
               </>
             )}

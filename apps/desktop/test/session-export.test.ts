@@ -2,7 +2,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { setLocale } from "@spcode/shared/i18n";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildHandoffPrompt, exportSessionContext, renderTranscript } from "../src/agent-host/export-context.js";
 import { teardownHostEvents, useStore } from "../src/renderer/src/store.js";
 
@@ -18,7 +19,9 @@ function makeTmp(): string {
   return dir;
 }
 
+beforeEach(() => setLocale("zh-CN"));
 afterEach(() => {
+  setLocale("zh-CN");
   teardownHostEvents();
   vi.unstubAllGlobals();
   while (tmpDirs.length) rmSync(tmpDirs.pop()!, { recursive: true, force: true });
@@ -59,6 +62,41 @@ function makeSessionFile(dir: string): string {
 }
 
 describe("renderTranscript", () => {
+  it("localizes only generated export headings, keeping conversation and thinking unchanged", () => {
+    const dir = makeTmp();
+    const file = makeSessionFile(dir);
+    const sm = SessionManager.open(file);
+    const before = readFileSync(file, "utf-8");
+    setLocale("en");
+    const { markdown } = renderTranscript(sm.getBranch(), {
+      title: "原始标题 <raw>",
+      cwd: "/tmp/项目",
+      exportedAt: new Date("2026-01-01T12:00:00Z"),
+    });
+    expect(markdown).toContain("# Session transcript: 原始标题 <raw>");
+    expect(markdown).toContain("Working directory: /tmp/项目");
+    expect(markdown).toContain("**Thinking**");
+    expect(markdown).toContain("Tool call: `bash`");
+    expect(markdown).toContain("Image: image/png");
+    expect(markdown).toContain("帮我看下登录模块的结构");
+    expect(markdown).toContain("先看目录结构");
+    expect(markdown).toContain("好的，我先看一下项目结构。");
+    expect(markdown).toContain("a.ts\nb.ts");
+    expect(readFileSync(file, "utf-8")).toBe(before);
+    const handoff = buildHandoffPrompt({
+      transcriptPath: "/tmp/记录.md",
+      jsonlPath: file,
+      cwd: "/tmp/项目",
+      title: "原始标题",
+      messages: 3,
+      exportedAt: new Date(),
+      memoryPaths: [],
+    });
+    expect(handoff).toContain("English (en)");
+    expect(handoff).toContain("/tmp/记录.md");
+    expect(handoff).toContain("原始标题");
+  });
+
   it("渲染 user/assistant/thinking/工具调用与结果，图片占位不内联 base64", () => {
     const dir = makeTmp();
     const file = makeSessionFile(dir);
@@ -141,13 +179,13 @@ describe("buildHandoffPrompt", () => {
     });
     expect(text).toContain("/e/transcript.md");
     expect(text).toContain("/e/session.jsonl");
-    expect(text).toContain("当作你我之间已经完整发生过的会话历史");
-    expect(text).toContain("工作目录：/tmp/proj");
+    expect(text).toContain("as conversation history that has already taken place between us");
+    expect(text).toContain("Working directory: /tmp/proj");
     expect(text).toContain("/home/u/.spcode/MEMORY.md");
     expect(text).toContain("/home/u/.spcode/memory/projects/proj.md");
     expect(text).toContain("登录模块排查");
     expect(text).toContain("12");
-    expect(text).toContain("敏感内容");
+    expect(text).toContain("sensitive content");
   });
 
   it("无记忆文件时省略补充上下文区", () => {
@@ -160,8 +198,8 @@ describe("buildHandoffPrompt", () => {
       exportedAt: new Date(),
       memoryPaths: [],
     });
-    expect(text).not.toContain("补充上下文");
-    expect(text).toContain("工作目录：（无绑定目录）");
+    expect(text).not.toContain("## Additional context");
+    expect(text).toContain("Working directory: (no linked directory)");
   });
 });
 

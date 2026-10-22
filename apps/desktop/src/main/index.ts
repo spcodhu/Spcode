@@ -24,6 +24,7 @@ import {
   type SessionMode,
 } from "@spcode/shared";
 import { executeSearch, isAdvancedSearchReady } from "@spcode/shared/advanced-search";
+import { i18n, setLocale } from "@spcode/shared/i18n";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { AgentBridge } from "./agent-bridge.js";
@@ -109,6 +110,7 @@ const devIconPath = join(__dirname, "../../build/icon.png");
 const devIcon = !app.isPackaged && existsSync(devIconPath) ? devIconPath : undefined;
 
 const settings = new SettingsStore();
+setLocale(settings.get().locale);
 const draftsStore = new DraftsStore();
 const registry = new SessionRegistry();
 const ledger = new UsageLedger();
@@ -185,7 +187,11 @@ function watchSessionLifecycle(): void {
   bridge.onEvent((event: HostEvent) => {
     // 通知（R3-F4）：审批/提问到达与结清、长任务完成
     if (event.type === "permission.request") {
-      notifier.notifyApprovalNeeded("permission", event.request.requestId, `${event.request.toolName} 等待批准`);
+      notifier.notifyApprovalNeeded(
+        "permission",
+        event.request.requestId,
+        i18n.t("integration:notifications.approval", { tool: event.request.toolName }),
+      );
       return;
     }
     if (event.type === "permission.resolved") {
@@ -193,7 +199,7 @@ function watchSessionLifecycle(): void {
       return;
     }
     if (event.type === "question.request") {
-      notifier.notifyApprovalNeeded("question", event.request.requestId, "Agent 在等你回答");
+      notifier.notifyApprovalNeeded("question", event.request.requestId, i18n.t("integration:notifications.question"));
       return;
     }
     if (event.type === "question.resolved") {
@@ -210,7 +216,7 @@ function watchSessionLifecycle(): void {
     }
     // AI 通过 RenameSession 起的标题：持久化到注册表（渲染进程由广播自行更新）
     if (event.type === "session.renamed") {
-      registry.patch(event.sessionId, { title: event.title, updatedAt: Date.now() });
+      registry.patch(event.sessionId, { title: event.title, titleKind: "custom", updatedAt: Date.now() });
       return;
     }
     // 计划模式开关：持久化到注册表（恢复会话时据此还原计划态）
@@ -250,6 +256,7 @@ async function fireScheduledTask(task: ScheduleTask): Promise<string> {
     mode,
     cwd,
     title: task.name,
+    titleKind: "custom",
     model: settings.get().defaultModel,
     thinkingLevel: settings.get().defaultThinkingLevel,
     sessionFile: null,
@@ -305,7 +312,11 @@ function registerIpc(): void {
         id: cmd.payload.sessionId,
         mode: cmd.payload.mode,
         cwd: cmd.payload.cwd,
-        title: cmd.payload.mode === "chat" ? "新聊天" : baseName(cmd.payload.cwd) || "新项目",
+        title:
+          cmd.payload.mode === "chat"
+            ? i18n.t("common:newChat")
+            : baseName(cmd.payload.cwd) || i18n.t("common:newProject"),
+        titleKind: "default",
         model: cmd.payload.model ?? settings.get().defaultModel,
         thinkingLevel: cmd.payload.thinkingLevel ?? settings.get().defaultThinkingLevel,
         sessionFile: null,
@@ -317,9 +328,9 @@ function registerIpc(): void {
     // 兜底标题：标题还是出厂默认时，用首条用户消息推导（AI RenameSession 之后可覆盖）
     if (cmd.type === "session.prompt") {
       const entry = registry.get(cmd.payload.sessionId);
-      if (entry && isDefaultTitle(entry.title, entry.cwd)) {
+      if (entry && isDefaultTitle(entry.title, entry.cwd, entry.titleKind)) {
         const title = cleanSessionTitle(cmd.payload.text);
-        if (title) registry.patch(entry.id, { title, updatedAt: Date.now() });
+        if (title) registry.patch(entry.id, { title, titleKind: "custom", updatedAt: Date.now() });
       }
       // 评审 R3-F2：项目会话首次 prompt 前记 git 基线（会话级「还原到会话开始前」的锚点）
       if (entry?.cwd && !gitBaselines.has(cmd.payload.sessionId)) {
@@ -345,7 +356,7 @@ function registerIpc(): void {
     // 导出会话上下文：渲染层只传 sessionId，sessionFile/cwd/title 从注册表补齐
     if (cmd.type === "session.exportContext") {
       const entry = registry.get(cmd.payload.sessionId);
-      if (!entry) throw new Error(`会话不存在：${cmd.payload.sessionId}`);
+      if (!entry) throw new Error(i18n.t("integration:session.missing", { id: cmd.payload.sessionId }));
       cmd.payload.sessionFile = entry.sessionFile ?? undefined;
       cmd.payload.cwd = entry.cwd;
       cmd.payload.title = entry.title;
@@ -369,9 +380,12 @@ function registerIpc(): void {
     bridge.replyPermission(payload.requestId, payload.approved);
   });
 
-  ipcMain.on(IPC.questionReply, (_e, payload: { requestId: string; answers: Record<string, string> }) => {
-    bridge.replyQuestion(payload.requestId, payload.answers);
-  });
+  ipcMain.on(
+    IPC.questionReply,
+    (_e, payload: { requestId: string; answers: import("@spcode/shared").QuestionAnswers }) => {
+      bridge.replyQuestion(payload.requestId, payload.answers);
+    },
+  );
 
   ipcMain.handle(IPC.listSessions, () => registry.list());
   ipcMain.handle(IPC.searchSessions, (_e, query: string) => searchSessions(registry.list(), String(query ?? "")));
@@ -436,7 +450,9 @@ function registerIpc(): void {
       return {
         ...fallback,
         state: snapshot.enabled ? "unavailable" : "disabled",
-        reason: snapshot.enabled ? `宿主未响应：${err instanceof Error ? err.message : String(err)}` : "沙盒已关闭",
+        reason: snapshot.enabled
+          ? i18n.t("integration:sandbox.hostUnavailable", { error: err instanceof Error ? err.message : String(err) })
+          : i18n.t("integration:sandbox.disabled"),
       };
     }
   });
@@ -449,7 +465,7 @@ function registerIpc(): void {
     if (!mainWindow) return null;
     const result = await dialog.showOpenDialog(mainWindow, {
       properties: ["openDirectory", "createDirectory"],
-      title: "选择项目文件夹",
+      title: i18n.t("integration:files.project"),
     });
     return result.canceled ? null : (result.filePaths[0] ?? null);
   });
@@ -459,8 +475,8 @@ function registerIpc(): void {
     if (!mainWindow) return [];
     const result = await dialog.showOpenDialog(mainWindow, {
       properties: ["openFile", "multiSelections"],
-      title: "添加图片附件",
-      filters: [{ name: "图片", extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp"] }],
+      title: i18n.t("integration:files.addImages"),
+      filters: [{ name: i18n.t("integration:files.images"), extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp"] }],
     });
     if (result.canceled) return [];
     const out: { name: string; mimeType: string; data: string }[] = [];
@@ -484,7 +500,7 @@ function registerIpc(): void {
     if (!mainWindow) return [];
     const result = await dialog.showOpenDialog(mainWindow, {
       properties: ["openFile", "multiSelections"],
-      title: "添加文件",
+      title: i18n.t("integration:files.add"),
     });
     if (result.canceled) return [];
     const out: PickedFile[] = [];
@@ -496,7 +512,7 @@ function registerIpc(): void {
         const size = statSync(file).size;
         if (PICK_IMAGE_EXTS.has(ext)) {
           if (size > 10 * 1024 * 1024) {
-            out.push({ kind: "rejected", name, size, reason: "图片超过 10MB" });
+            out.push({ kind: "rejected", name, size, reason: i18n.t("integration:files.largeImage") });
             continue;
           }
           const buf = readFileSync(file);
@@ -505,17 +521,17 @@ function registerIpc(): void {
           continue;
         }
         if (size > 200 * 1024) {
-          out.push({ kind: "rejected", name, size, reason: "文本文件超过 200KB" });
+          out.push({ kind: "rejected", name, size, reason: i18n.t("integration:files.largeText") });
           continue;
         }
         const buf = readFileSync(file);
         if (PICK_TEXT_EXTS.has(ext) || !looksBinary(buf)) {
           out.push({ kind: "text", name, size, text: buf.toString("utf-8") });
         } else {
-          out.push({ kind: "rejected", name, size, reason: "二进制文件无法作为文本发送" });
+          out.push({ kind: "rejected", name, size, reason: i18n.t("integration:files.binary") });
         }
       } catch {
-        out.push({ kind: "rejected", name, size: 0, reason: "读取失败" });
+        out.push({ kind: "rejected", name, size: 0, reason: i18n.t("integration:files.readFailed") });
       }
     }
     return out;
@@ -541,6 +557,12 @@ function registerIpc(): void {
   ipcMain.handle(IPC.setSettings, (_e, patch: Partial<AppSettings>) => {
     // 掩码密钥还原（渲染层只见过掩码；评审 R3-C8）
     const next = settings.set(restoreMaskedSecrets(patch, settings.get()));
+    if ("locale" in patch) {
+      setLocale(next.locale);
+      bridge.push({ type: "locale.set", payload: { locale: next.locale } });
+      bridge.emitLocal({ type: "locale.changed", locale: next.locale });
+      remote.setLocale(next.locale);
+    }
     // 蒸馏开关实时下发宿主（评审 P0-4：静默计费的开关必须即时生效）
     if ("memoryDistill" in patch) {
       bridge.push({ type: "memory.setDistillEnabled", payload: { enabled: next.memoryDistill } });
@@ -565,7 +587,7 @@ function registerIpc(): void {
     if ("remote" in patch) {
       void remote.applySettings();
     }
-    return next;
+    return redactSettingsForRenderer(next);
   });
 
   // 远程控制：状态查询 / 开关 / 重新生成配对 QR / 解绑设备
@@ -597,8 +619,7 @@ function registerIpc(): void {
     // 掩码密钥还原（渲染层拿到的是掩码，原样回传时用存储的真值——评审 R3-C8）
     const resolved =
       config.apiKey === SECRET_MASK ? { ...config, apiKey: settings.get().advancedSearch?.apiKey ?? "" } : config;
-    if (!isAdvancedSearchReady(resolved))
-      return { ok: false as const, error: "配置不完整（baseUrl / apiKey / 响应映射）" };
+    if (!isAdvancedSearchReady(resolved)) return { ok: false as const, error: i18n.t("integration:search.incomplete") };
     try {
       const results = await executeSearch(resolved, "test", 3, 15_000);
       return { ok: true as const, count: results.length };
@@ -612,8 +633,8 @@ function registerIpc(): void {
     if (!mainWindow) return null;
     const result = await dialog.showOpenDialog(mainWindow, {
       properties: ["openFile"],
-      title: "选择字体文件",
-      filters: [{ name: "字体", extensions: ["ttf", "otf", "woff", "woff2"] }],
+      title: i18n.t("integration:files.font"),
+      filters: [{ name: i18n.t("integration:files.fonts"), extensions: ["ttf", "otf", "woff", "woff2"] }],
     });
     const src = result.canceled ? null : (result.filePaths[0] ?? null);
     if (!src) return null;
@@ -638,8 +659,8 @@ function registerIpc(): void {
     if (!mainWindow) return null;
     const result = await dialog.showOpenDialog(mainWindow, {
       properties: ["openFile"],
-      title: "导入主题 JSON",
-      filters: [{ name: "主题", extensions: ["json"] }],
+      title: i18n.t("integration:files.theme"),
+      filters: [{ name: i18n.t("integration:files.themes"), extensions: ["json"] }],
     });
     const src = result.canceled ? null : (result.filePaths[0] ?? null);
     if (!src) return null;
@@ -678,6 +699,7 @@ if (!app.requestSingleInstanceLock()) {
     // 宿主每次 ready（含崩溃重启后）都重推一次运行时设置
     bridge.onEvent((event) => {
       if (event.type === "ready") {
+        bridge.push({ type: "locale.set", payload: { locale: settings.get().locale } });
         bridge.push({ type: "memory.setDistillEnabled", payload: { enabled: settings.get().memoryDistill } });
         bridge.push({ type: "search.setAdvancedConfig", payload: { config: settings.get().advancedSearch } });
         bridge.push({ type: "sandbox.setConfig", payload: { config: settings.get().sandbox } });
@@ -689,13 +711,13 @@ if (!app.requestSingleInstanceLock()) {
     try {
       await bridge.start();
     } catch (err) {
-      console.error("[main] agent-host 启动失败", err);
+      console.error("[main] agent-host startup failed", err);
     }
     scheduler.start();
     try {
       await remote.applySettings();
     } catch (err) {
-      console.error("[main] 远程服务启动失败", err);
+      console.error("[main] remote service startup failed", err);
     }
     createWindow();
     setupAutoUpdater({

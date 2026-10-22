@@ -26,6 +26,7 @@ import {
   createWriteToolDefinition,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import type { LocalizedText } from "@spcode/shared/i18n";
 import { isPathInside } from "./config-builder.js";
 
 export interface FsGuardPolicy {
@@ -39,7 +40,10 @@ export interface FsGuardPolicy {
   extraAllowWrite: string[];
 }
 
-export type FsVerdict = { action: "allow" } | { action: "deny"; reason: string } | { action: "prompt"; reason: string };
+/** reason is the canonical model text; reasonMessage is rendered only by UI consumers. */
+export type FsVerdict =
+  | { action: "allow" }
+  | { action: "deny" | "prompt"; reason: string; reasonMessage: LocalizedText };
 
 /** 凭据/密钥硬拒清单（读写皆拒；与 config-builder 的 defaultDenyRead 同语义来源） */
 function hardDenyPaths(policy: FsGuardPolicy): string[] {
@@ -104,7 +108,11 @@ export function judgeFsPath(policy: FsGuardPolicy, op: "read" | "write", rawPath
   for (const d of hardDenyPaths(policy)) {
     const realD = realpathOf(d);
     if (p === realD || isPathInside(p, realD)) {
-      return { action: "deny", reason: `路径 ${d} 属于凭据/密钥保护区，一律禁止访问（设置页无法放开）` };
+      return {
+        action: "deny",
+        reason: `Path ${d} is protected as credentials/keys. Access is always denied and cannot be enabled in Settings.`,
+        reasonMessage: { key: "main:sandbox.path.credential", params: { path: d } },
+      };
     }
   }
 
@@ -115,7 +123,8 @@ export function judgeFsPath(policy: FsGuardPolicy, op: "read" | "write", rawPath
   if (p === spcodeHome || isPathInside(p, spcodeHome)) {
     return {
       action: "prompt",
-      reason: `目标在应用数据目录（~/.spcode）内：含记忆/设置/会话注册表/配对密钥，${op === "write" ? "写入" : "读取"}需要用户明确批准`,
+      reason: `The target is in the application data directory (~/.spcode), which contains memory, settings, the session registry, and pairing keys. ${op === "write" ? "Writing" : "Reading"} requires explicit user approval.`,
+      reasonMessage: { key: op === "write" ? "main:sandbox.path.appDataWrite" : "main:sandbox.path.appDataRead" },
     };
   }
 
@@ -125,7 +134,12 @@ export function judgeFsPath(policy: FsGuardPolicy, op: "read" | "write", rawPath
       const realW = realpathOf(resolve(w));
       if (p === realW || isPathInside(p, realW)) return { action: "allow" };
     }
-    return { action: "prompt", reason: "目标在工作目录之外（写入工作区外需要用户明确批准）" };
+    return {
+      action: "prompt",
+      reason:
+        "The target is outside the working directory. Writing outside the workspace requires explicit user approval.",
+      reasonMessage: { key: "main:sandbox.path.outsideWorkspace" },
+    };
   }
 
   // 5) cwd 外的普通读取：放行（凭据区已在第 1 步拦掉）
@@ -157,10 +171,18 @@ export function judgeFsToolCall(toolName: string, args: unknown, policy: FsGuard
 }
 
 /** 工具结果形态的拒绝文本（包装层用，与 pi 工具错误返回同构） */
-function denyResult(reason: string): { content: { type: "text"; text: string }[]; isError: true } {
+function denyResult(
+  reason: string,
+  reasonMessage: LocalizedText,
+): {
+  content: { type: "text"; text: string }[];
+  isError: true;
+  details: { reasonMessage: LocalizedText };
+} {
   return {
     content: [{ type: "text", text: `Blocked by Spcode path policy: ${reason}` }],
     isError: true,
+    details: { reasonMessage },
   };
 }
 
@@ -170,7 +192,8 @@ function wrapFsTool(def: ToolDefinition, getPolicy: () => FsGuardPolicy): ToolDe
     ...def,
     execute: (toolCallId: string, params: never, signal: AbortSignal | undefined, onUpdate: never, ctx: never) => {
       const verdict = judgeFsToolCall(def.name, params, getPolicy());
-      if (verdict?.action === "deny") return Promise.resolve(denyResult(verdict.reason) as never);
+      if (verdict?.action === "deny")
+        return Promise.resolve(denyResult(verdict.reason, verdict.reasonMessage) as never);
       return def.execute(toolCallId, params, signal, onUpdate, ctx);
     },
   } as ToolDefinition;

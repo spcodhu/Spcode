@@ -2,6 +2,7 @@
 
 import type { ImageAttachment } from "@spcode/shared";
 import { useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Icon } from "./Icon";
 
 export function ImageLightbox({
@@ -15,6 +16,7 @@ export function ImageLightbox({
   onClose: () => void;
   onNavigate: (index: number) => void;
 }) {
+  const { t } = useTranslation("chat");
   const current = images[index];
   const total = images.length;
 
@@ -33,12 +35,19 @@ export function ImageLightbox({
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 backdrop-blur-sm">
       {/* 点击背板关闭：用真 button 承载（a11y），视觉上是全屏透明层，内容元素在其后声明、自然盖在上层 */}
-      <button type="button" aria-label="关闭预览" className="absolute inset-0 cursor-default" onClick={onClose} />
+      <button
+        type="button"
+        aria-label={t("image.close")}
+        className="absolute inset-0 cursor-default"
+        onClick={onClose}
+      />
       {/* 关闭 */}
       <button
         type="button"
         onClick={onClose}
-        title="关闭预览"
+        title={t("image.close")}
+        aria-label={t("image.close")}
+        data-testid="image-preview-close"
         className="absolute right-4 top-4 rounded-lg p-2 text-white/70 transition-colors hover:bg-white/10 hover:text-white"
       >
         <Icon name="x" size={18} />
@@ -49,7 +58,8 @@ export function ImageLightbox({
         <button
           type="button"
           onClick={() => onNavigate(index - 1)}
-          title="上一张"
+          title={t("image.previous")}
+          aria-label={t("image.previous")}
           className="absolute left-4 top-1/2 -translate-y-1/2 rounded-full p-2.5 text-white/70 transition-colors hover:bg-white/10 hover:text-white"
         >
           <Icon name="chevronRight" size={20} style={{ transform: "rotate(180deg)" }} />
@@ -59,7 +69,8 @@ export function ImageLightbox({
         <button
           type="button"
           onClick={() => onNavigate(index + 1)}
-          title="下一张"
+          title={t("image.next")}
+          aria-label={t("image.next")}
           className="absolute right-4 top-1/2 -translate-y-1/2 rounded-full p-2.5 text-white/70 transition-colors hover:bg-white/10 hover:text-white"
         >
           <Icon name="chevronRight" size={20} />
@@ -74,8 +85,7 @@ export function ImageLightbox({
 
       {/* 底部文件名 + 序号 */}
       <div className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/50 px-3.5 py-1.5 text-[12px] text-white/80">
-        {current.name}
-        {total > 1 ? `（${index + 1}/${total}）` : ""}
+        {total > 1 ? t("image.caption", { name: current.name, index: index + 1, total }) : current.name}
       </div>
     </div>
   );

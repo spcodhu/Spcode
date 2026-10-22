@@ -1,4 +1,6 @@
+import { renderMessage } from "@spcode/shared/i18n";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ChatView } from "./components/ChatView";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ForkDialog } from "./components/ForkDialog";
@@ -13,6 +15,7 @@ import { teardownHostEvents, useStore } from "./store";
 import { applyAppearance } from "./theme";
 
 export default function App() {
+  const { t } = useTranslation("chat");
   const ready = useStore((s) => s.ready);
   const lastError = useStore((s) => s.lastError);
   const notice = useStore((s) => s.notice);
@@ -69,11 +72,11 @@ export default function App() {
   }, [notice]);
 
   if (!ready) {
-    return <div className="flex h-full items-center justify-center text-text-secondary">Spcod 启动中…</div>;
+    return <div className="flex h-full items-center justify-center text-text-secondary">{t("app.starting")}</div>;
   }
 
   return (
-    <ErrorBoundary label="应用">
+    <ErrorBoundary label={t("app.application")}>
       <div className="flex h-full">
         <Sidebar
           onOpenSettings={() => setSettingsOpen(true)}
@@ -85,7 +88,7 @@ export default function App() {
           <div className="min-h-0 flex-1">
             {activeSessionId ? (
               // 会话区单独兜一层：消息渲染炸掉时侧栏/顶栏仍可用（评审 P2-6）
-              <ErrorBoundary label="会话区" key={activeSessionId}>
+              <ErrorBoundary label={t("app.chatArea")} key={activeSessionId}>
                 <ChatView sessionId={activeSessionId} />
               </ErrorBoundary>
             ) : (
@@ -109,12 +112,13 @@ export default function App() {
               }}
               className="flex-1 text-left"
             >
-              {notice.text}
+              {notice.presentation ? renderMessage(notice.presentation) : notice.text}
             </button>
             <button
               type="button"
               onClick={() => useStore.setState({ notice: null })}
-              title="关闭"
+              title={t("common.close")}
+              aria-label={t("common.close")}
               className="shrink-0 text-text-tertiary hover:text-text-primary"
             >
               ✕
@@ -128,7 +132,8 @@ export default function App() {
               type="button"
               onClick={() => useStore.setState({ lastError: null })}
               className="shrink-0 text-text-tertiary hover:text-text-primary"
-              title="关闭"
+              title={t("common.close")}
+              aria-label={t("common.close")}
             >
               ✕
             </button>
@@ -140,6 +145,7 @@ export default function App() {
 }
 
 function EmptyHome() {
+  const { t } = useTranslation("chat");
   const createSession = useStore((s) => s.createSession);
   return (
     <div className="flex h-full flex-col items-center justify-center gap-6">
@@ -148,7 +154,7 @@ function EmptyHome() {
         <h1 data-testid="brand" className="text-xl font-semibold text-text-primary">
           Spcod
         </h1>
-        <p className="mt-1 text-sm text-text-secondary">以 Pi 为引擎的 Agentic Code 工作台</p>
+        <p className="mt-1 text-sm text-text-secondary">{t("home.tagline")}</p>
       </div>
       <div className="flex gap-3">
         <button
@@ -156,8 +162,8 @@ function EmptyHome() {
           onClick={() => void createSession("chat")}
           className="rounded-lg border border-border bg-bg-elevated px-5 py-3 text-sm hover:bg-bg-hover"
         >
-          💬 新建聊天
-          <div className="mt-1 text-xs text-text-tertiary">仅对话，不绑定文件夹</div>
+          {t("home.newChat")}
+          <div className="mt-1 text-xs text-text-tertiary">{t("home.chatHint")}</div>
         </button>
         <button
           type="button"
@@ -169,8 +175,8 @@ function EmptyHome() {
           }}
           className="rounded-lg border border-accent/40 bg-accent-soft px-5 py-3 text-sm text-accent hover:bg-accent/20"
         >
-          📁 新建项目
-          <div className="mt-1 text-xs text-text-tertiary">选择文件夹开始工作</div>
+          {t("home.newProject")}
+          <div className="mt-1 text-xs text-text-tertiary">{t("home.projectHint")}</div>
         </button>
       </div>
     </div>

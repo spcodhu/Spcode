@@ -18,7 +18,8 @@
  */
 import { createCodePlugin } from "@streamdown/code";
 import { useEffect, useMemo, useState } from "react";
-import { type PluginConfig, Streamdown } from "streamdown";
+import { useTranslation } from "react-i18next";
+import { type PluginConfig, Streamdown, type StreamdownTranslations } from "streamdown";
 import { hasMathSyntax, hasMermaidSyntax } from "../md-detect";
 
 const SHIKI_THEME: "github-dark" = "github-dark";
@@ -52,6 +53,45 @@ function loadMermaidPlugin(): Promise<PluginConfig["mermaid"] | null> {
 }
 
 export function Markdown({ text }: { text: string }) {
+  const { t } = useTranslation("chat");
+  const translations = useMemo(
+    () =>
+      ({
+        close: t("markdown.close"),
+        copied: t("markdown.copied"),
+        copyCode: t("markdown.copyCode"),
+        copyLink: t("markdown.copyLink"),
+        copyTable: t("markdown.copyTable"),
+        copyTableAsCsv: t("markdown.copyTableAsCsv"),
+        copyTableAsMarkdown: t("markdown.copyTableAsMarkdown"),
+        copyTableAsTsv: t("markdown.copyTableAsTsv"),
+        downloadDiagram: t("markdown.downloadDiagram"),
+        downloadDiagramAsMmd: t("markdown.downloadDiagramAsMmd"),
+        downloadDiagramAsPng: t("markdown.downloadDiagramAsPng"),
+        downloadDiagramAsSvg: t("markdown.downloadDiagramAsSvg"),
+        downloadFile: t("markdown.downloadFile"),
+        downloadImage: t("markdown.downloadImage"),
+        downloadTable: t("markdown.downloadTable"),
+        downloadTableAsCsv: t("markdown.downloadTableAsCsv"),
+        downloadTableAsMarkdown: t("markdown.downloadTableAsMarkdown"),
+        exitFullscreen: t("markdown.exitFullscreen"),
+        externalLinkWarning: t("markdown.externalLinkWarning"),
+        imageNotAvailable: t("markdown.imageNotAvailable"),
+        mermaidFormatMmd: t("markdown.mermaidFormatMmd"),
+        mermaidFormatPng: t("markdown.mermaidFormatPng"),
+        mermaidFormatSvg: t("markdown.mermaidFormatSvg"),
+        openExternalLink: t("markdown.openExternalLink"),
+        openLink: t("markdown.openLink"),
+        resetView: t("markdown.resetView"),
+        tableFormatCsv: t("markdown.tableFormatCsv"),
+        tableFormatMarkdown: t("markdown.tableFormatMarkdown"),
+        tableFormatTsv: t("markdown.tableFormatTsv"),
+        viewFullscreen: t("markdown.viewFullscreen"),
+        zoomIn: t("markdown.zoomIn"),
+        zoomOut: t("markdown.zoomOut"),
+      }) satisfies StreamdownTranslations,
+    [t],
+  );
   const [mathPlugin, setMathPlugin] = useState<PluginConfig["math"] | undefined>(undefined);
   const [mermaidPlugin, setMermaidPlugin] = useState<PluginConfig["mermaid"] | undefined>(undefined);
   const needMath = hasMathSyntax(text);
@@ -93,6 +133,7 @@ export function Markdown({ text }: { text: string }) {
   return (
     <div className="md-body mb-2 text-sm leading-6">
       <Streamdown
+        translations={translations}
         controls={{
           table: false,
           mermaid: { download: false, copy: false, fullscreen: false, panZoom: false },

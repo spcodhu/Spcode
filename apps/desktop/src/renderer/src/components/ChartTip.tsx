@@ -15,6 +15,7 @@
  *   不在每次 mousemove 都 setState（否则拖动鼠标会重渲染整张图）。
  */
 import { type ReactNode, useCallback, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 /** 提示卡片锚点（相对图表容器左上角的像素坐标） */
 interface Tip {
@@ -45,6 +46,7 @@ export interface ChartTipApi {
 }
 
 export function useChartTip(): ChartTipApi {
+  const { t } = useTranslation("settings");
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [hover, setHover] = useState<Tip | null>(null);
   const [pinned, setPinned] = useState<Tip | null>(null);
@@ -103,7 +105,7 @@ export function useChartTip(): ChartTipApi {
         data-pinned={hover ? "false" : "true"}
       >
         {content}
-        <div className="mt-1 text-[10px] text-text-tertiary">{hover ? "点击锁定" : "已锁定 · 再点取消"}</div>
+        <div className="mt-1 text-[10px] text-text-tertiary">{hover ? t("chart.pin") : t("chart.unpin")}</div>
       </div>
     );
   };

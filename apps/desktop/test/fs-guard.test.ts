@@ -6,7 +6,9 @@
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { renderMessage, setLocale } from "@spcode/shared/i18n";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+
 import {
   createGuardedFsTools,
   type FsGuardPolicy,
@@ -14,6 +16,8 @@ import {
   judgeFsToolCall,
   resolveFsPath,
 } from "../src/agent-host/sandbox/fs-guard.js";
+
+afterEach(() => setLocale("zh-CN"));
 
 let root = "";
 let cwd = "";
@@ -42,6 +46,23 @@ describe("resolveFsPath", () => {
 });
 
 describe("judgeFsPath 判定矩阵", () => {
+  it("keeps canonical guard text while UI reasons follow the locale", () => {
+    setLocale("zh-CN");
+    const denied = judgeFsPath(policy, "read", "~/.ssh/id_ed25519");
+    expect(denied.action).toBe("deny");
+    if (denied.action === "allow") throw new Error("Expected a denial");
+    expect(denied.reason).toContain("Access is always denied");
+    expect(renderMessage(denied.reasonMessage)).toContain("一律禁止访问");
+    setLocale("en");
+    expect(judgeFsPath(policy, "read", "~/.ssh/id_ed25519")).toEqual(denied);
+    expect(renderMessage(denied.reasonMessage)).toBe(denied.reason);
+    for (const op of ["read", "write"] as const) {
+      const prompt = judgeFsPath(policy, op, join(spcodeHome, "MEMORY.md"));
+      expect(prompt.action).toBe("prompt");
+      if (prompt.action !== "allow") expect(renderMessage(prompt.reasonMessage)).toBe(prompt.reason);
+    }
+  });
+
   it("cwd 内读写都放行", () => {
     expect(judgeFsPath(policy, "read", "src/a.ts").action).toBe("allow");
     expect(judgeFsPath(policy, "write", "src/a.ts").action).toBe("allow");

@@ -1,5 +1,6 @@
 import type { SessionSearchResultItem } from "@spcode/shared";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { formatRelative } from "../format";
 import { type RegistrySession, useStore } from "../store";
 import { Icon } from "./Icon";
@@ -15,6 +16,7 @@ interface Row {
  * 标题 + pi 会话正文全文检索；Enter/点击跳转恢复会话，Esc 关闭。
  */
 export function SearchPalette({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation("chat");
   const registrySessions = useStore((s) => s.registrySessions);
   const sessions = useStore((s) => s.sessions);
   const setActive = useStore((s) => s.setActive);
@@ -106,15 +108,17 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder="搜索会话标题与正文…"
+            data-testid="session-search-input"
+            aria-label={t("search.placeholder")}
+            placeholder={t("search.placeholder")}
             className="h-12 min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-text-tertiary"
           />
-          {searching && <span className="shrink-0 text-[11px] text-text-tertiary">搜索中…</span>}
+          {searching && <span className="shrink-0 text-[11px] text-text-tertiary">{t("search.searching")}</span>}
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
           {query.trim() && !searching && rows.length === 0 && (
-            <div className="px-3 py-8 text-center text-[13px] text-text-tertiary">没有匹配的会话</div>
+            <div className="px-3 py-8 text-center text-[13px] text-text-tertiary">{t("search.empty")}</div>
           )}
           {rows.map((row, i) => (
             <button
@@ -148,9 +152,7 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
           ))}
         </div>
 
-        <div className="border-t border-border px-4 py-2 text-[11px] text-text-tertiary">
-          ↑↓ 选择 · Enter 打开 · Esc 关闭
-        </div>
+        <div className="border-t border-border px-4 py-2 text-[11px] text-text-tertiary">{t("search.keys")}</div>
       </div>
     </div>
   );

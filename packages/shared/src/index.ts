@@ -73,6 +73,7 @@ export interface SessionMeta {
   /** 项目模式下的工作目录；聊天模式为临时目录 */
   cwd: string;
   title: string;
+  titleKind?: "default" | "custom";
   model: ModelRef | null;
   thinkingLevel: string;
   createdAt: number;
@@ -156,23 +157,16 @@ export interface PermissionRequest {
 // 结构化提问（AskUserQuestion 工具走这条通道）
 // ---------------------------------------------------------------------------
 
-export interface QuestionOption {
-  label: string;
-  description?: string;
-}
+import type { QuestionAnswers, QuestionRequest } from "./questions.js";
 
-export interface QuestionItem {
-  question: string;
-  header?: string;
-  multiSelect?: boolean;
-  options?: QuestionOption[];
-}
-
-export interface QuestionRequest {
-  requestId: string;
-  sessionId: string;
-  questions: QuestionItem[];
-}
+export type { QuestionAnswer, QuestionAnswers, QuestionItem, QuestionOption, QuestionRequest } from "./questions.js";
+export {
+  buildQuestionAnswers,
+  dismissQuestionAnswers,
+  formatQuestionAnswer,
+  formatQuestionAnswers,
+  validateQuestionAnswers,
+} from "./questions.js";
 
 // ---------------------------------------------------------------------------
 // 待办（TodoWrite 工具状态）
@@ -189,6 +183,7 @@ export interface TodoItem {
 // ---------------------------------------------------------------------------
 
 export type HostCommand =
+  | { type: "locale.set"; payload: { locale: import("./i18n/types.js").Locale } }
   | {
       id: string;
       type: "session.create";
@@ -291,11 +286,12 @@ export type HostCommand =
   | { id: string; type: "auth.setApiKey"; payload: { provider: string; apiKey: string } }
   | { id: string; type: "auth.listProviders" }
   | { type: "permission.reply"; payload: { requestId: string; approved: boolean } }
-  | { type: "question.reply"; payload: { requestId: string; answers: Record<string, string> } }
+  | { type: "question.reply"; payload: { requestId: string; answers: QuestionAnswers } }
   | { type: "shutdown" };
 
 export type HostEvent =
   | { type: "ready" }
+  | { type: "locale.changed"; locale: import("./i18n/types.js").Locale }
   | { type: "response"; id: string; success: boolean; data?: unknown; error?: string }
   | { type: "session.event"; sessionId: string; event: unknown }
   | {
@@ -438,16 +434,34 @@ export function describeSchedule(task: ScheduleTask): string {
   switch (task.frequency) {
     case "once":
       return task.runAt
-        ? `单次 · ${new Date(task.runAt).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}`
-        : "单次";
+        ? i18n.t("common:schedule.onceAt", {
+            time: new Intl.DateTimeFormat(getLocale(), {
+              month: "numeric",
+              day: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            }).format(new Date(task.runAt)),
+          })
+        : i18n.t("common:schedule.once");
     case "hourly":
-      return `每小时 · 第 ${task.minute} 分`;
+      return i18n.t("common:schedule.hourly", { minute: task.minute });
     case "daily":
-      return `每天 ${hm}`;
+      return i18n.t("common:schedule.daily", { time: hm });
     case "weekday":
-      return `工作日 ${hm}`;
-    case "weekly":
-      return `每周${"日一二三四五六"[task.weekday ?? 1]} ${hm}`;
+      return i18n.t("common:schedule.weekday", { time: hm });
+    case "weekly": {
+      const weekday = task.weekday ?? 1;
+      const weekdayNames = [
+        "common:schedule.weekdays.0",
+        "common:schedule.weekdays.1",
+        "common:schedule.weekdays.2",
+        "common:schedule.weekdays.3",
+        "common:schedule.weekdays.4",
+        "common:schedule.weekdays.5",
+        "common:schedule.weekdays.6",
+      ] as const;
+      return i18n.t("common:schedule.weekly", { weekday: i18n.t(weekdayNames[weekday] ?? weekdayNames[1]), time: hm });
+    }
   }
 }
 
@@ -606,7 +620,12 @@ export interface AdvancedSearchMapping {
 
 import type { RemoteSettings } from "./remote.js";
 
+export type { Locale } from "./i18n/types.js";
+
+import { getLocale, i18n } from "./i18n/index.js";
+
 export interface AppSettings {
+  locale: import("./i18n/types.js").Locale;
   /** 默认模型 */
   defaultModel: ModelRef | null;
   defaultThinkingLevel: string;
@@ -792,6 +811,7 @@ export function sanitizeCompactionSettings(input: unknown): CompactionSettings {
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
+  locale: "zh-CN",
   defaultModel: null,
   defaultThinkingLevel: "medium",
   permissionMode: "ask",

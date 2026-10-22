@@ -1,5 +1,6 @@
 /** 图表与日期公用工具（用量页环形图 / 趋势柱状图 / 热点图共用） */
 import type { UsageAggregate } from "@spcode/shared";
+import { getLocale } from "@spcode/shared/i18n";
 
 /**
  * 模型色板（样式表 :root 里定义，随主题无关）。
@@ -108,8 +109,9 @@ export function tokensOf(agg: UsageAggregate): number {
 export function formatShare(part: number, total: number): string {
   if (!(total > 0)) return "—";
   const pct = (part / total) * 100;
-  if (pct > 0 && pct < 1) return "<1%";
-  return `${Math.round(pct)}%`;
+  const percent = new Intl.NumberFormat(getLocale(), { style: "percent", maximumFractionDigits: 0 });
+  if (pct > 0 && pct < 1) return `<${percent.format(0.01)}`;
+  return percent.format(Math.round(pct) / 100);
 }
 
 /** 本地时区 YYYY-MM-DD（与主进程 UsageLedger.dateOf 同一口径） */
@@ -178,7 +180,7 @@ export const HEAT_WEEKS = 52;
  * GitHub 风格热点网格：列为主序（每月列先放月份标签，再放 7 个周内日格子）。
  * 等级 0..4 按窗口内非零日总量的分位数划分（对离群值比按最大值切桶更稳）。
  */
-export function buildHeatGrid(totals: Map<string, number>, weeks = HEAT_WEEKS): HeatSlot[] {
+export function buildHeatGrid(totals: Map<string, number>, weeks = HEAT_WEEKS, locale = getLocale()): HeatSlot[] {
   const today = new Date();
   const dow = (today.getDay() + 6) % 7; // 周一 = 0
   const gridStart = addDays(addDays(today, -dow), -(weeks - 1) * 7);
@@ -211,7 +213,11 @@ export function buildHeatGrid(totals: Map<string, number>, weeks = HEAT_WEEKS): 
     // 月份标签按整周判定（取周日）：月初 1 号在周中时标签打在「含 1 号的那一周」，与 GitHub 一致
     const weekEnd = addDays(monday, 6);
     const m = weekEnd.getMonth();
-    slots.push({ kind: "month", id: `m${c}`, label: m !== prevMonth ? `${m + 1}月` : null });
+    slots.push({
+      kind: "month",
+      id: `m${c}`,
+      label: m !== prevMonth ? new Intl.DateTimeFormat(locale, { month: "short" }).format(weekEnd) : null,
+    });
     prevMonth = m;
     for (let r = 0; r < 7; r++) {
       const date = addDays(monday, r);

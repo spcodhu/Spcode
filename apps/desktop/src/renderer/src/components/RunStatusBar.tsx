@@ -7,6 +7,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { deriveRunStatus, formatElapsed, type RunStatus } from "../run-status";
 import { useStore } from "../store";
 
@@ -21,6 +22,7 @@ const DOT_CLASS: Record<RunStatus["kind"], string> = {
 };
 
 export function RunStatusBar({ sessionId, onJumpToBottom }: { sessionId: string; onJumpToBottom: () => void }) {
+  const { t } = useTranslation("chat");
   const session = useStore((s) => s.sessions[sessionId]);
   const pendingPermissions = useStore((s) => s.pendingPermissions);
   const pendingQuestions = useStore((s) => s.pendingQuestions);
@@ -46,7 +48,7 @@ export function RunStatusBar({ sessionId, onJumpToBottom }: { sessionId: string;
           type="button"
           data-testid="run-status-bar"
           onClick={onJumpToBottom}
-          title="点击跳到最新消息"
+          title={t("run.jumpLatest")}
           className="flex h-7 w-full items-center gap-2 rounded-lg px-2 text-left transition-colors hover:bg-bg-hover/50"
         >
           <span

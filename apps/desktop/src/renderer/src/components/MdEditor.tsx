@@ -9,7 +9,9 @@
  */
 
 import type { ImageAttachment } from "@spcode/shared";
+import { i18n } from "@spcode/shared/i18n";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import TurndownService from "turndown";
 import {
   collectImageNames,
@@ -86,6 +88,7 @@ export const MdEditor = forwardRef<
     onSend: () => void;
   }
 >(function MdEditor({ draftKey, text, attachments, placeholder, onSync, onSend }, ref) {
+  const { t } = useTranslation("chat");
   const rootRef = useRef<HTMLDivElement>(null);
   // onSync/附件的最新引用（onInput 等事件回调闭包用，避免每次渲染重绑监听）
   const attachmentsRef = useRef(attachments);
@@ -248,15 +251,15 @@ export const MdEditor = forwardRef<
       case "link": {
         ensureSelectionInside(root);
         const selected = window.getSelection()?.toString() ?? "";
-        insertPlain(selected ? `[${selected}](url)` : "[链接文字](url)");
+        insertPlain(selected ? `[${selected}](url)` : t("editor.linkTemplate"));
         return;
       }
       case "code-block":
         return insertBlock("```\n\n```", 5);
       case "table":
-        return insertBlock("| 列 1 | 列 2 |\n| --- | --- |\n|  |  |");
+        return insertBlock(t("editor.tableTemplate"));
       case "mermaid":
-        return insertBlock("```mermaid\ngraph TD\n  A[开始] --> B[结束]\n```");
+        return insertBlock(t("editor.mermaidTemplate"));
       case "undo":
         document.execCommand("undo");
         return syncFromDom();
@@ -370,6 +373,7 @@ export const MdEditor = forwardRef<
       contentEditable
       role="textbox"
       aria-multiline="true"
+      aria-label={t("editor.label")}
       tabIndex={0}
       data-placeholder={placeholder}
       onInput={syncFromDom}
@@ -387,11 +391,11 @@ export function fileToAttachment(file: File, index = 0): Promise<ImageAttachment
     reader.onload = () => {
       const url = String(reader.result ?? "");
       const comma = url.indexOf(",");
-      if (comma < 0) return reject(new Error("图片读取失败"));
+      if (comma < 0) return reject(new Error(i18n.t("chat:editor.imageReadError")));
       const ext = file.type.split("/")[1]?.toLowerCase() || "png";
       resolve({ name: `pasted-${Date.now()}-${index + 1}.${ext}`, mimeType: file.type, data: url.slice(comma + 1) });
     };
-    reader.onerror = () => reject(reader.error ?? new Error("图片读取失败"));
+    reader.onerror = () => reject(reader.error ?? new Error(i18n.t("chat:editor.imageReadError")));
     reader.readAsDataURL(file);
   });
 }

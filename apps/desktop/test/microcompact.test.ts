@@ -86,6 +86,20 @@ describe("findMicrocompactTargets", () => {
     expect(rest).toHaveLength(1);
   });
 
+  it.each([placeholderText(5000), "[该工具结果已被上下文清理折叠（原约 5.0k 字符）]"])(
+    "skips both new and legacy placeholders: %s",
+    (placeholder) => {
+      const sm = SessionManager.inMemory();
+      sm.appendMessage(userMsg("start"));
+      sm.appendMessage({
+        ...toolResult("already-folded", 0),
+        content: [{ type: "text", text: placeholder + "x".repeat(700) }],
+      });
+      for (let i = 0; i < 3; i++) sm.appendMessage(assistantMsg(`turn ${i}`));
+      expect(findMicrocompactTargets(sm.buildSessionProjection().entries, new Set())).toEqual([]);
+    },
+  );
+
   it("小工具结果（< 600 字符）不值得折叠", () => {
     const sm = SessionManager.inMemory();
     seedSession(sm, /* resultChars */ 300);
@@ -135,7 +149,7 @@ describe("maybeMicrocompact", () => {
         const c = (m as { content?: unknown }).content;
         return Array.isArray(c) && c[0]?.type === "text" ? (c[0] as { text: string }).text : "";
       });
-    expect(toolTexts.filter((t) => t.startsWith("[该工具结果已被上下文清理折叠"))).toHaveLength(2);
+    expect(toolTexts.filter((t) => t === placeholderText(5000))).toHaveLength(2);
     // 最近 3 个回合的结果保持原文
     expect(toolTexts.filter((t) => t === "x".repeat(5000))).toHaveLength(3);
 
@@ -183,6 +197,6 @@ describe("maybeMicrocompact", () => {
   it("占位符文案告知原大小与重获路径", () => {
     const text = placeholderText(5000);
     expect(text).toContain("5.0k");
-    expect(text).toContain("重新执行");
+    expect(text).toContain("repeat the corresponding operation");
   });
 });

@@ -10,9 +10,11 @@
 
 import type { TodoItem } from "@spcode/shared";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Icon } from "./Icon";
 
 export function WorkDrawer({ todos, planMode }: { todos: TodoItem[]; planMode: boolean }) {
+  const { t } = useTranslation("chat");
   const done = todos.filter((t) => t.status === "completed").length;
   const current = todos.find((t) => t.status === "in_progress");
   const hasTodos = todos.length > 0;
@@ -40,7 +42,7 @@ export function WorkDrawer({ todos, planMode }: { todos: TodoItem[]; planMode: b
             {planMode && (
               <div className="mb-2 flex items-start gap-2 rounded-xl border border-accent/25 bg-accent/10 px-3 py-2 text-[12px] leading-5 text-accent">
                 <Icon name="info" size={13} className="mt-[3px] shrink-0" />
-                <span>计划模式：模型先调研并给出完整计划，不会修改文件；你批准后才开始执行。</span>
+                <span>{t("work.planHint")}</span>
               </div>
             )}
             {hasTodos && (
@@ -59,6 +61,8 @@ export function WorkDrawer({ todos, planMode }: { todos: TodoItem[]; planMode: b
       <button
         type="button"
         onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        data-testid="work-drawer-toggle"
         className="group relative flex w-full items-center gap-2.5 px-3.5 pb-2.5 pt-3 text-left"
       >
         {/* 抓手 */}
@@ -76,7 +80,7 @@ export function WorkDrawer({ todos, planMode }: { todos: TodoItem[]; planMode: b
 
         {hasTodos ? (
           <>
-            <span className="shrink-0 text-[12.5px] font-medium text-text-primary">任务清单</span>
+            <span className="shrink-0 text-[12.5px] font-medium text-text-primary">{t("work.tasks")}</span>
             <span className="shrink-0 text-[11.5px] text-text-tertiary">
               {done}/{todos.length}
             </span>
@@ -92,7 +96,7 @@ export function WorkDrawer({ todos, planMode }: { todos: TodoItem[]; planMode: b
             </span>
           </>
         ) : (
-          <span className="shrink-0 text-[12.5px] font-medium text-text-primary">计划模式</span>
+          <span className="shrink-0 text-[12.5px] font-medium text-text-primary">{t("common.planMode")}</span>
         )}
 
         <span className="flex-1" />
@@ -100,7 +104,7 @@ export function WorkDrawer({ todos, planMode }: { todos: TodoItem[]; planMode: b
         {planMode && hasTodos && (
           <span className="flex shrink-0 items-center gap-1 rounded-full bg-accent/15 px-2 py-0.5 text-[10.5px] text-accent">
             <Icon name="clipboard" size={10} strokeWidth={2.2} />
-            计划模式
+            {t("common.planMode")}
           </span>
         )}
         {hasTodos ? (
@@ -110,10 +114,10 @@ export function WorkDrawer({ todos, planMode }: { todos: TodoItem[]; planMode: b
               <span className="truncate">{current.activeForm ?? current.content}</span>
             </span>
           ) : allDone ? (
-            <span className="shrink-0 text-[11.5px] text-success">全部完成</span>
+            <span className="shrink-0 text-[11.5px] text-success">{t("work.allDone")}</span>
           ) : null
         ) : (
-          <span className="min-w-0 truncate text-[11.5px] text-text-tertiary">模型先出计划，批准后执行</span>
+          <span className="min-w-0 truncate text-[11.5px] text-text-tertiary">{t("work.planSummary")}</span>
         )}
 
         {/* 抽屉拉手方向：收起时箭头朝上（向上拉开），展开后朝下（收回） */}
@@ -128,11 +132,13 @@ export function WorkDrawer({ todos, planMode }: { todos: TodoItem[]; planMode: b
 }
 
 function TaskRow({ todo }: { todo: TodoItem }) {
+  const { t } = useTranslation("chat");
   const isDone = todo.status === "completed";
   const isCurrent = todo.status === "in_progress";
   return (
     <div className="flex items-start gap-2.5 py-[3px]">
       <span
+        title={t(isDone ? "work.completed" : isCurrent ? "work.inProgress" : "work.pending")}
         className={`mt-[2px] flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
           isDone
             ? "border-transparent bg-success/15 text-success"

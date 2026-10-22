@@ -26,11 +26,13 @@ import type {
   ModelInfo,
   ModelRef,
   PermissionRequest,
+  QuestionAnswers,
   QuestionRequest,
   SandboxSettings,
   SandboxStatusReport,
 } from "@spcode/shared";
 import { DEFAULT_COMPACTION_SETTINGS, DEFAULT_SANDBOX_SETTINGS } from "@spcode/shared";
+import { getLocale, i18n, setLocale } from "@spcode/shared/i18n";
 import { resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
 import { exportSessionContext } from "./export-context.js";
 import { HibernationManager } from "./hibernation.js";
@@ -101,7 +103,7 @@ const pendingQuestions = new Map<
   string,
   {
     sessionId: string;
-    resolve: (answers: Record<string, string>) => void;
+    resolve: (answers: QuestionAnswers) => void;
     timer: ReturnType<typeof setTimeout>;
   }
 >();
@@ -199,7 +201,7 @@ function requestPermission(request: PermissionRequest): Promise<boolean> {
   });
 }
 
-function askQuestion(request: QuestionRequest): Promise<Record<string, string>> {
+function askQuestion(request: QuestionRequest): Promise<QuestionAnswers> {
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       // 空答案 = 用户未作答（工具侧渲染为 dismissed），比永久挂死更可恢复；
@@ -244,7 +246,9 @@ getSandboxService().setNetworkAskHandler((host, port) =>
     sessionId: "",
     toolName: "network",
     args: {
-      command: `网络访问 ${host}${typeof port === "number" ? `:${port}` : ""}\n（本次运行内有效；永久放行请到 设置 → 沙盒 → 网络白名单 添加）`,
+      command: i18n.t("integration:sandbox.networkApproval", {
+        address: `${host}${typeof port === "number" ? `:${port}` : ""}`,
+      }),
       host,
       port,
     },
@@ -360,6 +364,10 @@ async function createController(params: {
 // ---------------------------------------------------------------------------
 
 async function handleCommand(cmd: HostCommand): Promise<void> {
+  if (cmd.type === "locale.set") {
+    setLocale(cmd.payload.locale);
+    return;
+  }
   // 无 id 的命令（permission.reply / shutdown）直接处理
   if (cmd.type === "permission.reply") {
     const p = pendingPermissions.get(cmd.payload.requestId);
@@ -404,7 +412,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
     // 新服务器连接是异步的，失败的服务器静默跳过（记日志）；对已创建会话不生效
     void getMcpManager()
       .syncServers(cmd.payload.servers)
-      .catch((err) => console.warn("[mcp] 同步失败", err));
+      .catch((err) => console.warn("[mcp] sync failed", err));
     return;
   }
   if (cmd.type === "compaction.setConfig") {
@@ -534,10 +542,10 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         const { sourceSessionId, newSessionId } = cmd.payload;
         // 源会话正在运行：拒绝（复制到半截流式状态语义混乱；渲染层菜单已禁用，这里兜底）
         const srcCtl = sessions.get(sourceSessionId);
-        if (srcCtl?.isRunning()) throw new Error("会话正在运行，请先停止再分叉");
+        if (srcCtl?.isRunning()) throw new Error(i18n.t("integration:session.forkRunning"));
         const sourceFile = cmd.payload.sourceSessionFile;
         if (!sourceFile || !existsSync(sourceFile) || statSync(sourceFile).size === 0) {
-          throw new Error("该会话还没有可分叉的内容（会话记录为空）");
+          throw new Error(i18n.t("integration:session.forkEmpty"));
         }
         // 同 newSessionId 重复 fork：先结清并释放旧实例，避免 AgentSession 泄漏（同 create/open）
         hibernation.cancel(newSessionId);
@@ -616,7 +624,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         // 纯文件读导出（不唤醒/不创建 AgentSession）：运行中/休眠会话都可导出，
         // append-only 会话文件读到的是导出时刻快照
         const sessionFile = cmd.payload.sessionFile;
-        if (!sessionFile) throw new Error("该会话还没有可导出的内容（会话记录为空）");
+        if (!sessionFile) throw new Error(i18n.t("integration:export.empty"));
         respond(
           id,
           true,
@@ -636,33 +644,42 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         const want = cmd.payload.model;
         const model =
           (want && available.find((m) => m.provider === want.provider && m.id === want.modelId)) || available[0];
-        if (!model) throw new Error("没有可用模型，请先在设置里配置 API Key");
-        const prompt = [
-          "你是一个桌面应用主题设计师。根据用户的描述生成一个暗色主题 JSON。",
-          "严格只输出 JSON（不要 markdown 代码块），格式：",
-          '{"name":"主题名","base":"dark","colors":{"bgRoot":"#...","bgSidebar":"#...","bgMain":"#...","bgElevated":"#...","bgHover":"#...","bgActive":"#...","border":"#...","textPrimary":"#...","textSecondary":"#...","textTertiary":"#...","accent":"#...","danger":"#...","warning":"#...","success":"#..."}}',
-          "要求：背景层级分明（root 最深、elevated 最浅）、正文对比度 ≥ 7:1、accent 一个主色、低饱和长看不累。",
-          `用户描述：${cmd.payload.description}`,
+        if (!model) throw new Error(i18n.t("integration:theme.noModel"));
+        const systemPrompt = [
+          "You are a desktop application theme designer. Generate a dark theme JSON from the user's description.",
+          "Output only JSON, without Markdown fences, using this exact structure:",
+          '{"name":"Theme name","base":"dark","colors":{"bgRoot":"#...","bgSidebar":"#...","bgMain":"#...","bgElevated":"#...","bgHover":"#...","bgActive":"#...","border":"#...","textPrimary":"#...","textSecondary":"#...","textTertiary":"#...","accent":"#...","danger":"#...","warning":"#...","success":"#..."}}',
+          "Use distinct background layers (root darkest, elevated lightest), body text contrast of at least 7:1, one primary accent color, and low saturation for comfortable reading.",
+          `Write the theme name in ${getLocale() === "zh-CN" ? "Simplified Chinese" : "English"}. Keep all JSON keys and the base value unchanged.`,
         ].join("\n");
         const result = await rt.completeSimple(model, {
-          messages: [{ role: "user", content: prompt, timestamp: Date.now() }],
+          systemPrompt,
+          messages: [{ role: "user", content: cmd.payload.description, timestamp: Date.now() }],
         });
         const text = result.content
           .filter((b): b is { type: "text"; text: string } => b.type === "text")
           .map((b) => b.text)
           .join("");
         const jsonMatch = /\{[\s\S]*\}/.exec(text);
-        if (!jsonMatch) throw new Error("模型未返回有效 JSON");
-        const theme = JSON.parse(jsonMatch[0]) as unknown;
+        if (!jsonMatch) throw new Error(i18n.t("integration:theme.invalidJson"));
+        let theme: unknown;
+        try {
+          theme = JSON.parse(jsonMatch[0]);
+        } catch {
+          throw new Error(i18n.t("integration:theme.invalidJson"));
+        }
         respond(id, true, theme);
         break;
       }
       case "session.prompt": {
         const ctl = await getOrRevive(cmd.payload.sessionId);
-        if (!ctl) throw new Error(`Session not found: ${cmd.payload.sessionId}`);
+        if (!ctl) throw new Error(i18n.t("integration:session.missing", { id: cmd.payload.sessionId }));
         // prompt 是长任务：立即响应"已接受"，结果通过事件流推送
         void ctl.prompt(cmd.payload.text, cmd.payload.images).catch((err) => {
-          emit({ type: "host.error", message: `prompt failed: ${String(err?.message ?? err)}` });
+          emit({
+            type: "host.error",
+            message: i18n.t("integration:host.promptFailed", { error: String(err?.message ?? err) }),
+          });
         });
         respond(id, true, { accepted: true });
         break;
@@ -683,28 +700,28 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         // 手动压缩：唤醒休眠会话（压缩结果随即写回会话文件）；引擎内部会先 abort 当前运行，
         // 过程与结果走 compaction_start/end 事件同步给渲染层
         const ctl = await getOrRevive(cmd.payload.sessionId);
-        if (!ctl) throw new Error(`Session not found: ${cmd.payload.sessionId}`);
+        if (!ctl) throw new Error(i18n.t("integration:session.missing", { id: cmd.payload.sessionId }));
         const result = await ctl.compact();
         respond(id, true, result);
         break;
       }
       case "session.setModel": {
         const ctl = await getOrRevive(cmd.payload.sessionId);
-        if (!ctl) throw new Error(`Session not found: ${cmd.payload.sessionId}`);
+        if (!ctl) throw new Error(i18n.t("integration:session.missing", { id: cmd.payload.sessionId }));
         await ctl.setModel(cmd.payload.model);
         respond(id, true, ctl.info());
         break;
       }
       case "session.setThinkingLevel": {
         const ctl = await getOrRevive(cmd.payload.sessionId);
-        if (!ctl) throw new Error(`Session not found: ${cmd.payload.sessionId}`);
+        if (!ctl) throw new Error(i18n.t("integration:session.missing", { id: cmd.payload.sessionId }));
         ctl.setThinkingLevel(cmd.payload.level);
         respond(id, true, ctl.info());
         break;
       }
       case "session.setPlanMode": {
         const ctl = await getOrRevive(cmd.payload.sessionId);
-        if (!ctl) throw new Error(`Session not found: ${cmd.payload.sessionId}`);
+        if (!ctl) throw new Error(i18n.t("integration:session.missing", { id: cmd.payload.sessionId }));
         await ctl.setPlanMode(cmd.payload.enabled);
         respond(id, true, ctl.info());
         break;
@@ -725,7 +742,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
       }
       default: {
         const neverCmd: never = cmd;
-        respond(id, false, undefined, `Unknown command: ${JSON.stringify(neverCmd)}`);
+        respond(id, false, undefined, i18n.t("integration:host.unknownCommand", { command: JSON.stringify(neverCmd) }));
       }
     }
   } catch (err) {

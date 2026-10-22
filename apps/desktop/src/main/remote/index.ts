@@ -36,6 +36,7 @@ import type {
   RemoteRelayState,
   RemoteStatus,
 } from "@spcode/shared";
+import type { Locale } from "@spcode/shared/i18n";
 import { RemoteEventAggregator } from "./aggregator.js";
 import { type FeishuApi, FeishuChannel } from "./channel/feishu.js";
 import { boxDecrypt, boxEncrypt, isValidPublicKey, SeqCounter, SeqGuard } from "./crypto.js";
@@ -154,6 +155,11 @@ export class RemoteServer {
     await this.syncTailscale();
     // 飞书通道独立同步（M4：feishu.enabled 不要求 remote.enabled，自带事件订阅与长连接）
     await this.syncFeishu();
+  }
+
+  setLocale(locale: Locale): void {
+    this.emitRemote({ type: "locale.changed", locale });
+    void this.feishuChannel?.refreshLocale();
   }
 
   /** 设置页 status 查询前刷新 tailscale 检测（15s 缓存，不频繁 spawn） */
@@ -571,7 +577,11 @@ export class RemoteServer {
   private sendHello(state: PeerState): void {
     this.sendEncrypted(state, {
       kind: "event",
-      event: { type: "remote.hello", vapidPublicKey: this.push.vapidPublicKey() },
+      event: {
+        type: "remote.hello",
+        vapidPublicKey: this.push.vapidPublicKey(),
+        locale: this.deps.settings.get().locale,
+      },
     });
   }
 

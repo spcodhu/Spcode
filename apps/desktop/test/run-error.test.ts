@@ -3,10 +3,40 @@
  * 这些文案会直接出现在错误卡标题与系统通知上，分类错了用户会被指错方向。
  */
 
+import { getLocale, setLocale } from "@spcode/shared/i18n";
 import { classifyRunError, classifyRunErrorKind } from "@spcode/shared/run-error";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+
+afterEach(() => setLocale("zh-CN"));
 
 describe("classifyRunError", () => {
+  it("localizes every category without affecting classification or the process locale", () => {
+    setLocale("zh-CN");
+    for (const raw of [
+      "402 Insufficient Balance",
+      "401 Unauthorized",
+      "429 Too Many Requests",
+      "context length",
+      "fetch failed",
+      "unknown 原文",
+    ]) {
+      const zh = classifyRunError(raw, "zh-CN");
+      const en = classifyRunError(raw, "en");
+      expect(en.kind).toBe(zh.kind);
+      expect(en.kind).toBe(classifyRunErrorKind(raw));
+      expect(en.title).not.toMatch(/\p{Script=Han}/u);
+      expect(en.hint).not.toMatch(/\p{Script=Han}/u);
+      expect(en.title).not.toContain("errors:");
+      expect(en.title).not.toBe(zh.title);
+      expect(en.hint).not.toBe(zh.hint);
+    }
+    expect(getLocale()).toBe("zh-CN");
+    setLocale("en");
+    expect(classifyRunError("fetch failed")).toEqual(classifyRunError("fetch failed", "en"));
+    expect(classifyRunError("", "zh-CN").title).toBe("任务因错误中断");
+    expect(getLocale()).toBe("en");
+  });
+
   it("额度/账单耗尽（各厂商常见写法）", () => {
     for (const msg of [
       "402 Insufficient Balance",
@@ -19,8 +49,8 @@ describe("classifyRunError", () => {
     ]) {
       expect(classifyRunErrorKind(msg)).toBe("quota");
     }
-    expect(classifyRunError("402 Insufficient Balance").title).toContain("额度");
-    expect(classifyRunError("402 Insufficient Balance").hint).toContain("配额");
+    expect(classifyRunError("402 Insufficient Balance", "zh-CN").title).toContain("额度");
+    expect(classifyRunError("402 Insufficient Balance", "zh-CN").hint).toContain("配额");
   });
 
   it("鉴权失败", () => {

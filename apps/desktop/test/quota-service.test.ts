@@ -1,7 +1,38 @@
-import { describe, expect, it } from "vitest";
-import { parseKimiCodingUsages, quotaLimitOf } from "../src/main/quota-service.js";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { setLocale } from "@spcode/shared/i18n";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { parseKimiCodingUsages, QuotaService, quotaLimitOf } from "../src/main/quota-service.js";
+
+beforeEach(() => setLocale("zh-CN"));
+afterEach(() => {
+  setLocale("zh-CN");
+  vi.unstubAllGlobals();
+});
 
 describe("parseKimiCodingUsages", () => {
+  it("renders English quotas, numbers, and reset dates at query time", () => {
+    setLocale("en");
+    const { limits } = parseKimiCodingUsages({
+      usage: { limit: 12000 },
+      limits: [
+        {
+          window: { duration: 300, timeUnit: "TIME_UNIT_MINUTE" },
+          detail: { limit: 100, resetTime: "2099-12-15T12:00:00Z" },
+        },
+      ],
+    });
+    expect(limits[0]?.label).toBe("5-hour quota");
+    expect(limits[0]?.text).toBe("Quota 100");
+    expect(limits[0]?.resetText).toBe("Dec 15");
+    expect(limits[1]?.label).toBe("Weekly quota");
+    expect(limits[1]?.text).toBe("Quota 12.0K");
+    expect(() => parseKimiCodingUsages({})).toThrow("No quota information");
+    setLocale("zh-CN");
+    expect(quotaLimitOf({ label: "raw", limit: 12000 })?.text).toBe("额度 1.2万");
+  });
+
   it("解析窗口额度 + 每周额度", () => {
     // 真实响应结构（2026-09 探测）：limits[] 为滚动窗口，usage 为总量
     const body = {
@@ -99,5 +130,57 @@ describe("parseKimiCodingUsages", () => {
     const over = quotaLimitOf({ label: "a", limit: 100, used: 250 });
     expect(over?.usedPercent).toBe(100);
     expect(over?.text).toBe("0%");
+  });
+});
+
+describe("QuotaService locale cache", () => {
+  it("invalidates localized cached rows and leaves provider errors untouched", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "spcode-quota-i18n-"));
+    try {
+      writeFileSync(
+        join(dir, "auth.json"),
+        JSON.stringify({
+          "xiaomi-token-plan-cn": { type: "api_key", key: "test-key" },
+          moonshot: { type: "api_key", key: "test-key" },
+        }),
+      );
+      const fetchMock = vi.fn().mockRejectedValue(new Error("RAW_PROVIDER_ERROR 原文"));
+      vi.stubGlobal("fetch", fetchMock);
+      const svc = new QuotaService(dir, () => ({ tokens: 12000, requests: 2 }));
+      const zh = await svc.queryAll();
+      expect(zh[0]?.label).toContain("国内版");
+      expect(zh[0]?.limits[0]?.text).toBe("1.2万 tokens · 2 次请求");
+      expect(await svc.queryAll()).toBe(zh);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      setLocale("en");
+      const en = await svc.queryAll();
+      expect(en[0]?.label).toContain("China");
+      expect(en[0]?.limits[0]?.label).toBe("Local usage in the last 7 days");
+      expect(en[0]?.limits[0]?.text).toBe("12.0K tokens · 2 requests");
+      expect(en[1]?.label).toBe("Kimi (Moonshot AI)");
+      expect(en[1]?.error).toBe("RAW_PROVIDER_ERROR 原文");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not return a stale locale when the language changes during a provider request", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "spcode-quota-i18n-"));
+    try {
+      writeFileSync(join(dir, "auth.json"), JSON.stringify({ moonshot: { type: "api_key", key: "test-key" } }));
+      const fetchMock = vi.fn().mockImplementation(async () => {
+        setLocale("en");
+        return { ok: true, json: async () => ({ data: { available_balance: 10 } }) };
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      const [row] = await new QuotaService(dir).queryAll();
+      expect(row?.label).toBe("Kimi (Moonshot AI)");
+      expect(row?.plan).toBe("Balance");
+      expect(row?.limits[0]?.label).toBe("Available balance");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

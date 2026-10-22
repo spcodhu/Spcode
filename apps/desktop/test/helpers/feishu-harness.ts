@@ -9,6 +9,7 @@ import {
   DEFAULT_SETTINGS,
   type HostCommand,
   type HostEvent,
+  type QuestionAnswers,
   type ScheduleTask,
   type ScheduleTaskInput,
 } from "@spcode/shared";
@@ -149,7 +150,7 @@ export interface ChannelHarness {
   channel: FeishuChannel;
   bridgeCalls: HostCommand[];
   permissionReplies: { requestId: string; approved: boolean; by?: "local" | "remote" }[];
-  questionReplies: { requestId: string; answers: Record<string, string> }[];
+  questionReplies: { requestId: string; answers: QuestionAnswers }[];
   registry: ReturnType<typeof makeRegistry>;
   scheduler: ReturnType<typeof makeScheduler>;
   emit: (event: HostEvent) => void;

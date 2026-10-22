@@ -18,10 +18,18 @@ import { existsSync } from "node:fs";
 import type { SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import { DEFAULT_SANDBOX_SETTINGS, type SandboxSettings } from "@spcode/shared";
+import { type LocalizedText, renderMessage } from "@spcode/shared/i18n";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 import { buildSandboxRuntimeConfig } from "./config-builder.js";
 
-export type SandboxState = { state: "active" } | { state: "disabled" } | { state: "unavailable"; reason: string };
+export type SandboxState =
+  | { state: "active" }
+  | { state: "disabled" }
+  | { state: "unavailable"; reason: string; reasonMessage?: LocalizedText; canonicalReason?: string };
+
+function unavailable(reasonMessage: LocalizedText, canonicalReason: string): SandboxState {
+  return { state: "unavailable", reason: renderMessage(reasonMessage), reasonMessage, canonicalReason };
+}
 
 export interface SandboxViolation {
   line: string;
@@ -32,6 +40,7 @@ class SandboxService {
   private settings: SandboxSettings | null = null;
   private initialized = false;
   private initFailedReason: string | null = null;
+  private initFailedMessage: LocalizedText | null = null;
   private initPromise: Promise<void> | null = null;
   /** 网络域名交互审批（agent-host 注入；未注入时未知域名一律拒） */
   private networkAskHandler: ((host: string, port: number | undefined) => Promise<boolean>) | null = null;
@@ -69,10 +78,18 @@ class SandboxService {
   status(): SandboxState {
     if (!this.settings?.enabled) return { state: "disabled" };
     if (process.platform !== "darwin" && process.platform !== "linux") {
-      return { state: "unavailable", reason: `平台 ${process.platform} 暂不支持沙盒（Windows 支持待上游成熟）` };
+      return unavailable(
+        { key: "main:sandbox.unsupportedPlatform", params: { platform: process.platform } },
+        `Sandbox is not yet supported on ${process.platform} (Windows support is pending upstream readiness)`,
+      );
     }
-    if (this.initFailedReason) return { state: "unavailable", reason: this.initFailedReason };
-    if (!this.initialized) return { state: "unavailable", reason: "沙盒尚未初始化" };
+    if (this.initFailedReason) {
+      return this.initFailedMessage
+        ? unavailable(this.initFailedMessage, this.initFailedReason)
+        : { state: "unavailable", reason: this.initFailedReason };
+    }
+    if (!this.initialized)
+      return unavailable({ key: "main:sandbox.notInitialized" }, "Sandbox has not been initialized");
     return { state: "active" };
   }
 
@@ -81,7 +98,11 @@ class SandboxService {
     if (!this.settings?.enabled) return { state: "disabled" };
     if (process.platform !== "darwin" && process.platform !== "linux") return this.status();
     if (this.initialized) return { state: "active" };
-    if (this.initFailedReason) return { state: "unavailable", reason: this.initFailedReason };
+    if (this.initFailedReason) {
+      return this.initFailedMessage
+        ? unavailable(this.initFailedMessage, this.initFailedReason)
+        : { state: "unavailable", reason: this.initFailedReason };
+    }
     if (this.initPromise) {
       await this.initPromise;
       return this.status();
@@ -101,14 +122,17 @@ class SandboxService {
     try {
       // macOS 前置自检：sandbox-exec 必须存在（理论上系统自带，防精简环境）
       if (process.platform === "darwin" && !existsSync("/usr/bin/sandbox-exec")) {
-        this.initFailedReason = "缺少 /usr/bin/sandbox-exec";
+        this.initFailedReason = "Missing /usr/bin/sandbox-exec";
+        this.initFailedMessage = { key: "main:sandbox.missingExecutable" };
         return;
       }
       // Linux 依赖检测（bwrap/socat/ripgrep），缺失则降级
       if (process.platform === "linux") {
         const check = await SandboxManager.checkDependenciesAsync();
         if (check.errors.length > 0) {
-          this.initFailedReason = `Linux 沙盒依赖缺失：${check.errors.join("；")}`;
+          const details = check.errors.join("; ");
+          this.initFailedReason = `Missing Linux sandbox dependencies: ${details}`;
+          this.initFailedMessage = { key: "main:sandbox.missingDependencies", params: { details } };
           return;
         }
       }
@@ -127,7 +151,9 @@ class SandboxService {
       );
       this.initialized = true;
     } catch (err) {
-      this.initFailedReason = `沙盒初始化失败：${err instanceof Error ? err.message : String(err)}`;
+      const details = err instanceof Error ? err.message : String(err);
+      this.initFailedReason = `Sandbox initialization failed: ${details}`;
+      this.initFailedMessage = { key: "main:sandbox.initializeFailed", params: { details } };
     }
   }
 
@@ -158,10 +184,14 @@ class SandboxService {
   async wrap(command: string, cwd: string): Promise<{ command: string; commandId: string }> {
     const state = await this.ensureReady();
     if (state.state !== "active") {
-      throw new Error(state.state === "disabled" ? "沙盒已关闭，不应调用 wrap" : `沙盒不可用：${state.reason}`);
+      throw new Error(
+        state.state === "disabled"
+          ? "Sandbox is disabled; wrap must not be called"
+          : `Sandbox unavailable: ${state.canonicalReason ?? state.reason}`,
+      );
     }
     const settings = this.settings;
-    if (!settings) throw new Error("沙盒设置未下发");
+    if (!settings) throw new Error("Sandbox settings have not been supplied");
     const filesystemConfig = buildSandboxRuntimeConfig({ cwd, spcodeHome: resolveSpcodeHome(), settings });
     const commandId = randomUUID();
     const wrapped = await SandboxManager.wrapWithSandbox(

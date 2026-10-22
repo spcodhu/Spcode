@@ -34,7 +34,7 @@ export type RemoteCommand =
   /** 订阅某会话事件流（M1：所有事件本就广播给全部已配对设备，返回 ok 即可） */
   | { type: "session.subscribe"; sessionId: string }
   | { type: "permission.reply"; requestId: string; approved: boolean }
-  | { type: "question.reply"; requestId: string; answers: Record<string, string> }
+  | { type: "question.reply"; requestId: string; answers: import("./questions.js").QuestionAnswers }
   | { type: "schedule.list" }
   | { type: "schedule.create"; input: ScheduleTaskInput }
   | { type: "schedule.update"; id: string; patch: Partial<ScheduleTaskInput> }
@@ -59,7 +59,8 @@ export type RemoteEvent =
    * auth / pair 成功后的首个服务端事件：携带 VAPID 公钥（Web Push 订阅用；
    * 未生成时为空串，客户端据此禁用推送开关）
    */
-  | { type: "remote.hello"; vapidPublicKey: string }
+  | { type: "remote.hello"; vapidPublicKey: string; locale?: import("./i18n/types.js").Locale }
+  | { type: "locale.changed"; locale: import("./i18n/types.js").Locale }
   /** 连接/配对成功后的全量快照 */
   | { type: "session.snapshot"; sessions: SessionMeta[] }
   | { type: "session.status"; sessionId: string; status: "running" | "idle" | "waiting_permission" }

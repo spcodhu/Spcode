@@ -31,7 +31,7 @@ export interface SpcodeApi {
   /** 权限确认回复 */
   replyPermission(requestId: string, approved: boolean): void;
   /** 结构化提问回复（AskUserQuestion 工具） */
-  replyQuestion(requestId: string, answers: Record<string, string>): void;
+  replyQuestion(requestId: string, answers: import("@spcode/shared").QuestionAnswers): void;
   /** 会话注册表（跨重启持久化） */
   listSessions(): Promise<SessionRegistryEntry[]>;
   removeSession(id: string): Promise<void>;

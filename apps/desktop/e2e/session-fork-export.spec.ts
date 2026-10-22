@@ -155,7 +155,7 @@ test.describe("Fork 会话 + 导出上下文", () => {
     // 接力提示词指路 transcript/JSONL + handoff 指令
     const prompt = readFileSync(join(exportDir, "handoff.md"), "utf-8");
     expect(prompt).toContain(join(exportDir, "transcript.md"));
-    expect(prompt).toContain("已经完整发生过的会话历史");
+    expect(prompt).toContain("conversation history that has already taken place");
 
     await app.close();
   });

@@ -8,6 +8,7 @@
  */
 import { randomUUID } from "node:crypto";
 import type { PermissionRequest, SandboxSettings } from "@spcode/shared";
+import type { LocalizedText } from "@spcode/shared/i18n";
 import { isPlanModeSafeCommand, PLAN_MODE_BASH_BLOCK_REASON, PLAN_MODE_WRITE_BLOCK_REASON } from "./plan-mode.js";
 import { matchesExcludedCommand } from "./sandbox/bash-tool.js";
 import { type FsGuardPolicy, judgeFsToolCall } from "./sandbox/fs-guard.js";
@@ -19,7 +20,8 @@ export interface BeforeToolCallCtx {
   toolCall: { name: string; arguments?: unknown };
 }
 
-export type ToolCallVerdict = { block: true; reason: string } | undefined;
+/** Keep model-facing reasons canonical; render reasonMessage at the UI boundary. */
+export type ToolCallVerdict = { block: true; reason: string; reasonMessage?: LocalizedText } | undefined;
 
 export interface PermissionGateDeps {
   sessionId: string;
@@ -35,6 +37,7 @@ export interface PermissionGateDeps {
 }
 
 const DENIED_BY_USER = "User denied this tool call in Spcod permission dialog.";
+const DENIED_MESSAGE: LocalizedText = { key: "main:permission.denied" };
 
 export function createBeforeToolCallGate(deps: PermissionGateDeps) {
   return async (ctx: BeforeToolCallCtx): Promise<ToolCallVerdict> => {
@@ -46,10 +49,14 @@ export function createBeforeToolCallGate(deps: PermissionGateDeps) {
       if (toolName === "bash" || toolName === "powershell") {
         const cmd = extractCommand(ctx.toolCall.arguments);
         if (cmd && isPlanModeSafeCommand(cmd)) return undefined;
-        return { block: true, reason: PLAN_MODE_BASH_BLOCK_REASON };
+        return { block: true, reason: PLAN_MODE_BASH_BLOCK_REASON, reasonMessage: { key: "main:permission.planBash" } };
       }
       if (!READONLY_TOOLS.has(toolName)) {
-        return { block: true, reason: PLAN_MODE_WRITE_BLOCK_REASON };
+        return {
+          block: true,
+          reason: PLAN_MODE_WRITE_BLOCK_REASON,
+          reasonMessage: { key: "main:permission.planWrite" },
+        };
       }
       return undefined;
     }
@@ -57,7 +64,7 @@ export function createBeforeToolCallGate(deps: PermissionGateDeps) {
     // 文件路径守卫（R3-C3）：deny 硬拦；prompt 走 danger 级弹窗（任何权限模式都弹）。
     const fsVerdict = judgeFsToolCall(ctx.toolCall.name, ctx.toolCall.arguments, deps.getFsPolicy());
     if (fsVerdict?.action === "deny") {
-      return { block: true, reason: `Spcode path policy: ${fsVerdict.reason}` };
+      return { block: true, reason: `Spcode path policy: ${fsVerdict.reason}`, reasonMessage: fsVerdict.reasonMessage };
     }
     if (fsVerdict?.action === "prompt") {
       const approved = await deps.requestPermission({
@@ -68,7 +75,7 @@ export function createBeforeToolCallGate(deps: PermissionGateDeps) {
         risk: "danger",
         sandboxed: false,
       });
-      return approved ? undefined : { block: true, reason: DENIED_BY_USER };
+      return approved ? undefined : { block: true, reason: DENIED_BY_USER, reasonMessage: DENIED_MESSAGE };
     }
 
     const risk = classifyToolRisk(ctx.toolCall.name, ctx.toolCall.arguments);
@@ -94,6 +101,7 @@ export function createBeforeToolCallGate(deps: PermissionGateDeps) {
           block: true,
           reason:
             "Sandbox strict mode: dangerouslyDisableSandbox is disabled (sandbox.allowUnsandboxedCommands=false). Run the command inside the sandbox or ask the user to allow it in Settings → Sandbox.",
+          reasonMessage: { key: "main:permission.sandboxStrict" },
         };
       }
       const approved = await deps.requestPermission({
@@ -105,7 +113,7 @@ export function createBeforeToolCallGate(deps: PermissionGateDeps) {
         sandboxed: false,
         bypass: true,
       });
-      return approved ? undefined : { block: true, reason: DENIED_BY_USER };
+      return approved ? undefined : { block: true, reason: DENIED_BY_USER, reasonMessage: DENIED_MESSAGE };
     }
     const cmd = extractCommand(ctx.toolCall.arguments);
     const excludedHit =
@@ -125,6 +133,6 @@ export function createBeforeToolCallGate(deps: PermissionGateDeps) {
       risk,
       sandboxed: effectiveSandboxed,
     });
-    return approved ? undefined : { block: true, reason: DENIED_BY_USER };
+    return approved ? undefined : { block: true, reason: DENIED_BY_USER, reasonMessage: DENIED_MESSAGE };
   };
 }

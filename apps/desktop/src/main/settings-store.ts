@@ -4,9 +4,10 @@
  * - 字段级 sanitize（fail-safe）：非法 permissionMode 回落默认 ask（坏值会让 write 全放行）；
  * - getSettings 对渲染层脱敏（主进程 index.ts 的 redactSettingsForRenderer），写回时掩码还原。
  */
-import { chmodSync, mkdirSync } from "node:fs";
+import { chmodSync } from "node:fs";
 import { join } from "node:path";
 import { type AppSettings, DEFAULT_SETTINGS, SECRET_MASK, sanitizeCompactionSettings } from "@spcode/shared";
+import { resolveLocale } from "@spcode/shared/i18n";
 import { readJsonFile, resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
 
 /** 设置文件只需是普通对象（字段级宽松：合并到 DEFAULT_SETTINGS 之上，未知/多余字段原样保留） */
@@ -21,6 +22,7 @@ function validateSettings(data: unknown): Partial<AppSettings> | null {
  */
 export function sanitizeAppSettings(input: Partial<AppSettings>): Partial<AppSettings> {
   const out = { ...input };
+  if ("locale" in out) out.locale = resolveLocale(out.locale);
   // 枚举：非法值剔除（合并时回落默认 ask）
   if (out.permissionMode !== undefined && out.permissionMode !== "ask" && out.permissionMode !== "act") {
     delete out.permissionMode;
@@ -101,6 +103,7 @@ export class SettingsStore {
     this.cache = {
       ...DEFAULT_SETTINGS,
       ...loaded,
+      locale: resolveLocale(loaded.locale),
       remote: {
         ...DEFAULT_SETTINGS.remote,
         ...loadedRemote,

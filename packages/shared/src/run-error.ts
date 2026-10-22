@@ -4,11 +4,13 @@
  * 背景：pi 引擎在额度/账单类错误上不重试（pi-ai 的 NON_RETRYABLE_PROVIDER_LIMIT_ERROR_PATTERN），
  * 失败回合的 assistant 消息 content 为空、只带 stopReason="error" + errorMessage。
  * 旧实现完全没消费这两个字段 → 任务"凭空中断"、界面无任何提示。
- * 这里把上游英文错误归一成可执行的中文提示，供错误卡/系统通知共用。
+ * 这里把上游错误归一成当前语言的处理建议，供错误卡/系统通知共用。
  *
  * 放在 shared 包并用子路径导出（与 advanced-search 同模式）：本包运行时以 TS 源码被直接加载，
  * index.ts 只允许 type-only 重导出，运行时代码走 "./run-error"。
  */
+
+import { getLocale, i18n } from "./i18n/index.js";
 
 export type RunErrorKind = "quota" | "auth" | "rateLimit" | "overflow" | "network" | "other";
 
@@ -34,33 +36,6 @@ const RATE_LIMIT = /rate.?limit|too many requests|overloaded|high demand|\b429\b
 const NETWORK =
   /fetch failed|enotfound|eai_again|econnreset|econnrefused|socket hang up|socket connection|network|timed? out|timeout|getaddrinfo|upstream connect/i;
 
-const CATALOG: Record<RunErrorKind, { title: string; hint: string }> = {
-  quota: {
-    title: "模型额度不足，任务已中断",
-    hint: "到「设置 → 配额」查看剩余额度，或切换到其他模型后重新发送。本轮已完成的输出已保留。",
-  },
-  auth: {
-    title: "模型凭证无效，任务已中断",
-    hint: "到「设置 → 模型」检查该供应商的 API Key 是否有效、是否已过期，然后重新发送。",
-  },
-  rateLimit: {
-    title: "模型限流，任务已中断",
-    hint: "等一会儿再重试，或在「设置 → 模型」切换到其他模型；已完成的输出已保留。",
-  },
-  overflow: {
-    title: "上下文超长，任务已中断",
-    hint: "先用输入框旁的用量环手动压缩上下文，或新建会话继续；已完成的输出已保留。",
-  },
-  network: {
-    title: "网络异常，任务已中断",
-    hint: "检查网络或代理后重试；已完成的输出已保留。",
-  },
-  other: {
-    title: "任务因错误中断",
-    hint: "原始错误见下方；必要时切换模型或稍后重试。",
-  },
-};
-
 /** 判定错误类别（导出供单测；空消息归 other） */
 export function classifyRunErrorKind(message?: string | null): RunErrorKind {
   const text = (message ?? "").trim();
@@ -73,7 +48,11 @@ export function classifyRunErrorKind(message?: string | null): RunErrorKind {
   return "other";
 }
 
-export function classifyRunError(message?: string | null): RunErrorInfo {
+export function classifyRunError(message?: string | null, locale: "zh-CN" | "en" = getLocale()): RunErrorInfo {
   const kind = classifyRunErrorKind(message);
-  return { kind, ...CATALOG[kind] };
+  return {
+    kind,
+    title: i18n.t(`errors:run.${kind}.title`, { lng: locale }),
+    hint: i18n.t(`errors:run.${kind}.hint`, { lng: locale }),
+  };
 }

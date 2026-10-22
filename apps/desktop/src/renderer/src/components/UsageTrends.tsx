@@ -1,8 +1,10 @@
+import { getLocale } from "@spcode/shared/i18n";
 /**
  * 用量页下半区：Token 趋势曲线（日期区间 × 模型筛选）+ GitHub 风格活跃热点图 + 打卡统计。
  * 数据由 UsagePage 经 usageSummary 拉取后传入；纯 SVG / div 实现，不引入图表库。
  */
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   addDays,
   buildHeatGrid,
@@ -16,17 +18,13 @@ import {
   stackSegments,
   tokensOf,
 } from "../chart";
-import { formatZh } from "../format";
+import { formatDateKey, formatZh } from "../format";
 import { ChartDot, useChartTip } from "./ChartTip";
 import { Select } from "./ui/Select";
 
 export type DailyUsage = Awaited<ReturnType<Window["spcode"]["usageSummary"]>>[number];
 
-const TREND_RANGES = [
-  { days: 7, label: "最近 7 天" },
-  { days: 30, label: "最近 30 天" },
-  { days: 100, label: "最近 100 天" },
-] as const;
+const TREND_RANGES = [7, 30, 100] as const;
 
 const ALL_MODELS = "all";
 
@@ -44,6 +42,7 @@ export function UsageTrends({
   /** 模型 → 稳定色号（与环形图/图例同源，切区间不变色） */
   colorIndexOf: Map<string, number>;
 }) {
+  const { t } = useTranslation("settings");
   const [days, setDays] = useState(7);
   const [model, setModel] = useState(ALL_MODELS);
 
@@ -81,8 +80,11 @@ export function UsageTrends({
   // 下拉选项：窗口内模型 + 当前选中（窗口没数据也保留，避免选择被悄悄重置）
   const modelOptions = useMemo(() => {
     const keys = model === ALL_MODELS || windowModels.includes(model) ? windowModels : [model, ...windowModels];
-    return [{ value: ALL_MODELS, label: "全部模型" }, ...keys.map((k) => ({ value: k, label: shortModelName(k) }))];
-  }, [windowModels, model]);
+    return [
+      { value: ALL_MODELS, label: t("usage.allModels") },
+      ...keys.map((k) => ({ value: k, label: shortModelName(k) })),
+    ];
+  }, [windowModels, model, t]);
 
   // 曲线序列：全部 = Top5 模型各一条线 + 其余并入「其他」；单选 = 该模型一条线
   const series = useMemo<Series[]>(() => {
@@ -99,7 +101,7 @@ export function UsageTrends({
     if (restKeys.length > 0) {
       out.push({
         key: "__other__",
-        label: "其他",
+        label: t("usage.other"),
         values: dates.map((d) => {
           const byModel = daily.get(d);
           if (!byModel) return 0;
@@ -108,7 +110,7 @@ export function UsageTrends({
       });
     }
     return out;
-  }, [daily, dates, model, windowModels]);
+  }, [daily, dates, model, windowModels, t]);
 
   // 热点图与打卡统计不吃模型筛选：「打卡」看的是整个 App 有没有被用起来
   const heatTotals = useMemo(() => {
@@ -134,7 +136,7 @@ export function UsageTrends({
     return sum;
   }, [dates, daily, model]);
 
-  const scopeLabel = `${days === 1 ? "今日" : `近 ${days} 天`} · ${model === ALL_MODELS ? "全部模型" : shortModelName(model)}`;
+  const scopeLabel = `${days === 1 ? t("usage.today") : t("usage.recentDays", { count: days })} · ${model === ALL_MODELS ? t("usage.allModels") : shortModelName(model)}`;
 
   return (
     <>
@@ -142,33 +144,33 @@ export function UsageTrends({
       <section className="mt-6 rounded-2xl border border-border bg-bg-elevated p-6" data-testid="usage-trend">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-[15px] font-semibold text-text-primary">Token 消耗</h2>
+            <h2 className="text-[15px] font-semibold text-text-primary">{t("usage.consumption")}</h2>
             <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1">
               <span
                 className="text-[22px] font-semibold leading-7 text-text-primary tabular-nums"
                 data-testid="usage-trend-total"
-                title={`${windowTotal.toLocaleString("en-US")} tokens`}
+                title={t("usage.tokens", { value: windowTotal.toLocaleString(getLocale()) })}
               >
                 {formatZh(windowTotal)}
               </span>
-              <span className="text-[12px] text-text-tertiary">tokens · {scopeLabel}</span>
+              <span className="text-[12px] text-text-tertiary">
+                {t("usage.tokensWithScope", { scope: scopeLabel })}
+              </span>
             </div>
-            <p className="mt-1 text-[12px] text-text-tertiary">
-              每日一支柱，柱内颜色为各模型占比（输入 + 输出 + 缓存读写）· 悬停看当天明细，点击锁定
-            </p>
+            <p className="mt-1 text-[12px] text-text-tertiary">{t("usage.chartDescription")}</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <div className="flex rounded-full bg-bg-hover p-0.5">
               {TREND_RANGES.map((r) => (
                 <button
                   type="button"
-                  key={r.days}
-                  onClick={() => setDays(r.days)}
+                  key={r}
+                  onClick={() => setDays(r)}
                   className={`rounded-full px-3 py-1 text-[12px] transition-colors ${
-                    days === r.days ? "bg-accent text-white" : "text-text-secondary hover:text-text-primary"
+                    days === r ? "bg-accent text-white" : "text-text-secondary hover:text-text-primary"
                   }`}
                 >
-                  {r.label}
+                  {t("usage.daysRange", { count: r })}
                 </button>
               ))}
             </div>
@@ -184,31 +186,39 @@ export function UsageTrends({
       <section className="mt-5 rounded-2xl border border-border bg-bg-elevated p-6" data-testid="usage-heatmap">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-[15px] font-semibold text-text-primary">使用热点图</h2>
+            <h2 className="text-[15px] font-semibold text-text-primary">{t("usage.heatmap")}</h2>
             <p className="mt-0.5 text-[12px] text-text-tertiary">
-              最近 {HEAT_WEEKS} 周，每格一天，颜色越深当天消耗越多 · 悬停看当天用量，点击锁定
+              {t("usage.heatmapDescription", { count: HEAT_WEEKS })}
             </p>
           </div>
           <div className="flex items-center gap-6">
-            <StreakStat testId="usage-streak-longest" label="最长连续打卡" value={`${streak.longest} 天`} />
+            <StreakStat
+              testId="usage-streak-longest"
+              label={t("usage.longestStreak")}
+              value={t("usage.days", { count: streak.longest })}
+            />
             <StreakStat
               testId="usage-streak-current"
-              label="当前连续"
-              value={`${streak.current} 天`}
-              hint="含今天；今天还没用量则算到昨天"
+              label={t("usage.currentStreak")}
+              value={t("usage.days", { count: streak.current })}
+              hint={t("usage.streakHint")}
             />
-            <StreakStat testId="usage-streak-total" label="累计打卡" value={`${streak.total} 天`} />
+            <StreakStat
+              testId="usage-streak-total"
+              label={t("usage.totalDays")}
+              value={t("usage.days", { count: streak.total })}
+            />
           </div>
         </div>
         <div className="mt-4">
           <Heatmap totals={heatTotals} />
         </div>
         <div className="mt-3 flex items-center gap-1.5 text-[11px] text-text-tertiary">
-          <span className="mr-0.5">少</span>
+          <span className="mr-0.5">{t("usage.less")}</span>
           {HEAT_LEVEL_CLASSES.map((cls) => (
             <span key={cls} className={`h-3 w-3 rounded-[2px] ${cls}`} />
           ))}
-          <span className="ml-0.5">多</span>
+          <span className="ml-0.5">{t("usage.more")}</span>
         </div>
       </section>
     </>
@@ -242,6 +252,7 @@ function StackedBarChart({
   series: Series[];
   seriesColor: (key: string, fallback: number) => string;
 }) {
+  const { t } = useTranslation("settings");
   const tip = useChartTip();
   const W = 840;
   const H = 240;
@@ -278,8 +289,8 @@ function StackedBarChart({
     const total = rows.reduce((n, r) => n + r.value, 0);
     return (
       <div>
-        <div className="font-medium text-text-primary">{id}</div>
-        <div className="mt-0.5 tabular-nums">{formatZh(total)} tokens</div>
+        <div className="font-medium text-text-primary">{formatDateKey(id)}</div>
+        <div className="mt-0.5 tabular-nums">{t("usage.tokens", { value: formatZh(total) })}</div>
         {rows.map((r) => (
           <div key={r.key} className="mt-1 flex items-center gap-1.5">
             <ChartDot color={r.color} />
@@ -297,7 +308,7 @@ function StackedBarChart({
         viewBox={`0 0 ${W} ${H}`}
         className="h-auto w-full"
         role="img"
-        aria-label="按日 token 消耗堆叠柱状图"
+        aria-label={t("usage.barChart")}
         data-testid="usage-trend-chart"
       >
         {/* Y 轴刻度线与标签 */}
@@ -350,7 +361,7 @@ function StackedBarChart({
               fontSize={10}
               fill="var(--color-text-tertiary)"
             >
-              {d.slice(5)}
+              {formatDateKey(d, false)}
             </text>
           ) : null,
         )}
@@ -416,7 +427,7 @@ function StackedBarChart({
             fontSize={13}
             fill="var(--color-text-tertiary)"
           >
-            该区间暂无用量记录
+            {t("usage.noRangeData")}
           </text>
         )}
       </svg>
@@ -445,11 +456,16 @@ function StackedBarChart({
 /** 0..4 级配色：0 = 空档，1..4 = accent 由浅到深 */
 const HEAT_LEVEL_CLASSES = ["bg-bg-hover", "bg-accent/25", "bg-accent/45", "bg-accent/70", "bg-accent"];
 
-const WEEKDAY_LABELS = ["周一", "", "周三", "", "周五", "", ""];
-
 function Heatmap({ totals }: { totals: Map<string, number> }) {
+  const { t } = useTranslation("settings");
   const tip = useChartTip();
-  const slots = useMemo(() => buildHeatGrid(totals), [totals]);
+  const locale = getLocale();
+  const slots = useMemo(() => buildHeatGrid(totals, HEAT_WEEKS, locale), [totals, locale]);
+  const weekdayLabels = [1, 2, 3, 4, 5, 6, 0].map((day, index) =>
+    index < 5 && index % 2 === 0
+      ? new Intl.DateTimeFormat(locale, { weekday: "short" }).format(new Date(2024, 0, 7 + day))
+      : "",
+  );
   return (
     <div className="relative w-full" ref={tip.containerRef} {...tip.handlers}>
       {/* 单一网格拉满卡片宽：第 1 列 = 周内日标签，后 26 列 = 月份行 + 7 天格子（列主序）。
@@ -464,7 +480,7 @@ function Heatmap({ totals }: { totals: Map<string, number> }) {
         data-testid="usage-heatmap-grid"
       >
         <div />
-        {WEEKDAY_LABELS.map((label, r) => (
+        {weekdayLabels.map((label, r) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: 星期标签是固定 7 项静态数组，顺序永不变
           <div key={r} className="flex items-center justify-end pr-1.5 text-[10px] leading-none text-text-tertiary">
             {label}
@@ -497,8 +513,10 @@ function Heatmap({ totals }: { totals: Map<string, number> }) {
         const tokens = totals.get(id) ?? 0;
         return (
           <div>
-            <div className="font-medium text-text-primary">{id}</div>
-            <div className="mt-0.5 tabular-nums">{tokens > 0 ? `${formatZh(tokens)} tokens` : "无用量"}</div>
+            <div className="font-medium text-text-primary">{formatDateKey(id)}</div>
+            <div className="mt-0.5 tabular-nums">
+              {tokens > 0 ? t("usage.tokens", { value: formatZh(tokens) }) : t("usage.noUsage")}
+            </div>
           </div>
         );
       })}

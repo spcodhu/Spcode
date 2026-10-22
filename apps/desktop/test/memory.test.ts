@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { MemoryDistiller } from "../src/agent-host/distill.js";
+import { buildDistillPrompt, MemoryDistiller } from "../src/agent-host/distill.js";
 import { MemoryStore } from "../src/agent-host/memory-store.js";
 
 let dir = "";
@@ -23,6 +23,32 @@ describe("MemoryStore", () => {
     expect(existsSync(join(dir, "USER.md"))).toBe(true);
     expect(existsSync(join(dir, "MEMORY.md"))).toBe(true);
     expect(existsSync(join(dir, "memory", "lessons.md"))).toBe(true);
+  });
+
+  it("seeds English internal text but never rewrites existing user memory files", () => {
+    const store = new MemoryStore(dir);
+    const files = ["SOUL.md", "USER.md", "MEMORY.md", "memory/lessons.md"];
+    for (const file of files) expect(readFileSync(join(dir, file), "utf-8")).not.toMatch(/[\u3400-\u9fff]/);
+    expect(readFileSync(join(dir, "MEMORY.md"), "utf-8")).toContain("## Notes");
+    for (const file of files) writeFileSync(join(dir, file), `# 用户内容 ${file}\n\n  原始文字\n`);
+    const before = files.map((file) => readFileSync(join(dir, file), "utf-8"));
+    new MemoryStore(dir);
+    store.buildInjection(null, false);
+    expect(files.map((file) => readFileSync(join(dir, file), "utf-8"))).toEqual(before);
+  });
+
+  it("suppresses only untouched English or legacy lesson seeds, not appended user lessons", () => {
+    const store = new MemoryStore(dir);
+    expect(store.buildInjection(null, false)).not.toContain("<lessons>");
+    store.appendLesson("Keep this new lesson.");
+    expect(store.buildInjection(null, false)).toContain("Keep this new lesson.");
+    const file = join(dir, "memory", "lessons.md");
+    const legacy = "# lessons.md - 教训库\n\n（从失败与纠正中学到的工具/命令规则。格式：- [信任分 0-100] 规则）\n";
+    writeFileSync(file, legacy);
+    expect(store.buildInjection(null, false)).not.toContain("<lessons>");
+    expect(readFileSync(file, "utf-8")).toBe(legacy);
+    store.appendLesson("用户追加的教训");
+    expect(store.buildInjection(null, false)).toContain("用户追加的教训");
   });
 
   it("buildInjection 包含分层记忆块", () => {
@@ -48,7 +74,7 @@ describe("MemoryStore", () => {
     writeFileSync(join(dir, "MEMORY.md"), "x".repeat(5000));
     const block = store.buildInjection(null, false);
     expect(block.length).toBeLessThan(5000);
-    expect(block).toContain("已截断");
+    expect(block).toContain("truncated to capacity");
   });
 
   it("projectSlug 过滤非法字符 + 路径哈希消碰撞（同名目录不再共享记忆）", () => {
@@ -92,6 +118,20 @@ describe("MemoryStore", () => {
 });
 
 describe("MemoryDistiller.apply", () => {
+  it("uses an English scaffold with stable section names and raw transcript/notes", () => {
+    const transcript = "用户原始请求 'literal' /tmp/文件.ts";
+    const notes = "## Notes\n- 不要改写用户已有的记忆。";
+    const prompt = buildDistillPrompt(transcript, notes, true);
+    expect(prompt).toContain(transcript);
+    expect(prompt).toContain(notes);
+    expect(prompt).toContain("data, not a rule");
+    expect(prompt).toContain("do not translate or rewrite existing notes merely to change their language");
+    for (const section of ["NOTES", "DIARY", "PROJECT", "LESSON"]) expect(prompt).toContain(`<${section}>`);
+    expect(prompt).toContain("(unchanged)");
+    expect(prompt).toContain("(none)");
+    expect(buildDistillPrompt(transcript, notes, false)).not.toContain("<PROJECT>");
+  });
+
   it("解析四段 XML 并落盘", () => {
     const store = new MemoryStore(dir);
     const distiller = new MemoryDistiller(store, {
@@ -125,7 +165,10 @@ pnpm 装 electron 前要配 onlyBuiltDependencies。
     expect(readFileSync(join(dir, "memory", `${f}.md`), "utf-8")).toContain("M4 记忆系统");
   });
 
-  it("占位符段落不落盘", () => {
+  it.each([
+    "<NOTES>(unchanged)</NOTES><DIARY>(none)</DIARY><PROJECT>(none)</PROJECT><LESSON>(none)</LESSON>",
+    "<NOTES>(无变化)</NOTES><DIARY>(无)</DIARY><PROJECT>(无)</PROJECT><LESSON>(无)</LESSON>",
+  ])("占位符段落不落盘: %s", (output) => {
     const store = new MemoryStore(dir);
     const before = readFileSync(join(dir, "MEMORY.md"), "utf-8");
     const distiller = new MemoryDistiller(store, {
@@ -135,7 +178,8 @@ pnpm 装 electron 前要配 onlyBuiltDependencies。
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       modelRuntime: null as any,
     });
-    distiller.apply("<NOTES>(无变化)</NOTES><DIARY>(无)</DIARY><LESSON>(无)</LESSON>");
+    distiller.apply(output);
     expect(readFileSync(join(dir, "MEMORY.md"), "utf-8")).toBe(before);
+    expect(distiller.stats.distilledCount).toBe(0);
   });
 });

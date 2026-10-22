@@ -1,12 +1,9 @@
-/**
- * 渲染崩溃兜底（评审 P2-6）：一个组件抛错不再白屏整个应用。
- * React 只有 class 组件能接 componentDidCatch，这是全仓唯一的 class 组件。
- */
+/** Rendering failures keep the original error visible and remain locale-reactive. */
 import { Component, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 
 interface Props {
   children: ReactNode;
-  /** 出错时显示的区块名（如「会话区」），也用于 console 日志定位 */
   label?: string;
 }
 
@@ -28,18 +25,26 @@ export class ErrorBoundary extends Component<Props, State> {
   render() {
     const { error } = this.state;
     if (!error) return this.props.children;
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-        <div className="text-[14px] font-medium text-danger">{this.props.label ?? "界面"}渲染出错</div>
-        <div className="max-w-md break-all text-[12px] leading-5 text-text-tertiary">{error.message}</div>
-        <button
-          type="button"
-          onClick={() => this.setState({ error: null })}
-          className="rounded-lg border border-border bg-bg-elevated px-4 py-2 text-[13px] text-text-primary hover:bg-bg-hover"
-        >
-          重试
-        </button>
-      </div>
-    );
+    return <ErrorFallback error={error} label={this.props.label} onRetry={() => this.setState({ error: null })} />;
   }
+}
+
+function ErrorFallback({ error, label, onRetry }: { error: Error; label?: string; onRetry: () => void }) {
+  const { t } = useTranslation("chat");
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+      <div className="text-[14px] font-medium text-danger">
+        {t("error.render", { label: label ?? t("error.interface") })}
+      </div>
+      <div className="max-w-md break-all text-[12px] leading-5 text-text-tertiary">{error.message}</div>
+      <button
+        type="button"
+        data-testid="render-error-retry"
+        onClick={onRetry}
+        className="rounded-lg border border-border bg-bg-elevated px-4 py-2 text-[13px] text-text-primary hover:bg-bg-hover"
+      >
+        {t("common.retry")}
+      </button>
+    </div>
+  );
 }

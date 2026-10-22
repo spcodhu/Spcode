@@ -20,6 +20,13 @@ const MEMORY_MD_MAX_CHARS = 3200; // ≈800 tokens 的中文上限
 const SOUL_MD_MAX_CHARS = 2000;
 const USER_MD_MAX_CHARS = 1600;
 const PROJECT_MD_MAX_CHARS = 2400;
+const LESSONS_SEED = `# lessons.md - Lessons learned
+
+(Tool/command rules learned from failures and corrections. Format: - [confidence 0-100] rule)
+`;
+// Recognize only the exact untouched legacy seed, never a prefix that could hide appended lessons.
+const LEGACY_LESSONS_SEED =
+  "# lessons.md - 教训库\n\n（从失败与纠正中学到的工具/命令规则。格式：- [信任分 0-100] 规则）";
 
 export class MemoryStore {
   readonly home: string;
@@ -36,41 +43,35 @@ export class MemoryStore {
   private seedDefaults(): void {
     this.seedIfMissing(
       "SOUL.md",
-      `# SOUL.md - Spcod 的人格
+      `# SOUL.md - Spcod's personality
 
-你是 Spcod，一个以 Pi 为引擎的 Agentic Code 工作台里的助手。
+You are Spcod, the assistant in a Pi-powered agentic coding workbench.
 
-- 直接做事，不说废话。"好的，我来帮你"这类开场白全省略。
-- 有自己的判断：可以不同意、可以偏好某种做法，并说明理由。
-- 先尝试自己解决（读文件、查上下文、搜索），确实卡住了再问。
-- 用户的机器是客人的地盘：对外动作（发消息、推送、发布）先问，对内动作（读、改、学）放手做。
+- Get things done directly. Skip filler and openings such as "Sure, I can help."
+- Exercise your own judgment: you may disagree or prefer an approach, and explain why.
+- Try to solve problems yourself first (read files, inspect context, search); ask only when truly blocked.
+- You are a guest on the user's machine: ask before outward actions (sending messages, pushing, publishing); work freely on internal actions (reading, editing, learning).
 `,
     );
     this.seedIfMissing(
       "USER.md",
-      `# USER.md - 关于用户
+      `# USER.md - About the user
 
-- **Name:** （待用户补充）
+- **Name:** (to be provided by the user)
 - **Timezone:** UTC+8
 
-（蒸馏会随了解加深自动补充稳定偏好。）
+(Memory distillation will add stable preferences as understanding grows.)
 `,
     );
     this.seedIfMissing(
       "MEMORY.md",
-      `# MEMORY.md - 中期记忆
+      `# MEMORY.md - Medium-term memory
 
 ## Notes
-（暂无。会话结束时蒸馏会自动把值得记住的项目动态写到这里。）
+(No notes yet. After a session, distillation records project developments worth remembering here.)
 `,
     );
-    this.seedIfMissing(
-      join("memory", "lessons.md"),
-      `# lessons.md - 教训库
-
-（从失败与纠正中学到的工具/命令规则。格式：- [信任分 0-100] 规则）
-`,
-    );
+    this.seedIfMissing(join("memory", "lessons.md"), LESSONS_SEED);
   }
 
   private seedIfMissing(relPath: string, content: string): void {
@@ -86,7 +87,7 @@ export class MemoryStore {
     if (!existsSync(file)) return "";
     let text = readFileSync(file, "utf-8").trim();
     if (text.length > maxChars) {
-      text = `${text.slice(0, maxChars)}\n…（超出容量已截断）`;
+      text = `${text.slice(0, maxChars)}\n… (truncated to capacity)`;
     }
     return text;
   }
@@ -144,15 +145,15 @@ export class MemoryStore {
       if (proj) parts.push(`<project-memory project="${cwd}">\n${proj}\n</project-memory>`);
     }
     const lessons = this.readCapped(join("memory", "lessons.md"), 1200);
-    if (lessons && !lessons.startsWith("# lessons.md - 教训库\n\n（")) {
+    if (lessons && lessons !== LESSONS_SEED.trim() && lessons !== LEGACY_LESSONS_SEED) {
       parts.push(`<lessons>\n${lessons}\n</lessons>`);
     }
     if (parts.length === 0) return "";
     return [
       "# Spcod Memory",
       "",
-      "以下是 Spcod 的分层记忆。它们是你与用户、项目长期相处沉淀下来的事实，",
-      "优先级高于你的通用假设；与会话中的新信息冲突时，以新信息为准并在蒸馏时修正记忆。",
+      "These are Spcod's layered memories: facts learned over time about the user and projects.",
+      "Prefer them over general assumptions. If they conflict with new information in this conversation, use the new information and correct the memory during distillation.",
       "",
       parts.join("\n\n"),
     ].join("\n");
@@ -182,7 +183,7 @@ export class MemoryStore {
 
     let body: string;
     if (!existing.trim()) {
-      body = `# MEMORY.md - 中期记忆\n\n## Notes\n${notes}\n`;
+      body = `# MEMORY.md - Medium-term memory\n\n## Notes\n${notes}\n`;
     } else {
       // 有 ## Notes 段则原位替换，没有则在文件头（首个 ## 之前或标题行后）插入
       const sectionRe = /(^|\n)## Notes\n[\s\S]*?(?=\n## |$)/;

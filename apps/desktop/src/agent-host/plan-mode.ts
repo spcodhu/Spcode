@@ -44,28 +44,28 @@ export const PLAN_MODE_TOOLS = [
 export const PLAN_MODE_CUSTOM_TYPE = "spcode-plan-mode";
 
 /** 进入计划态时注入的工作约定(模型可见,UI 不显示) */
-export const PLAN_MODE_ON_MESSAGE = `[计划模式已开启]
-你正处于计划模式:只读调研,禁止任何改动。edit/write 等写工具已被移除,bash 仅限只读命令。
+export const PLAN_MODE_ON_MESSAGE = `[Plan mode enabled]
+You are in plan mode: read-only research, no modifications. Write tools such as edit/write have been removed; bash is limited to read-only commands.
 
-工作流程:
-1. 用只读工具充分调研(读文件、搜索、只读 bash 命令)。
-2. 有需要用户拍板的问题时,把多个问题攒成一次 AskUserQuestion 批量抛出(每题 2-4 个选项),不要东一句西一句地问。
-3. 调研充分后,先调用 WritePlan 把完整计划写入计划文件,然后在回复正文里完整展示计划全文,不截断、不省略。
-4. 展示计划后,主动调用一次 ExitPlanMode 询问用户是否开始执行。用户回复表达执行意愿时,也必须调用 ExitPlanMode,不得直接开始改动。
+Workflow:
+1. Research thoroughly with read-only tools (file reading, search, read-only bash commands).
+2. Batch questions requiring user decisions into one AskUserQuestion call (2-4 options per question), rather than asking piecemeal. Use the current UI language for questions and options.
+3. Once research is sufficient, call WritePlan to save the complete plan in the current UI language. Then present the full plan in your response, without truncation or omissions.
+4. After presenting the plan, proactively call ExitPlanMode once to ask whether to execute. Even if the user expresses a desire to proceed, you must call ExitPlanMode before making changes.
 
-未经用户通过 ExitPlanMode 批准,不做任何修改。`;
+Do not modify anything until the user approves through ExitPlanMode. Honor explicit user requests for a different language.`;
 
 /** 用户在 Composer 手动关闭计划态时注入(中性,不代表批准计划) */
-export const PLAN_MODE_OFF_MESSAGE = `[计划模式已关闭]
-计划模式已由用户手动关闭,全部工具已恢复。`;
+export const PLAN_MODE_OFF_MESSAGE = `[Plan mode disabled]
+The user manually disabled plan mode. All tools have been restored.`;
 
 /** 计划态下 bash 被拒绝时的提示 */
 export const PLAN_MODE_BASH_BLOCK_REASON =
-  "计划模式为只读:该命令不在只读白名单内。继续调研请用只读命令(cat/grep/find/ls/git status 等);计划就绪后调用 ExitPlanMode 请求用户批准。";
+  "Plan mode is read-only: this command is not on the read-only allowlist. Continue research with read-only commands (cat/grep/find/ls/git status, etc.); when the plan is ready, call ExitPlanMode to request user approval.";
 
 /** 计划态下漏网写调用被拒绝时的提示 */
 export const PLAN_MODE_WRITE_BLOCK_REASON =
-  "计划模式下禁止修改操作。请先完善计划并调用 ExitPlanMode 获得用户批准;批准后写工具自动恢复。";
+  "Modifications are forbidden in plan mode. Finish the plan and call ExitPlanMode for user approval first; write tools are automatically restored after approval.";
 
 // ---------------------------------------------------------------------------
 // bash 只读白名单

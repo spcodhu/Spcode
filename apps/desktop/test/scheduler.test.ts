@@ -6,12 +6,20 @@ import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { ScheduleTask } from "@spcode/shared";
-import { afterAll, describe, expect, it } from "vitest";
+import { setLocale } from "@spcode/shared/i18n";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { isDue, Scheduler } from "../src/main/scheduler.js";
 
 let dir = "";
 
+beforeAll(() => {
+  dir = mkdtempSync(join(tmpdir(), "spcode-sched-"));
+  vi.stubEnv("SPCODE_HOME", dir);
+});
+afterEach(() => setLocale("zh-CN"));
+
 afterAll(() => {
+  vi.unstubAllEnvs();
   if (dir) rmSync(dir, { recursive: true, force: true });
 });
 
@@ -99,6 +107,18 @@ describe("Scheduler.tick", () => {
     });
     return { sched, fired, notified, file };
   }
+
+  it("localizes missing-task errors at throw time without altering scheduling", async () => {
+    const { sched, fired } = setup(
+      async () => "unused",
+      () => MON,
+    );
+    setLocale("zh-CN");
+    await expect(sched.runNow("<missing>")).rejects.toThrow("任务不存在：<missing>");
+    setLocale("en");
+    await expect(sched.runNow("<missing>")).rejects.toThrow("Task not found: <missing>");
+    expect(fired).toHaveLength(0);
+  });
 
   it("到点触发一次：标记 lastRunAt、广播通知，同周期再 tick 不重复", async () => {
     const { sched, fired, notified } = setup(

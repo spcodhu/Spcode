@@ -2,6 +2,7 @@ import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { resolve } from "node:path";
+import { languageBuildPlugin } from "../../packages/shared/src/i18n/build";
 
 // @spcode/shared 是导出 TS 源码的 workspace 包，必须内联编译进产物——
 // 若 externalize，打包后它以真实目录落在 app.asar/node_modules 下，
@@ -11,7 +12,7 @@ const inlineWorkspace = externalizeDepsPlugin({ exclude: ["@spcode/shared"] });
 
 export default defineConfig({
   main: {
-    plugins: [inlineWorkspace],
+    plugins: [languageBuildPlugin(), inlineWorkspace],
     build: {
       rollupOptions: {
         input: {
@@ -27,7 +28,7 @@ export default defineConfig({
     },
   },
   preload: {
-    plugins: [inlineWorkspace],
+    plugins: [languageBuildPlugin(), inlineWorkspace],
     build: {
       rollupOptions: {
         output: {
@@ -39,6 +40,6 @@ export default defineConfig({
     },
   },
   renderer: {
-    plugins: [react(), tailwindcss()],
+    plugins: [languageBuildPlugin(), react(), tailwindcss()],
   },
 });

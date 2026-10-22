@@ -10,6 +10,7 @@
  * 点击不冒泡（开关常嵌在可点击的行里）。
  */
 import type { ButtonHTMLAttributes } from "react";
+import { useTranslation } from "react-i18next";
 
 export interface SwitchProps {
   on: boolean;
@@ -22,12 +23,13 @@ export interface SwitchProps {
 }
 
 export function Switch({ on, onChange, disabled, label, className = "" }: SwitchProps) {
+  const { t } = useTranslation("chat");
   return (
     <button
       type="button"
       role="switch"
       aria-checked={on}
-      aria-label={label}
+      aria-label={label ?? t("common.toggle")}
       disabled={disabled}
       onClick={(e) => {
         e.stopPropagation();

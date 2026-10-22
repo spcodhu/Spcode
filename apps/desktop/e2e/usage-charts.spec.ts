@@ -147,7 +147,7 @@ test("用量图表：悬浮出明细、点击锁定高亮（环形图/柱状图/
   // 柱状图：悬浮到某天上 → 当日明细（日期），点击锁定后出现高亮列
   const hit = window.getByTestId("usage-bar-hit").first();
   await hit.hover();
-  await expect(trendTip).toContainText(/\d{4}-\d{2}-\d{2}/);
+  await expect(trendTip).toContainText(/\d{4}[/-]\d{2}[/-]\d{2}/);
   await hit.click();
   await expect(window.getByTestId("usage-bar-cursor")).toBeVisible();
   await window.mouse.move(2, 2);

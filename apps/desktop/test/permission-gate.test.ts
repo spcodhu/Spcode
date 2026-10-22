@@ -8,9 +8,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PermissionRequest } from "@spcode/shared";
 import { DEFAULT_SANDBOX_SETTINGS } from "@spcode/shared";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { renderMessage, setLocale } from "@spcode/shared/i18n";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+
 import { createBeforeToolCallGate } from "../src/agent-host/permission-gate.js";
 import type { FsGuardPolicy } from "../src/agent-host/sandbox/fs-guard.js";
+
+afterEach(() => setLocale("zh-CN"));
 
 let root = "";
 let cwd = "";
@@ -96,6 +100,25 @@ describe("计划模式门禁", () => {
 });
 
 describe("沙盒联动", () => {
+  it("keeps strict-mode and user-denied guards canonical with localizable descriptions", async () => {
+    setLocale("zh-CN");
+    const strict = makeGate({ sandboxSettings: { allowUnsandboxedCommands: false } });
+    const blocked = await strict.gate({
+      toolCall: { name: "bash", arguments: { command: "open .", dangerouslyDisableSandbox: true } },
+    });
+    expect(blocked?.reason).toContain("Sandbox strict mode");
+    expect(blocked?.reasonMessage?.key).toBe("main:permission.sandboxStrict");
+    expect(renderMessage(blocked!.reasonMessage!)).toContain("沙盒严格模式");
+    setLocale("en");
+    expect(renderMessage(blocked!.reasonMessage!)).toBe(blocked?.reason);
+    expect(strict.requests).toHaveLength(0);
+    const denied = await makeGate().gate({
+      toolCall: { name: "bash", arguments: { command: "git push origin main" } },
+    });
+    expect(denied?.reasonMessage?.key).toBe("main:permission.denied");
+    expect(renderMessage(denied!.reasonMessage!)).toBe(denied?.reason);
+  });
+
   it("沙盒内 write 级 + autoAllow → 静默放行；outward/danger 仍弹窗", async () => {
     const { gate, requests } = makeGate();
     expect(await gate({ toolCall: { name: "bash", arguments: { command: "mkdir out" } } })).toBeUndefined();

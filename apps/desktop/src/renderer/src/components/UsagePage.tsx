@@ -1,5 +1,7 @@
 import type { UsageAggregate } from "@spcode/shared";
+import { getLocale } from "@spcode/shared/i18n";
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { chartVar, donutSegments, formatShare, modelColorIndex, shortModelName, tokensOf } from "../chart";
 import { formatZh } from "../format";
 import { ChartDot, useChartTip } from "./ChartTip";
@@ -13,13 +15,14 @@ interface Aggregate {
   byModel: Record<string, UsageAggregate>;
 }
 
-const RANGE_LABELS: { id: Range; label: string }[] = [
-  { id: "today", label: "今日" },
-  { id: "week", label: "近 7 天" },
-  { id: "all", label: "累计" },
+const RANGE_LABELS: { id: Range; label: `usage.${Range}` }[] = [
+  { id: "today", label: "usage.today" },
+  { id: "week", label: "usage.week" },
+  { id: "all", label: "usage.all" },
 ];
 
 export function UsagePage() {
+  const { t } = useTranslation("settings");
   const [range, setRange] = useState<Range>("week");
   const [data, setData] = useState<Aggregate | null>(null);
   /** 按日×模型明细：趋势曲线与热点图用（拉宽到 1000 个活跃日，覆盖 100 天窗口与历史打卡统计） */
@@ -70,10 +73,10 @@ export function UsagePage() {
 
   return (
     <div>
-      <div className="flex items-start justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-[22px] font-semibold text-text-primary">用量</h1>
-          <p className="mt-1 text-[13px] text-text-tertiary">查看 Spcod 本地 token 使用统计和模型订阅额度</p>
+          <h1 className="text-[22px] font-semibold text-text-primary">{t("nav.usage")}</h1>
+          <p className="mt-1 text-[13px] text-text-tertiary">{t("usage.description")}</p>
         </div>
         {/* 区间切换 */}
         <div className="flex rounded-full bg-bg-elevated p-1">
@@ -86,7 +89,7 @@ export function UsagePage() {
                 range === r.id ? "bg-accent text-white" : "text-text-secondary hover:text-text-primary"
               }`}
             >
-              {r.label}
+              {t(r.label)}
             </button>
           ))}
         </div>
@@ -94,21 +97,21 @@ export function UsagePage() {
 
       {/* 区间没用量的日子（比如今天还没开工）也要保留原始结构：
           饼图空环 + 指标卡归零 + 图例区换成一句说明，切区间时页面不会整个塌掉 */}
-      <div className="mt-6 flex gap-5" data-testid="usage-overview">
+      <div className="mt-6 flex flex-wrap gap-5" data-testid="usage-overview">
         {/* 左：环形图 + 全模型图例（悬浮/点击联动高亮） */}
         <DonutCard models={models} totalTokens={totalTokens} colorOf={colorOf} />
 
         {/* 右：统计卡（无数据时显示 0，结构照旧） */}
-        <div className="flex flex-1 flex-col gap-4">
-          <BigStatCard icon="cpu" value={formatZh(totalTokens)} label="总 Token" />
-          <BigStatCard icon="zap" value={(total?.count ?? 0).toLocaleString()} label="请求次数" />
+        <div className="flex min-w-[200px] flex-1 flex-col gap-4">
+          <BigStatCard icon="cpu" value={formatZh(totalTokens)} label={t("usage.totalTokens")} />
+          <BigStatCard icon="zap" value={(total?.count ?? 0).toLocaleString(getLocale())} label={t("usage.requests")} />
           <BigStatCard
             icon="arrowUp"
             value={formatZh((total?.input ?? 0) + (total?.cacheWrite ?? 0))}
-            label="输入 Token"
-            extra={total && total.cacheRead > 0 ? `缓存 ${formatZh(total.cacheRead)}` : undefined}
+            label={t("usage.inputTokens")}
+            extra={total && total.cacheRead > 0 ? t("usage.cache", { value: formatZh(total.cacheRead) }) : undefined}
           />
-          <BigStatCard icon="chart" value={formatZh(total?.output ?? 0)} label="输出 Token" />
+          <BigStatCard icon="chart" value={formatZh(total?.output ?? 0)} label={t("usage.outputTokens")} />
         </div>
       </div>
 
@@ -131,6 +134,7 @@ function DonutCard({
   totalTokens: number;
   colorOf: (model: string, fallback: number) => string;
 }) {
+  const { t } = useTranslation("settings");
   const tip = useChartTip();
   const R = 80;
   const C = 2 * Math.PI * R;
@@ -155,12 +159,12 @@ function DonutCard({
   return (
     <div
       ref={tip.containerRef}
-      className="relative w-[380px] shrink-0 rounded-2xl border border-border bg-bg-elevated p-6"
+      className="relative w-full min-w-0 max-w-[380px] shrink-0 rounded-2xl border border-border bg-bg-elevated p-6"
       data-testid="usage-donut-card"
       {...tip.handlers}
     >
       <div className="flex justify-center">
-        <svg width="220" height="220" viewBox="0 0 220 220" role="img" aria-label="按模型的用量占比环图">
+        <svg width="220" height="220" viewBox="0 0 220 220" role="img" aria-label={t("usage.donut")}>
           <circle cx="110" cy="110" r={R} fill="none" stroke="var(--color-bg-hover)" strokeWidth="26" />
           {ordered.map(({ seg, i, dash, offset: o }) => {
             // 占比为 0 的模型不画弧（图例仍保留该行，显示 0%）
@@ -223,7 +227,7 @@ function DonutCard({
               <span className="min-w-0 flex-1 truncate font-medium text-text-primary" title={m.model}>
                 {shortModelName(m.model)}
               </span>
-              <span className="shrink-0 text-text-tertiary">{m.count} 次</span>
+              <span className="shrink-0 text-text-tertiary">{t("usage.count", { count: m.count })}</span>
               <span className="shrink-0 text-text-primary">{formatZh(m.tokens)}</span>
               <span className="w-10 shrink-0 text-right text-text-tertiary">{formatShare(m.tokens, totalTokens)}</span>
             </div>
@@ -231,7 +235,7 @@ function DonutCard({
         </div>
       ) : (
         <div className="mt-6 rounded-xl border border-dashed border-border px-4 py-6 text-center text-[12px] leading-5 text-text-tertiary">
-          该区间还没有用量记录，跑几轮对话后这里会有统计。
+          {t("usage.noRecords")}
         </div>
       )}
 
@@ -245,9 +249,11 @@ function DonutCard({
             <div className="mt-1 flex items-center gap-1.5">
               <ChartDot color={colorOf(m.model, i)} />
               <span className="text-text-primary tabular-nums">{formatZh(m.tokens)}</span>
-              <span className="text-text-tertiary">tokens · {formatShare(m.tokens, totalTokens)}</span>
+              <span className="text-text-tertiary">
+                {t("usage.tokensWithScope", { scope: formatShare(m.tokens, totalTokens) })}
+              </span>
             </div>
-            <div className="text-text-tertiary">{m.count} 次请求</div>
+            <div className="text-text-tertiary">{t("usage.requestCount", { count: m.count })}</div>
           </div>
         );
       })}
@@ -262,7 +268,7 @@ function BigStatCard({ icon, value, label, extra }: { icon: string; value: strin
         <Icon name={icon} size={18} />
       </div>
       <div className="min-w-0">
-        <div className="flex items-baseline gap-2">
+        <div className="flex flex-wrap items-baseline gap-2">
           <span className="text-[26px] font-semibold leading-8 text-text-primary">{value}</span>
           {extra && <span className="text-[12px] text-text-tertiary">{extra}</span>}
         </div>

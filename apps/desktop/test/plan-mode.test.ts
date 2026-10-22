@@ -8,7 +8,9 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { afterAll, describe, expect, it } from "vitest";
+import type { QuestionAnswer, QuestionAnswers, QuestionRequest } from "@spcode/shared";
+import { renderMessage, setLocale } from "@spcode/shared/i18n";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryStore } from "../src/agent-host/memory-store.js";
 import { isPlanModeSafeCommand } from "../src/agent-host/plan-mode.js";
 import { classifyToolRisk, SessionController } from "../src/agent-host/session-controller.js";
@@ -139,6 +141,10 @@ describe("WritePlan 工具", () => {
     expect(existsSync(file)).toBe(true);
     expect(readFileSync(file, "utf-8")).toContain("# 计划 v1");
     expect(saved).toEqual([file]);
+    expect(r1.content[0]).toMatchObject({
+      text: `Plan saved: ${file}. Now present the complete plan in your response.`,
+    });
+    expect(r1.details).toEqual({ path: file, presentation: { key: "agent:tool.planSaved", params: { path: file } } });
 
     await tool.execute("t2", { content: "# 计划 v2" }, undefined as never);
     expect(readFileSync(file, "utf-8")).toContain("# 计划 v2");
@@ -154,55 +160,115 @@ describe("WritePlan 工具", () => {
 });
 
 describe("ExitPlanMode 工具", () => {
-  const makeTool = (answer: string | undefined, onApproved: () => Promise<void>) =>
+  afterEach(() => setLocale("zh-CN"));
+  const makeTool = (answer: QuestionAnswer | undefined, onApproved: () => Promise<void>) =>
     createExitPlanModeTool({
       sessionId: "s1",
-      ask: async () => (answer === undefined ? {} : { [EXIT_PLAN_QUESTION]: answer }),
+      ask: async () => (answer === undefined ? {} : { "0": answer }),
       isPlanMode: () => true,
       onApproved,
     });
 
-  it("点「开始执行」→ 触发 onApproved,返回里要求先建 TodoWrite 清单", async () => {
-    let approved = false;
-    const tool = makeTool("开始执行", async () => {
-      approved = true;
-    });
+  it.each(["zh-CN", "en"])("explicit stable selection approves in %s with fixed English result", async (locale) => {
+    setLocale(locale);
+    const onApproved = vi.fn(async () => {});
+    const tool = makeTool({ kind: "options", values: ["approve"] }, onApproved);
     const r = await tool.execute("t1", {}, undefined as never);
-    expect(approved).toBe(true);
+    expect(onApproved).toHaveBeenCalledOnce();
+    expect(r.details).toMatchObject({ approved: true, presentation: { key: "questions:plan.approved" } });
     const text = (r.content[0] as { text: string }).text;
     expect(text).toContain("TodoWrite");
-    expect(text).toContain("立即更新");
+    expect(text).toContain("immediately update");
   });
 
-  it("点「继续调整」→ 不批准,保持计划态", async () => {
-    let approved = false;
-    const tool = makeTool("继续调整", async () => {
-      approved = true;
-    });
-    const r = await tool.execute("t2", {}, undefined as never);
-    expect(approved).toBe(false);
-    expect((r.content[0] as { text: string }).text).toContain("仍在计划模式");
+  it.each(["approve", "开始执行", "Start executing", "继续调整"])("typed %s never approves", async (text) => {
+    const onApproved = vi.fn(async () => {});
+    const r = await makeTool({ kind: "text", text }, onApproved).execute("t", {}, undefined as never);
+    expect(onApproved).not.toHaveBeenCalled();
+    expect(r.details).toMatchObject({ approved: false, presentation: { params: { answer: text } } });
   });
 
-  it("跳过 → 不批准", async () => {
-    let approved = false;
-    const tool = makeTool(undefined, async () => {
-      approved = true;
+  it.each([
+    { "0": "开始执行" },
+    { "0": "approve" },
+    { [EXIT_PLAN_QUESTION]: { kind: "options", values: ["approve"] } },
+    { "1": { kind: "options", values: ["approve"] } },
+    { "0": { kind: "options", values: ["开始执行"] } },
+    { "0": { kind: "options", values: ["approve", "revise"] } },
+    { "0": { kind: "options", values: ["approve"] }, "9": { kind: "dismiss" } },
+  ])("rejects invalid/legacy answers %j", async (answers) => {
+    const onApproved = vi.fn(async () => {});
+    const tool = createExitPlanModeTool({
+      sessionId: "s1",
+      ask: async () => answers as unknown as QuestionAnswers,
+      isPlanMode: () => true,
+      onApproved,
     });
-    const r = await tool.execute("t3", {}, undefined as never);
-    expect(approved).toBe(false);
-    expect((r.content[0] as { text: string }).text).toContain("跳过");
+    const result = await tool.execute("t", {}, undefined as never);
+    expect(onApproved).not.toHaveBeenCalled();
+    expect(result.details).toMatchObject({ approved: false });
+  });
+
+  it("revise and dismiss retain plan mode", async () => {
+    const onApproved = vi.fn(async () => {});
+    const revised = await makeTool({ kind: "options", values: ["revise"] }, onApproved).execute(
+      "t",
+      {},
+      undefined as never,
+    );
+    expect((revised.content[0] as { text: string }).text).toContain("Remain in plan mode");
+    for (const answer of [undefined, { kind: "dismiss" } as const]) {
+      const r = await makeTool(answer, onApproved).execute("t", {}, undefined as never);
+      expect(r.details).toMatchObject({ approved: false, presentation: { key: "questions:plan.dismissed" } });
+    }
+    expect(onApproved).not.toHaveBeenCalled();
+  });
+
+  it("canonical request descriptors relocalize without changing protocol values", async () => {
+    let request!: QuestionRequest;
+    const tool = createExitPlanModeTool({
+      sessionId: "s1",
+      ask: async (r) => {
+        request = r;
+        return {};
+      },
+      isPlanMode: () => true,
+      onApproved: async () => {},
+    });
+    await tool.execute("t", {}, undefined as never);
+    const option = request.questions[0]!.options![0]!;
+    expect(request.purpose).toBe("plan-approval");
+    expect(option.value).toBe("approve");
+    expect(option.label).toBe("Start executing");
+    setLocale("zh-CN");
+    expect(renderMessage(option.presentation!.label!)).toBe("开始执行");
+    setLocale("en");
+    expect(renderMessage(option.presentation!.label!)).toBe("Start executing");
+  });
+
+  it("does not re-approve a plan that ended while awaiting the response", async () => {
+    let planMode = true;
+    const onApproved = vi.fn(async () => {});
+    const tool = createExitPlanModeTool({
+      sessionId: "s1",
+      ask: async () => {
+        planMode = false;
+        return { "0": { kind: "options", values: ["approve"] } };
+      },
+      isPlanMode: () => planMode,
+      onApproved,
+    });
+    const r = await tool.execute("t", {}, undefined as never);
+    expect(r.details).toMatchObject({ approved: false });
+    expect(onApproved).not.toHaveBeenCalled();
   });
 
   it("非计划态调用 → 直接报错", async () => {
-    const tool = createExitPlanModeTool({
-      sessionId: "s1",
-      ask: async () => ({}),
-      isPlanMode: () => false,
-      onApproved: async () => {},
-    });
+    const ask = vi.fn(async () => ({}));
+    const tool = createExitPlanModeTool({ sessionId: "s1", ask, isPlanMode: () => false, onApproved: async () => {} });
     const r = await tool.execute("t4", {}, undefined as never);
     expect(r.isError).toBe(true);
+    expect(ask).not.toHaveBeenCalled();
   });
 });
 

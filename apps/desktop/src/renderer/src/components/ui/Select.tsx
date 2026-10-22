@@ -1,5 +1,6 @@
 /** 应用内风格下拉选择器：替代原生 <select>（原生弹层在深色主题下是浅色 OS 样式，很刺眼） */
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Icon } from "../Icon";
 
 export interface SelectOption {
@@ -12,12 +13,17 @@ export function Select({
   options,
   onChange,
   className,
+  label,
+  testId,
 }: {
   value: string;
   options: SelectOption[];
   onChange: (value: string) => void;
   className?: string;
+  label?: string;
+  testId?: string;
 }) {
+  const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -49,9 +55,12 @@ export function Select({
       <button
         type="button"
         onClick={() => setOpen(!open)}
+        aria-label={label}
+        aria-expanded={open}
+        data-testid={testId}
         className="flex w-full items-center justify-between gap-2 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-[13px] text-text-primary transition-colors hover:border-border-strong"
       >
-        <span>{current?.label ?? current?.value ?? "选择…"}</span>
+        <span>{current?.label ?? current?.value ?? t("common.select")}</span>
         <Icon
           name="chevronDown"
           size={13}

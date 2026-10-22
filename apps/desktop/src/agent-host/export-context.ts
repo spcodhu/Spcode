@@ -13,6 +13,8 @@ import { copyFileSync, existsSync, mkdirSync, statSync, writeFileSync } from "no
 import { join } from "node:path";
 import { type SessionEntry, SessionManager } from "@earendil-works/pi-coding-agent";
 import type { ExportContextResult } from "@spcode/shared";
+import { getLocale, i18n } from "@spcode/shared/i18n";
+import { buildLanguagePolicy } from "./language-policy.js";
 import { MemoryStore } from "./memory-store.js";
 
 /** 单条工具输出在 transcript 里的上限（超出截断并指向 session.jsonl） */
@@ -75,7 +77,7 @@ function textOf(content: unknown): string {
 function toolResultText(msg: { content?: unknown }): string {
   const raw = textOf(msg.content);
   if (raw.length > MAX_TOOL_OUTPUT_CHARS) {
-    return `${raw.slice(0, MAX_TOOL_OUTPUT_CHARS)}\n…（输出过长已截断，完整内容见 session.jsonl）`;
+    return `${raw.slice(0, MAX_TOOL_OUTPUT_CHARS)}\n${i18n.t("agent:export.truncated")}`;
   }
   return raw;
 }
@@ -102,10 +104,10 @@ export function renderTranscript(
   }
 
   const parts: string[] = [
-    `# 会话记录：${meta.title}`,
+    `# ${i18n.t("agent:export.title", { title: meta.title })}`,
     "",
-    `- 导出时间：${meta.exportedAt.toLocaleString("zh-CN")}`,
-    `- 工作目录：${meta.cwd || "（无绑定目录）"}`,
+    `- ${i18n.t("agent:export.exportedAt", { time: meta.exportedAt.toLocaleString(getLocale()) })}`,
+    `- ${i18n.t("agent:export.cwd", { cwd: meta.cwd || i18n.t("agent:export.noCwd") })}`,
     "",
     "---",
   ];
@@ -121,33 +123,46 @@ export function renderTranscript(
           const images = blocks.filter((b) => b.type === "image");
           if (!text && images.length === 0) break;
           messages++;
-          parts.push("", "## 🧑 用户", "");
+          parts.push("", `## 🧑 ${i18n.t("agent:export.user")}`, "");
           if (text) parts.push(text);
           for (const img of images)
-            parts.push(`[📷 图片: ${img.mimeType || "image/png"}，未内联——原图见 session.jsonl]`);
+            parts.push(`[📷 ${i18n.t("agent:export.image", { mimeType: img.mimeType || "image/png" })}]`);
         } else if (m.role === "assistant") {
           const blocks = Array.isArray(m.content) ? (m.content as ContentBlock[]) : [];
           const rendered: string[] = [];
           for (const b of blocks) {
             if (b.type === "thinking" && b.thinking?.trim()) {
-              rendered.push(`> 💭 **思考**\n${quoteBlock(b.thinking.trim())}`);
+              rendered.push(`> 💭 **${i18n.t("agent:export.thinking")}**\n${quoteBlock(b.thinking.trim())}`);
             } else if (b.type === "text" && b.text?.trim()) {
               rendered.push(b.text.trim());
             } else if (b.type === "toolCall" && b.name) {
               const args = JSON.stringify(b.arguments ?? {}, null, 2);
               const res = b.id ? toolResults.get(b.id) : undefined;
-              const block = [`#### 🔧 工具调用：\`${b.name}\``, "", "参数：", "```json", args, "```"];
+              const block = [
+                `#### 🔧 ${i18n.t("agent:export.toolCall", { name: b.name })}`,
+                "",
+                i18n.t("agent:export.arguments"),
+                "```json",
+                args,
+                "```",
+              ];
               if (res) {
-                block.push("", `结果${res.isError ? "（错误）" : ""}：`, "```", res.text || "（无输出）", "```");
+                block.push(
+                  "",
+                  i18n.t(res.isError ? "agent:export.errorResult" : "agent:export.result"),
+                  "```",
+                  res.text || i18n.t("agent:export.noOutput"),
+                  "```",
+                );
               } else {
-                block.push("", "结果：（未记录——调用被中断或会话被截断）");
+                block.push("", i18n.t("agent:export.missingResult"));
               }
               rendered.push(block.join("\n"));
             }
           }
           if (rendered.length === 0) break;
           messages++;
-          parts.push("", "## 🤖 助手", "", rendered.join("\n\n"));
+          parts.push("", `## 🤖 ${i18n.t("agent:export.assistant")}`, "", rendered.join("\n\n"));
         }
         // system / toolResult 消息不单独渲染（toolResult 已关联到工具调用下）
         break;
@@ -157,7 +172,7 @@ export function renderTranscript(
           "",
           "---",
           "",
-          `> 🗜️ **上下文压缩点**（${new Date(e.timestamp).toLocaleString("zh-CN")}）：约 ${e.tokensBefore} tokens 的早期历史被压缩为以下摘要：`,
+          `> 🗜️ ${i18n.t("agent:export.compaction", { time: new Date(e.timestamp).toLocaleString(getLocale()), tokens: e.tokensBefore })}`,
           "",
           quoteBlock(e.summary),
           "",
@@ -165,19 +180,20 @@ export function renderTranscript(
         );
         break;
       case "branch_summary":
-        parts.push("", `> 🔀 **分支摘要**（另一条探索路径并入主线）：`, "", quoteBlock(e.summary));
+        parts.push("", `> 🔀 ${i18n.t("agent:export.branchSummary")}`, "", quoteBlock(e.summary));
         break;
       case "model_change":
-        parts.push("", `*📌 模型切换：${e.provider}/${e.modelId}*`);
+        parts.push("", `*📌 ${i18n.t("agent:export.modelChange", { provider: e.provider, model: e.modelId })}*`);
         break;
       case "thinking_level_change":
-        parts.push("", `*📌 思考档位切换：${e.thinkingLevel}*`);
+        parts.push("", `*📌 ${i18n.t("agent:export.thinkingChange", { level: e.thinkingLevel })}*`);
         break;
       case "custom_message": {
         // display=false 的是 harness 内部机制消息（计划模式约定等），不进记录
         if (!e.display) break;
         const text = typeof e.content === "string" ? e.content : textOf(e.content);
-        if (text.trim()) parts.push("", `## 📎 注入消息（${e.customType}）`, "", text.trim());
+        if (text.trim())
+          parts.push("", `## 📎 ${i18n.t("agent:export.customMessage", { type: e.customType })}`, "", text.trim());
         break;
       }
       default:
@@ -208,26 +224,28 @@ export function buildHandoffPrompt(opts: {
   memoryPaths: string[];
 }): string {
   const lines = [
-    "你正在接手一段来自另一个 AI 编程助手（Spcode）的完整会话。",
+    "You are taking over a complete conversation from another AI coding assistant (Spcode).",
     "",
-    "## 会话记录位置（都在本机，用你的文件读取工具读）",
-    `- 人类可读记录：${opts.transcriptPath} —— 先完整读取它`,
-    `- 结构化原始记录：${opts.jsonlPath} —— 每行一个 JSON 事件（消息/工具调用/用量/压缩边界），需要工具参数、原始输出等精确细节时查阅`,
+    "## Session record locations (local files; use your file-reading tools)",
+    `- Human-readable transcript: ${opts.transcriptPath} — read it in full first`,
+    `- Structured original record: ${opts.jsonlPath} — one JSON event per line (messages/tool calls/usage/compaction boundaries); consult it for exact tool arguments or original output`,
     "",
-    "## 使用方式",
-    "- 把 transcript.md 的内容当作你我之间已经完整发生过的会话历史：不要重复其中已完成的工作、已得出的结论、已读过的文件。",
-    "- 读完后用一两句话向我确认你掌握到的当前进展与下一步，然后等我的指令继续。",
-    `- 工作目录：${opts.cwd || "（无绑定目录）"}`,
+    "## How to continue",
+    "- Treat transcript.md as conversation history that has already taken place between us. Do not repeat completed work, established conclusions, or file reads.",
+    "- After reading, confirm the current progress and next step in one or two sentences, then wait for my instructions.",
+    `- Working directory: ${opts.cwd || "(no linked directory)"}`,
+    "",
+    buildLanguagePolicy(),
   ];
   if (opts.memoryPaths.length > 0) {
-    lines.push("", "## 补充上下文（本机 Spcode 全局记忆，可按需读取）");
+    lines.push("", "## Additional context (local Spcode memory; read as needed)");
     for (const p of opts.memoryPaths) lines.push(`- ${p}`);
   }
   lines.push(
     "",
-    "## 会话元信息",
-    `- 标题：${opts.title} · 导出时间：${opts.exportedAt.toLocaleString("zh-CN")} · 对话消息条数：${opts.messages}`,
-    "- 注意：记录中可能包含命令输出等敏感内容，仅用于本次工作，不要外传。",
+    "## Session metadata",
+    `- Title: ${opts.title} · Exported at: ${opts.exportedAt.toISOString()} · Conversation messages: ${opts.messages}`,
+    "- Caution: records may contain sensitive content such as command output. Use them only for this work; do not share them externally.",
   );
   return lines.join("\n");
 }
@@ -262,7 +280,7 @@ export function exportSessionContext(opts: {
   now?: Date;
 }): ExportContextResult {
   if (!existsSync(opts.sessionFile) || statSync(opts.sessionFile).size === 0) {
-    throw new Error("该会话还没有可导出的内容（会话记录为空）");
+    throw new Error(i18n.t("agent:export.empty"));
   }
   const now = opts.now ?? new Date();
   const dir = join(opts.spcodeHome, "exports", `${slugify(opts.title)}-${formatTimestamp(now)}`);

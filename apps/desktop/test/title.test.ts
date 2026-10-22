@@ -3,10 +3,14 @@
  * 运行时不依赖真实模型——completeSimple 用桩替代。
  */
 
-import type { Model } from "@earendil-works/pi-ai";
+import type { Context, Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { setLocale } from "@spcode/shared/i18n";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { generateFallbackTitle } from "../src/agent-host/session-controller.js";
+import { createRenameSessionTool } from "../src/agent-host/tools/rename.js";
+
+afterEach(() => setLocale("zh-CN"));
 
 function stubRuntime(text: string): ModelRuntime {
   return {
@@ -19,6 +23,43 @@ function stubRuntime(text: string): ModelRuntime {
 const fakeModel = { provider: "test", id: "m" } as unknown as Model<never>;
 
 describe("generateFallbackTitle", () => {
+  it("uses the UI locale rather than input language, and snapshots it for an in-flight title", async () => {
+    const english = "Investigate authentication module regression";
+    const completeSimple = vi.fn(async (_model: unknown, _context: Context) => {
+      setLocale("zh-CN");
+      return { content: [{ type: "text", text: english }] };
+    });
+    setLocale("en");
+    const { title } = await generateFallbackTitle(
+      { completeSimple } as unknown as ModelRuntime,
+      fakeModel,
+      "检查登录模块",
+    );
+    expect(title).toBe(english); // longer than the old 20/30-character Chinese limits
+    const context = completeSimple.mock.calls[0]![1] as { systemPrompt: string; messages: { content: string }[] };
+    expect(context.systemPrompt).toContain("English (en)");
+    expect(context.messages[0]!.content).toContain("检查登录模块");
+    expect(context.messages[0]!.content).toContain("current UI language, not the input language");
+
+    const chineseCall = vi.fn(async (_model: unknown, _context: Context) => ({
+      content: [{ type: "text", text: "登录模块排查" }],
+    }));
+    await generateFallbackTitle({ completeSimple: chineseCall } as unknown as ModelRuntime, fakeModel, "Debug login");
+    expect((chineseCall.mock.calls[0]![1] as { systemPrompt: string }).systemPrompt).toContain(
+      "Simplified Chinese (zh-CN)",
+    );
+  });
+
+  it("RenameSession retains generated text and exposes a localized presentation descriptor", async () => {
+    setLocale("en");
+    const title = "Investigate authentication module regression";
+    const renamed = vi.fn();
+    const result = await createRenameSessionTool(renamed).execute("t", { title }, undefined as never);
+    expect(renamed).toHaveBeenCalledWith(title);
+    expect(result.details).toEqual({ title, presentation: { key: "agent:tool.sessionRenamed", params: { title } } });
+    expect(result.content[0]).toMatchObject({ text: `Session renamed to "${title}".` });
+  });
+
   it("剥掉引号与结尾标点，输出净标题", async () => {
     const { title } = await generateFallbackTitle(
       stubRuntime("「小米 17 Pro 无故关机排查」。"),

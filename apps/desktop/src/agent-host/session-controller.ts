@@ -20,6 +20,7 @@ import type {
   AdvancedSearchConfig,
   ModelRef,
   PermissionRequest,
+  QuestionAnswers,
   QuestionRequest,
   SandboxSettings,
   SessionInfo,
@@ -28,10 +29,11 @@ import type {
   ToolRisk,
   UsageRecord,
 } from "@spcode/shared";
-import { cleanSessionTitle } from "@spcode/shared";
 import { isAdvancedSearchReady } from "@spcode/shared/advanced-search";
+import { getLocale } from "@spcode/shared/i18n";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 import { MemoryDistiller } from "./distill.js";
+import { buildLanguagePolicy, installLanguagePolicy } from "./language-policy.js";
 import type { MemoryStore } from "./memory-store.js";
 import { maybeMicrocompact } from "./microcompact.js";
 import { createBeforeToolCallGate } from "./permission-gate.js";
@@ -186,7 +188,7 @@ export interface SessionControllerOptions {
    */
   piSettings?: SettingsManager;
   requestPermission: (req: PermissionRequest) => Promise<boolean>;
-  askQuestion: (req: QuestionRequest) => Promise<Record<string, string>>;
+  askQuestion: (req: QuestionRequest) => Promise<QuestionAnswers>;
 }
 
 export class SessionController {
@@ -232,7 +234,7 @@ export class SessionController {
     const memoryBlock = opts.memoryStore.buildInjection(isProject ? cwd : null, isProject);
     // 行为约定：引导模型在理解第一轮意图后用 RenameSession 起标题（agent 命名 + harness 兜底生成双保险）
     const titleBlock =
-      "会话标题约定：如果当前会话还没有贴切的标题（默认是「新聊天」），在理解用户的第一轮意图后，调用一次 RenameSession 工具，用用户的语言起一个简短标题（不超过 30 字）。只调用一次，之后不要再改。";
+      "Session title convention: If the session has no descriptive title yet (only the default new-chat title), call RenameSession once after understanding the user's first request. Use the current UI language, not the input language, unless the user explicitly requests another language for the title. Keep it short (at most 30 Chinese characters or 60 English characters). Call only once; do not rename it afterwards.";
     const resourceLoader = new DefaultResourceLoader({
       cwd,
       agentDir: opts.agentDir,
@@ -321,6 +323,7 @@ export class SessionController {
         }),
       ],
     });
+    installLanguagePolicy(session.agent);
 
     const ctl = new SessionController(
       opts.sessionId,
@@ -574,16 +577,19 @@ export async function generateFallbackTitle(
     cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; total?: number };
   };
 }> {
+  const locale = getLocale();
   const prompt = [
-    "给下面的用户请求起一个精炼的会话标题，用于侧边栏会话列表展示。",
-    "要求：不超过 15 个字；与用户用语言一致；概括意图而不是照抄原文；",
-    "只输出标题本身——不要引号、不要句号等结尾标点、不要任何解释。",
+    "Create a concise session title for the following request, for display in the sidebar.",
+    "Use the current UI language, not the input language, unless the user explicitly requests another title language.",
+    "Aim for at most 15 Chinese characters or 8 English words (60 characters). Summarize the intent, rather than copying the request.",
+    "Output only the title: no quotation marks, trailing punctuation, or explanation.",
     "",
-    "用户请求：",
+    "User request:",
     userText.slice(0, 600),
   ].join("\n");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const result = await runtime.completeSimple(model as any, {
+    systemPrompt: buildLanguagePolicy(locale),
     messages: [{ role: "user", content: prompt, timestamp: Date.now() }],
   });
   const raw = result.content
@@ -591,9 +597,11 @@ export async function generateFallbackTitle(
     .map((b) => b.text)
     .join("");
   // 清洗：压平空白 → 剥引号/结尾标点 → 截断兜底
-  const title = cleanSessionTitle(raw)
+  const title = raw
+    .replace(/\s+/g, " ")
+    .trim()
     .replace(/^[\s"'「『《〈（(【[]+|[\s"'」』》〉）)】\]。．.!！?？:：;；,，、…·~—-]+$/g, "")
-    .slice(0, 20)
+    .slice(0, locale === "en" ? 60 : 20)
     .trim();
   return { title: title || null, usage: result.usage };
 }

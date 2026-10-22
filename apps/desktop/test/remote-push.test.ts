@@ -9,6 +9,7 @@ import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_SETTINGS, type HostCommand, type HostEvent, type ScheduleTask } from "@spcode/shared";
+import { setLocale } from "@spcode/shared/i18n";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 
@@ -33,6 +34,7 @@ import { RemoteServer } from "../src/main/remote/index.js";
 import { PairingManager } from "../src/main/remote/pairing.js";
 import { PushService } from "../src/main/remote/push.js";
 import { LanTransport } from "../src/main/remote/transport/lan.js";
+import { TailscaleManager } from "../src/main/remote/transport/tailscale.js";
 import type { RegistryLike } from "../src/main/session-helpers.js";
 import type { SessionRegistryEntry } from "../src/main/session-registry.js";
 
@@ -44,6 +46,7 @@ const VALID_SUB = {
 let dir = "";
 
 beforeEach(() => {
+  setLocale("zh-CN");
   dir = mkdtempSync(join(tmpdir(), "spcode-remote-push-"));
   sendNotification.mockReset().mockResolvedValue(undefined);
   generateVAPIDKeys.mockClear();
@@ -51,6 +54,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  setLocale("zh-CN");
   if (dir) rmSync(dir, { recursive: true, force: true });
   dir = "";
 });
@@ -119,6 +123,30 @@ describe("触发推送", () => {
       risk: "danger",
     },
   };
+
+  it("uses the current locale for each mocked send on an existing service", async () => {
+    const push = new PushService({ baseDir: dir });
+    push.subscribe("dev-1", VALID_SUB);
+    await push.notifyForHostEvent(permissionEvent, true);
+    expect(JSON.parse(sendNotification.mock.calls.at(-1)![1]!).body).toBe("有权限请求待处理");
+    setLocale("en");
+    await push.notifyForHostEvent(permissionEvent, true);
+    expect(JSON.parse(sendNotification.mock.calls.at(-1)![1]!).body).toBe(
+      "A permission request is waiting for approval",
+    );
+    await push.notifyForHostEvent(
+      { type: "question.request", request: { requestId: "q", sessionId: "s", questions: [] } },
+      true,
+    );
+    expect(JSON.parse(sendNotification.mock.calls.at(-1)![1]!).body).toBe("A question is waiting for your reply");
+    await push.notifyForHostEvent({ type: "schedule.fired", taskId: "t", sessionId: "s", name: "PRIVATE_TASK" }, true);
+    expect(JSON.parse(sendNotification.mock.calls.at(-1)![1]!).body).toBe("A scheduled task has started");
+    expect(() => push.subscribe("bad", {})).toThrow("Invalid push subscription");
+    for (const [, payload] of sendNotification.mock.calls) {
+      expect(payload).not.toContain("PRIVATE_TASK");
+      expect(payload).not.toContain("/secret-project");
+    }
+  });
 
   it("pushEnabled=false 时不发送", async () => {
     const push = new PushService({ baseDir: dir });
@@ -217,7 +245,8 @@ describe("RemoteServer 集成：push.subscribe 命令", () => {
         remote: { enabled: true, port: 0, relayUrl: null, tailscale: false, pushEnabled: true },
       }),
     };
-    const server = new RemoteServer({ settings, bridge, scheduler, registry, pairing, transport, push });
+    const tailscale = new TailscaleManager({ run: async () => ({ code: 0, stdout: "", stderr: "" }) });
+    const server = new RemoteServer({ settings, bridge, scheduler, registry, pairing, transport, push, tailscale });
     await server.start();
     const port = transport.getPort();
 

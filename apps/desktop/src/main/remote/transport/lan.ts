@@ -12,6 +12,7 @@ import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer, type Server, type ServerResponse } from "node:http";
 import { networkInterfaces } from "node:os";
 import { extname, resolve, sep } from "node:path";
+import { getLocale, i18n } from "@spcode/shared/i18n";
 import WebSocket, { WebSocketServer } from "ws";
 import type { PeerConnection, RemoteTransport } from "./types.js";
 
@@ -30,16 +31,26 @@ const MIME: Record<string, string> = {
   ".woff2": "font/woff2",
 };
 
-const PLACEHOLDER_HTML = `<!doctype html>
-<html lang="zh-CN">
+function escapeHtml(text: string): string {
+  return text.replace(
+    /[&<>"']/g,
+    (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!,
+  );
+}
+
+/** Render per request so an already-running transport follows locale changes. */
+function placeholderHtml(): string {
+  return `<!doctype html>
+<html lang="${escapeHtml(getLocale())}">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Spcod 远程控制</title></head>
+<title>${escapeHtml(i18n.t("main:lan.title"))}</title></head>
 <body style="font-family:system-ui;background:#0b0f14;color:#dbe4ee;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0">
 <div style="max-width:560px;padding:24px;line-height:1.7">
-<h2>远程控制服务已启动 ✅</h2>
-<p>手机端 PWA 尚未构建（<code>apps/mobile/dist</code> 不存在）。</p>
-<p>构建后刷新本页即可使用；或直接在桌面端设置页扫码完成配对。</p>
+<h2>${escapeHtml(i18n.t("main:lan.started"))}</h2>
+<p>${escapeHtml(i18n.t("main:lan.notBuilt", { path: "apps/mobile/dist" }))}</p>
+<p>${escapeHtml(i18n.t("main:lan.instructions"))}</p>
 </div></body></html>`;
+}
 
 /** 私网 / 局域网 v4 段：RFC1918 + 链路本地 + CGNAT（Tailscale 100.64/10） */
 function isLanIPv4(ip: string): boolean {
@@ -203,14 +214,14 @@ export class LanTransport implements RemoteTransport {
       try {
         pathname = decodeURIComponent(new URL(rawUrl, "http://localhost").pathname);
       } catch {
-        res.writeHead(400).end("bad request");
+        res.writeHead(400, { "content-type": "text/plain; charset=utf-8" }).end(i18n.t("main:lan.badRequest"));
         return;
       }
       const rel = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
       const abs = resolve(dir, rel);
       // 防目录穿越：解析结果必须仍在 staticDir 内
       if (abs !== dir && !abs.startsWith(dir + sep)) {
-        res.writeHead(403).end("forbidden");
+        res.writeHead(403, { "content-type": "text/plain; charset=utf-8" }).end(i18n.t("main:lan.forbidden"));
         return;
       }
       // statSync 与 existsSync 之间有 TOCTOU 窗口（评审 R3-C9）：异常按不存在处理
@@ -229,6 +240,6 @@ export class LanTransport implements RemoteTransport {
       }
     }
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    res.end(PLACEHOLDER_HTML);
+    res.end(placeholderHtml());
   }
 }

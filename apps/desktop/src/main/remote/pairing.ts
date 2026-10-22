@@ -10,6 +10,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { PairedDevice, PairHelloInner } from "@spcode/shared";
+import { i18n } from "@spcode/shared/i18n";
 import { readJsonFile, resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
 import {
   type BoxKeyPairB64,
@@ -193,7 +194,7 @@ export class PairingManager {
 
     const device: PairedDevice = {
       id: randomUUID(),
-      name: inner.name || "未命名设备",
+      name: inner.name || i18n.t("main:pairing.unnamedDevice"),
       publicKey: inner.publicKey,
       pairedAt: now,
     };

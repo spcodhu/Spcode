@@ -1,5 +1,7 @@
 import type { UpdateState } from "@spcode/shared";
+import { getLocale } from "@spcode/shared/i18n";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
 
@@ -12,7 +14,14 @@ import { Icon } from "./Icon";
  * - error：红色「更新失败」→ 弹窗给原因与重试入口
  * - idle：不渲染
  */
+function formatPercent(value: number): string {
+  return new Intl.NumberFormat(getLocale(), { style: "percent", maximumFractionDigits: 0 }).format(
+    Math.round(value) / 100,
+  );
+}
+
 export function UpdateButton() {
+  const { t } = useTranslation("settings");
   const state = useStore((s) => s.updateState);
   const [open, setOpen] = useState(false);
 
@@ -23,11 +32,11 @@ export function UpdateButton() {
           type="button"
           data-testid="update-button"
           onClick={() => setOpen(true)}
-          title={`发现新版本 ${state.version}`}
+          title={t("update.available", { version: state.version })}
           className="flex items-center gap-1 rounded-lg bg-accent/15 px-2 py-2 text-[12px] font-medium text-accent transition-colors hover:bg-accent/25"
         >
           <Icon name="arrowUp" size={14} strokeWidth={2.2} />
-          更新
+          {t("update.update")}
         </button>
       )}
       {state.status === "downloading" && (
@@ -35,11 +44,11 @@ export function UpdateButton() {
           type="button"
           data-testid="update-button"
           onClick={() => setOpen(true)}
-          title={`正在下载 ${state.version}`}
+          title={t("update.downloading", { version: state.version })}
           className="relative h-8 w-[72px] overflow-hidden rounded-lg border border-border"
         >
           <span className="absolute inset-y-0 left-0 bg-accent/30" style={{ width: `${state.percent}%` }} />
-          <span className="relative text-[11px] text-text-secondary">{Math.round(state.percent)}%</span>
+          <span className="relative text-[11px] text-text-secondary">{formatPercent(state.percent)}</span>
         </button>
       )}
       {state.status === "downloaded" && (
@@ -47,11 +56,11 @@ export function UpdateButton() {
           type="button"
           data-testid="update-button"
           onClick={() => setOpen(true)}
-          title={`新版本 ${state.version} 已就绪，点击重启生效`}
+          title={t("update.ready", { version: state.version })}
           className="flex items-center gap-1 rounded-lg bg-accent px-2 py-2 text-[12px] font-medium text-white transition-colors hover:bg-accent-dim"
         >
           <Icon name="refresh" size={13} />
-          重启
+          {t("update.restart")}
         </button>
       )}
       {state.status === "error" && (
@@ -63,7 +72,7 @@ export function UpdateButton() {
           className="flex items-center gap-1 rounded-lg bg-danger/15 px-2 py-2 text-[12px] text-danger transition-colors hover:bg-danger/25"
         >
           <Icon name="x" size={13} />
-          更新失败
+          {t("update.failed")}
         </button>
       )}
       {open && state.status !== "idle" && <UpdateDialog state={state} onClose={() => setOpen(false)} />}
@@ -73,6 +82,7 @@ export function UpdateButton() {
 
 /** 更新弹窗：版本信息 + 发布说明 + 各状态的操作区 */
 function UpdateDialog({ state, onClose }: { state: UpdateState; onClose: () => void }) {
+  const { t } = useTranslation("settings");
   const version = "version" in state ? state.version : "";
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: 遮罩点外关闭（待统一 Modal 组件化收敛）；onClick 已改 onMouseDown 与其余弹层一致
@@ -86,15 +96,15 @@ function UpdateDialog({ state, onClose }: { state: UpdateState; onClose: () => v
         <div className="flex items-center justify-between">
           <h2 className="text-[15px] font-semibold text-text-primary">
             {state.status === "downloaded"
-              ? "重启以完成更新"
+              ? t("update.restartTitle")
               : state.status === "error"
-                ? "更新失败"
-                : `发现新版本 ${version}`}
+                ? t("update.failed")
+                : t("update.available", { version })}
           </h2>
           <button
             type="button"
             onClick={onClose}
-            title="关闭"
+            title={t("close")}
             className="rounded-md p-1 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
           >
             <Icon name="x" size={15} />
@@ -104,7 +114,7 @@ function UpdateDialog({ state, onClose }: { state: UpdateState; onClose: () => v
         {state.status === "available" && (
           <>
             <div className="mt-3 max-h-64 overflow-y-auto rounded-lg border border-border bg-bg-main px-3 py-2.5 text-[13px] leading-6 text-text-secondary whitespace-pre-wrap">
-              {state.releaseNotes || "本次发布未附更新说明。"}
+              {state.releaseNotes || t("update.noNotes")}
             </div>
             <div className="mt-4 flex items-center justify-between">
               <button
@@ -115,7 +125,7 @@ function UpdateDialog({ state, onClose }: { state: UpdateState; onClose: () => v
                 }}
                 className="rounded-lg px-3 py-1.5 text-[12.5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
               >
-                忽略此版本
+                {t("update.ignore")}
               </button>
               <button
                 type="button"
@@ -125,7 +135,7 @@ function UpdateDialog({ state, onClose }: { state: UpdateState; onClose: () => v
                 }}
                 className="rounded-lg bg-accent px-4 py-1.5 text-[12.5px] font-medium text-white transition-colors hover:bg-accent-dim"
               >
-                确认更新
+                {t("update.confirm")}
               </button>
             </div>
           </>
@@ -137,7 +147,7 @@ function UpdateDialog({ state, onClose }: { state: UpdateState; onClose: () => v
               <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${state.percent}%` }} />
             </div>
             <div className="mt-2 text-[12px] text-text-tertiary">
-              正在下载 {state.version}… {Math.round(state.percent)}%
+              {t("update.progress", { version: state.version, percent: formatPercent(state.percent) })}
             </div>
             <div className="mt-4 flex justify-end">
               <button
@@ -145,7 +155,7 @@ function UpdateDialog({ state, onClose }: { state: UpdateState; onClose: () => v
                 onClick={onClose}
                 className="rounded-lg px-3 py-1.5 text-[12.5px] text-text-secondary transition-colors hover:bg-bg-hover"
               >
-                后台下载
+                {t("update.background")}
               </button>
             </div>
           </>
@@ -154,7 +164,7 @@ function UpdateDialog({ state, onClose }: { state: UpdateState; onClose: () => v
         {state.status === "downloaded" && (
           <>
             <p className="mt-3 text-[13px] leading-6 text-text-secondary">
-              新版本 {state.version} 已下载完成。立即重启会中断正在进行的会话与任务。
+              {t("update.restartWarning", { version: state.version })}
             </p>
             <div className="mt-4 flex justify-end gap-2">
               <button
@@ -162,14 +172,14 @@ function UpdateDialog({ state, onClose }: { state: UpdateState; onClose: () => v
                 onClick={onClose}
                 className="rounded-lg px-3 py-1.5 text-[12.5px] text-text-secondary transition-colors hover:bg-bg-hover"
               >
-                稍后
+                {t("update.later")}
               </button>
               <button
                 type="button"
                 onClick={() => void window.spcode.updateInstall()}
                 className="rounded-lg bg-accent px-4 py-1.5 text-[12.5px] font-medium text-white transition-colors hover:bg-accent-dim"
               >
-                立即重启
+                {t("update.restartNow")}
               </button>
             </div>
           </>
@@ -184,7 +194,7 @@ function UpdateDialog({ state, onClose }: { state: UpdateState; onClose: () => v
                 onClick={onClose}
                 className="rounded-lg px-3 py-1.5 text-[12.5px] text-text-secondary transition-colors hover:bg-bg-hover"
               >
-                关闭
+                {t("close")}
               </button>
               <button
                 type="button"
@@ -194,7 +204,7 @@ function UpdateDialog({ state, onClose }: { state: UpdateState; onClose: () => v
                 }}
                 className="rounded-lg bg-accent px-4 py-1.5 text-[12.5px] font-medium text-white transition-colors hover:bg-accent-dim"
               >
-                重试下载
+                {t("update.retry")}
               </button>
             </div>
           </>

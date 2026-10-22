@@ -18,6 +18,7 @@ import {
   type ScheduleTaskInput,
   type SessionMode,
 } from "@spcode/shared";
+import { i18n } from "@spcode/shared/i18n";
 import {
   backfillSessionFile,
   isDefaultTitle,
@@ -30,7 +31,7 @@ export interface RemoteBridge {
   call<T = unknown>(cmd: Extract<HostCommand, { id: string }>): Promise<T>;
   /** by 标记裁决来源（默认 "local"）；远程端调用传 "remote"，用于双端撤卡的 permission.resolved 事件 */
   replyPermission(requestId: string, approved: boolean, by?: "local" | "remote"): void;
-  replyQuestion(requestId: string, answers: Record<string, string>): void;
+  replyQuestion(requestId: string, answers: import("@spcode/shared").QuestionAnswers): void;
   /** 主进程本地事件广播（session.renamed / sessions.changed）；测试桩可省略 */
   emitLocal?(event: HostEvent): void;
 }
@@ -68,9 +69,9 @@ export async function handleRemoteCommand(cmd: RemoteCommand, deps: RemoteHandle
     case "session.prompt": {
       // 与渲染进程 IPC 链路同款兜底：标题还是出厂默认时，用首条用户消息推导
       const entry = deps.registry.get(cmd.sessionId);
-      if (entry && isDefaultTitle(entry.title, entry.cwd)) {
+      if (entry && isDefaultTitle(entry.title, entry.cwd, entry.titleKind)) {
         const title = cleanSessionTitle(cmd.text);
-        if (title) deps.registry.patch(entry.id, { title });
+        if (title) deps.registry.patch(entry.id, { title, titleKind: "custom" });
       }
       await deps.bridge.call(withId({ type: "session.prompt", payload: { sessionId: cmd.sessionId, text: cmd.text } }));
       return { ok: true };
@@ -94,7 +95,7 @@ export async function handleRemoteCommand(cmd: RemoteCommand, deps: RemoteHandle
       return { task: deps.scheduler.create(cmd.input) };
     case "schedule.update": {
       const task = deps.scheduler.update(cmd.id, cmd.patch);
-      if (!task) throw new Error(`任务不存在：${cmd.id}`);
+      if (!task) throw new Error(i18n.t("integration:schedule.missing", { id: cmd.id }));
       return { task };
     }
     case "schedule.remove":
@@ -105,7 +106,7 @@ export async function handleRemoteCommand(cmd: RemoteCommand, deps: RemoteHandle
     case "session.rename": {
       // 与桌面端同一套注册表逻辑；session.renamed 事件同步渲染进程与各远程端
       const ok = renameSession({ registry: deps.registry, events: deps.bridge }, cmd.sessionId, cmd.title);
-      if (!ok) throw new Error(`会话不存在或标题为空：${cmd.sessionId}`);
+      if (!ok) throw new Error(i18n.t("integration:session.invalidTitle", { id: cmd.sessionId }));
       return { ok: true };
     }
     case "session.remove":
@@ -113,7 +114,7 @@ export async function handleRemoteCommand(cmd: RemoteCommand, deps: RemoteHandle
       await removeSession({ registry: deps.registry, bridge: deps.bridge, events: deps.bridge }, cmd.sessionId);
       return { ok: true };
     default:
-      throw new Error(`未知远程命令：${(cmd as { type: string }).type}`);
+      throw new Error(i18n.t("integration:remote.unknownCommand", { command: (cmd as { type: string }).type }));
   }
 }
 
@@ -136,7 +137,8 @@ async function createSession(
     id: sessionId,
     mode,
     cwd,
-    title: mode === "chat" ? "新聊天" : baseName(cwd) || "新项目",
+    title: mode === "chat" ? i18n.t("common:newChat") : baseName(cwd) || i18n.t("common:newProject"),
+    titleKind: "default",
     model,
     thinkingLevel,
     sessionFile: null,
@@ -151,10 +153,12 @@ async function createSession(
   backfillSessionFile(createCmd, info, deps.registry);
   // 首条 prompt 标题兜底（与 IPC 链路 session.prompt 行为对齐）
   const entry = deps.registry.get(sessionId);
-  if (entry && isDefaultTitle(entry.title, entry.cwd)) {
+  if (entry && isDefaultTitle(entry.title, entry.cwd, entry.titleKind)) {
     const title = cleanSessionTitle(cmd.prompt);
-    if (title) deps.registry.patch(sessionId, { title });
+    if (title) deps.registry.patch(sessionId, { title, titleKind: "custom" });
   }
+  // 注册表写入不产生事件：把新会话同步给发起设备及其他已配对设备
+  deps.bridge.emitLocal?.({ type: "sessions.changed" });
   await deps.bridge.call(withId({ type: "session.prompt", payload: { sessionId, text: cmd.prompt } }));
   return { sessionId };
 }

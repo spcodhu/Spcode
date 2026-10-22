@@ -5,6 +5,7 @@
  *   不需要跑 LCS——红块是将被删掉的原样文本，绿块是替换后的新文本）。
  */
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 
 /** unified patch 行分类 */
 function patchLineClass(line: string): string {
@@ -17,6 +18,7 @@ function patchLineClass(line: string): string {
 
 /** 渲染 unified patch（过长截断） */
 export function DiffPatch({ patch, maxChars = 6000 }: { patch: string; maxChars?: number }) {
+  const { t } = useTranslation("chat");
   const lines = useMemo(() => patch.slice(0, maxChars).split("\n"), [patch, maxChars]);
   return (
     <div className="overflow-x-auto rounded-lg border border-border bg-bg-root/60">
@@ -27,7 +29,7 @@ export function DiffPatch({ patch, maxChars = 6000 }: { patch: string; maxChars?
             {line || " "}
           </div>
         ))}
-        {patch.length > maxChars && <div className="text-text-tertiary">…（diff 过长已截断）</div>}
+        {patch.length > maxChars && <div className="text-text-tertiary">{t("diff.truncated")}</div>}
       </pre>
     </div>
   );
@@ -43,6 +45,7 @@ export function DiffReplace({
   newText: string;
   maxLines?: number;
 }) {
+  const { t } = useTranslation("chat");
   const oldLines = oldText.split("\n");
   const newLines = newText.split("\n");
   const tooLong = oldLines.length + newLines.length > maxLines;
@@ -52,16 +55,16 @@ export function DiffReplace({
         {oldLines.slice(0, maxLines).map((l, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: 静态 diff 行不重排
           <div key={`d${i}`} className="text-danger bg-danger/10">
-            {"- " + l}
+            {`- ${l}`}
           </div>
         ))}
         {newLines.slice(0, maxLines).map((l, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: 静态 diff 行不重排
           <div key={`a${i}`} className="text-success bg-success/10">
-            {"+ " + l}
+            {`+ ${l}`}
           </div>
         ))}
-        {tooLong && <div className="text-text-tertiary">…（过长已截断显示）</div>}
+        {tooLong && <div className="text-text-tertiary">{t("diff.replaceTruncated")}</div>}
       </pre>
     </div>
   );

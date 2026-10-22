@@ -4,6 +4,11 @@
  *
  * 纯展示组件：动作经 onAction 回传给 MdEditor.applyAction；图片走 Composer 的附件通道。
  */
+import type { TranslationKey } from "@spcode/shared/i18n";
+import { useTranslation } from "react-i18next";
+
+type ToolbarKey = Extract<TranslationKey, `chat:toolbar.${string}`> extends `chat:${infer Key}` ? Key : never;
+
 import { Icon } from "./Icon";
 import type { MdAction } from "./MdEditor";
 
@@ -12,6 +17,7 @@ export type MdView = "edit" | "split" | "preview";
 
 /** 三态切换的分段控件（编辑/分屏/预览）。工具栏内控件：用 bg-main 底、不浮阴影 */
 export function MdViewSwitch({ view, onChange }: { view: MdView; onChange: (v: MdView) => void }) {
+  const { t } = useTranslation("chat");
   return (
     <div className="flex shrink-0 items-center rounded-full bg-bg-main p-0.5 text-[11px] font-medium">
       {VIEWS.map((v) => (
@@ -24,7 +30,7 @@ export function MdViewSwitch({ view, onChange }: { view: MdView; onChange: (v: M
             view === v.value ? "bg-accent-soft text-accent" : "text-text-tertiary hover:text-text-secondary"
           }`}
         >
-          {v.label}
+          {t(v.label)}
         </button>
       ))}
     </div>
@@ -41,48 +47,48 @@ interface ToolItem {
   icon?: string;
   /** 文字按钮（A+ / A- / Σ / 1.） */
   text?: string;
-  title: string;
+  title: ToolbarKey;
 }
 
 /** 分组按钮表：组间渲染竖线分隔（对齐常见博客编辑器的心智） */
 const GROUPS: ToolItem[][] = [
   [
-    { key: "bold", action: "bold", icon: "bold", title: "加粗 **text**" },
-    { key: "italic", action: "italic", icon: "italic", title: "斜体 *text*" },
-    { key: "underline", action: "underline", icon: "underline", title: "下划线 <u>text</u>" },
-    { key: "strike", action: "strike", icon: "strike", title: "删除线 ~~text~~" },
+    { key: "bold", action: "bold", icon: "bold", title: "toolbar.bold" },
+    { key: "italic", action: "italic", icon: "italic", title: "toolbar.italic" },
+    { key: "underline", action: "underline", icon: "underline", title: "toolbar.underline" },
+    { key: "strike", action: "strike", icon: "strike", title: "toolbar.strike" },
   ],
   [
-    { key: "heading", action: "heading", icon: "heading", title: "标题（循环 H2→H3→H4→取消）" },
-    { key: "heading-up", action: "heading-up", text: "A⁺", title: "标题升级" },
-    { key: "heading-down", action: "heading-down", text: "A⁻", title: "标题降级" },
+    { key: "heading", action: "heading", icon: "heading", title: "toolbar.heading" },
+    { key: "heading-up", action: "heading-up", text: "A⁺", title: "toolbar.headingUp" },
+    { key: "heading-down", action: "heading-down", text: "A⁻", title: "toolbar.headingDown" },
   ],
   [
-    { key: "quote", action: "quote", icon: "quote", title: "引用 > " },
-    { key: "ol", action: "ol", text: "1.", title: "有序列表 1. " },
-    { key: "ul", action: "ul", icon: "list", title: "无序列表 - " },
+    { key: "quote", action: "quote", icon: "quote", title: "toolbar.quote" },
+    { key: "ol", action: "ol", text: "1.", title: "toolbar.orderedList" },
+    { key: "ul", action: "ul", icon: "list", title: "toolbar.unorderedList" },
   ],
   [
-    { key: "code", action: "code", icon: "code", title: "行内代码 `code`" },
-    { key: "code-block", action: "code-block", icon: "codeBlock", title: "代码块 ```" },
+    { key: "code", action: "code", icon: "code", title: "toolbar.code" },
+    { key: "code-block", action: "code-block", icon: "codeBlock", title: "toolbar.codeBlock" },
   ],
   [
-    { key: "link", action: "link", icon: "link", title: "链接 [文字](url)" },
-    { key: "image", pickImage: true, icon: "image", title: "图片（内嵌到光标处）" },
-    { key: "table", action: "table", icon: "table", title: "表格" },
-    { key: "mermaid", action: "mermaid", icon: "diagram", title: "流程图（Mermaid）" },
-    { key: "math", action: "math", text: "Σ", title: "公式：选中=行内 $x$；无选中=公式块 $$…$$" },
+    { key: "link", action: "link", icon: "link", title: "toolbar.link" },
+    { key: "image", pickImage: true, icon: "image", title: "toolbar.image" },
+    { key: "table", action: "table", icon: "table", title: "toolbar.table" },
+    { key: "mermaid", action: "mermaid", icon: "diagram", title: "toolbar.mermaid" },
+    { key: "math", action: "math", text: "Σ", title: "toolbar.math" },
   ],
   [
-    { key: "undo", action: "undo", icon: "undo", title: "撤销" },
-    { key: "redo", action: "redo", icon: "redo", title: "重做" },
+    { key: "undo", action: "undo", icon: "undo", title: "toolbar.undo" },
+    { key: "redo", action: "redo", icon: "redo", title: "toolbar.redo" },
   ],
 ];
 
-const VIEWS: { value: MdView; label: string }[] = [
-  { value: "edit", label: "编辑" },
-  { value: "split", label: "分屏" },
-  { value: "preview", label: "预览" },
+const VIEWS: { value: MdView; label: ToolbarKey }[] = [
+  { value: "edit", label: "toolbar.edit" },
+  { value: "split", label: "toolbar.split" },
+  { value: "preview", label: "toolbar.preview" },
 ];
 
 export function MdToolbar({
@@ -100,6 +106,7 @@ export function MdToolbar({
   /** 图片按钮：走 Composer 的附件通道（内嵌到光标处） */
   onPickImages: () => void;
 }) {
+  const { t } = useTranslation("chat");
   return (
     <div className="flex items-center gap-1.5 border-b border-border px-2 py-1.5">
       {/* 动作区：窄窗口下横向滚动（隐藏滚动条），右侧视图控制始终固定不挤 */}
@@ -111,7 +118,8 @@ export function MdToolbar({
               <button
                 key={item.key}
                 type="button"
-                title={item.title}
+                title={t(item.title)}
+                aria-label={t(item.title)}
                 data-testid={`md-tool-${item.key}`}
                 // mousedown 阻止默认：点工具栏不夺走编辑器选区/焦点
                 onMouseDown={(e) => e.preventDefault()}
@@ -136,7 +144,8 @@ export function MdToolbar({
         type="button"
         data-testid="md-mode-toggle"
         onClick={onExit}
-        title="退出长文本输入（回到普通输入框）"
+        title={t("toolbar.exit")}
+        aria-label={t("toolbar.exit")}
         className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
       >
         <Icon name="x" size={13} />

@@ -7,80 +7,35 @@
 import type { SessionMeta } from "@spcode/shared";
 import { baseName } from "@spcode/shared";
 import { useState } from "react";
+import { Trans, useTranslation } from "react-i18next";
 import { prefillComposer } from "./Composer";
 import { Icon } from "./Icon";
 
-interface Suggestion {
-  icon: string;
-  title: string;
-  desc: string;
-  prompt: string;
-}
+const PROJECT_SUGGESTIONS = [
+  { icon: "search", key: "understand" },
+  { icon: "bug", key: "fix" },
+  { icon: "clipboardCheck", key: "review" },
+  { icon: "check", key: "test" },
+] as const;
 
-const PROJECT_SUGGESTIONS: Suggestion[] = [
-  {
-    icon: "search",
-    title: "读懂这个项目",
-    desc: "梳理架构、核心模块与技术栈",
-    prompt: "读懂这个项目，告诉我它是干什么的：整体架构、核心模块、技术栈，以及上手需要先看哪些文件。",
-  },
-  {
-    icon: "bug",
-    title: "定位并修复问题",
-    desc: "描述现象，我来排查根因并修改",
-    prompt: "帮我定位并修复这个问题：",
-  },
-  {
-    icon: "clipboardCheck",
-    title: "审查最近改动",
-    desc: "检查 git diff，指出风险与隐患",
-    prompt: "审查当前分支最近的改动（git diff），指出潜在 bug、风险与可以改进的地方。",
-  },
-  {
-    icon: "check",
-    title: "补充测试",
-    desc: "为核心逻辑补单元测试",
-    prompt: "先看一下项目现有测试覆盖情况，然后为核心逻辑补充单元测试。",
-  },
-];
+const CHAT_SUGGESTIONS = [
+  { icon: "sparkles", key: "brainstorm" },
+  { icon: "pen", key: "write" },
+  { icon: "chart", key: "analyze" },
+  { icon: "book", key: "learn" },
+] as const;
 
-const CHAT_SUGGESTIONS: Suggestion[] = [
-  {
-    icon: "sparkles",
-    title: "头脑风暴",
-    desc: "一起发散想法，整理成可行方案",
-    prompt: "我们来头脑风暴一下：",
-  },
-  {
-    icon: "pen",
-    title: "写作与润色",
-    desc: "起草、改写、压缩或翻译文本",
-    prompt: "帮我写一段：",
-  },
-  {
-    icon: "chart",
-    title: "分析与研究",
-    desc: "拆解问题，给出结构化结论",
-    prompt: "帮我分析这个问题：",
-  },
-  {
-    icon: "book",
-    title: "学习答疑",
-    desc: "讲清概念，配合例子与类比",
-    prompt: "给我讲讲：",
-  },
-];
-
-function greetingOf(): string {
+function greetingKey(): `empty.greeting.${"night" | "morning" | "noon" | "afternoon" | "evening"}` {
   const h = new Date().getHours();
-  if (h < 5) return "夜深了";
-  if (h < 11) return "早上好";
-  if (h < 14) return "中午好";
-  if (h < 18) return "下午好";
-  return "晚上好";
+  if (h < 5) return "empty.greeting.night";
+  if (h < 11) return "empty.greeting.morning";
+  if (h < 14) return "empty.greeting.noon";
+  if (h < 18) return "empty.greeting.afternoon";
+  return "empty.greeting.evening";
 }
 
 export function SessionEmptyState({ meta }: { meta: SessionMeta }) {
+  const { t } = useTranslation("chat");
   const isProject = meta.mode === "project";
   const suggestions = isProject ? PROJECT_SUGGESTIONS : CHAT_SUGGESTIONS;
 
@@ -112,18 +67,21 @@ export function SessionEmptyState({ meta }: { meta: SessionMeta }) {
         className="fade-up text-[21px] font-semibold leading-snug text-text-primary"
         style={{ animationDelay: "50ms" }}
       >
-        {greetingOf()}，今天想做点什么？
+        {t(greetingKey())}
       </h1>
       <p
         className="fade-up mt-1.5 text-center text-[13px] leading-relaxed text-text-tertiary"
         style={{ animationDelay: "90ms" }}
       >
         {isProject ? (
-          <>
-            在 <span className="text-text-secondary">{baseName(meta.cwd)}</span> 里直接说你要做什么，剩下的交给我
-          </>
+          <Trans
+            t={t}
+            i18nKey="empty.projectHint"
+            values={{ project: baseName(meta.cwd) }}
+            components={{ project: <span className="text-text-secondary" /> }}
+          />
         ) : (
-          <>直接说你要做什么，我可以写作、分析、答疑，也能帮你处理文件</>
+          t("empty.chatHint")
         )}
       </p>
 
@@ -139,8 +97,9 @@ export function SessionEmptyState({ meta }: { meta: SessionMeta }) {
         {suggestions.map((s, i) => (
           <button
             type="button"
-            key={s.title}
-            onClick={() => prefillComposer(s.prompt)}
+            key={s.key}
+            data-testid={`suggestion-${s.key}`}
+            onClick={() => prefillComposer(t(`suggestion.${s.key}.prompt`))}
             className="fade-up group flex flex-col gap-1.5 rounded-2xl border border-border bg-bg-elevated/60 px-4 py-3.5 text-left transition-colors hover:border-border-strong hover:bg-bg-hover"
             style={{ animationDelay: `${170 + i * 55}ms` }}
           >
@@ -148,9 +107,9 @@ export function SessionEmptyState({ meta }: { meta: SessionMeta }) {
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent transition-colors group-hover:bg-accent group-hover:text-white">
                 <Icon name={s.icon} size={13} strokeWidth={2} />
               </span>
-              <span className="text-[13px] font-medium text-text-primary">{s.title}</span>
+              <span className="text-[13px] font-medium text-text-primary">{t(`suggestion.${s.key}.title`)}</span>
             </span>
-            <span className="text-[12px] leading-relaxed text-text-tertiary">{s.desc}</span>
+            <span className="text-[12px] leading-relaxed text-text-tertiary">{t(`suggestion.${s.key}.desc`)}</span>
           </button>
         ))}
       </div>
@@ -161,17 +120,17 @@ export function SessionEmptyState({ meta }: { meta: SessionMeta }) {
         style={{ animationDelay: "420ms" }}
       >
         <span className="flex items-center gap-1">
-          <Kbd>Enter</Kbd> 发送
+          <Kbd>Enter</Kbd> {t("common.send")}
         </span>
         <span className="flex items-center gap-1">
-          <Kbd>Shift</Kbd> + <Kbd>Enter</Kbd> 换行
+          <Kbd>Shift</Kbd> + <Kbd>Enter</Kbd> {t("empty.newLine")}
         </span>
         <span className="flex items-center gap-1">
-          <Icon name="plus" size={11} /> 粘贴 / 拖入图片
+          <Icon name="plus" size={11} /> {t("empty.images")}
         </span>
         {isProject && (
           <span className="flex items-center gap-1">
-            <Icon name="clipboard" size={11} /> 「计划」先出方案再执行
+            <Icon name="clipboard" size={11} /> {t("empty.planHint")}
           </span>
         )}
       </div>
@@ -188,11 +147,12 @@ function Kbd({ children }: { children: React.ReactNode }) {
 }
 
 function CwdChip({ cwd }: { cwd: string }) {
+  const { t } = useTranslation("chat");
   const [copied, setCopied] = useState(false);
   return (
     <button
       type="button"
-      title="复制项目路径"
+      title={t(copied ? "empty.pathCopied" : "empty.copyPath")}
       onClick={() => {
         void navigator.clipboard
           ?.writeText(cwd)

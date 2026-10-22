@@ -29,6 +29,15 @@ import type {
   UsageRecord,
 } from "@spcode/shared";
 import { baseName, cleanSessionTitle } from "@spcode/shared";
+import {
+  getLocale,
+  i18n,
+  isDefaultSessionTitle,
+  type LocalizedText,
+  localizeDefaultTitle,
+  renderMessage,
+  setLocale,
+} from "@spcode/shared/i18n";
 import { classifyRunError, type RunErrorKind } from "@spcode/shared/run-error";
 import { create } from "zustand";
 import { formatCompact } from "./format";
@@ -43,6 +52,7 @@ export interface ToolCallState {
   args: unknown;
   status: "running" | "done" | "error";
   output: string;
+  presentation?: LocalizedText;
   /** edit/write 的 unified patch（pi details.patch，评审 R3-F1：消息流里渲染 diff） */
   patch?: string;
 }
@@ -218,7 +228,7 @@ interface StoreState {
   pendingPermissions: PermissionRequest[];
   lastError: string | null;
   /** 轻量通知（定时任务触发等）：自动消失，点击可跳到对应会话 */
-  notice: { text: string; sessionId?: string } | null;
+  notice: { text: string; presentation?: LocalizedText; sessionId?: string } | null;
   /** 更新状态机（主进程推送；idle 时侧栏不显示更新按钮） */
   updateState: UpdateState;
 
@@ -252,7 +262,7 @@ interface StoreState {
   setThinkingLevel(level: string): Promise<void>;
   setPlanMode(enabled: boolean): Promise<void>;
   replyPermission(requestId: string, approved: boolean): void;
-  replyQuestion(requestId: string, answers: Record<string, string>): void;
+  replyQuestion(requestId: string, answers: import("@spcode/shared").QuestionAnswers): void;
   applyHostEvent(event: HostEvent): void;
   refreshModels(): Promise<void>;
   /** 重新拉取会话注册表（定时任务新建会话 / sessions.changed 事件后调用） */
@@ -281,7 +291,10 @@ interface PiContentBlock {
  * 直接按序转段：相邻同类合并，工具调用相邻的并入同一批。
  * toolResults 用于历史回放时回填工具输出。
  */
-function contentToSegments(content: unknown, toolResults?: Map<string, { text: string; isError: boolean }>): Segment[] {
+function contentToSegments(
+  content: unknown,
+  toolResults?: Map<string, { text: string; isError: boolean; presentation?: LocalizedText; patch?: string }>,
+): Segment[] {
   if (!Array.isArray(content)) return [];
   const out: Segment[] = [];
   for (const b of content as PiContentBlock[]) {
@@ -302,12 +315,29 @@ function contentToSegments(content: unknown, toolResults?: Map<string, { text: s
         args: b.arguments,
         status: res ? (res.isError ? "error" : "done") : "running",
         output: res?.text ?? "",
+        ...(res?.presentation ? { presentation: res.presentation } : {}),
+        ...(res?.patch ? { patch: res.patch } : {}),
       };
       if (last?.kind === "tools") last.calls.push(call);
       else out.push({ kind: "tools", id: nextMsgId(), calls: [call] });
     }
   }
   return out;
+}
+
+function extractPresentation(result: unknown): LocalizedText | undefined {
+  const descriptor = (result as { details?: { presentation?: unknown } } | null)?.details?.presentation;
+  if (!descriptor || typeof descriptor !== "object") return undefined;
+  const { key, params } = descriptor as LocalizedText;
+  if (typeof key !== "string" || !i18n.exists(key)) return undefined;
+  if (
+    params &&
+    (typeof params !== "object" ||
+      Array.isArray(params) ||
+      Object.values(params).some((value) => typeof value !== "string" && typeof value !== "number"))
+  )
+    return undefined;
+  return { key, ...(params ? { params } : {}) };
 }
 
 function extractResultText(result: unknown): string {
@@ -370,18 +400,51 @@ function makeCompactionNotice(tokensBefore?: number, tokensAfter?: number, summa
   return {
     id: nextMsgId(),
     role: "notice",
-    segments: [{ kind: "text", id: nextMsgId(), text: `上下文已压缩${range ? ` · ${range}` : ""}` }],
+    segments: [
+      {
+        kind: "text",
+        id: nextMsgId(),
+        text: i18n.t("integration:compaction.done", { range: range ? ` · ${range}` : "" }),
+      },
+    ],
     streaming: false,
     notice: { kind: "compaction", tokensBefore, tokensAfter, summary },
   };
 }
 
+function relocalizeNoticeMessage(message: ChatMessage): ChatMessage {
+  if (message.notice?.kind === "runError") {
+    const info = classifyRunError(message.notice.raw);
+    const text = message.notice.attempt
+      ? i18n.t("integration:run.retryFailed", { title: info.title, count: message.notice.attempt })
+      : info.title;
+    return {
+      ...message,
+      segments: message.segments.map((segment) => (segment.kind === "text" ? { ...segment, text } : segment)),
+      notice: { ...message.notice, title: info.title, hint: info.hint },
+    };
+  }
+  if (message.notice?.kind === "compaction") {
+    const { tokensBefore, tokensAfter } = message.notice;
+    const range =
+      tokensBefore !== undefined
+        ? `${formatCompact(tokensBefore)}${tokensAfter !== undefined ? ` → ${formatCompact(tokensAfter)}` : ""}`
+        : "";
+    const text = i18n.t("integration:compaction.done", { range: range ? ` · ${range}` : "" });
+    return {
+      ...message,
+      segments: message.segments.map((segment) => (segment.kind === "text" ? { ...segment, text } : segment)),
+    };
+  }
+  return message;
+}
+
 /** 引擎压缩错误消息（英文、工程向）→ 用户可读文案 */
 function friendlyCompactionError(message: string): string {
-  if (/Nothing to compact/i.test(message)) return "上下文还太短，无需压缩";
-  if (/Already compacted/i.test(message)) return "刚刚已经压缩过了";
-  if (/cancelled/i.test(message)) return "压缩被取消";
-  if (/No model selected/i.test(message)) return "未选择模型，无法压缩";
+  if (/Nothing to compact/i.test(message)) return i18n.t("integration:compaction.short");
+  if (/Already compacted/i.test(message)) return i18n.t("integration:compaction.already");
+  if (/cancelled/i.test(message)) return i18n.t("integration:compaction.cancelled");
+  if (/No model selected/i.test(message)) return i18n.t("integration:compaction.noModel");
   return message;
 }
 
@@ -395,7 +458,11 @@ export function makeRunErrorNotice(raw: string, attempt?: number): ChatMessage {
     id: nextMsgId(),
     role: "notice",
     segments: [
-      { kind: "text", id: nextMsgId(), text: `${info.title}${attempt ? `（重试 ${attempt} 次后仍失败）` : ""}` },
+      {
+        kind: "text",
+        id: nextMsgId(),
+        text: attempt ? i18n.t("integration:run.retryFailed", { title: info.title, count: attempt }) : info.title,
+      },
     ],
     streaming: false,
     notice: {
@@ -415,6 +482,7 @@ export function makeRunErrorNotice(raw: string, attempt?: number): ChatMessage {
  * 订阅必须幂等，否则每个 HostEvent 被应用两遍（回复气泡重复、用量翻倍）。
  */
 let unsubscribeHostEvents: (() => void) | null = null;
+let settingsSaveQueue: Promise<void> = Promise.resolve();
 let unsubscribeUpdateState: (() => void) | null = null;
 
 /** 草稿持久化订阅幂等标记 + 防抖定时器（500ms 合并不停打字产生的连续写盘） */
@@ -549,7 +617,7 @@ export function applySessionEvent(session: SessionState, event: Record<string, u
         // 先落卡会在「自动重试后成功」时留下误导性的红卡。
         if (msg.stopReason === "error") {
           session.pendingError = {
-            message: msg.errorMessage?.trim() || "模型请求失败（引擎未返回详细原因）",
+            message: msg.errorMessage?.trim() || i18n.t("integration:run.noReason"),
             at: Date.now(),
           };
         } else if (msg.stopReason === "stop") {
@@ -617,6 +685,8 @@ export function applySessionEvent(session: SessionState, event: Record<string, u
         const details = ((event as { result?: unknown }).result as { details?: { patch?: unknown } } | undefined)
           ?.details;
         if (typeof details?.patch === "string" && details.patch) tc.patch = details.patch;
+        const presentation = extractPresentation((event as { result?: unknown }).result);
+        if (presentation) tc.presentation = presentation;
       }
       break;
     }
@@ -648,7 +718,11 @@ export function applySessionEvent(session: SessionState, event: Record<string, u
           id: nextMsgId(),
           role: "notice",
           segments: [
-            { kind: "text", id: nextMsgId(), text: `上下文压缩未完成：${friendlyCompactionError(e.errorMessage)}` },
+            {
+              kind: "text",
+              id: nextMsgId(),
+              text: i18n.t("integration:compaction.failed", { error: friendlyCompactionError(e.errorMessage) }),
+            },
           ],
           streaming: false,
         });
@@ -694,7 +768,10 @@ function findToolCall(session: SessionState, id: string): ToolCallState | undefi
 export function historyToMessages(messages: unknown[]): ChatMessage[] {
   const out: ChatMessage[] = [];
   /** toolCallId → 结果，用于回填工具卡片输出 */
-  const toolResults = new Map<string, { text: string; isError: boolean }>();
+  const toolResults = new Map<
+    string,
+    { text: string; isError: boolean; presentation?: LocalizedText; patch?: string }
+  >();
   for (const raw of messages) {
     const m = raw as {
       role?: string;
@@ -703,7 +780,13 @@ export function historyToMessages(messages: unknown[]): ChatMessage[] {
       isError?: boolean;
     };
     if (m.role === "toolResult" && m.toolCallId) {
-      toolResults.set(m.toolCallId, { text: extractResultText(m), isError: !!m.isError });
+      const details = (raw as { details?: { patch?: unknown } }).details;
+      toolResults.set(m.toolCallId, {
+        text: extractResultText(m),
+        isError: !!m.isError,
+        presentation: extractPresentation(raw),
+        ...(typeof details?.patch === "string" ? { patch: details.patch } : {}),
+      });
     }
   }
   for (const raw of messages) {
@@ -858,16 +941,23 @@ export const useStore = create<StoreState>((set, get) => ({
     // 评审 R3-C11：getSettings 一次失败不能让应用永远卡在「启动中」——逐项兜底，ready 必达
     try {
       const settings = await window.spcode.getSettings();
+      setLocale(settings.locale);
       set({ settings });
     } catch (e) {
-      set({ lastError: `设置加载失败（${e instanceof Error ? e.message : String(e)}），可在设置页重试` });
+      set({
+        lastError: i18n.t("integration:settings.loadFailed", { error: e instanceof Error ? e.message : String(e) }),
+      });
     }
     await get().refreshModels();
     const [registry, drafts] = await Promise.all([
       window.spcode.listSessions().catch(() => []),
       window.spcode.getComposerDrafts().catch(() => ({})),
     ]);
-    set({ registrySessions: registry ?? [], composerDrafts: drafts ?? {}, ready: true });
+    set({
+      registrySessions: (registry ?? []).map((entry) => localizeDefaultTitle(entry)),
+      composerDrafts: drafts ?? {},
+      ready: true,
+    });
   },
 
   async refreshModels() {
@@ -882,7 +972,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
   async refreshSessions() {
     const registry = await window.spcode.listSessions().catch(() => null);
-    if (registry) set({ registrySessions: registry });
+    if (registry) set({ registrySessions: registry.map(localizeDefaultTitle) });
   },
 
   async openSessionById(id) {
@@ -916,7 +1006,8 @@ export const useStore = create<StoreState>((set, get) => ({
       id,
       mode,
       cwd: cwd ?? "",
-      title: mode === "chat" ? "新聊天" : cwd ? baseName(cwd) || "新项目" : "新项目",
+      title: mode === "chat" ? i18n.t("common:newChat") : baseName(cwd ?? "") || i18n.t("common:newProject"),
+      titleKind: "default",
       model,
       thinkingLevel,
       createdAt: now,
@@ -989,7 +1080,8 @@ export const useStore = create<StoreState>((set, get) => ({
         id: entry.id,
         mode: entry.mode,
         cwd: entry.cwd,
-        title: entry.title,
+        title: localizeDefaultTitle(entry).title,
+        titleKind: localizeDefaultTitle(entry).titleKind,
         model: info.model,
         thinkingLevel: info.thinkingLevel,
         createdAt: entry.createdAt,
@@ -1039,7 +1131,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
   async forkSession(sourceId, opts) {
     const source = get().registrySessions.find((r) => r.id === sourceId);
-    if (!source) throw new Error("源会话不存在或已被删除");
+    if (!source) throw new Error(i18n.t("integration:session.sourceMissing"));
     const newId = crypto.randomUUID();
     const info = await window.spcode.command<HostSessionInfo>({
       type: "session.fork",
@@ -1053,7 +1145,8 @@ export const useStore = create<StoreState>((set, get) => ({
       },
     });
     const now = Date.now();
-    const title = opts.title?.trim() || `${source.title} · 分叉`;
+    const title =
+      opts.title?.trim() || i18n.t("integration:session.forkTitle", { title: localizeDefaultTitle(source).title });
     const planMode = info.planMode ?? opts.planMode ?? source.planMode ?? false;
     const session: SessionState = {
       meta: {
@@ -1061,6 +1154,7 @@ export const useStore = create<StoreState>((set, get) => ({
         mode: source.mode,
         cwd: source.cwd,
         title,
+        titleKind: "custom",
         model: info.model,
         thinkingLevel: info.thinkingLevel,
         createdAt: now,
@@ -1089,6 +1183,7 @@ export const useStore = create<StoreState>((set, get) => ({
             mode: source.mode,
             cwd: source.cwd,
             title,
+            titleKind: "custom",
             model: info.model,
             thinkingLevel: info.thinkingLevel,
             sessionFile: info.sessionFile ?? null,
@@ -1122,14 +1217,12 @@ export const useStore = create<StoreState>((set, get) => ({
         copied = false;
       }
       const running = get().sessions[id]?.running ?? false;
-      const snapshotHint = running ? "（会话仍在进行，导出的是当前时刻快照）" : "";
-      set({
-        notice: {
-          text: copied
-            ? `接力提示词已复制，粘贴给下一个 AI 助手即可继续${snapshotHint}。导出目录：${result.dir}`
-            : `复制剪贴板失败，接力提示词已保存到 ${result.promptPath}，可手动复制`,
-        },
-      });
+      const presentation: LocalizedText = copied
+        ? running
+          ? { key: "integration:export.copiedRunning", params: { dir: result.dir } }
+          : { key: "integration:export.copied", params: { snapshot: "", dir: result.dir } }
+        : { key: "integration:export.copyFailed", params: { path: result.promptPath } };
+      set({ notice: { text: renderMessage(presentation), presentation } });
     } catch (e) {
       set({ lastError: e instanceof Error ? e.message : String(e) });
     }
@@ -1183,15 +1276,24 @@ export const useStore = create<StoreState>((set, get) => ({
           draft.runStartedAt = Date.now();
         }
         if (!draft.messages.some((m) => m.role === "user" && messageText(m) !== text)) {
-          draft.meta = { ...draft.meta, title: cleanSessionTitle(text) || "图片消息" };
+          draft.meta = {
+            ...draft.meta,
+            title: cleanSessionTitle(text) || i18n.t("common:imageMessage"),
+            titleKind: "custom" as const,
+          };
         }
       }),
     );
     // 侧栏标题即时兜底更新（AI RenameSession 之后可覆盖）
     set((s) => ({
       registrySessions: s.registrySessions.map((r) =>
-        r.id === sessionId && (r.title === "新聊天" || r.title === "新项目" || r.title === baseName(r.cwd))
-          ? { ...r, title: cleanSessionTitle(text) || "图片消息", updatedAt: Date.now() }
+        r.id === sessionId && isDefaultSessionTitle(r)
+          ? {
+              ...r,
+              title: cleanSessionTitle(text) || i18n.t("common:imageMessage"),
+              titleKind: "custom" as const,
+              updatedAt: Date.now(),
+            }
           : r,
       ),
     }));
@@ -1338,18 +1440,44 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   async saveSettings(patch) {
-    const next = await window.spcode.setSettings(patch);
-    set({ settings: next });
+    const save = settingsSaveQueue.then(async () => {
+      const next = await window.spcode.setSettings(patch);
+      set({ settings: { ...next, locale: getLocale() } });
+    });
+    settingsSaveQueue = save.catch(() => {});
+    return save;
   },
 
   applyHostEvent(event) {
+    if (event.type === "locale.changed") {
+      setLocale(event.locale);
+      set((state) => ({
+        settings: state.settings ? { ...state.settings, locale: event.locale } : null,
+        sessions: Object.fromEntries(
+          Object.entries(state.sessions).map(([id, session]) => [
+            id,
+            {
+              ...session,
+              meta: localizeDefaultTitle(session.meta),
+              messages: session.messages.map(relocalizeNoticeMessage),
+            },
+          ]),
+        ),
+        registrySessions: state.registrySessions.map(localizeDefaultTitle),
+        notice: state.notice?.presentation
+          ? { ...state.notice, text: renderMessage(state.notice.presentation) }
+          : state.notice,
+      }));
+      return;
+    }
     // 带副作用的事件在 set 之外处理：刷新注册表列表 / 弹通知
     if (event.type === "sessions.changed") {
       void get().refreshSessions();
       return;
     }
     if (event.type === "schedule.fired") {
-      set({ notice: { text: `定时任务「${event.name}」已启动新会话`, sessionId: event.sessionId } });
+      const presentation: LocalizedText = { key: "integration:schedule.started", params: { name: event.name } };
+      set({ notice: { text: renderMessage(presentation), presentation, sessionId: event.sessionId } });
       void get().refreshSessions();
       return;
     }
@@ -1387,12 +1515,14 @@ export const useStore = create<StoreState>((set, get) => ({
         case "session.renamed": {
           // AI 起的标题：更新会话元信息 + 侧栏注册表条目
           const withMeta = touchSession(s, event.sessionId, (draft) => {
-            draft.meta = { ...draft.meta, title: event.title };
+            draft.meta = { ...draft.meta, title: event.title, titleKind: "custom" as const };
           });
           return {
             ...withMeta,
             registrySessions: withMeta.registrySessions.map((r) =>
-              r.id === event.sessionId ? { ...r, title: event.title, updatedAt: Date.now() } : r,
+              r.id === event.sessionId
+                ? { ...r, title: event.title, titleKind: "custom" as const, updatedAt: Date.now() }
+                : r,
             ),
           };
         }
@@ -1518,6 +1648,7 @@ async function doMaterializeDraft(draftId: string): Promise<string> {
           mode: draft.meta.mode,
           cwd: draft.meta.cwd,
           title: draft.meta.title,
+          titleKind: draft.meta.titleKind,
           model: info.model,
           thinkingLevel: info.thinkingLevel,
           sessionFile: null,

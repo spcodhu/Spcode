@@ -8,6 +8,7 @@
  * colors 的键是 camelCase 设计令牌，映射到 --color-<kebab>。
  */
 import type { AppSettings, CustomTheme } from "@spcode/shared";
+import { i18n } from "@spcode/shared/i18n";
 
 /** 允许覆盖的设计令牌（与 styles.css @theme 里的变量一一对应） */
 const THEME_KEYS = [
@@ -89,7 +90,7 @@ export async function registerFont(family: string, fileName: string): Promise<bo
     registeredFonts.add(family);
     return true;
   } catch (e) {
-    console.warn(`[theme] 字体注册失败 ${family}:`, e);
+    console.warn(i18n.t("settings:appearance.fontFailed", { name: family }), e);
     return false;
   }
 }

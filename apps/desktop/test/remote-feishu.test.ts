@@ -4,12 +4,16 @@
  */
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import * as Lark from "@larksuiteoapi/node-sdk";
 import type { HostCommand } from "@spcode/shared";
-import { afterEach, describe, expect, it } from "vitest";
+import { setLocale } from "@spcode/shared/i18n";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cardText, flush, makeChannel, makeEntry, startAndBind } from "./helpers/feishu-harness.js";
 
 const cleanup: string[] = [];
+beforeEach(() => setLocale("zh-CN"));
 afterEach(() => {
+  setLocale("zh-CN");
   while (cleanup.length) rmSync(cleanup.pop()!, { recursive: true, force: true });
 });
 
@@ -145,6 +149,33 @@ describe("绑定流程", () => {
 // ---------------------------------------------------------------------------
 
 describe("斜杠指令", () => {
+  it("English UI keeps command words, user input, and task/session names unchanged", async () => {
+    const h = makeChannel({ sessions: [makeEntry("s1", "用户原文标题")] });
+    cleanup.push(h.baseDir);
+    const openId = await startAndBind(h);
+    setLocale("en");
+    h.api.texts.length = 0;
+    h.api.emitMessage({ openId, text: "/help" });
+    await flush();
+    expect(h.api.texts.at(-1)!.text).toContain("Available commands:");
+    expect(h.api.texts.at(-1)!.text).toContain("/new -p");
+    h.api.emitMessage({ openId, text: "/use s1" });
+    await flush();
+    expect(h.api.texts.at(-1)!.text).toBe('Switched to session "用户原文标题".');
+    h.api.emitMessage({ openId, text: "中文原始提问 approve" });
+    await flush();
+    expect(h.bridgeCalls.at(-1)).toMatchObject({ payload: { text: "中文原始提问 approve" } });
+    h.api.emitMessage({ openId, text: "/schedules" });
+    await flush();
+    const schedule = cardText(h.api.cards.at(-1)!.card);
+    expect(schedule).toContain("Scheduled tasks");
+    expect(schedule).toContain("晨报");
+    expect(schedule).toContain("Daily at");
+    expect(schedule).toContain("Monday");
+    expect(schedule).not.toContain("每天");
+    await h.channel.stop();
+  });
+
   it("/help 与未知指令", async () => {
     const h = makeChannel();
     cleanup.push(h.baseDir);

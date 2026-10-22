@@ -2,7 +2,8 @@
  * Notifier 单测（评审 R3-F4）：聚焦抑制、长任务阈值、Dock 徽标计数。
  * electron 用 vi.mock 替代（vitest 里没有真 Notification/Dock）。
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { setLocale } from "@spcode/shared/i18n";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const shown: { title: string; body: string }[] = [];
 const badgeValues: string[] = [];
@@ -35,8 +36,31 @@ const expectBadge = (value: string) => {
 
 describe("Notifier", () => {
   beforeEach(() => {
+    setLocale("zh-CN");
     shown.length = 0;
     badgeValues.length = 0;
+  });
+  afterEach(() => setLocale("zh-CN"));
+
+  it("uses the send-time locale, including errors recorded before a switch", () => {
+    const n = new Notifier({ isEnabled: () => true, getWindow: () => null });
+    n.notifyApprovalNeeded("permission", "r-zh", "User content <原文>");
+    expect(shown.at(-1)).toEqual({ title: "需要审批", body: "User content <原文>" });
+    n.noteSessionEvent("s", {
+      type: "message_end",
+      message: { role: "assistant", stopReason: "error", errorMessage: "402 Insufficient Balance" },
+    });
+    setLocale("en");
+    n.notifyApprovalNeeded("question", "r-en", "User content <原文>");
+    expect(shown.at(-1)).toEqual({ title: "Agent has a question", body: "User content <原文>" });
+    n.noteSessionEvent("s", { type: "agent_settled" });
+    expect(shown.at(-1)).toEqual({
+      title: "Task interrupted: model quota exhausted",
+      body: "Click for details and suggested actions",
+    });
+    setLocale("zh-CN");
+    n.notifyApprovalNeeded("question", "r-zh-again", "原文");
+    expect(shown.at(-1)?.title).toBe("Agent 在提问");
   });
 
   it("窗口聚焦时不发通知；未聚焦时发；徽标随待办增减", () => {

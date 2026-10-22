@@ -1,28 +1,20 @@
-/**
- * ExitPlanMode —— 计划模式的唯一退出通道(CLI plan 模式同款设计)。
- *
- * 模型在计划就绪、或用户表达执行意愿时调用:经 askQuestion 通道弹批准卡,
- * 用户点「开始执行」后 onApproved 关闭计划态、恢复全量工具,工具返回执行约束
- * (先建 TodoWrite 清单),模型同一轮直接开始执行;其余回答一律视为继续调整。
- * 用专用工具而不是裸 AskUserQuestion:harness 必须确定性捕获"批准"这一时刻。
- */
+/** ExitPlanMode is the sole approval gate for leaving plan mode. Labels are presentation only. */
 import { randomUUID } from "node:crypto";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { formatQuestionAnswer, type QuestionRequest, validateQuestionAnswers } from "@spcode/shared";
 import { Type } from "typebox";
 import type { QuestionAnswerer } from "./ask-user.js";
 
-/** 批准卡的选项标签（协议键为题号索引 "0"；标签本身即用户点选值，改动要同步解析处） */
-export const EXIT_PLAN_QUESTION = "计划已就绪,是否开始执行?";
-export const EXIT_PLAN_APPROVE_LABEL = "开始执行";
+export const EXIT_PLAN_QUESTION = "The plan is ready. Start executing?";
+export const EXIT_PLAN_APPROVE_LABEL = "Start executing";
+export const EXIT_PLAN_APPROVE_VALUE = "approve";
 
 const exitPlanSchema = Type.Object({});
 
 export function createExitPlanModeTool(opts: {
   sessionId: string;
   ask: QuestionAnswerer;
-  /** 当前是否在计划态(正常态下误调用时兜底) */
   isPlanMode: () => boolean;
-  /** 用户点了「开始执行」:关闭计划态、恢复工具、注入关闭消息 */
   onApproved: () => Promise<void>;
 }): ToolDefinition {
   return {
@@ -35,62 +27,91 @@ export function createExitPlanModeTool(opts: {
     execute: async () => {
       if (!opts.isPlanMode()) {
         return {
-          content: [{ type: "text", text: "当前不在计划模式,无需调用此工具。" }],
-          details: { approved: false },
+          content: [{ type: "text", text: "Plan mode is not active. This tool is not needed." }],
+          details: { approved: false, presentation: { key: "questions:plan.notActive" } },
           isError: true,
         };
       }
-      const answers = await opts.ask({
+      const request: QuestionRequest = {
         requestId: randomUUID(),
         sessionId: opts.sessionId,
+        purpose: "plan-approval",
         questions: [
           {
             question: EXIT_PLAN_QUESTION,
-            header: "计划确认",
+            header: "Plan approval",
+            presentation: {
+              question: { key: "questions:plan.title" },
+              header: { key: "questions:plan.header" },
+            },
             options: [
-              { label: EXIT_PLAN_APPROVE_LABEL, description: "关闭计划模式,按计划开始实施" },
-              { label: "继续调整", description: "保持计划模式,继续完善计划" },
+              {
+                value: EXIT_PLAN_APPROVE_VALUE,
+                label: EXIT_PLAN_APPROVE_LABEL,
+                description: "Exit plan mode and start implementing the plan",
+                presentation: {
+                  label: { key: "questions:plan.approve" },
+                  description: { key: "questions:plan.approveDescription" },
+                },
+              },
+              {
+                value: "revise",
+                label: "Keep refining",
+                description: "Stay in plan mode and continue refining the plan",
+                presentation: {
+                  label: { key: "questions:plan.revise" },
+                  description: { key: "questions:plan.reviseDescription" },
+                },
+              },
             ],
           },
         ],
-      });
-      // 协议键 = 题号索引（本工具只有一题，读 "0"；兼容旧文本键）
-      const answer = (answers["0"] ?? answers[EXIT_PLAN_QUESTION] ?? "").trim();
-      if (answer === EXIT_PLAN_APPROVE_LABEL) {
+      };
+      const answers = validateQuestionAnswers(request, await opts.ask(request));
+      const answer = answers?.["0"];
+      // Only an explicit valid option selection for this pending request may authorize execution.
+      // Never accept legacy label/text keys, free text (even "approve"), or an already-ended plan.
+      if (
+        answer?.kind === "options" &&
+        answer.values.length === 1 &&
+        answer.values[0] === EXIT_PLAN_APPROVE_VALUE &&
+        opts.isPlanMode()
+      ) {
         await opts.onApproved();
         return {
           content: [
             {
               type: "text",
               text: [
-                "用户已批准计划。计划模式已关闭,全部工具已恢复。",
-                "现在开始执行:第一步必须调用 TodoWrite,把计划拆成任务清单(每步一项,带 activeForm);",
-                "之后每完成一个阶段目标,立即更新一次 TodoWrite 状态,不要攒到最后批量更新。",
+                "The user approved the plan. Plan mode is disabled and all tools are restored.",
+                "Start executing now: first call TodoWrite to split the plan into a task list (one item per step, with activeForm).",
+                "After each milestone, immediately update TodoWrite status; do not batch updates at the end.",
               ].join("\n"),
             },
           ],
-          details: { approved: true },
+          details: { approved: true, presentation: { key: "questions:plan.approved" } },
         };
       }
-      if (answer) {
+      const feedback = formatQuestionAnswer(request.questions[0]!, answer);
+      if (feedback) {
         return {
           content: [
             {
               type: "text",
-              text: `用户暂未批准,仍在计划模式。用户的回复:「${answer}」。请按此继续完善计划,完成后再次调用 WritePlan 更新计划文件并重新展示,然后再调用 ExitPlanMode。`,
+              text: `The user has not approved the plan. Remain in plan mode. User reply: "${feedback}". Refine the plan accordingly, call WritePlan again to update and display the plan, then call ExitPlanMode again.`,
             },
           ],
-          details: { approved: false },
+          details: { approved: false, presentation: { key: "questions:plan.feedback", params: { answer: feedback } } },
         };
       }
       return {
         content: [
           {
             type: "text",
-            text: "用户跳过了确认,仍在计划模式。等待用户进一步指示;若用户表达了执行意愿,再次调用 ExitPlanMode。",
+            text: "The user dismissed the confirmation. Remain in plan mode and wait for further instructions. If the user asks to execute, call ExitPlanMode again.",
           },
         ],
-        details: { approved: false },
+        details: { approved: false, presentation: { key: "questions:plan.dismissed" } },
       };
     },
   };

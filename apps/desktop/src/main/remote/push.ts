@@ -13,6 +13,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { HostEvent, RemotePushSubscription } from "@spcode/shared";
+import { i18n } from "@spcode/shared/i18n";
 import { readJsonFile, resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
 import webpush from "web-push";
 
@@ -60,11 +61,11 @@ export function isValidSubscription(v: unknown): v is RemotePushSubscription {
 function payloadFor(event: HostEvent): { title: string; body: string } | null {
   switch (event.type) {
     case "permission.request":
-      return { title: "Spcod", body: "有权限请求待处理" };
+      return { title: "Spcod", body: i18n.t("main:push.permission") };
     case "question.request":
-      return { title: "Spcod", body: "有提问待回复" };
+      return { title: "Spcod", body: i18n.t("main:push.question") };
     case "schedule.fired":
-      return { title: "Spcod", body: "定时任务已触发" };
+      return { title: "Spcod", body: i18n.t("main:push.schedule") };
     default:
       return null;
   }
@@ -114,8 +115,7 @@ export class PushService {
 
   /** push.subscribe：按 deviceId 覆盖保存；订阅 JSON 不合法时抛错（响应 ok:false） */
   subscribe(deviceId: string, subscription: unknown): void {
-    if (!isValidSubscription(subscription))
-      throw new Error("非法的推送订阅（需要 endpoint / keys.p256dh / keys.auth）");
+    if (!isValidSubscription(subscription)) throw new Error(i18n.t("main:push.invalidSubscription"));
     const subs = this.subscriptions();
     subs[deviceId] = { ...subscription, updatedAt: Date.now() };
     this.persist();

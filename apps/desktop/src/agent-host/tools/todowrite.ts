@@ -10,8 +10,15 @@ import { type Static, Type } from "typebox";
 const todoSchema = Type.Object({
   todos: Type.Array(
     Type.Object({
-      content: Type.String({ description: "Task description in imperative form" }),
-      activeForm: Type.Optional(Type.String({ description: "Present-continuous form shown while in progress" })),
+      content: Type.String({
+        description:
+          "Task description in imperative form, in the current UI language unless explicitly requested otherwise",
+      }),
+      activeForm: Type.Optional(
+        Type.String({
+          description: "In-progress wording in the current UI language unless explicitly requested otherwise",
+        }),
+      ),
       status: Type.Union([Type.Literal("pending"), Type.Literal("in_progress"), Type.Literal("completed")], {
         description: "Task status",
       }),
@@ -40,7 +47,10 @@ export function createTodoWriteTool(emitTodo: (todos: TodoItem[]) => void): Tool
       const done = current.filter((t) => t.status === "completed").length;
       return {
         content: [{ type: "text", text: `Todo list updated: ${done}/${current.length} completed.` }],
-        details: { todos: current },
+        details: {
+          todos: current,
+          presentation: { key: "agent:tool.todosUpdated", params: { done, total: current.length } },
+        },
       };
     },
   };

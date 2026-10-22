@@ -1,5 +1,7 @@
-import type { QuestionRequest } from "@spcode/shared";
+import { buildQuestionAnswers, dismissQuestionAnswers, type QuestionRequest } from "@spcode/shared";
+import { renderMessage } from "@spcode/shared/i18n";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
 
@@ -23,46 +25,46 @@ export function QuestionInline({ sessionId }: { sessionId: string }) {
 }
 
 function QuestionCard({ request, queueSize }: { request: QuestionRequest; queueSize: number }) {
+  const { t } = useTranslation("questions");
   const reply = useStore((s) => s.replyQuestion);
-  // 每题一个答案，按题号索引（不按问题文本——同文案两题会互相覆盖，评审 P2-5）；
-  // multiSelect 用逗号拼接
-  const [answers, setAnswers] = useState<Record<number, string>>({});
-  const [freeText, setFreeText] = useState<Record<number, string>>({});
+  // Keep stable values and free text separately: locale changes never alter the draft.
+  const [answers, setAnswers] = useState<Record<string, string[]>>({});
+  const [freeText, setFreeText] = useState<Record<string, string>>({});
   const [page, setPage] = useState(0);
 
   const total = request.questions.length;
   const idx = Math.min(page, total - 1);
   const q = request.questions[idx]!;
 
-  const choose = (label: string) => {
+  const choose = (value: string) => {
     setAnswers((m) => {
-      if (!q.multiSelect) return { ...m, [idx]: label };
-      const cur = m[idx] ? m[idx]!.split(", ").filter(Boolean) : [];
-      const next = cur.includes(label) ? cur.filter((x) => x !== label) : [...cur, label];
-      return { ...m, [idx]: next.join(", ") };
+      if (!q.multiSelect) return { ...m, [idx]: [value] };
+      const cur = m[idx] ?? [];
+      return { ...m, [idx]: cur.includes(value) ? cur.filter((x) => x !== value) : [...cur, value] };
     });
   };
 
-  const isSelected = (label: string) => (answers[idx] ?? "").split(", ").includes(label);
-  const answeredAny = request.questions.some((_item, i) => freeText[i]?.trim() || answers[i]);
+  const isSelected = (value: string) => (answers[idx] ?? []).includes(value);
+  const answeredAny = request.questions.some((_item, i) => freeText[i]?.trim() || answers[i]?.length);
 
-  const submit = () => {
-    // 协议键 = 题号索引（三端统一；ask-user 按索引还原题目文本，同文案题不再互相覆盖——评审 R3-C12）
-    const merged: Record<string, string> = {};
-    request.questions.forEach((item, i) => {
-      merged[String(i)] = freeText[i]?.trim() || answers[i] || "";
-    });
-    reply(request.requestId, merged);
-  };
+  const submit = () => reply(request.requestId, buildQuestionAnswers(request, answers, freeText));
 
   return (
     <div className="rounded-2xl border border-accent/25 bg-bg-elevated shadow-lg">
       {/* 头部：问题标题 + 多题分页 */}
       <div className="flex items-start justify-between gap-3 px-4 pt-3.5">
         <div className="min-w-0">
-          {q.header && <div className="mb-1 text-[11px] font-medium text-accent">{q.header}</div>}
-          <div className="text-[14px] font-semibold leading-5 text-text-primary">{q.question}</div>
-          {queueSize > 1 && <div className="mt-0.5 text-[11px] text-text-tertiary">还有 {queueSize - 1} 组提问</div>}
+          {q.header && (
+            <div className="mb-1 text-[11px] font-medium text-accent">
+              {q.presentation?.header ? renderMessage(q.presentation.header) : q.header}
+            </div>
+          )}
+          <div className="text-[14px] font-semibold leading-5 text-text-primary">
+            {q.presentation?.question ? renderMessage(q.presentation.question) : q.question}
+          </div>
+          {queueSize > 1 && (
+            <div className="mt-0.5 text-[11px] text-text-tertiary">{t("card.queued", { count: queueSize - 1 })}</div>
+          )}
         </div>
         {total > 1 && (
           <div className="flex shrink-0 items-center gap-0.5 text-[12px] tabular-nums text-text-tertiary">
@@ -70,7 +72,7 @@ function QuestionCard({ request, queueSize }: { request: QuestionRequest; queueS
               type="button"
               disabled={idx === 0}
               onClick={() => setPage(idx - 1)}
-              title="上一题"
+              title={t("card.previous")}
               className="rounded p-1 hover:bg-bg-hover hover:text-text-secondary disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-text-tertiary"
             >
               <Icon name="chevronRight" size={12} className="rotate-180" />
@@ -82,7 +84,7 @@ function QuestionCard({ request, queueSize }: { request: QuestionRequest; queueS
               type="button"
               disabled={idx === total - 1}
               onClick={() => setPage(idx + 1)}
-              title="下一题"
+              title={t("card.next")}
               className="rounded p-1 hover:bg-bg-hover hover:text-text-secondary disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-text-tertiary"
             >
               <Icon name="chevronRight" size={12} />
@@ -95,12 +97,14 @@ function QuestionCard({ request, queueSize }: { request: QuestionRequest; queueS
       {q.options && q.options.length > 0 && (
         <div className="space-y-1 px-2 pt-2.5">
           {q.options.map((o, i) => {
-            const selected = isSelected(o.label);
+            const selected = isSelected(o.value);
             return (
               <button
                 type="button"
-                key={o.label}
-                onClick={() => choose(o.label)}
+                key={o.value}
+                aria-pressed={selected}
+                data-testid={`question-option-${idx}-${i}`}
+                onClick={() => choose(o.value)}
                 className={`flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition-colors ${
                   selected ? "bg-accent-soft" : "hover:bg-bg-hover"
                 }`}
@@ -114,10 +118,12 @@ function QuestionCard({ request, queueSize }: { request: QuestionRequest; queueS
                 </span>
                 <span className="min-w-0">
                   <span className={`block text-[13px] leading-5 ${selected ? "text-accent" : "text-text-primary"}`}>
-                    {o.label}
+                    {o.presentation?.label ? renderMessage(o.presentation.label) : o.label}
                   </span>
                   {o.description && (
-                    <span className="mt-0.5 block text-[12px] leading-4 text-text-tertiary">{o.description}</span>
+                    <span className="mt-0.5 block text-[12px] leading-4 text-text-tertiary">
+                      {o.presentation?.description ? renderMessage(o.presentation.description) : o.description}
+                    </span>
                   )}
                 </span>
               </button>
@@ -134,7 +140,8 @@ function QuestionCard({ request, queueSize }: { request: QuestionRequest; queueS
           onKeyDown={(e) => {
             if (e.key === "Enter") submit();
           }}
-          placeholder="其他回答…"
+          placeholder={t("card.otherAnswer")}
+          data-testid="question-free-text"
           className="w-full rounded-lg bg-bg-main px-3 py-2 text-[13px] text-text-primary outline-none placeholder:text-text-tertiary focus:ring-1 focus:ring-accent/40"
         />
       </div>
@@ -143,15 +150,18 @@ function QuestionCard({ request, queueSize }: { request: QuestionRequest; queueS
       <div className="flex items-center justify-end gap-3 px-4 py-3">
         <button
           type="button"
-          onClick={() => reply(request.requestId, {})}
+          onClick={() => reply(request.requestId, dismissQuestionAnswers(request))}
+          data-testid="question-dismiss"
           className="text-[13px] text-text-tertiary transition-colors hover:text-text-secondary"
         >
-          取消
+          {t("card.cancel")}
         </button>
         <button
           type="button"
           onClick={submit}
-          title="提交回答"
+          title={t("card.submit")}
+          aria-label={t("card.submit")}
+          data-testid="question-submit"
           className={`flex h-8 w-8 items-center justify-center rounded-full transition-colors ${
             answeredAny
               ? "bg-accent text-bg-root hover:bg-accent-dim"

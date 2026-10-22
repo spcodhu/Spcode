@@ -185,7 +185,7 @@ export function parseSearchResponse(config: AdvancedSearchConfig, json: unknown,
     case "bocha": {
       // 博查业务码：code !== 200 即失败（如 403 余额不足），msg 带原因
       if (isPlainObject(json) && typeof json.code === "number" && json.code !== 200) {
-        throw new Error(typeof json.msg === "string" && json.msg ? json.msg : `Bocha 返回错误码 ${json.code}`);
+        throw new Error(typeof json.msg === "string" && json.msg ? json.msg : `Bocha returned error code ${json.code}`);
       }
       const webPages = isPlainObject(json) && isPlainObject(json.data) ? json.data.webPages : null;
       const arr = isPlainObject(webPages) && Array.isArray(webPages.value) ? webPages.value : [];
@@ -207,7 +207,10 @@ export function parseSearchResponse(config: AdvancedSearchConfig, json: unknown,
       return results;
     }
     case "custom": {
-      if (!config.mapping) throw new Error("自定义协议缺少响应映射（请在设置页粘贴响应示例并保存）");
+      if (!config.mapping)
+        throw new Error(
+          "The custom protocol has no response mapping. Paste a response sample in Settings and save it.",
+        );
       return applyMapping(json, config.mapping, limit);
     }
   }

@@ -1,6 +1,8 @@
 import type { ModelRef } from "@spcode/shared";
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useStore } from "../store";
+import { thinkingLevelLabel } from "../tooling";
 import { Icon } from "./Icon";
 import { Select } from "./ui/Select";
 import { Switch } from "./ui/Switch";
@@ -11,6 +13,7 @@ import { Switch } from "./ui/Switch";
  * 原会话不受任何影响、可继续独立使用（对照 Claude Code --fork-session 语义）。
  */
 export function ForkDialog({ sourceId, onClose }: { sourceId: string; onClose: () => void }) {
+  const { t } = useTranslation("chat");
   const source = useStore((s) => s.registrySessions.find((r) => r.id === sourceId));
   const sourceRunning = useStore((s) => s.sessions[sourceId]?.running ?? false);
   const models = useStore((s) => s.models);
@@ -28,13 +31,13 @@ export function ForkDialog({ sourceId, onClose }: { sourceId: string; onClose: (
   const [initialized, setInitialized] = useState(false);
   useEffect(() => {
     if (!source || initialized) return;
-    setTitle(`${source.title} · 分叉`);
+    setTitle(t("fork.defaultTitle", { title: source.title }));
     const m = source.model ?? settings?.defaultModel ?? null;
     setModelKey(m ? `${m.provider}/${m.modelId}` : "");
     setThinkingLevel(source.thinkingLevel || settings?.defaultThinkingLevel || "medium");
     setPlanMode(source.planMode ?? false);
     setInitialized(true);
-  }, [source, initialized, settings]);
+  }, [source, initialized, settings, t]);
 
   // Esc 关闭（Select 自身的 Esc 收起先触发；弹窗级 Esc 兜底）
   useEffect(() => {
@@ -95,9 +98,9 @@ export function ForkDialog({ sourceId, onClose }: { sourceId: string; onClose: (
         <div className="flex items-center gap-2 border-b border-border px-4 py-3">
           <Icon name="branch" size={16} className="shrink-0 text-accent" />
           <div className="min-w-0 flex-1">
-            <div className="text-[14px] font-medium text-text-primary">Fork 会话</div>
+            <div className="text-[14px] font-medium text-text-primary">{t("sidebar.forkSession")}</div>
             <div className="truncate text-[12px] text-text-tertiary">
-              复制「{source.title}」的全部上下文到新会话，原会话可继续独立使用
+              {t("fork.description", { title: source.title })}
             </div>
           </div>
         </div>
@@ -105,9 +108,10 @@ export function ForkDialog({ sourceId, onClose }: { sourceId: string; onClose: (
         <div className="space-y-4 px-4 py-4">
           {/* 标题 */}
           <label className="block">
-            <span className="mb-1.5 block text-[12px] text-text-tertiary">新会话标题</span>
+            <span className="mb-1.5 block text-[12px] text-text-tertiary">{t("fork.title")}</span>
             <input
               value={title}
+              data-testid="fork-title"
               onChange={(e) => setTitle(e.target.value)}
               maxLength={100}
               className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-[13px] text-text-primary outline-none focus:border-border-strong"
@@ -117,9 +121,11 @@ export function ForkDialog({ sourceId, onClose }: { sourceId: string; onClose: (
           {/* 模型（biome-ignore：Select 是自定义按钮式下拉，label 仅作视觉标题） */}
           {/* biome-ignore lint/a11y/noLabelWithoutControl: Select 为自定义组件，label 不关联原生控件 */}
           <label className="block">
-            <span className="mb-1.5 block text-[12px] text-text-tertiary">模型</span>
+            <span className="mb-1.5 block text-[12px] text-text-tertiary">{t("common.model")}</span>
             <Select
               value={modelKey}
+              label={t("common.model")}
+              testId="fork-model"
               options={enabledModels.map((m) => ({
                 value: `${m.provider}/${m.modelId}`,
                 label: `${m.displayName}（${m.provider}）`,
@@ -140,10 +146,12 @@ export function ForkDialog({ sourceId, onClose }: { sourceId: string; onClose: (
           {thinkingLevels.length > 0 && (
             // biome-ignore lint/a11y/noLabelWithoutControl: Select 为自定义组件，label 不关联原生控件
             <label className="block">
-              <span className="mb-1.5 block text-[12px] text-text-tertiary">思考档位</span>
+              <span className="mb-1.5 block text-[12px] text-text-tertiary">{t("fork.thinking")}</span>
               <Select
                 value={thinkingLevel}
-                options={thinkingLevels.map((lv) => ({ value: lv }))}
+                label={t("fork.thinking")}
+                testId="fork-thinking"
+                options={thinkingLevels.map((lv) => ({ value: lv, label: thinkingLevelLabel(lv) }))}
                 onChange={setThinkingLevel}
               />
             </label>
@@ -152,15 +160,15 @@ export function ForkDialog({ sourceId, onClose }: { sourceId: string; onClose: (
           {/* 计划模式 */}
           <div className="flex items-center justify-between rounded-lg border border-border bg-bg-elevated px-3 py-2.5">
             <div>
-              <div className="text-[13px] text-text-primary">计划模式</div>
-              <div className="text-[12px] text-text-tertiary">新会话先只读调研、出完整计划，你批准后才执行</div>
+              <div className="text-[13px] text-text-primary">{t("common.planMode")}</div>
+              <div className="text-[12px] text-text-tertiary">{t("fork.planHint")}</div>
             </div>
-            <Switch on={planMode} onChange={setPlanMode} label="计划模式" />
+            <Switch on={planMode} onChange={setPlanMode} label={t("common.planMode")} />
           </div>
 
           {sourceRunning && (
             <div className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[12px] text-warning">
-              源会话正在运行，等它停下或先中止后再分叉
+              {t("fork.running")}
             </div>
           )}
           {error && (
@@ -177,15 +185,16 @@ export function ForkDialog({ sourceId, onClose }: { sourceId: string; onClose: (
             onClick={onClose}
             className="rounded-lg px-3.5 py-1.5 text-[13px] text-text-secondary hover:bg-bg-hover"
           >
-            取消
+            {t("common.cancel")}
           </button>
           <button
             type="button"
             onClick={() => void confirm()}
+            data-testid="fork-confirm"
             disabled={submitting || sourceRunning || !title.trim()}
             className="rounded-lg bg-accent px-3.5 py-1.5 text-[13px] font-medium text-white transition-colors hover:bg-accent-dim disabled:opacity-40"
           >
-            {submitting ? "分叉中…" : "Fork"}
+            {t(submitting ? "fork.submitting" : "fork.confirm")}
           </button>
         </div>
       </div>

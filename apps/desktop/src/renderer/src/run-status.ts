@@ -6,6 +6,7 @@
  */
 
 import type { PermissionRequest, QuestionRequest } from "@spcode/shared";
+import { i18n } from "@spcode/shared/i18n";
 import type { SessionState } from "./store";
 import { isCommandTool, summarizeArgs, toolLabel } from "./tooling";
 
@@ -27,43 +28,48 @@ export function deriveRunStatus(
   pendingQuestions: QuestionRequest[],
   sessionId: string,
 ): RunStatus | null {
-  if (session?.compacting) return { kind: "working", label: "正在压缩上下文…" };
+  if (session?.compacting) return { kind: "working", label: i18n.t("chat:run.compacting") };
   if (!session?.running) return null;
   if (pendingQuestions.some((q) => q.sessionId === sessionId)) {
-    return { kind: "question", label: "等待你的回答…" };
+    return { kind: "question", label: i18n.t("chat:run.question") };
   }
   const perm = pendingPermissions.find((p) => p.sessionId === sessionId);
   if (perm) {
-    return { kind: "permission", label: `等待权限确认 · ${toolLabel(perm.toolName)}` };
+    return { kind: "permission", label: i18n.t("chat:run.permission", { tool: toolLabel(perm.toolName) }) };
   }
   // 引擎自动重试（额度/限流/网络抖动）：不显示的话用户只会看到界面卡住
   if (session.retry) {
     const secs = Math.max(1, Math.ceil(session.retry.delayMs / 1000));
-    const attempt = `${session.retry.attempt}/${session.retry.maxAttempts}`;
     return {
       kind: "retry",
-      label: `请求失败，${secs}s 后重试（${attempt}）`,
+      label: i18n.t("chat:run.retry", {
+        seconds: secs,
+        attempt: session.retry.attempt,
+        maxAttempts: session.retry.maxAttempts,
+      }),
       detail: shortReason(session.retry.errorMessage),
     };
   }
   const last = session.messages[session.messages.length - 1];
   // 回合间隙（上一条消息已定格，下一回合未开始）或无消息：兜底「正在工作…」
-  if (last?.role !== "assistant" || !last?.streaming) return { kind: "working", label: "正在工作…" };
+  if (last?.role !== "assistant" || !last?.streaming) return { kind: "working", label: i18n.t("chat:run.working") };
   const seg = last.segments[last.segments.length - 1];
-  if (!seg) return { kind: "working", label: "正在工作…" };
-  if (seg.kind === "thinking" && !seg.done) return { kind: "thinking", label: "思考中…" };
+  if (!seg) return { kind: "working", label: i18n.t("chat:run.working") };
+  if (seg.kind === "thinking" && !seg.done) return { kind: "thinking", label: i18n.t("chat:run.thinking") };
   if (seg.kind === "tools") {
     const running = [...seg.calls].reverse().find((c) => c.status === "running");
     if (running) {
       const detail = summarizeArgs(running.name, running.args);
-      const label = isCommandTool(running.name) ? "正在运行终端命令" : `正在${toolLabel(running.name)}`;
+      const label = isCommandTool(running.name)
+        ? i18n.t("chat:run.command")
+        : i18n.t("chat:run.tool", { tool: toolLabel(running.name) });
       return { kind: "tool", label, detail: detail || undefined };
     }
-    return { kind: "working", label: "正在工作…" };
+    return { kind: "working", label: i18n.t("chat:run.working") };
   }
-  if (seg.kind === "text") return { kind: "text", label: "正在输出…" };
+  if (seg.kind === "text") return { kind: "text", label: i18n.t("chat:run.output") };
   // 末段是已完成的思考：下一动作未到，按工作间隙处理
-  return { kind: "working", label: "正在工作…" };
+  return { kind: "working", label: i18n.t("chat:run.working") };
 }
 
 /** 错误原因精简：去首行/去 provider 前缀噪声，供状态条同行展示（完整内容在错误卡） */
@@ -75,7 +81,7 @@ export function shortReason(message: string, max = 60): string {
 
 /** 耗时格式化：12s / 1:05 */
 export function formatElapsed(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 60) return i18n.t("chat:run.seconds", { seconds });
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `${m}:${String(s).padStart(2, "0")}`;

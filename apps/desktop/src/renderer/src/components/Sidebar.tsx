@@ -1,5 +1,6 @@
 import { baseName } from "@spcode/shared";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { formatRelative } from "../format";
 import { type RegistrySession, useStore } from "../store";
 import { Icon } from "./Icon";
@@ -41,6 +42,7 @@ export function Sidebar({
   onOpenSearch: () => void;
   onOpenSchedule: () => void;
 }) {
+  const { t } = useTranslation("chat");
   const sessions = useStore((s) => s.sessions);
   const registrySessions = useStore((s) => s.registrySessions);
   const activeSessionId = useStore((s) => s.activeSessionId);
@@ -101,7 +103,7 @@ export function Sidebar({
   /** 分叉会话的 tooltip 溯源标注：「分叉自《源标题》」（源已删则如实标注） */
   const forkOriginTitle = (r: RegistrySession): string | undefined => {
     if (!r.forkedFrom) return undefined;
-    return registrySessions.find((x) => x.id === r.forkedFrom)?.title ?? "已删除的会话";
+    return registrySessions.find((x) => x.id === r.forkedFrom)?.title ?? t("sidebar.deletedSession");
   };
 
   /** Fork 菜单项（空间会话与聊天会话共用）：源会话运行中或未落盘时禁用 */
@@ -111,9 +113,9 @@ export function Sidebar({
     return {
       key: "fork",
       icon: "branch",
-      label: "Fork 会话",
+      label: t("sidebar.forkSession"),
       disabled,
-      disabledHint: running ? "会话正在运行，停下后再分叉" : "会话还没有可分叉的内容",
+      disabledHint: t(running ? "sidebar.forkRunning" : "sidebar.forkEmpty"),
       onClick: () => setForkDialogFor(r.id),
     };
   };
@@ -122,9 +124,9 @@ export function Sidebar({
   const exportMenuItem = (r: RegistrySession): SectionMenuItem => ({
     key: "export",
     icon: "copy",
-    label: "导出会话上下文",
+    label: t("sidebar.exportContext"),
     disabled: !r.sessionFile,
-    disabledHint: "会话还没有可导出的内容",
+    disabledHint: t("sidebar.exportEmpty"),
     onClick: () => void exportSessionContext(r.id),
   });
 
@@ -152,14 +154,16 @@ export function Sidebar({
           className="titlebar-no-drag flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-text-primary hover:bg-bg-hover"
         >
           <Icon name="home" size={16} />
-          首页
+          {t("sidebar.home")}
         </button>
         <div className="flex-1" />
         <button
           type="button"
           onClick={onOpenSearch}
           className="titlebar-no-drag rounded-md p-1.5 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
-          title="搜索会话（Cmd+K）"
+          title={t("sidebar.search")}
+          aria-label={t("sidebar.search")}
+          data-testid="sidebar-search"
         >
           <Icon name="search" size={16} />
         </button>
@@ -167,7 +171,9 @@ export function Sidebar({
           type="button"
           onClick={onOpenSchedule}
           className="titlebar-no-drag rounded-md p-1.5 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
-          title="定时任务"
+          title={t("sidebar.schedule")}
+          aria-label={t("sidebar.schedule")}
+          data-testid="sidebar-schedule"
         >
           <Icon name="clock" size={16} />
         </button>
@@ -176,17 +182,17 @@ export function Sidebar({
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         {/* 空间 */}
         <SectionHeader
-          label="空间"
+          label={t("sidebar.spaces")}
           collapsed={sectionCollapsed.spaces}
           onToggle={() => setSectionCollapsed((s) => ({ ...s, spaces: !s.spaces }))}
           menu={
             <SectionMenu
-              title="空间操作"
+              title={t("sidebar.spaceActions")}
               items={[
                 {
                   key: "folder",
                   icon: "folder",
-                  label: "选择文件夹开始…",
+                  label: t("sidebar.pickFolder"),
                   onClick: () => {
                     void (async () => {
                       const dir = await window.spcode.pickDirectory();
@@ -194,14 +200,19 @@ export function Sidebar({
                     })();
                   },
                 },
-                { key: "chat", icon: "chat", label: "创建聊天频道", onClick: () => void createSession("chat") },
+                {
+                  key: "chat",
+                  icon: "chat",
+                  label: t("sidebar.createChat"),
+                  onClick: () => void createSession("chat"),
+                },
               ]}
             />
           }
         />
         {!sectionCollapsed.spaces && (
           <>
-            {spaces.length === 0 && <EmptyHint text="还没有项目空间" />}
+            {spaces.length === 0 && <EmptyHint text={t("sidebar.emptySpaces")} />}
             {spaces.map((sp) => {
               const expanded = !spaceCollapsed[sp.cwd];
               const containsActive = sp.sessions.some((r) => r.id === activeSessionId);
@@ -239,7 +250,7 @@ export function Sidebar({
                     <span className="min-w-0 flex-1 truncate text-[13px] text-text-primary">{sp.name}</span>
                     {!expanded && (
                       <span className="shrink-0 text-[11px] text-text-tertiary group-hover:hidden">
-                        {sp.sessions.length} 个会话
+                        {t("sidebar.sessionCount", { count: sp.sessions.length })}
                       </span>
                     )}
                     {/* hover 出现的操作：… 更多菜单 + 新建会话（Finch 同款） */}
@@ -249,19 +260,24 @@ export function Sidebar({
                       onClick={(e) => e.stopPropagation()}
                     >
                       <SectionMenu
-                        title="空间菜单"
+                        title={t("sidebar.spaceMenu")}
                         items={[
-                          { key: "new", icon: "plus", label: "新对话", onClick: () => void newProjectInSpace(sp.cwd) },
+                          {
+                            key: "new",
+                            icon: "plus",
+                            label: t("sidebar.newConversation"),
+                            onClick: () => void newProjectInSpace(sp.cwd),
+                          },
                           {
                             key: "reveal",
                             icon: "folder",
-                            label: "在 Finder 中显示",
+                            label: t("sidebar.reveal"),
                             onClick: () => void window.spcode.revealPath(sp.cwd),
                           },
                           {
                             key: "remove",
                             icon: "x",
-                            label: "移除空间全部会话",
+                            label: t("sidebar.removeSpace"),
                             danger: true,
                             confirm: true,
                             onClick: () => void removeSpace(sp),
@@ -271,7 +287,8 @@ export function Sidebar({
                       <button
                         type="button"
                         onClick={() => void newProjectInSpace(sp.cwd)}
-                        title="在该空间新建会话"
+                        title={t("sidebar.newInSpace")}
+                        aria-label={t("sidebar.newInSpace")}
                         className="rounded p-0.5 text-text-tertiary hover:text-accent"
                       >
                         <Icon name="plus" size={13} />
@@ -295,13 +312,13 @@ export function Sidebar({
                             {
                               key: "reveal",
                               icon: "folder",
-                              label: "在 Finder 中显示",
+                              label: t("sidebar.reveal"),
                               onClick: () => void window.spcode.revealPath(sp.cwd),
                             },
                             {
                               key: "del",
                               icon: "x",
-                              label: "删除会话",
+                              label: t("sidebar.deleteSession"),
                               danger: true,
                               confirm: true,
                               onClick: () => void deleteSession(r.id),
@@ -319,7 +336,7 @@ export function Sidebar({
                           className="flex h-8 w-full items-center gap-2 rounded-lg pl-8 pr-2 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
                         >
                           <Icon name="dots" size={12} />
-                          更多（还有 {hidden} 个会话）
+                          {t("sidebar.moreSessions", { count: hidden })}
                         </button>
                       )}
                       {showAll && sp.sessions.length > SPACE_SESSION_LIMIT && (
@@ -329,7 +346,7 @@ export function Sidebar({
                           className="flex h-8 w-full items-center gap-2 rounded-lg pl-8 pr-2 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
                         >
                           <Icon name="chevronDown" size={12} className="rotate-180" />
-                          收起
+                          {t("common.collapse")}
                         </button>
                       )}
                     </div>
@@ -343,18 +360,18 @@ export function Sidebar({
         {/* 聊天 */}
         <div className="mt-4">
           <SectionHeader
-            label="聊天"
+            label={t("sidebar.chats")}
             collapsed={sectionCollapsed.chats}
             onToggle={() => setSectionCollapsed((s) => ({ ...s, chats: !s.chats }))}
             menu={
               <SectionMenu
-                title="聊天操作"
+                title={t("sidebar.chatActions")}
                 items={[
-                  { key: "new", icon: "plus", label: "新建聊天", onClick: () => void createSession("chat") },
+                  { key: "new", icon: "plus", label: t("home.newChat"), onClick: () => void createSession("chat") },
                   {
                     key: "clear",
                     icon: "x",
-                    label: "清空聊天列表",
+                    label: t("sidebar.clearChats"),
                     danger: true,
                     confirm: true,
                     onClick: () => void clearAllChats(),
@@ -365,7 +382,7 @@ export function Sidebar({
           />
           {!sectionCollapsed.chats && (
             <>
-              {chats.length === 0 && <EmptyHint text="还没有聊天" />}
+              {chats.length === 0 && <EmptyHint text={t("sidebar.emptyChats")} />}
               {chats.map((r) => (
                 <SessionRow
                   key={r.id}
@@ -379,7 +396,7 @@ export function Sidebar({
                     {
                       key: "del",
                       icon: "x",
-                      label: "删除会话",
+                      label: t("sidebar.deleteSession"),
                       danger: true,
                       confirm: true,
                       onClick: () => void deleteSession(r.id),
@@ -400,10 +417,11 @@ export function Sidebar({
         <button
           type="button"
           onClick={() => void createSession("chat")}
+          data-testid="sidebar-new-chat"
           className="flex flex-1 items-center gap-2 rounded-lg px-2 py-2 text-[13px] text-text-primary hover:bg-bg-hover"
         >
           <Icon name="plus" size={16} className="text-text-secondary" />
-          新对话
+          {t("sidebar.newConversation")}
         </button>
         {/* 更新入口：仅在有更新动作时出现（available/downloading/downloaded/error） */}
         <UpdateButton />
@@ -415,7 +433,9 @@ export function Sidebar({
               if (dir) await createSession("project", dir);
             })();
           }}
-          title="打开项目文件夹"
+          title={t("sidebar.openProject")}
+          aria-label={t("sidebar.openProject")}
+          data-testid="sidebar-open-project"
           className="rounded-lg p-2 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
         >
           <Icon name="folder" size={16} />
@@ -423,7 +443,9 @@ export function Sidebar({
         <button
           type="button"
           onClick={onOpenSettings}
-          title="设置"
+          title={t("sidebar.settings")}
+          aria-label={t("sidebar.settings")}
+          data-testid="sidebar-settings"
           className="rounded-lg p-2 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
         >
           <Icon name="gear" size={16} />
@@ -449,12 +471,13 @@ function SectionHeader({
   onToggle: () => void;
   menu?: ReactNode;
 }) {
+  const { t } = useTranslation("chat");
   return (
     <div className="flex items-center justify-between px-2 pb-1 pt-3">
       <button
         type="button"
         onClick={onToggle}
-        title={collapsed ? `展开${label}` : `收起${label}`}
+        title={t(collapsed ? "sidebar.expandSection" : "sidebar.collapseSection", { label })}
         className={`-ml-1 flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium transition-colors ${
           collapsed ? "text-text-tertiary" : "text-text-secondary"
         } hover:bg-bg-hover hover:text-text-primary`}
@@ -497,6 +520,7 @@ function SessionRow({
   onOpen: () => void;
   onDelete: () => void;
 }) {
+  const { t } = useTranslation("chat");
   return (
     // biome-ignore lint/a11y/useSemanticElements: 行内含嵌套按钮（删除/菜单），原生 button 不能嵌套交互元素；role+键盘事件补齐可访问性
     <div
@@ -512,7 +536,7 @@ function SessionRow({
           onOpen();
         }
       }}
-      title={forkedFromTitle ? `${r.title}\n分叉自《${forkedFromTitle}》` : r.title}
+      title={forkedFromTitle ? t("sidebar.forkOrigin", { title: r.title, source: forkedFromTitle }) : r.title}
     >
       <span className={`shrink-0 rounded-full ${active ? "h-1.5 w-1.5 bg-accent" : "h-1 w-1 bg-text-tertiary/70"}`} />
       <span className={`min-w-0 flex-1 truncate text-[13px] ${active ? "text-accent" : "text-text-secondary"}`}>
@@ -520,18 +544,20 @@ function SessionRow({
       </span>
       {waiting && (
         <span
-          title="Agent 在等你回答"
+          title={t("sidebar.waiting")}
           className="flex h-4 w-4 shrink-0 animate-pulse items-center justify-center rounded-full bg-accent-soft text-[10px] font-semibold text-accent"
         >
           ?
         </span>
       )}
-      {running && <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent" />}
+      {running && (
+        <span title={t("sidebar.running")} className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent" />
+      )}
       <span className="shrink-0 text-[11px] text-text-tertiary group-hover:hidden">{formatRelative(r.updatedAt)}</span>
       {menuItems && menuItems.length > 0 && (
         // biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: 纯事件隔离容器，阻止冒泡到行点击，本身不是控件
         <span className="hidden shrink-0 group-hover:block" onClick={(e) => e.stopPropagation()}>
-          <SectionMenu title="会话操作" items={menuItems} />
+          <SectionMenu title={t("sidebar.sessionActions")} items={menuItems} />
         </span>
       )}
       <button
@@ -539,9 +565,11 @@ function SessionRow({
         onClick={(e) => {
           e.stopPropagation();
           // 评审 R3-C11：行内删除与菜单删除同款二次确认（误点不可恢复）
-          if (window.confirm(`确定删除会话「${r.title}」吗？该操作不可恢复。`)) onDelete();
+          if (window.confirm(t("sidebar.confirmDelete", { title: r.title }))) onDelete();
         }}
-        title="删除会话"
+        title={t("sidebar.deleteSession")}
+        aria-label={t("sidebar.deleteSession")}
+        data-testid="sidebar-delete-session"
         className="hidden shrink-0 text-text-tertiary hover:text-danger group-hover:block"
       >
         <Icon name="x" size={13} />
@@ -568,6 +596,7 @@ interface SectionMenuItem {
 /** 分区标题右侧的 "…" 浮动菜单（空间/聊天共用）。
  *  用 fixed 定位展开，避免被侧栏滚动容器裁切 */
 function SectionMenu({ title, items }: { title: string; items: SectionMenuItem[] }) {
+  const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
   const [confirmKey, setConfirmKey] = useState<string | null>(null);
   const [pos, setPos] = useState({ x: 0, y: 0 });
@@ -599,6 +628,7 @@ function SectionMenu({ title, items }: { title: string; items: SectionMenuItem[]
         onClick={() => (open ? setOpen(false) : openMenu())}
         className="rounded p-0.5 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
         title={title}
+        aria-label={title}
       >
         <Icon name="dots" size={13} />
       </button>
@@ -633,7 +663,7 @@ function SectionMenu({ title, items }: { title: string; items: SectionMenuItem[]
                 }`}
               >
                 {item.icon && <Icon name={item.icon} size={14} className="shrink-0 text-text-tertiary" />}
-                {confirming ? `确认${item.label}？` : item.label}
+                {confirming ? t("sidebar.confirmAction", { action: item.label }) : item.label}
               </button>
             );
           })}

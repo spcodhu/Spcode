@@ -40,7 +40,8 @@ import type {
   RemoteFeishuStatus,
   SessionMeta,
 } from "@spcode/shared";
-import { describeSchedule } from "@spcode/shared";
+import { validateQuestionAnswers } from "@spcode/shared";
+import { getLocale, renderMessage } from "@spcode/shared/i18n";
 import { readJsonFile, resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
 import { RemoteEventAggregator } from "../aggregator.js";
 import { handleRemoteCommand, type RemoteHandlerDeps } from "../handlers.js";
@@ -106,22 +107,9 @@ const OUTPUT_TAIL_MAX = 3000;
 const ARGS_SUMMARY_MAX = 800;
 const ARGS_FULL_MAX = 4000;
 
-const HELP_TEXT = [
-  "可用指令：",
-  "/new <提示词> — 新建聊天会话",
-  "/new -p <目录> <提示词> — 新建项目会话",
-  "/sessions — 会话列表（含编号）",
-  "/use <编号或ID前缀> — 切换当前会话",
-  "/abort — 中断当前会话",
-  "/schedules — 定时任务列表",
-  "/run <任务名> — 立即运行定时任务",
-  "/help — 本说明",
-  "",
-  "直接发送文本 = 向当前会话提问",
-].join("\n");
-
-const UNAUTHORIZED_TEXT =
-  "⚠️ 未授权用户。请在桌面端「设置 → 远程控制」获取 6 位绑定验证码，然后发送 /bind <验证码> 完成绑定。";
+// Resolve at send/patch time, never at module initialization.
+const t = (key: string, params?: Record<string, string | number>): string =>
+  renderMessage({ key: `feishu:${key}`, params });
 
 // ---------------------------------------------------------------------------
 // 白名单持久化（~/.spcode/remote/feishu.json，原子写 + 0600）
@@ -168,12 +156,6 @@ function button(text: string, type: string, value: Record<string, unknown>): Rec
   return { tag: "button", text: { tag: "plain_text", content: text }, type, value };
 }
 
-const RISK_LABEL: Record<string, string> = {
-  readonly: "🟦 只读",
-  write: "🟧 写入",
-  outward: "🟨 对外",
-  danger: "🟥 危险",
-};
 const RISK_TEMPLATE: Record<string, string> = { readonly: "blue", write: "orange", outward: "orange", danger: "red" };
 
 function permissionCard(request: PermissionRequest): Record<string, unknown> {
@@ -182,25 +164,34 @@ function permissionCard(request: PermissionRequest): Record<string, unknown> {
   const bypass = request.bypass === true;
   const severe = danger || bypass;
   const argsText = truncateArgs(request.args, severe ? ARGS_FULL_MAX : ARGS_SUMMARY_MAX);
-  const bypassNote = bypass ? "\n**⚠️ 此命令申请在沙盒外执行：以完整权限运行，不受文件/网络边界约束。**\n" : "\n";
-  const md = `**工具**：\`${request.toolName}\`\n**风险**：${RISK_LABEL[request.risk] ?? request.risk}${bypassNote}**参数**：\n\`\`\`\n${argsText}\n\`\`\``;
-  return mdCard(`权限请求：${request.toolName}`, severe ? "red" : (RISK_TEMPLATE[request.risk] ?? "blue"), md, [
-    button(danger ? "确认允许危险操作" : bypass ? "确认沙盒外执行" : "批准", severe ? "danger" : "primary", {
-      action: "permission",
-      requestId: request.requestId,
-      approved: true,
-    }),
-    button("拒绝", "default", { action: "permission", requestId: request.requestId, approved: false }),
-  ]);
+  const bypassNote = bypass ? `\n**${t("permission.bypassWarning")}**\n` : "\n";
+  const md = `**${t("permission.tool")}**: \`${request.toolName}\`\n**${t("permission.risk")}**: ${t(`risk.${request.risk}`)}${bypassNote}**${t("permission.args")}**:\n\`\`\`\n${argsText}\n\`\`\``;
+  return mdCard(
+    t("permission.title", { tool: request.toolName }),
+    severe ? "red" : (RISK_TEMPLATE[request.risk] ?? "blue"),
+    md,
+    [
+      button(
+        t(danger ? "permission.allowDanger" : bypass ? "permission.allowBypass" : "permission.approve"),
+        severe ? "danger" : "primary",
+        {
+          action: "permission",
+          requestId: request.requestId,
+          approved: true,
+        },
+      ),
+      button(t("permission.deny"), "default", { action: "permission", requestId: request.requestId, approved: false }),
+    ],
+  );
 }
 
 function resolvedCard(request: PermissionRequest, approved: boolean, by: "local" | "remote"): Record<string, unknown> {
-  const from = by === "local" ? "桌面端" : "飞书端";
-  const mark = approved ? `✅ 已批准（来自${from}）` : `❌ 已拒绝（来自${from}）`;
+  const from = t(by === "local" ? "permission.local" : "permission.remote");
+  const mark = t(approved ? "permission.approved" : "permission.denied", { from });
   return mdCard(
-    `权限请求：${request.toolName}`,
+    t("permission.title", { tool: request.toolName }),
     approved ? "green" : "grey",
-    `${mark}\n\n**工具**：\`${request.toolName}\``,
+    `${mark}\n\n**${t("permission.tool")}**: \`${request.toolName}\``,
   );
 }
 
@@ -210,15 +201,28 @@ function questionCard(request: QuestionRequest): Record<string, unknown> | null 
   const q = request.questions[0]!;
   if (q.multiSelect || !q.options || q.options.length === 0) return null;
   const actions = q.options.map((opt) =>
-    button(opt.label, "default", {
+    button(opt.presentation?.label ? renderMessage(opt.presentation.label) : opt.label, "default", {
       action: "question",
       requestId: request.requestId,
-      // 答案键与桌面端一致：按题号索引（QuestionCard 注释，评审 P2-5）
-      answers: { "0": opt.label },
+      answers: { "0": { kind: "options", values: [opt.value] } },
     }),
   );
-  return mdCard("Agent 提问", "wathet", `**${q.question}**`, actions);
+  const title = q.presentation?.question ? renderMessage(q.presentation.question) : q.question;
+  return mdCard(t("question.title"), "wathet", `**${title}**`, actions);
 }
+
+function closedQuestionCard(): Record<string, unknown> {
+  return mdCard(t("question.title"), "grey", t("question.closed"));
+}
+
+type SentCard = { openId: string; messageId: string; updates: Promise<void> };
+type PendingPermission = {
+  request: PermissionRequest;
+  sent: SentCard[];
+  submitted: boolean;
+  resolved?: { approved: boolean; by: "local" | "remote" };
+};
+type PendingQuestion = { request: QuestionRequest; sent: SentCard[]; submitted: boolean; resolved: boolean };
 
 function truncateArgs(args: unknown, max: number): string {
   let text: string;
@@ -227,11 +231,38 @@ function truncateArgs(args: unknown, max: number): string {
   } catch {
     text = String(args);
   }
-  return text.length > max ? `${text.slice(0, max)}…（截断）` : text;
+  return text.length > max ? `${text.slice(0, max)}…${t("truncated")}` : text;
 }
 
 function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+function describeFeishuSchedule(task: import("@spcode/shared").ScheduleTask): string {
+  const time = `${String(task.hour).padStart(2, "0")}:${String(task.minute).padStart(2, "0")}`;
+  switch (task.frequency) {
+    case "once":
+      return task.runAt
+        ? t("schedule.onceAt", {
+            time: new Date(task.runAt).toLocaleString(getLocale(), {
+              month: "numeric",
+              day: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+          })
+        : t("schedule.once");
+    case "hourly":
+      return t("schedule.hourly", { minute: task.minute });
+    case "daily":
+    case "weekday":
+      return t(`schedule.${task.frequency}`, { time });
+    case "weekly": {
+      // 2024-01-07 is Sunday. Preserve the shared scheduler's Monday default.
+      const weekday = new Date(2024, 0, 7 + (task.weekday ?? 1)).toLocaleDateString(getLocale(), { weekday: "long" });
+      return t("schedule.weekly", { weekday, time });
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -266,10 +297,8 @@ export class FeishuChannel {
   /** 输出尾部缓冲（sessionId → 最近输出文本，running→idle 时随摘要发出） */
   private readonly outputTails = new Map<string, string>();
   /** 进行中的权限卡片（requestId → 已发出的卡片位置 + 原始请求，resolved 时更新原卡片） */
-  private readonly permissionCards = new Map<
-    string,
-    { request: PermissionRequest; sent: { openId: string; messageId: string }[] }
-  >();
+  private readonly permissionCards = new Map<string, PendingPermission>();
+  private readonly questionCards = new Map<string, PendingQuestion>();
   /** /bind 连续失败计数与锁定（评审 R3-C9：6 位验证码 5 分钟窗口需要防在线爆破） */
   private bindFailures = 0;
   private bindLockedUntil = 0;
@@ -314,7 +343,43 @@ export class FeishuChannel {
     this.api = null;
     this.state = "disabled";
     this.bindCode = null;
+    this.permissionCards.clear();
+    this.questionCards.clear();
     await api?.stop();
+  }
+
+  /** Only live app-owned cards are refreshed. Model questions/history remain verbatim. */
+  async refreshLocale(): Promise<void> {
+    if (this.state !== "connected") return;
+    const updates: Promise<void>[] = [];
+    for (const entry of this.permissionCards.values()) {
+      for (const sent of entry.sent) updates.push(this.updateSentCard(sent, () => this.renderPermission(entry)));
+    }
+    for (const entry of this.questionCards.values()) {
+      if (entry.request.purpose !== "plan-approval") continue;
+      for (const sent of entry.sent) updates.push(this.updateSentCard(sent, () => this.renderQuestion(entry)));
+    }
+    await Promise.all(updates);
+  }
+
+  private renderPermission(entry: PendingPermission): Record<string, unknown> {
+    return entry.resolved
+      ? resolvedCard(entry.request, entry.resolved.approved, entry.resolved.by)
+      : permissionCard(entry.request);
+  }
+
+  private renderQuestion(entry: PendingQuestion): Record<string, unknown> {
+    return entry.resolved ? closedQuestionCard() : questionCard(entry.request)!;
+  }
+
+  /** Serialize patches per message so a locale refresh cannot resurrect a resolved card. */
+  private updateSentCard(sent: SentCard, render: () => Record<string, unknown>): Promise<void> {
+    const api = this.api;
+    sent.updates = sent.updates.then(async () => {
+      if (!api || api !== this.api || this.state !== "connected") return;
+      await this.safeSend(() => api.updateCard(sent.messageId, render()));
+    });
+    return sent.updates;
   }
 
   getState(): RemoteFeishuState {
@@ -371,7 +436,7 @@ export class FeishuChannel {
       }
       if (!this.notifiedUnauthorized.has(msg.openId)) {
         this.notifiedUnauthorized.add(msg.openId);
-        await this.safeSend(() => this.api!.sendText(msg.openId, UNAUTHORIZED_TEXT));
+        await this.safeSend(() => this.api!.sendText(msg.openId, t("unauthorized")));
       }
       return;
     }
@@ -381,7 +446,7 @@ export class FeishuChannel {
       else await this.handlePrompt(msg.openId, text);
     } catch (err) {
       await this.safeSend(() =>
-        this.api!.sendText(msg.openId, `❌ 执行失败：${err instanceof Error ? err.message : String(err)}`),
+        this.api!.sendText(msg.openId, t("failed", { error: err instanceof Error ? err.message : String(err) })),
       );
     }
   }
@@ -391,10 +456,7 @@ export class FeishuChannel {
     const now = this.now();
     if (now < this.bindLockedUntil) {
       await this.safeSend(() =>
-        this.api!.sendText(
-          openId,
-          `❌ 尝试次数过多，已锁定。请 ${Math.ceil((this.bindLockedUntil - now) / 60000)} 分钟后到桌面端设置页重新获取验证码。`,
-        ),
+        this.api!.sendText(openId, t("bind.locked", { minutes: Math.ceil((this.bindLockedUntil - now) / 60000) })),
       );
       return;
     }
@@ -407,14 +469,14 @@ export class FeishuChannel {
         this.bindFailures = 0;
         this.bindLockedUntil = now + 10 * 60_000;
       }
-      await this.safeSend(() => this.api!.sendText(openId, "❌ 验证码错误或已过期，请到桌面端设置页查看最新验证码。"));
+      await this.safeSend(() => this.api!.sendText(openId, t("bind.invalid")));
       return;
     }
     this.bindCode = null; // 单次有效：成功即作废
     this.bindFailures = 0;
     this.allowlist.set(openId, { openId, boundAt: now });
     this.persistStore();
-    await this.safeSend(() => this.api!.sendText(openId, "✅ 绑定成功！发送 /help 查看可用指令。"));
+    await this.safeSend(() => this.api!.sendText(openId, t("bind.success")));
   }
 
   private async handleSlash(openId: string, text: string): Promise<void> {
@@ -424,10 +486,10 @@ export class FeishuChannel {
 
     switch (name) {
       case "help":
-        await this.safeSend(() => this.api!.sendText(openId, HELP_TEXT));
+        await this.safeSend(() => this.api!.sendText(openId, t("help")));
         return;
       case "bind":
-        await this.safeSend(() => this.api!.sendText(openId, "你已在授权白名单中，无需重复绑定。"));
+        await this.safeSend(() => this.api!.sendText(openId, t("bind.already")));
         return;
       case "new":
         await this.handleNew(openId, rest);
@@ -448,7 +510,7 @@ export class FeishuChannel {
         await this.handleRun(openId, rest);
         return;
       default:
-        await this.safeSend(() => this.api!.sendText(openId, `未知指令 /${name}，发送 /help 查看可用指令。`));
+        await this.safeSend(() => this.api!.sendText(openId, t("command.unknown", { name })));
     }
   }
 
@@ -460,21 +522,19 @@ export class FeishuChannel {
     if (rest === "-p" || rest.startsWith("-p ")) {
       const body = rest.slice(2).trim();
       const sp = body.search(/\s/);
-      if (sp < 0) throw new Error("用法：/new -p <目录> <提示词>");
+      if (sp < 0) throw new Error(t("new.projectUsage"));
       mode = "project";
       cwd = body.slice(0, sp);
       prompt = body.slice(sp + 1).trim();
     }
-    if (!prompt) throw new Error(mode === "project" ? "用法：/new -p <目录> <提示词>" : "用法：/new <提示词>");
+    if (!prompt) throw new Error(mode === "project" ? t("new.projectUsage") : t("new.chatUsage"));
     const result = (await this.dispatch(
       mode === "project" ? { type: "session.create", mode, cwd, prompt } : { type: "session.create", mode, prompt },
     )) as { sessionId: string };
     this.contexts.set(openId, result.sessionId);
     this.sessionOwners.set(result.sessionId, openId);
     const title = this.deps.registry.get(result.sessionId)?.title ?? result.sessionId.slice(0, 8);
-    await this.safeSend(() =>
-      this.api!.sendText(openId, `✅ 已创建会话「${title}」并设为当前会话，直接发消息即可继续提问。`),
-    );
+    await this.safeSend(() => this.api!.sendText(openId, t("new.created", { title })));
   }
 
   /** /sessions：编号 + 状态徽章卡片；编号映射存 lastList 供 /use 使用 */
@@ -482,7 +542,7 @@ export class FeishuChannel {
     const result = (await this.dispatch({ type: "session.list" })) as { sessions: SessionMeta[] };
     const sessions = result.sessions;
     if (sessions.length === 0) {
-      await this.safeSend(() => this.api!.sendText(openId, "暂无会话。发送 /new <提示词> 创建。"));
+      await this.safeSend(() => this.api!.sendText(openId, t("sessions.empty")));
       return;
     }
     this.lastList.set(
@@ -492,36 +552,36 @@ export class FeishuChannel {
     const current = this.contexts.get(openId);
     const lines = sessions.map((s, i) => {
       const badge = { running: "🟢", waiting_permission: "🟡", idle: "⚪" }[this.sessionStatus.get(s.id) ?? "idle"];
-      const mark = s.id === current ? " 👈 当前" : "";
-      return `**${i + 1}.** ${badge} ${s.title}${mark}\n\`${s.id.slice(0, 8)}\` · ${s.mode === "project" ? s.cwd : "聊天"}`;
+      const mark = s.id === current ? ` · ${t("sessions.current")}` : "";
+      return `**${i + 1}.** ${badge} ${s.title}${mark}\n\`${s.id.slice(0, 8)}\` · ${s.mode === "project" ? s.cwd : t("sessions.chat")}`;
     });
-    await this.safeSend(() => this.api!.sendCard(openId, mdCard("会话列表", "blue", lines.join("\n\n"))));
+    await this.safeSend(() => this.api!.sendCard(openId, mdCard(t("sessions.title"), "blue", lines.join("\n\n"))));
   }
 
   /** /use <编号或 sessionId 前缀> */
   private async handleUse(openId: string, rest: string): Promise<void> {
-    if (!rest) throw new Error("用法：/use <编号或ID前缀>（先用 /sessions 查看编号）");
+    if (!rest) throw new Error(t("use.usage"));
     const sessions = this.deps.registry.list();
     let target: SessionMeta | undefined;
     if (/^\d+$/.test(rest)) {
       const ids = this.lastList.get(openId);
       target = ids ? sessions.find((s) => s.id === ids[Number(rest) - 1]) : undefined;
-      if (!target) throw new Error(`编号 ${rest} 无效，请先发送 /sessions 刷新列表`);
+      if (!target) throw new Error(t("use.invalidNumber", { number: rest }));
     } else {
       const matches = sessions.filter((s) => s.id.startsWith(rest));
-      if (matches.length > 1) throw new Error(`前缀「${rest}」匹配到 ${matches.length} 个会话，请加长前缀`);
+      if (matches.length > 1) throw new Error(t("use.ambiguous", { prefix: rest, count: matches.length }));
       target = matches[0];
-      if (!target) throw new Error(`找不到会话：${rest}`);
+      if (!target) throw new Error(t("use.notFound", { value: rest }));
     }
     this.contexts.set(openId, target.id);
     this.sessionOwners.set(target.id, openId);
-    await this.safeSend(() => this.api!.sendText(openId, `✅ 已切换到会话「${target.title}」。`));
+    await this.safeSend(() => this.api!.sendText(openId, t("use.switched", { title: target.title })));
   }
 
   private async handleAbort(openId: string): Promise<void> {
     const sessionId = this.requireContext(openId);
     await this.dispatch({ type: "session.abort", sessionId });
-    await this.safeSend(() => this.api!.sendText(openId, "🛑 已发送中断指令。"));
+    await this.safeSend(() => this.api!.sendText(openId, t("abort.sent")));
   }
 
   private async handleSchedules(openId: string): Promise<void> {
@@ -529,36 +589,39 @@ export class FeishuChannel {
       tasks: import("@spcode/shared").ScheduleTask[];
     };
     if (result.tasks.length === 0) {
-      await this.safeSend(() => this.api!.sendText(openId, "暂无定时任务。"));
+      await this.safeSend(() => this.api!.sendText(openId, t("schedules.empty")));
       return;
     }
-    const lines = result.tasks.map((t) => {
-      const state = t.enabled ? "✅" : "⏸️";
-      // 与桌面/移动端同一实现（评审 R3-C12：删掉本地野生复刻——weekday ?? 0 曾比 shared 的 ?? 1 差一天）
-      const freq = describeSchedule(t);
-      const last = t.lastStatus ? ` · 上次${t.lastStatus === "ok" ? "成功" : "失败"}` : "";
-      return `${state} **${t.name}** — ${freq}${last}`;
+    const lines = result.tasks.map((task) => {
+      const state = task.enabled ? "✅" : "⏸️";
+      const freq = describeFeishuSchedule(task);
+      const last = task.lastStatus
+        ? ` · ${t(task.lastStatus === "ok" ? "schedules.lastOk" : "schedules.lastError")}`
+        : "";
+      return `${state} **${task.name}** — ${freq}${last}`;
     });
     await this.safeSend(() =>
-      this.api!.sendCard(openId, mdCard("定时任务", "blue", `${lines.join("\n")}\n\n发送 /run <任务名> 立即运行`)),
+      this.api!.sendCard(
+        openId,
+        mdCard(t("schedules.title"), "blue", `${lines.join("\n")}\n\n${t("schedules.runHint")}`),
+      ),
     );
   }
 
   private async handleRun(openId: string, rest: string): Promise<void> {
-    if (!rest) throw new Error("用法：/run <任务名>（先用 /schedules 查看）");
+    if (!rest) throw new Error(t("run.usage"));
     const result = (await this.dispatch({ type: "schedule.list" })) as {
       tasks: import("@spcode/shared").ScheduleTask[];
     };
     const exact = result.tasks.find((t) => t.name === rest);
     const matches = exact ? [exact] : result.tasks.filter((t) => t.name.startsWith(rest));
-    if (matches.length === 0) throw new Error(`找不到任务：${rest}`);
-    if (matches.length > 1) throw new Error(`「${rest}」匹配到多个任务：${matches.map((t) => t.name).join("、")}`);
+    if (matches.length === 0) throw new Error(t("run.notFound", { value: rest }));
+    if (matches.length > 1)
+      throw new Error(t("run.ambiguous", { value: rest, names: matches.map((task) => task.name).join(", ") }));
     const run = (await this.dispatch({ type: "schedule.runNow", id: matches[0]!.id })) as { sessionId: string };
     this.contexts.set(openId, run.sessionId);
     this.sessionOwners.set(run.sessionId, openId);
-    await this.safeSend(() =>
-      this.api!.sendText(openId, `▶️ 任务「${matches[0]!.name}」已触发，会话已设为当前，完成后会推送摘要。`),
-    );
+    await this.safeSend(() => this.api!.sendText(openId, t("run.started", { name: matches[0]!.name })));
   }
 
   /** 普通文本 → session.prompt（当前会话上下文） */
@@ -566,20 +629,18 @@ export class FeishuChannel {
     const sessionId = this.contexts.get(openId);
     if (!sessionId || !this.deps.registry.get(sessionId)) {
       this.contexts.delete(openId);
-      await this.safeSend(() =>
-        this.api!.sendText(openId, "还没有当前会话。发送 /new <提示词> 创建，或 /sessions 后 /use <编号> 选择。"),
-      );
+      await this.safeSend(() => this.api!.sendText(openId, t("context.missing")));
       return;
     }
     await this.dispatch({ type: "session.prompt", sessionId, text });
-    await this.safeSend(() => this.api!.sendText(openId, "📨 已发送，完成后会推送摘要。"));
+    await this.safeSend(() => this.api!.sendText(openId, t("prompt.sent")));
   }
 
   private requireContext(openId: string): string {
     const sessionId = this.contexts.get(openId);
     if (!sessionId || !this.deps.registry.get(sessionId)) {
       this.contexts.delete(openId);
-      throw new Error("没有当前会话。发送 /new <提示词> 创建，或 /sessions 后 /use <编号> 选择。");
+      throw new Error(t("context.missing"));
     }
     return sessionId;
   }
@@ -598,27 +659,36 @@ export class FeishuChannel {
     const value = action.value;
     try {
       if (value.action === "permission" && typeof value.requestId === "string") {
-        // 纵深防御（评审 R3-C9）：requestId 必须对应一张在途权限卡，
-        // 否则白名单用户可对任意猜测的 requestId 注入裁决
-        if (!this.permissionCards.has(value.requestId)) return;
-        // by="remote"：bridge 广播 permission.resolved，桌面端撤卡 + 本通道更新原卡片
+        const entry = this.permissionCards.get(value.requestId);
+        if (
+          !entry ||
+          entry.submitted ||
+          typeof value.approved !== "boolean" ||
+          !entry.sent.some((sent) => sent.openId === action.operatorOpenId && sent.messageId === action.messageId)
+        )
+          return;
+        entry.submitted = true;
         await this.dispatch({
           type: "permission.reply",
           requestId: value.requestId,
-          approved: value.approved === true,
+          approved: value.approved,
         });
         return;
       }
       if (value.action === "question" && typeof value.requestId === "string") {
-        const answers = (value.answers ?? {}) as Record<string, string>;
+        const entry = this.questionCards.get(value.requestId);
+        if (
+          !entry ||
+          entry.submitted ||
+          !entry.sent.some((sent) => sent.openId === action.operatorOpenId && sent.messageId === action.messageId)
+        )
+          return;
+        const answers = validateQuestionAnswers(entry.request, value.answers);
+        // Feishu only supports a single option button, not free text or multi-select.
+        if (!answers || Object.keys(answers).length !== 1 || answers["0"]?.kind !== "options") return;
+        entry.submitted = true; // lock synchronously before dispatch; duplicate callbacks fail closed
         await this.dispatch({ type: "question.reply", requestId: value.requestId, answers });
-        // question 没有 resolved 事件（区别于权限双端撤卡），这里直接更新原卡片
-        if (action.messageId) {
-          const first = Object.values(answers)[0] ?? "";
-          await this.safeSend(() =>
-            this.api!.updateCard(action.messageId!, mdCard("Agent 提问", "green", `✅ 已回答：**${first}**`)),
-          );
-        }
+        // The host's question.resolved event is authoritative, including desktop/mobile replies and timeout.
         return;
       }
     } catch (err) {
@@ -641,6 +711,9 @@ export class FeishuChannel {
       case "question.request":
         void this.sendQuestion(event.request);
         return;
+      case "question.resolved":
+        void this.resolveQuestionCard(event.requestId);
+        return;
       case "session.status": {
         const prev = this.sessionStatus.get(event.sessionId);
         this.sessionStatus.set(event.sessionId, event.status);
@@ -654,7 +727,7 @@ export class FeishuChannel {
         return;
       }
       case "schedule.fired":
-        void this.broadcastText(`⏰ 定时任务「${event.name}」已触发，正在运行。`);
+        void this.broadcastText(t("schedule.fired", { name: event.name }));
         return;
       default:
         // sessions.changed 等不主动推（等 /sessions 查询）
@@ -663,39 +736,76 @@ export class FeishuChannel {
   }
 
   private async sendPermissionCard(request: PermissionRequest): Promise<void> {
-    const sent: { openId: string; messageId: string }[] = [];
+    if (this.permissionCards.has(request.requestId)) return;
+    const api = this.api;
+    if (!api) return;
+    const entry: PendingPermission = { request, sent: [], submitted: false };
+    // Register before the first network await: resolution may arrive while sending.
+    this.permissionCards.set(request.requestId, entry);
     for (const openId of this.allowlist.keys()) {
-      const messageId = await this.safeSend(() => this.api!.sendCard(openId, permissionCard(request)));
-      if (messageId) sent.push({ openId, messageId });
+      if (entry.resolved || api !== this.api) break;
+      const initial = this.renderPermission(entry);
+      const messageId = await this.safeSend(() => api.sendCard(openId, initial));
+      if (!messageId || api !== this.api) continue;
+      const sent: SentCard = { openId, messageId, updates: Promise.resolve() };
+      entry.sent.push(sent);
+      if (JSON.stringify(initial) !== JSON.stringify(this.renderPermission(entry))) {
+        await this.updateSentCard(sent, () => this.renderPermission(entry));
+      }
     }
-    if (sent.length > 0) this.permissionCards.set(request.requestId, { request, sent });
   }
 
-  /** permission.resolved：任一端裁决后更新原卡片为「已批准/已拒绝（来源）」 */
+  /** Resolution is authoritative and removes the request before any patch/network await. */
   private async resolvePermissionCard(requestId: string, approved: boolean, by: "local" | "remote"): Promise<void> {
     const entry = this.permissionCards.get(requestId);
     if (!entry) return;
+    entry.resolved = { approved, by };
     this.permissionCards.delete(requestId);
-    const card = resolvedCard(entry.request, approved, by);
-    for (const { messageId } of entry.sent) {
-      await this.safeSend(() => this.api!.updateCard(messageId, card));
-    }
+    await Promise.all(entry.sent.map((sent) => this.updateSentCard(sent, () => this.renderPermission(entry))));
+  }
+
+  private async resolveQuestionCard(requestId: string): Promise<void> {
+    const entry = this.questionCards.get(requestId);
+    if (!entry) return;
+    entry.resolved = true;
+    this.questionCards.delete(requestId);
+    await Promise.all(entry.sent.map((sent) => this.updateSentCard(sent, () => this.renderQuestion(entry))));
   }
 
   private async sendQuestion(request: QuestionRequest): Promise<void> {
     const card = questionCard(request);
     if (card) {
-      await this.broadcastCard(card);
+      if (this.questionCards.has(request.requestId)) return;
+      const api = this.api;
+      if (!api) return;
+      const entry: PendingQuestion = { request, sent: [], submitted: false, resolved: false };
+      this.questionCards.set(request.requestId, entry);
+      for (const openId of this.allowlist.keys()) {
+        if (entry.resolved || api !== this.api) break;
+        const initial = this.renderQuestion(entry);
+        const messageId = await this.safeSend(() => api.sendCard(openId, initial));
+        if (!messageId || api !== this.api) continue;
+        const sent: SentCard = { openId, messageId, updates: Promise.resolve() };
+        entry.sent.push(sent);
+        if (JSON.stringify(initial) !== JSON.stringify(this.renderQuestion(entry))) {
+          await this.updateSentCard(sent, () => this.renderQuestion(entry));
+        }
+      }
       return;
     }
-    // 多题 / 多选 / 自由文本：按钮表达不了，降级为文本 + 引导桌面端
+    // Multi-question / multi-select / free text retain the desktop fallback, not new capabilities.
     const lines = request.questions.map((q, i) => {
-      const opts = q.options?.map((o) => `  - ${o.label}${o.description ? `：${o.description}` : ""}`).join("\n");
-      return `**${i + 1}. ${q.question}**${q.multiSelect ? "（可多选）" : ""}${opts ? `\n${opts}` : ""}`;
+      const opts = q.options
+        ?.map((o) => {
+          const label = o.presentation?.label ? renderMessage(o.presentation.label) : o.label;
+          const description = o.presentation?.description ? renderMessage(o.presentation.description) : o.description;
+          return `  - ${label}${description ? `: ${description}` : ""}`;
+        })
+        .join("\n");
+      const question = q.presentation?.question ? renderMessage(q.presentation.question) : q.question;
+      return `**${i + 1}. ${question}**${q.multiSelect ? t("question.multiple") : ""}${opts ? `\n${opts}` : ""}`;
     });
-    await this.broadcastText(
-      `❓ Agent 提问：\n\n${lines.join("\n\n")}\n\n该提问形态暂不支持飞书内回答，请前往桌面端处理。`,
-    );
+    await this.broadcastText(`${t("question.title")}:\n\n${lines.join("\n\n")}\n\n${t("question.fallback")}`);
   }
 
   /** 会话完成摘要：发给归属用户（无归属则不推，避免打扰全体） */
@@ -706,18 +816,12 @@ export class FeishuChannel {
     this.outputTails.delete(sessionId);
     const title = this.deps.registry.get(sessionId)?.title ?? sessionId.slice(0, 8);
     const body = tail.trim() ? `\n\n\`\`\`\n${truncate(tail.trim(), OUTPUT_TAIL_MAX)}\n\`\`\`` : "";
-    await this.safeSend(() => this.api!.sendText(openId, `✅ 会话「${title}」已完成。${body}`));
+    await this.safeSend(() => this.api!.sendText(openId, `${t("session.completed", { title })}${body}`));
   }
 
   private async broadcastText(text: string): Promise<void> {
     for (const openId of this.allowlist.keys()) {
       await this.safeSend(() => this.api!.sendText(openId, text));
-    }
-  }
-
-  private async broadcastCard(card: Record<string, unknown>): Promise<void> {
-    for (const openId of this.allowlist.keys()) {
-      await this.safeSend(() => this.api!.sendCard(openId, card));
     }
   }
 
@@ -800,11 +904,16 @@ export class LarkFeishuApi implements FeishuApi {
         const d = data as {
           operator?: { open_id?: string };
           action?: { value?: Record<string, unknown> };
+          context?: { open_message_id?: string };
           open_message_id?: string;
         };
         const openId = d.operator?.open_id;
         if (!openId) return;
-        this.cardActionCb?.({ operatorOpenId: openId, value: d.action?.value ?? {}, messageId: d.open_message_id });
+        this.cardActionCb?.({
+          operatorOpenId: openId,
+          value: d.action?.value ?? {},
+          messageId: d.context?.open_message_id ?? d.open_message_id,
+        });
         // 返回空卡片响应，避免飞书端按钮转圈
         return {};
       },
@@ -823,7 +932,7 @@ export class LarkFeishuApi implements FeishuApi {
       params: { receive_id_type: "open_id" },
       data: { receive_id: openId, msg_type: "text", content: JSON.stringify({ text }) },
     })) as { code?: number; msg?: string; data?: { message_id?: string } };
-    if (res.code !== 0) throw new Error(`飞书发送失败：${res.msg ?? `code=${res.code}`}`);
+    if (res.code !== 0) throw new Error(t("api.sendFailed", { error: res.msg ?? `code=${res.code}` }));
     return res.data?.message_id ?? "";
   }
 
@@ -832,7 +941,7 @@ export class LarkFeishuApi implements FeishuApi {
       params: { receive_id_type: "open_id" },
       data: { receive_id: openId, msg_type: "interactive", content: JSON.stringify(card) },
     })) as { code?: number; msg?: string; data?: { message_id?: string } };
-    if (res.code !== 0) throw new Error(`飞书发卡失败：${res.msg ?? `code=${res.code}`}`);
+    if (res.code !== 0) throw new Error(t("api.cardFailed", { error: res.msg ?? `code=${res.code}` }));
     return res.data?.message_id ?? "";
   }
 
@@ -841,6 +950,6 @@ export class LarkFeishuApi implements FeishuApi {
       path: { message_id: messageId },
       data: { content: JSON.stringify(card) },
     })) as { code?: number; msg?: string };
-    if (res.code !== 0) throw new Error(`飞书更新卡片失败：${res.msg ?? `code=${res.code}`}`);
+    if (res.code !== 0) throw new Error(t("api.updateFailed", { error: res.msg ?? `code=${res.code}` }));
   }
 }

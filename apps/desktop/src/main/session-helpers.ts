@@ -6,7 +6,8 @@
 
 import { rmSync } from "node:fs";
 import { join } from "node:path";
-import { baseName, type HostCommand, type HostEvent } from "@spcode/shared";
+import type { HostCommand, HostEvent } from "@spcode/shared";
+import { i18n, isDefaultSessionTitle, localizeDefaultTitle } from "@spcode/shared/i18n";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 import type { SessionRegistryEntry } from "./session-registry.js";
 
@@ -33,8 +34,8 @@ export interface SessionDisposeBridge {
 }
 
 /** 判断标题是否仍是出厂默认（「新聊天」/「新项目」/目录名），是则允许用首条用户消息兜底 */
-export function isDefaultTitle(title: string, cwd: string): boolean {
-  return title === "新聊天" || title === "新项目" || title === baseName(cwd);
+export function isDefaultTitle(title: string, cwd: string, titleKind?: "default" | "custom"): boolean {
+  return isDefaultSessionTitle({ title, cwd, titleKind });
 }
 
 /** 会话创建/恢复/唤醒/分叉成功后回填 sessionFile 等到注册表（支撑下次恢复） */
@@ -80,7 +81,7 @@ export function prepareForkCommand(
   payload: ForkPayload,
 ): { ok: true; payload: ForkPayload } | { ok: false; error: string } {
   const source = registry.get(payload.sourceSessionId);
-  if (!source) return { ok: false, error: `源会话不存在：${payload.sourceSessionId}` };
+  if (!source) return { ok: false, error: i18n.t("integration:session.sourceMissing") };
   return {
     ok: true,
     payload: {
@@ -104,12 +105,15 @@ export function buildForkRegistryEntry(
   payload: ForkPayload,
   now = Date.now(),
 ): SessionRegistryEntry {
-  const title = normalizeSessionTitle(payload.title ?? "") || normalizeSessionTitle(`${source.title} · 分叉`);
+  const title =
+    normalizeSessionTitle(payload.title ?? "") ||
+    normalizeSessionTitle(i18n.t("integration:session.forkTitle", { title: localizeDefaultTitle(source).title }));
   return {
     id: payload.newSessionId,
     mode: source.mode,
     cwd: source.cwd,
     title,
+    titleKind: "custom",
     model: payload.model ?? source.model,
     thinkingLevel: payload.thinkingLevel ?? source.thinkingLevel,
     sessionFile: null,
@@ -133,7 +137,7 @@ export function renameSession(
   const clean = normalizeSessionTitle(title);
   if (!clean) return false;
   if (!deps.registry.get(sessionId)) return false;
-  deps.registry.patch(sessionId, { title: clean, updatedAt: Date.now() });
+  deps.registry.patch(sessionId, { title: clean, titleKind: "custom", updatedAt: Date.now() });
   deps.events?.emitLocal?.({ type: "session.renamed", sessionId, title: clean });
   return true;
 }

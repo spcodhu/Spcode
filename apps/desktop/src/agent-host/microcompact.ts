@@ -22,11 +22,12 @@ const KEEP_RECENT_TURNS = 3;
 /** 太小的工具结果不值得清扫（占位符本身也吃 token） */
 const MIN_CHARS = 600;
 /** 占位符前缀：已清理的内容二次扫描时据此跳过（双保险，editedIds 才是主判定） */
-const PLACEHOLDER_PREFIX = "[该工具结果已被上下文清理折叠";
+const PLACEHOLDER_PREFIX = "[This tool result was folded by context cleanup";
+const LEGACY_PLACEHOLDER_PREFIX = "[该工具结果已被上下文清理折叠";
 
 /** 占位符文案：明确告知模型内容去向与重获路径（导出供单测） */
 export function placeholderText(chars: number): string {
-  return `${PLACEHOLDER_PREFIX}（原约 ${(chars / 1000).toFixed(1)}k 字符）。原文仍在会话记录中；如需此内容，请重新执行相应操作获取。]`;
+  return `${PLACEHOLDER_PREFIX} (originally about ${(chars / 1000).toFixed(1)}k characters). The original remains in the session record; repeat the corresponding operation if you need this content.]`;
 }
 
 /** 消息的上下文体积估算（chars/4 口径之前的原始字符数；与 pi estimateTokens 的构成一致） */
@@ -91,7 +92,8 @@ export function findMicrocompactTargets(
         return Array.isArray(c) ? c : [];
       })
       .find((b) => (b as { type?: string }).type === "text") as { text?: string } | undefined;
-    if (firstText?.text?.startsWith(PLACEHOLDER_PREFIX)) continue;
+    if (firstText?.text?.startsWith(PLACEHOLDER_PREFIX) || firstText?.text?.startsWith(LEGACY_PLACEHOLDER_PREFIX))
+      continue;
     targets.push({ entryId: src.id, chars });
   }
   return targets;

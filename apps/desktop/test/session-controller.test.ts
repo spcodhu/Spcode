@@ -52,7 +52,7 @@ describe("SessionController 集成", () => {
 
     // 系统提示里应有记忆块（SOUL 播种内容）与标题约定
     expect(ctl.session.systemPrompt).toContain("Spcod Memory");
-    expect(ctl.session.systemPrompt).toContain("会话标题约定");
+    expect(ctl.session.systemPrompt).toContain("Session title convention");
 
     await ctl.dispose();
   }, 60000);
@@ -80,7 +80,7 @@ describe("SessionController 集成", () => {
       requestPermission: async () => true,
       askQuestion: async () => ({}),
     });
-    expect(ctl.session.systemPrompt).not.toContain("会话标题约定");
+    expect(ctl.session.systemPrompt).not.toContain("Session title convention");
     await ctl.dispose();
   }, 60000);
 });

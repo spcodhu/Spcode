@@ -7,7 +7,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_SETTINGS, type HostEvent, type PermissionRequest, type QuestionRequest } from "@spcode/shared";
-import { afterEach, describe, expect, it } from "vitest";
+import { setLocale } from "@spcode/shared/i18n";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createExitPlanModeTool } from "../src/agent-host/tools/exit-plan-mode.js";
 import { RemoteServer, type RemoteServerDeps } from "../src/main/remote/index.js";
 import { PairingManager } from "../src/main/remote/pairing.js";
 import type { TailscaleManager } from "../src/main/remote/transport/tailscale.js";
@@ -23,7 +25,9 @@ import {
 } from "./helpers/feishu-harness.js";
 
 const cleanup: string[] = [];
+beforeEach(() => setLocale("zh-CN"));
 afterEach(() => {
+  setLocale("zh-CN");
   while (cleanup.length) rmSync(cleanup.pop()!, { recursive: true, force: true });
 });
 
@@ -133,7 +137,15 @@ describe("question 映射", () => {
     const request: QuestionRequest = {
       requestId: "q1",
       sessionId: "s1",
-      questions: [{ question: "选哪个方案？", options: [{ label: "方案A" }, { label: "方案B", description: "更稳" }] }],
+      questions: [
+        {
+          question: "选哪个方案？",
+          options: [
+            { value: "option-0", label: "方案A" },
+            { value: "option-1", label: "方案B", description: "更稳" },
+          ],
+        },
+      ],
     };
     h.emit({ type: "question.request", request });
     await flush();
@@ -144,11 +156,15 @@ describe("question 映射", () => {
 
     h.api.emitCardAction({
       operatorOpenId: openId,
-      value: { action: "question", requestId: "q1", answers: { "0": "方案A" } },
-      messageId: "m1",
+      value: { action: "question", requestId: "q1", answers: { "0": { kind: "options", values: ["option-0"] } } },
+      messageId: h.api.cards[0]!.messageId,
     });
     await flush();
-    expect(h.questionReplies).toEqual([{ requestId: "q1", answers: { "0": "方案A" } }]);
+    expect(h.questionReplies).toEqual([
+      { requestId: "q1", answers: { "0": { kind: "options", values: ["option-0"] } } },
+    ]);
+    h.emit({ type: "question.resolved", requestId: "q1" });
+    await flush();
     expect(h.api.updates).toHaveLength(1);
     expect(cardText(h.api.updates[0]!.card)).toContain("已回答");
     await h.channel.stop();
@@ -160,8 +176,15 @@ describe("question 映射", () => {
       requestId: "q2",
       sessionId: "s1",
       questions: [
-        { question: "问题一", options: [{ label: "A" }] },
-        { question: "问题二", multiSelect: true, options: [{ label: "X" }, { label: "Y" }] },
+        { question: "问题一", options: [{ value: "option-0", label: "A" }] },
+        {
+          question: "问题二",
+          multiSelect: true,
+          options: [
+            { value: "option-0", label: "X" },
+            { value: "option-1", label: "Y" },
+          ],
+        },
       ],
     };
     h.emit({ type: "question.request", request });
@@ -170,6 +193,199 @@ describe("question 映射", () => {
     expect(h.api.texts).toHaveLength(1);
     expect(h.api.texts[0]!.text).toContain("问题一");
     expect(h.api.texts[0]!.text).toContain("桌面端");
+    await h.channel.stop();
+  });
+});
+
+describe("question lifecycle and locale", () => {
+  async function planRequest(): Promise<QuestionRequest> {
+    let request!: QuestionRequest;
+    const tool = createExitPlanModeTool({
+      sessionId: "s1",
+      ask: async (r) => {
+        request = r;
+        return {};
+      },
+      isPlanMode: () => true,
+      onApproved: async () => {},
+    });
+    await tool.execute("t", {}, undefined as never);
+    return request;
+  }
+
+  it("refreshes live permission and plan cards, not model questions or resolved history", async () => {
+    const { h } = await boundHarness();
+    const plan = await planRequest();
+    const model: QuestionRequest = {
+      requestId: "model",
+      sessionId: "s1",
+      questions: [{ question: "保留模型原文", options: [{ value: "option-0", label: "原样" }] }],
+    };
+    h.emit({ type: "permission.request", request: permRequest({ bypass: true }) });
+    h.emit({ type: "question.request", request: plan });
+    h.emit({ type: "question.request", request: model });
+    await flush();
+    expect(h.api.cards).toHaveLength(3);
+    const planCard = h.api.cards.find((c) => cardText(c.card).includes(plan.requestId))!;
+    const modelCard = h.api.cards.find((c) => cardText(c.card).includes('"model"'))!;
+    const actionValues = (card: Record<string, unknown>) => {
+      const elements = card.elements as { actions?: { value: unknown }[] }[];
+      return elements.flatMap((e) => e.actions?.map((a) => a.value) ?? []);
+    };
+    expect(cardText(planCard.card)).toContain("开始执行");
+    setLocale("en");
+    await h.channel.refreshLocale();
+    expect(h.api.updates).toHaveLength(2);
+    expect(h.api.updates.some((u) => u.messageId === modelCard.messageId)).toBe(false);
+    const updated = h.api.updates.find((u) => u.messageId === planCard.messageId)!;
+    expect(cardText(updated.card)).toContain("Start executing");
+    expect(actionValues(updated.card)).toEqual(actionValues(planCard.card));
+    expect(h.api.updates.some((u) => cardText(u.card).includes("outside the sandbox"))).toBe(true);
+
+    h.emit({ type: "question.resolved", requestId: plan.requestId });
+    h.emit({ type: "permission.resolved", requestId: "req-1", approved: false, by: "local" });
+    await flush();
+    h.api.updates.length = 0;
+    setLocale("zh-CN");
+    await h.channel.refreshLocale();
+    expect(h.api.updates).toHaveLength(0);
+    await h.channel.stop();
+  });
+
+  it("rejects forged, malformed, stale, and duplicate question actions", async () => {
+    const { h, openId } = await boundHarness();
+    const request = await planRequest();
+    h.emit({ type: "question.request", request });
+    await flush();
+    const messageId = h.api.cards[0]!.messageId;
+    const send = (answers: unknown, id = request.requestId, message = messageId) =>
+      h.api.emitCardAction({
+        operatorOpenId: openId,
+        messageId: message,
+        value: { action: "question", requestId: id, answers },
+      });
+    const valid = { "0": { kind: "options", values: ["approve"] } };
+    send(valid, "unknown");
+    send(valid, request.requestId, "wrong-message");
+    send({ "0": "开始执行" });
+    send({ "0": { kind: "text", text: "approve" } });
+    send({ "0": { kind: "options", values: ["approve", "revise"] } });
+    send({ "0": { kind: "options", values: ["Start executing"] } });
+    send({ "1": { kind: "options", values: ["approve"] } });
+    send({});
+    await flush();
+    expect(h.questionReplies).toHaveLength(0);
+    send(valid);
+    send(valid);
+    await flush();
+    expect(h.questionReplies).toEqual([{ requestId: request.requestId, answers: valid }]);
+    h.emit({ type: "question.resolved", requestId: request.requestId });
+    await flush();
+    send(valid);
+    expect(h.questionReplies).toHaveLength(1);
+    await h.channel.stop();
+  });
+
+  it("desktop/timeout resolution closes every copy and rejects late clicks", async () => {
+    const { h, openId } = await boundHarness();
+    const second = await startAndBind(h, "ou_second");
+    const request = await planRequest();
+    h.emit({ type: "question.request", request });
+    await flush();
+    expect(h.api.cards).toHaveLength(2);
+    h.emit({ type: "question.resolved", requestId: request.requestId });
+    await flush();
+    expect(h.api.updates).toHaveLength(2);
+    for (const operatorOpenId of [openId, second])
+      h.api.emitCardAction({
+        operatorOpenId,
+        messageId: h.api.cards.find((c) => c.openId === operatorOpenId)!.messageId,
+        value: {
+          action: "question",
+          requestId: request.requestId,
+          answers: { "0": { kind: "options", values: ["approve"] } },
+        },
+      });
+    await flush();
+    expect(h.questionReplies).toHaveLength(0);
+    expect(h.api.updates.every((u) => !cardText(u.card).includes('"action":"question"'))).toBe(true);
+    await h.channel.stop();
+  });
+
+  it("resolution while send is in flight never re-arms the card", async () => {
+    const { h, openId } = await boundHarness();
+    let finish!: (id: string) => void;
+    h.api.sendCard = async () =>
+      new Promise<string>((resolve) => {
+        finish = resolve;
+      });
+    const request = await planRequest();
+    h.emit({ type: "question.request", request });
+    h.emit({ type: "question.resolved", requestId: request.requestId });
+    finish("late-message");
+    await flush();
+    expect(h.api.updates).toHaveLength(1);
+    expect(cardText(h.api.updates[0]!.card)).toContain("已回答或已关闭");
+    h.api.emitCardAction({
+      operatorOpenId: openId,
+      messageId: "late-message",
+      value: {
+        action: "question",
+        requestId: request.requestId,
+        answers: { "0": { kind: "options", values: ["approve"] } },
+      },
+    });
+    await flush();
+    expect(h.questionReplies).toHaveLength(0);
+    await h.channel.stop();
+  });
+
+  it("locale patch in flight is followed by a closed card, never the reverse", async () => {
+    const { h } = await boundHarness();
+    const request = await planRequest();
+    h.emit({ type: "question.request", request });
+    await flush();
+    const original = h.api.updateCard.bind(h.api);
+    let finish!: () => void;
+    let first = true;
+    h.api.updateCard = async (id, card) => {
+      if (first) {
+        first = false;
+        await new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+      }
+      await original(id, card);
+    };
+    setLocale("en");
+    const refreshing = h.channel.refreshLocale();
+    await flush();
+    h.emit({ type: "question.resolved", requestId: request.requestId });
+    finish();
+    await refreshing;
+    await flush();
+    expect(cardText(h.api.updates.at(-1)!.card)).toContain("Answered or closed");
+    expect(cardText(h.api.updates.at(-1)!.card)).not.toContain('"action":"question"');
+    await h.channel.stop();
+  });
+
+  it("permission actions also fail closed on duplicate or stale callbacks", async () => {
+    const { h, openId } = await boundHarness();
+    h.emit({ type: "permission.request", request: permRequest() });
+    await flush();
+    const action = {
+      operatorOpenId: openId,
+      messageId: h.api.cards[0]!.messageId,
+      value: { action: "permission", requestId: "req-1", approved: true },
+    };
+    h.api.emitCardAction(action);
+    h.api.emitCardAction(action);
+    await flush();
+    expect(h.permissionReplies).toHaveLength(1);
+    h.emit({ type: "permission.resolved", requestId: "req-1", approved: true, by: "remote" });
+    h.api.emitCardAction(action);
+    await flush();
+    expect(h.permissionReplies).toHaveLength(1);
     await h.channel.stop();
   });
 });

@@ -1,50 +1,69 @@
-/** 数字与时间格式化（对齐 Finch 用量页的中文计数习惯） */
+import { getLocale, i18n } from "@spcode/shared/i18n";
 
-/** 1.63亿 / 529万 / 79.3万 / 1,044 */
+/** Locale-aware usage counts. The historical export name is kept for callers. */
 export function formatZh(n: number): string {
-  if (n >= 1e8) {
-    const v = n / 1e8;
-    return `${trimNum(v, v >= 10 ? 1 : 2)}亿`;
+  const locale = getLocale();
+  if (locale === "zh-CN") {
+    const digits = n >= 1e8 ? (n / 1e8 >= 10 ? 1 : 2) : n / 1e4 >= 100 ? 0 : 1;
+    return new Intl.NumberFormat(locale, {
+      notation: n >= 1e4 ? "compact" : "standard",
+      maximumFractionDigits: n >= 1e4 ? digits : 3,
+    }).format(n);
   }
-  if (n >= 1e4) {
-    const v = n / 1e4;
-    return `${trimNum(v, v >= 100 ? 0 : 1)}万`;
-  }
-  return n.toLocaleString("en-US");
-}
-
-function trimNum(v: number, digits: number): string {
-  const s = v.toFixed(digits);
-  return s.replace(/\.0+$|(\.\d*?)0+$/, "$1");
+  return new Intl.NumberFormat(locale, {
+    notation: n >= 1e3 ? "compact" : "standard",
+    maximumFractionDigits: n >= 1e3 ? 1 : 3,
+  }).format(n);
 }
 
 /** 相对时间：刚刚 / N分钟前 / N小时前 / N天前 / MM-DD */
 export function formatRelative(ts: number, now = Date.now()): string {
   const diff = now - ts;
-  if (diff < 60_000) return "刚刚";
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}分钟前`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}小时前`;
-  if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)}天前`;
-  const d = new Date(ts);
-  return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  if (diff < 60_000) return i18n.t("settings:format.justNow");
+  const relative = new Intl.RelativeTimeFormat(getLocale(), { numeric: "always" });
+  if (diff < 3_600_000) return relative.format(-Math.floor(diff / 60_000), "minute");
+  if (diff < 86_400_000) return relative.format(-Math.floor(diff / 3_600_000), "hour");
+  if (diff < 7 * 86_400_000) return relative.format(-Math.floor(diff / 86_400_000), "day");
+  return new Intl.DateTimeFormat(getLocale(), { month: "2-digit", day: "2-digit" }).format(ts);
 }
 
 /** HH:MM */
 export function formatTime(ts: number): string {
-  const d = new Date(ts);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return new Intl.DateTimeFormat(getLocale(), { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(ts);
+}
+
+/** Calendar keys are parsed as local dates, never UTC timestamps. */
+export function formatDateKey(key: string, includeYear = true): string {
+  const [year = 0, month = 1, day = 1] = key.split("-").map(Number);
+  return new Intl.DateTimeFormat(getLocale(), {
+    ...(includeYear ? { year: "numeric" as const } : {}),
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(year, month - 1, day));
 }
 
 /** 文件大小：1.5MB / 200KB / 800B */
 export function formatFileSize(size: number): string {
-  if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)}MB`;
-  if (size >= 1024) return `${Math.round(size / 1024)}KB`;
-  return `${size}B`;
+  const number = (value: number, digits = 0) =>
+    new Intl.NumberFormat(getLocale(), {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+      useGrouping: false,
+    }).format(value);
+  if (size >= 1024 * 1024) return `${number(size / (1024 * 1024), 1)}MB`;
+  if (size >= 1024) return `${number(Math.round(size / 1024))}KB`;
+  return `${number(size)}B`;
 }
 
 /** 紧凑 token 计数：385k / 1.0M（上下文占用与压缩提示共用） */
 export function formatCompact(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
-  return String(n);
+  const number = (value: number, digits = 0) =>
+    new Intl.NumberFormat(getLocale(), {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+      useGrouping: false,
+    }).format(value);
+  if (n >= 1_000_000) return `${number(n / 1_000_000, 1)}M`;
+  if (n >= 1_000) return `${number(Math.round(n / 1_000))}k`;
+  return new Intl.NumberFormat(getLocale(), { useGrouping: false, maximumFractionDigits: 20 }).format(n);
 }

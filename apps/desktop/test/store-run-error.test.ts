@@ -2,9 +2,18 @@
  * 运行错误处理单测：错误回合 → 错误卡；重试救回 → 无卡；用户取消 → 无卡；
  * 历史回放也要留痕（否则重启后「任务被中断」的痕迹彻底消失）。
  */
-import { describe, expect, it } from "vitest";
+import { setLocale } from "@spcode/shared/i18n";
+import { afterEach, describe, expect, it } from "vitest";
 import { deriveRunStatus } from "../src/renderer/src/run-status.js";
-import { applySessionEvent, historyToMessages, type SessionState } from "../src/renderer/src/store.js";
+import {
+  applySessionEvent,
+  historyToMessages,
+  makeRunErrorNotice,
+  type SessionState,
+  useStore,
+} from "../src/renderer/src/store.js";
+
+afterEach(() => setLocale("zh-CN"));
 
 function makeSession(overrides: Partial<SessionState> = {}): SessionState {
   return {
@@ -116,6 +125,20 @@ describe("applySessionEvent：错误回合的可见性", () => {
     expect(status?.label).toContain("4s");
     expect(status?.label).toContain("2/3");
     expect(status?.detail).toContain("429");
+  });
+});
+
+describe("locale changes", () => {
+  it("relocalizes app-owned error-card copy while preserving the raw provider error", () => {
+    setLocale("zh-CN");
+    const card = makeRunErrorNotice("402 Insufficient Balance", 2);
+    useStore.setState({ sessions: { s1: makeSession({ messages: [card] }) }, registrySessions: [] });
+    useStore.getState().applyHostEvent({ type: "locale.changed", locale: "en" });
+    const updated = useStore.getState().sessions.s1?.messages[0];
+    expect(JSON.stringify(updated?.segments)).toContain("retries");
+    expect(updated?.notice?.kind === "runError" ? updated.notice.title : "").toMatch(/quota/i);
+    expect(updated?.notice?.kind === "runError" ? updated.notice.raw : "").toBe("402 Insufficient Balance");
+    expect(updated?.notice?.kind === "runError" ? updated.notice.hint : "").not.toMatch(/[\u4e00-\u9fff]/);
   });
 });
 

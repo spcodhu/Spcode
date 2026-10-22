@@ -3,33 +3,61 @@
  * 供消息时间线（MessageItem）与运行状态条（run-status）共用。
  */
 
-/** 工具名的中文动作标签（与 Qoder 的步骤文案一致：读取文件/编辑文件/终端命令…） */
-const TOOL_LABELS: Record<string, string> = {
-  read: "读取文件",
-  write: "写入文件",
-  edit: "编辑文件",
-  bash: "终端命令",
-  powershell: "终端命令",
-  grep: "搜索内容",
-  glob: "查找文件",
-  find: "查找文件",
-  ls: "列出目录",
-  websearch: "搜索网页",
-  webfetch: "打开网页",
-  todowrite: "计划",
-  askuserquestion: "提问",
-  task: "子任务",
-  renamesession: "改标题",
-  writeplan: "写计划",
-  exitplanmode: "计划审批",
-  remember: "记忆",
-  skill: "技能",
-};
+import { i18n } from "@spcode/shared/i18n";
+
+/** Presentation keys only; protocol tool names and unknown tools remain unchanged. */
+const TOOL_LABELS = {
+  read: "tool.read",
+  write: "tool.write",
+  edit: "tool.edit",
+  bash: "tool.command",
+  powershell: "tool.command",
+  shell: "tool.command",
+  exec_command: "tool.command",
+  grep: "tool.grep",
+  glob: "tool.find",
+  find: "tool.find",
+  ls: "tool.ls",
+  websearch: "tool.websearch",
+  webfetch: "tool.webfetch",
+  todowrite: "tool.todowrite",
+  askuserquestion: "tool.askuserquestion",
+  task: "tool.task",
+  renamesession: "tool.renamesession",
+  writeplan: "tool.writeplan",
+  exitplanmode: "tool.exitplanmode",
+  remember: "tool.remember",
+  skill: "tool.skill",
+} as const;
 
 const COMMAND_TOOLS = new Set(["bash", "powershell", "shell", "exec_command"]);
 
 export function toolLabel(name: string): string {
-  return TOOL_LABELS[name.toLowerCase()] ?? name;
+  const normalized = name.toLowerCase();
+  const key = Object.hasOwn(TOOL_LABELS, normalized) ? TOOL_LABELS[normalized as keyof typeof TOOL_LABELS] : undefined;
+  return key ? i18n.t(`chat:${key}`) : name;
+}
+
+/** Known reasoning levels are UI labels; unrecognized protocol values stay intact. */
+export function thinkingLevelLabel(level: string): string {
+  switch (level) {
+    case "off":
+      return i18n.t("chat:thinking.off");
+    case "minimal":
+      return i18n.t("chat:thinking.minimal");
+    case "low":
+      return i18n.t("chat:thinking.low");
+    case "medium":
+      return i18n.t("chat:thinking.medium");
+    case "high":
+      return i18n.t("chat:thinking.high");
+    case "xhigh":
+      return i18n.t("chat:thinking.xhigh");
+    case "max":
+      return i18n.t("chat:thinking.max");
+    default:
+      return level;
+  }
 }
 
 /** 终端类工具：步骤行显示「终端命令 已运行」这类状态文案，状态条显示「正在运行终端命令」 */
@@ -60,7 +88,7 @@ export function summarizeArgs(name: string, args: unknown): string {
       const arr = a.todos;
       if (Array.isArray(arr)) {
         const done = arr.filter((t) => (t as { status?: string })?.status === "completed").length;
-        return `${done}/${arr.length} 完成`;
+        return i18n.t("chat:tool.todoProgress", { done, total: arr.length });
       }
       return "";
     }

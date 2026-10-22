@@ -12,7 +12,10 @@ import { writeFileAtomic } from "@spcode/shared/node";
 import { type Static, Type } from "typebox";
 
 const writePlanSchema = Type.Object({
-  content: Type.String({ description: "The complete plan in Markdown, written in full (no truncation)" }),
+  content: Type.String({
+    description:
+      "The complete plan in Markdown in the current UI language unless explicitly requested otherwise, written in full (no truncation)",
+  }),
 });
 
 type Params = Static<typeof writePlanSchema>;
@@ -34,7 +37,7 @@ export function createWritePlanTool(opts: {
       if (!content) {
         return {
           content: [{ type: "text", text: "Plan content is empty — nothing written." }],
-          details: {},
+          details: { presentation: { key: "agent:tool.planEmpty" } },
           isError: true,
         };
       }
@@ -43,8 +46,8 @@ export function createWritePlanTool(opts: {
       writeFileAtomic(file, `${content}\n`);
       opts.onSaved(file);
       return {
-        content: [{ type: "text", text: `计划已保存:${file}。现在请在回复正文里完整展示计划全文。` }],
-        details: { path: file },
+        content: [{ type: "text", text: `Plan saved: ${file}. Now present the complete plan in your response.` }],
+        details: { path: file, presentation: { key: "agent:tool.planSaved", params: { path: file } } },
       };
     },
   };

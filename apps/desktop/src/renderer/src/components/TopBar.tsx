@@ -1,8 +1,10 @@
 import { baseName } from "@spcode/shared";
+import { useTranslation } from "react-i18next";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
 
 export function TopBar() {
+  const { t } = useTranslation("chat");
   const session = useStore((s) => (s.activeSessionId ? s.sessions[s.activeSessionId] : undefined));
 
   return (
@@ -10,10 +12,13 @@ export function TopBar() {
       {session ? (
         <>
           {/* 面包屑：空间/模式 > 会话标题 */}
-          <nav className="titlebar-no-drag flex min-w-0 items-center gap-1.5 text-[13px]">
+          <nav
+            aria-label={t("topbar.breadcrumb")}
+            className="titlebar-no-drag flex min-w-0 items-center gap-1.5 text-[13px]"
+          >
             <span className="flex shrink-0 items-center gap-1.5 text-text-secondary">
               <Icon name={session.meta.mode === "project" ? "folder" : "chat"} size={14} />
-              {session.meta.mode === "project" ? baseName(session.meta.cwd) || "项目" : "聊天"}
+              {session.meta.mode === "project" ? baseName(session.meta.cwd) || t("topbar.project") : t("topbar.chat")}
             </span>
             <Icon name="chevronRight" size={12} className="shrink-0 text-text-tertiary" />
             <span className="min-w-0 truncate text-text-primary">{session.meta.title}</span>
@@ -29,6 +34,7 @@ export function TopBar() {
 }
 
 function UsageChip() {
+  const { t } = useTranslation("chat");
   const session = useStore((s) => (s.activeSessionId ? s.sessions[s.activeSessionId] : undefined));
   if (!session || session.usage.count === 0) return null;
   const u = session.usage;
@@ -36,12 +42,17 @@ function UsageChip() {
   const cacheHitRate = u.input > 0 ? Math.round((u.cacheRead / (u.input + u.cacheRead)) * 100) : 0;
   return (
     <div
-      title={`输入 ${u.input.toLocaleString()} · 输出 ${u.output.toLocaleString()} · 缓存命中 ${u.cacheRead.toLocaleString()} · 成本 $${u.costTotal.toFixed(4)}`}
+      title={t("topbar.usage", {
+        input: u.input.toLocaleString(),
+        output: u.output.toLocaleString(),
+        cache: u.cacheRead.toLocaleString(),
+        cost: `$${u.costTotal.toFixed(4)}`,
+      })}
       className="titlebar-no-drag flex items-center gap-1.5 rounded-full border border-border bg-bg-elevated px-2.5 py-1 text-[11px] text-text-tertiary"
     >
       <Icon name="chart" size={12} />
       <span>{formatTokens(totalTokens)}</span>
-      <span className="text-accent">缓存 {cacheHitRate}%</span>
+      <span className="text-accent">{t("topbar.cacheRate", { percent: cacheHitRate })}</span>
       <span>${u.costTotal.toFixed(4)}</span>
     </div>
   );

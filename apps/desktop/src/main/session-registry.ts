@@ -5,6 +5,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { SessionRegistryEntry } from "@spcode/shared";
+import { isDefaultSessionTitle } from "@spcode/shared/i18n";
 import { readJsonFile, resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
 
 // 类型已下沉 shared（评审 R3-C12：渲染层/远程端同一份事实源）；本文件保留 re-export 兼容
@@ -36,7 +37,10 @@ export class SessionRegistry {
   list(): SessionRegistryEntry[] {
     if (this.entries) return this.entries;
     // 结构校验：坏文件先备份 .corrupt-<ts> 再按空表重建，不再静默清空（评审 P2-4）
-    this.entries = readJsonFile(this.file, validateEntries) ?? [];
+    this.entries = (readJsonFile(this.file, validateEntries) ?? []).map((entry) => ({
+      ...entry,
+      titleKind: entry.titleKind ?? (isDefaultSessionTitle(entry) ? "default" : "custom"),
+    }));
     return this.entries;
   }
 
@@ -56,7 +60,13 @@ export class SessionRegistry {
   patch(id: string, patch: Partial<SessionRegistryEntry>): void {
     const cur = this.get(id);
     if (!cur) return;
-    this.upsert({ ...cur, ...patch, id, updatedAt: Date.now() });
+    this.upsert({
+      ...cur,
+      ...patch,
+      ...(patch.title !== undefined && patch.titleKind === undefined ? { titleKind: "custom" as const } : {}),
+      id,
+      updatedAt: Date.now(),
+    });
   }
 
   remove(id: string): void {

@@ -4,10 +4,13 @@
  * 事件广播 → seq 重放断连 → auth 重连。
  */
 import { mkdtempSync, rmSync } from "node:fs";
+import type { ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_SETTINGS, type HostCommand, type HostEvent, type ScheduleTask } from "@spcode/shared";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { i18n, setLocale } from "@spcode/shared/i18n";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
 import WebSocket from "ws";
 import {
   boxDecrypt,
@@ -20,8 +23,15 @@ import { RemoteServer } from "../src/main/remote/index.js";
 import { PairingManager } from "../src/main/remote/pairing.js";
 import { PushService } from "../src/main/remote/push.js";
 import { LanTransport } from "../src/main/remote/transport/lan.js";
+import { TailscaleManager } from "../src/main/remote/transport/tailscale.js";
 import type { RegistryLike } from "../src/main/session-helpers.js";
 import type { SessionRegistryEntry } from "../src/main/session-registry.js";
+
+beforeEach(() => setLocale("zh-CN"));
+afterEach(() => {
+  setLocale("zh-CN");
+  vi.restoreAllMocks();
+});
 
 // ---------------------------------------------------------------------------
 // 测试用 WS 客户端
@@ -195,6 +205,7 @@ beforeAll(async () => {
     pairing,
     transport,
     push: new PushService({ baseDir: dir }),
+    tailscale: new TailscaleManager({ run: async () => ({ code: 0, stdout: "", stderr: "" }) }),
   });
   await server.start();
   port = transport.getPort();
@@ -214,6 +225,29 @@ const wsUrl = () => `ws://127.0.0.1:${port}/ws`;
 // ---------------------------------------------------------------------------
 
 describe("LAN transport HTTP 层", () => {
+  it("renders the current locale for every request on the same server", async () => {
+    const zh = await fetch(`http://127.0.0.1:${port}/`).then((res) => res.text());
+    expect(zh).toContain('lang="zh-CN"');
+    expect(zh).toContain("尚未构建");
+    setLocale("en");
+    const en = await fetch(`http://127.0.0.1:${port}/`).then((res) => res.text());
+    expect(en).toContain('lang="en"');
+    expect(en).toContain("has not been built");
+    expect(en).not.toMatch(/\p{Script=Han}/u);
+  });
+
+  it("escapes translated HTML and interpolated values without changing private constructor parameters", () => {
+    vi.spyOn(i18n, "t").mockReturnValue('<script>alert("x")</script>&');
+    const end = vi.fn();
+    const res = { writeHead: vi.fn(), end };
+    (transport as unknown as { serveHttp(url: string, res: ServerResponse): void }).serveHttp(
+      "/",
+      res as unknown as ServerResponse,
+    );
+    expect(end.mock.calls[0]?.[0]).not.toContain("<script>");
+    expect(end.mock.calls[0]?.[0]).toContain("&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;&amp;");
+  });
+
   it("PWA 未构建时服务占位页", async () => {
     const res = await fetch(`http://127.0.0.1:${port}/`);
     expect(res.status).toBe(200);

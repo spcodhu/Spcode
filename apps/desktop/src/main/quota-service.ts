@@ -8,6 +8,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { QuotaInfo, QuotaLimit } from "@spcode/shared";
+import { getLocale, i18n } from "@spcode/shared/i18n";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 
 // 类型已下沉 shared（评审 R3-C12）；本文件保留 re-export 兼容 preload/页面引用
@@ -97,7 +98,12 @@ function usedPercentOf(limit: number, used: number | null): number | null {
 }
 
 function balanceRow(balance: string, currency?: string): QuotaLimit {
-  return { label: "可用余额", usedPercent: null, text: `${currency ?? ""}${balance}`, resetText: null };
+  return {
+    label: i18n.t("main:quota.availableBalance"),
+    usedPercent: null,
+    text: `${currency ?? ""}${balance}`,
+    resetText: null,
+  };
 }
 
 const deepseekAdapter: QuotaAdapter = {
@@ -108,9 +114,9 @@ const deepseekAdapter: QuotaAdapter = {
       balance_infos?: { currency?: string; total_balance?: string }[];
     };
     const info = data.balance_infos?.[0];
-    if (!info) throw new Error("无余额信息");
+    if (!info) throw new Error(i18n.t("main:quota.noBalance"));
     return {
-      plan: "按量余额",
+      plan: i18n.t("main:quota.payAsYouGo"),
       limits: [balanceRow(info.total_balance ?? "?", info.currency === "CNY" ? "¥" : "$")],
     };
   },
@@ -118,15 +124,17 @@ const deepseekAdapter: QuotaAdapter = {
 
 const moonshotAdapter: QuotaAdapter = {
   providerIds: ["moonshot", "moonshotai", "moonshotai-cn", "kimi"],
-  label: "Kimi（月之暗面）",
+  get label() {
+    return i18n.t("main:quota.provider.moonshot");
+  },
   async fetch(apiKey, signal) {
     const data = (await getJson("https://api.moonshot.cn/v1/users/me/balance", apiKey, signal)) as {
       data?: { available_balance?: number; voucher_balance?: number; cash_balance?: number };
     };
     const d = data.data;
-    if (!d) throw new Error("无余额信息");
+    if (!d) throw new Error(i18n.t("main:quota.noBalance"));
     return {
-      plan: "余额",
+      plan: i18n.t("main:quota.balance"),
       limits: [balanceRow((d.available_balance ?? 0).toFixed(2), "¥")],
     };
   },
@@ -135,13 +143,15 @@ const moonshotAdapter: QuotaAdapter = {
 /** 额度窗口时长 → 可读标签（未知单位回落「窗口额度」） */
 function windowLabel(window?: { duration?: number; timeUnit?: string }): string {
   const d = toFinite(window?.duration);
-  if (d === null || d <= 0) return "窗口额度";
+  if (d === null || d <= 0) return i18n.t("main:quota.window");
   const unit = window?.timeUnit;
-  if (unit === "TIME_UNIT_MINUTE") return d % 60 === 0 ? `${d / 60} 小时额度` : `${d} 分钟额度`;
-  if (unit === "TIME_UNIT_HOUR") return `${d} 小时额度`;
-  if (unit === "TIME_UNIT_DAY") return `${d} 天额度`;
-  if (unit === "TIME_UNIT_WEEK") return `${d} 周额度`;
-  return "窗口额度";
+  if (unit === "TIME_UNIT_MINUTE") {
+    return d % 60 === 0 ? i18n.t("main:quota.hours", { count: d / 60 }) : i18n.t("main:quota.minutes", { count: d });
+  }
+  if (unit === "TIME_UNIT_HOUR") return i18n.t("main:quota.hours", { count: d });
+  if (unit === "TIME_UNIT_DAY") return i18n.t("main:quota.days", { count: d });
+  if (unit === "TIME_UNIT_WEEK") return i18n.t("main:quota.weeks", { count: d });
+  return i18n.t("main:quota.window");
 }
 
 /**
@@ -167,7 +177,7 @@ export function quotaLimitOf(args: {
     label: args.label,
     usedPercent: pct,
     // usedPercent 未知时给出原始额度量，避免整行只剩一个标签
-    text: pct === null ? `额度 ${formatTokens(limit)}` : `${Math.round(100 - pct)}%`,
+    text: pct === null ? i18n.t("main:quota.amount", { amount: formatTokens(limit) }) : `${Math.round(100 - pct)}%`,
     resetText: args.resetTime ? formatReset(Date.parse(args.resetTime)) : null,
   };
 }
@@ -199,7 +209,7 @@ export function parseKimiCodingUsages(body: unknown): { plan: string | null; lim
   const u = b?.usage;
   if (u) {
     const row = quotaLimitOf({
-      label: "每周额度",
+      label: i18n.t("main:quota.weekly"),
       limit: u.limit,
       remaining: u.remaining,
       used: u.used,
@@ -207,7 +217,7 @@ export function parseKimiCodingUsages(body: unknown): { plan: string | null; lim
     });
     if (row) rows.push(row);
   }
-  if (rows.length === 0) throw new Error("无配额信息");
+  if (rows.length === 0) throw new Error(i18n.t("main:quota.noQuota"));
   return { plan: "Kimi For Coding", limits: rows };
 }
 
@@ -222,7 +232,9 @@ const kimiCodingAdapter: QuotaAdapter = {
 
 const zaiAdapter: QuotaAdapter = {
   providerIds: ["zai", "z-ai", "zhipu", "bigmodel", "zai-coding", "zai-coding-cn", "glm"],
-  label: "z.ai（GLM Coding Plan）",
+  get label() {
+    return i18n.t("main:quota.provider.zai");
+  },
   async fetch(apiKey, signal) {
     const data = (await getJson("https://api.z.ai/api/monitor/usage/quota/limit", apiKey, signal)) as {
       data?: {
@@ -238,7 +250,7 @@ const zaiAdapter: QuotaAdapter = {
       };
     };
     const d = data.data;
-    if (!d) throw new Error("无配额信息");
+    if (!d) throw new Error(i18n.t("main:quota.noQuota"));
     const rows: QuotaLimit[] = (d.limits ?? []).map((l) => {
       // percentage 可能是 null/NaN/字符串：非有限值降级为未知（不渲染 NaN%）
       const pct = usedPercentOf(100, toFinite(l.percentage));
@@ -249,14 +261,22 @@ const zaiAdapter: QuotaAdapter = {
         resetText: l.nextResetTime ? formatReset(l.nextResetTime) : null,
       };
     });
-    if (rows.length === 0) rows.push({ label: "订阅等级", usedPercent: null, text: d.level ?? "—", resetText: null });
+    if (rows.length === 0)
+      rows.push({
+        label: i18n.t("main:quota.subscriptionTier"),
+        usedPercent: null,
+        text: d.level ?? "—",
+        resetText: null,
+      });
     return { plan: d.level ?? "Coding Plan", limits: rows };
   },
 };
 
 const dashscopeAdapter: QuotaAdapter = {
   providerIds: ["qwen", "dashscope", "alibaba", "qwen-token-plan"],
-  label: "Qwen / 通义（DashScope）",
+  get label() {
+    return i18n.t("main:quota.provider.qwen");
+  },
   async fetch(apiKey, signal) {
     const data = (await getJson(
       "https://dashscope.aliyuncs.com/compatible-mode/v1/dashboard/billing/quota",
@@ -266,7 +286,14 @@ const dashscopeAdapter: QuotaAdapter = {
     if (!data || data.total_quota == null) {
       return {
         plan: "Token Plan",
-        limits: [{ label: "额度", usedPercent: null, text: "暂不支持在线查询", resetText: null }],
+        limits: [
+          {
+            label: i18n.t("main:quota.limit"),
+            usedPercent: null,
+            text: i18n.t("main:quota.onlineUnsupported"),
+            resetText: null,
+          },
+        ],
       };
     }
     const total = toFinite(data.total_quota);
@@ -276,7 +303,7 @@ const dashscopeAdapter: QuotaAdapter = {
       plan: "Token Plan",
       limits: [
         {
-          label: "总额度",
+          label: i18n.t("main:quota.total"),
           usedPercent: pct,
           text: pct != null ? `${Math.round(100 - pct)}%` : null,
           resetText: null,
@@ -287,13 +314,16 @@ const dashscopeAdapter: QuotaAdapter = {
 };
 
 function limitLabel(type?: string): string {
-  if (!type) return "额度";
+  if (!type) return i18n.t("main:quota.limit");
   const t = type.toLowerCase();
-  if (t.includes("day") || t.includes("daily")) return "每日额度";
-  if (t.includes("week")) return "每周额度";
-  if (t.includes("month")) return "每月额度";
-  if (t.includes("hour")) return `${type.replace(/[^0-9]/g, "")} 小时额度`;
-  if (t.includes("token")) return "Token 额度";
+  if (t.includes("day") || t.includes("daily")) return i18n.t("main:quota.daily");
+  if (t.includes("week")) return i18n.t("main:quota.weekly");
+  if (t.includes("month")) return i18n.t("main:quota.monthly");
+  if (t.includes("hour")) {
+    const hours = type.replace(/[^0-9]/g, "");
+    return hours ? i18n.t("main:quota.hours", { count: Number(hours) }) : i18n.t("main:quota.window");
+  }
+  if (t.includes("token")) return i18n.t("main:quota.tokens");
   return type;
 }
 
@@ -305,19 +335,28 @@ function formatReset(ts: number): string {
   if (d.getTime() - now < 86_400_000) {
     return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
   }
-  return `${d.getMonth() + 1}月${d.getDate()}日`;
+  return d.toLocaleDateString(getLocale(), { month: getLocale() === "zh-CN" ? "long" : "short", day: "numeric" });
 }
 
 const ADAPTERS: QuotaAdapter[] = [deepseekAdapter, moonshotAdapter, kimiCodingAdapter, zaiAdapter, dashscopeAdapter];
 
 /** provider id → 展示名（未接入在线查询的厂商也要有可读名） */
-const PROVIDER_LABELS: Record<string, string> = {
-  "xiaomi-token-plan-cn": "Xiaomi MiMo Token Plan（国内版）",
-  "xiaomi-token-plan-ams": "Xiaomi MiMo Token Plan（阿姆斯特丹）",
-  "xiaomi-token-plan-sgp": "Xiaomi MiMo Token Plan（新加坡）",
-  xiaomi: "Xiaomi MiMo",
-  "kimi-coding": "Kimi For Coding",
-};
+function providerLabel(providerId: string): string {
+  switch (providerId) {
+    case "xiaomi-token-plan-cn":
+      return i18n.t("main:quota.provider.xiaomiCn");
+    case "xiaomi-token-plan-ams":
+      return i18n.t("main:quota.provider.xiaomiAms");
+    case "xiaomi-token-plan-sgp":
+      return i18n.t("main:quota.provider.xiaomiSgp");
+    case "xiaomi":
+      return "Xiaomi MiMo";
+    case "kimi-coding":
+      return "Kimi For Coding";
+    default:
+      return providerId;
+  }
+}
 
 /** 本地用量的最小信息（无在线查询时的兜底展示） */
 export interface LocalUsage {
@@ -326,8 +365,13 @@ export interface LocalUsage {
 }
 
 function formatTokens(n: number): string {
-  if (n >= 10000) return `${(n / 10000).toFixed(1)}万`;
-  return n.toLocaleString();
+  const locale = getLocale();
+  return new Intl.NumberFormat(
+    locale,
+    n >= (locale === "zh-CN" ? 10000 : 1000)
+      ? { notation: "compact", minimumFractionDigits: 1, maximumFractionDigits: 1 }
+      : {},
+  ).format(n);
 }
 
 // ---------------------------------------------------------------------------
@@ -351,17 +395,24 @@ export class QuotaService {
    * 评审 P1-9：各厂商并发查询（原串行最坏 12s × N）；结果缓存 60s，
    * 密钥集合变化自动失效，force 强制刷新。
    */
-  private cache: { keysSignature: string; at: number; results: QuotaInfo[] } | null = null;
+  private cache: {
+    keysSignature: string;
+    locale: ReturnType<typeof getLocale>;
+    at: number;
+    results: QuotaInfo[];
+  } | null = null;
   private static readonly CACHE_TTL_MS = 60_000;
 
   async queryAll(opts?: { force?: boolean }): Promise<QuotaInfo[]> {
     const keys = readAuthKeys(this.agentDir);
     const keysSignature = JSON.stringify(keys);
+    const locale = getLocale();
     const cached = this.cache;
     if (
       !opts?.force &&
       cached &&
       cached.keysSignature === keysSignature &&
+      cached.locale === locale &&
       Date.now() - cached.at < QuotaService.CACHE_TTL_MS
     ) {
       return cached.results;
@@ -370,27 +421,29 @@ export class QuotaService {
     const results = await Promise.all(
       Object.entries(keys).map(([providerId, apiKey]) => this.queryOne(providerId, apiKey, now)),
     );
-    this.cache = { keysSignature, at: now, results };
+    // A locale switch during an async provider request must not return mixed-language rows.
+    if (getLocale() !== locale) return this.queryAll({ force: true });
+    this.cache = { keysSignature, locale, at: now, results };
     return results;
   }
 
   /** 单厂商查询：无在线适配器的用本地用量兜底；失败降级为 error 行 */
   private async queryOne(providerId: string, apiKey: string, now: number): Promise<QuotaInfo> {
     const adapter = ADAPTERS.find((a) => a.providerIds.includes(providerId));
-    const label = adapter?.label ?? PROVIDER_LABELS[providerId] ?? providerId;
+    const label = adapter?.label ?? providerLabel(providerId);
     if (!adapter) {
       const local = this.localUsage?.(providerId) ?? null;
       return {
         provider: providerId,
         label,
         configured: true,
-        plan: "订阅额度暂不支持在线查询",
+        plan: i18n.t("main:quota.subscriptionUnsupported"),
         limits: local
           ? [
               {
-                label: "近 7 日本地用量",
+                label: i18n.t("main:quota.localUsage"),
                 usedPercent: null,
-                text: `${formatTokens(local.tokens)} tokens · ${local.requests} 次请求`,
+                text: i18n.t("main:quota.usage", { tokens: formatTokens(local.tokens), count: local.requests }),
                 resetText: null,
               },
             ]

@@ -13,6 +13,7 @@ import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-ag
 import type { PermissionRequest, SandboxSettings } from "@spcode/shared";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 import { type Static, Type } from "typebox";
+import { installLanguagePolicy } from "../language-policy.js";
 import { createBeforeToolCallGate } from "../permission-gate.js";
 import { createSandboxedBashTool } from "../sandbox/bash-tool.js";
 import { createGuardedFsTools, type FsGuardPolicy } from "../sandbox/fs-guard.js";
@@ -22,7 +23,10 @@ import { getSandboxService } from "../sandbox/manager.js";
 const MAX_TASK_DEPTH = 2;
 
 const taskSchema = Type.Object({
-  description: Type.String({ description: "Short task title (3-8 words) shown to the user" }),
+  description: Type.String({
+    description:
+      "Short task title (3-8 words) shown to the user, in the current UI language unless explicitly requested otherwise",
+  }),
   prompt: Type.String({ description: "Complete, self-contained instructions for the subagent" }),
 });
 
@@ -83,6 +87,7 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
         sessionManager: SessionManager.inMemory(),
         customTools: customTools.length > 0 ? customTools : undefined,
       });
+      installLanguagePolicy(session.agent);
       // 权限网关（R3-C4）：子代理与主会话同一裁决链（计划模式例外——计划模式下 Task 不挂载）
       session.agent.beforeToolCall = createBeforeToolCallGate({
         sessionId: `task-subagent@${ctx.cwd}`,
@@ -97,10 +102,20 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
         signal?.addEventListener("abort", onAbort);
         await session.prompt(args.prompt);
         signal?.removeEventListener("abort", onAbort);
-        const text = session.getLastAssistantText() || "(subagent produced no text output)";
+        const text = session.getLastAssistantText();
         return {
-          content: [{ type: "text", text: `# Subagent result: ${args.description}\n\n${text}` }],
-          details: { description: args.description },
+          content: [
+            {
+              type: "text",
+              text: `# Subagent result: ${args.description}\n\n${text || "(subagent produced no text output)"}`,
+            },
+          ],
+          details: {
+            description: args.description,
+            presentation: text
+              ? { key: "agent:tool.taskResult", params: { description: args.description, result: text } }
+              : { key: "agent:tool.taskEmptyResult", params: { description: args.description } },
+          },
         };
       } finally {
         await session.dispose();
