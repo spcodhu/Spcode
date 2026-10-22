@@ -128,6 +128,8 @@ const notifier = new Notifier({
 });
 
 let mainWindow: BrowserWindow | null = null;
+/** E2E 后台模式：窗口不显示不抢焦点（只由 e2e/helpers.ts 设置） */
+const backgroundE2E = process.env.SPCODE_E2E_BACKGROUND === "1";
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -140,9 +142,14 @@ function createWindow(): void {
     backgroundColor: "#0b0f14",
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 14, y: 14 },
+    show: !backgroundE2E,
+    focusable: !backgroundE2E,
+    skipTaskbar: backgroundE2E,
     webPreferences: {
       preload: join(__dirname, "../preload/index.cjs"),
       contextIsolation: true,
+      // 隐藏窗口仍需持续渲染/计时，否则 Playwright 交互会被后台节流拖慢
+      backgroundThrottling: !backgroundE2E,
       // 评审 R3-C6：preload 只用 ipcRenderer/contextBridge（命令 id 已挪主进程补发），
       // 可以安全开启沙箱——被劫持的渲染层不再有 Node 能力
       sandbox: true,
@@ -692,8 +699,10 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   void app.whenReady().then(async () => {
+    // E2E 后台运行：隐藏 Dock 图标，避免启动时抢占前台（仅测试进程）
+    if (backgroundE2E) app.dock?.hide();
     // dev 模式 Dock 图标运行时设置（打包版由 bundle 自带，无需也不该走这里）
-    if (process.platform === "darwin" && devIcon) app.dock?.setIcon(devIcon);
+    if (!backgroundE2E && process.platform === "darwin" && devIcon) app.dock?.setIcon(devIcon);
     registerIpc();
     watchSessionLifecycle();
     // 宿主每次 ready（含崩溃重启后）都重推一次运行时设置

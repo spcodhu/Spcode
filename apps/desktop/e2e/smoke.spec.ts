@@ -6,6 +6,15 @@ test.describe("Spcode 冒烟 E2E", () => {
     const app = await launchApp();
     const window = await app.firstWindow();
 
+    // 后台模式：窗口不显示、不抢焦点，但仍可被 Playwright 驱动
+    const windowState = await app.evaluate(({ app, BrowserWindow }) => {
+      const win = BrowserWindow.getAllWindows()[0];
+      return { visible: win?.isVisible(), focused: win?.isFocused(), active: app.isActive() };
+    });
+    expect(windowState.visible).toBe(false);
+    expect(windowState.focused).toBe(false);
+    expect(windowState.active).toBe(false);
+
     // 首页品牌区
     await expect(window.getByTestId("brand")).toBeVisible({ timeout: 15000 });
 

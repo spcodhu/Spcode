@@ -27,6 +27,8 @@ export async function launchApp(opts?: LaunchOptions): Promise<ElectronApplicati
   const userDataDir = mkdtempSync(join(tmpdir(), "spcode-e2e-userdata-"));
   // playwright 的 env 是整体替换而非合并，必须带上 process.env
   const env = { ...process.env, SPCODE_HOME: spcodeHome };
+  // 默认后台跑：窗口不显示、不抢焦点（调试交互时可设 SPCODE_E2E_FOREGROUND=1 恢复可见）
+  if (process.env.SPCODE_E2E_FOREGROUND !== "1") env.SPCODE_E2E_BACKGROUND = "1";
   // 防御：在 Electron 系宿主终端（如 Kimi 桌面 runtime node）里跑 e2e 时，
   // 父进程会被注入 ELECTRON_RUN_AS_NODE=1，透传后 Electron 会以纯 Node 启动
   // （"does not provide an export named 'BrowserWindow'"），launch 前剔除。
