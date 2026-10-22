@@ -7,15 +7,10 @@
 
 import type { PermissionRequest, ToolRisk } from "@spcode/shared";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { mobileText } from "../lib/i18n";
 import { replyPermission } from "../state/controller";
 import { useAppStore } from "../state/store";
-
-const RISK_TEXT: Record<ToolRisk, string> = {
-  readonly: "只读操作",
-  write: "写入操作",
-  outward: "对外动作",
-  danger: "危险操作",
-};
 
 const RISK_CLASS: Record<ToolRisk, string> = {
   readonly: "bg-slate-800 text-slate-300",
@@ -27,7 +22,7 @@ const RISK_CLASS: Record<ToolRisk, string> = {
 function summarizeArgs(args: unknown): string {
   try {
     const s = JSON.stringify(args, null, 2) ?? "";
-    return s.length > 2000 ? `${s.slice(0, 2000)}\n…（截断）` : s;
+    return s.length > 2000 ? `${s.slice(0, 2000)}\n${mobileText("permission.truncated")}` : s;
   } catch {
     return String(args);
   }
@@ -35,6 +30,7 @@ function summarizeArgs(args: unknown): string {
 
 /** danger 级二次确认：长按 1.5s（带进度）才触发批准 */
 function HoldToApproveButton({ onConfirm }: { onConfirm: () => void }) {
+  const { t } = useTranslation("mobile");
   const [progress, setProgress] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startRef = useRef(0);
@@ -71,12 +67,13 @@ function HoldToApproveButton({ onConfirm }: { onConfirm: () => void }) {
       className="relative flex-1 select-none overflow-hidden rounded-xl border border-red-700 py-3 text-sm font-medium text-red-200"
     >
       <span className="absolute inset-y-0 left-0 bg-red-700/60" style={{ width: `${progress * 100}%` }} />
-      <span className="relative">{progress > 0 ? "继续按住…" : "长按确认允许"}</span>
+      <span className="relative">{progress > 0 ? t("permission.keepHolding") : t("permission.holdApprove")}</span>
     </button>
   );
 }
 
 export function PermissionCard({ request }: { request: PermissionRequest }) {
+  const { t } = useTranslation("mobile");
   const session = useAppStore((s) => s.sessions[request.sessionId]);
   const danger = request.risk === "danger";
   const bypass = request.bypass === true;
@@ -93,16 +90,18 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
     <div className={`absolute inset-0 z-40 flex flex-col ${severe ? "bg-[#1a0b0b]" : "bg-[#0b0f14f2]"}`}>
       <div className="px-5 pt-10">
         <div className={`text-lg font-bold ${severe ? "text-red-300" : "text-amber-200"}`}>
-          {danger ? "⚠️ 危险操作待批准" : bypass ? "⚠️ 将在沙盒外执行" : "操作待批准"}
+          {danger ? t("permission.dangerTitle") : bypass ? t("permission.bypassTitle") : t("permission.title")}
         </div>
-        <div className="mt-1 text-xs text-slate-400">会话：{session?.title ?? request.sessionId}</div>
+        <div className="mt-1 text-xs text-slate-400">
+          {t("permission.session", { title: session?.title ?? request.sessionId })}
+        </div>
       </div>
 
       <div className="mx-5 mt-4 rounded-xl border border-slate-700 bg-slate-900/70 p-4">
         <div className="flex items-center gap-2">
           <span className="font-mono text-sm font-semibold text-slate-100">{request.toolName}</span>
           <span className={`rounded-full px-2 py-0.5 text-[10px] ${RISK_CLASS[request.risk]}`}>
-            {RISK_TEXT[request.risk]}
+            {t(`permission.${request.risk}`)}
           </span>
         </div>
         <pre className="thin-scroll mt-3 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-black/40 p-3 font-mono text-[11px] leading-5 text-slate-300">
@@ -110,12 +109,12 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
         </pre>
         {danger && (
           <div className="mt-3 rounded-lg border border-red-800 bg-red-950/60 px-3 py-2 text-xs leading-5 text-red-200">
-            此操作风险级别为 danger，可能造成不可逆影响。请完整核对上方参数；确认无误后<strong>长按</strong>批准按钮。
+            {t("permission.dangerWarning")}
           </div>
         )}
         {bypass && !danger && (
           <div className="mt-3 rounded-lg border border-red-800 bg-red-950/60 px-3 py-2 text-xs leading-5 text-red-200">
-            此命令申请在沙盒外执行：将以你的完整权限运行，不受文件/网络边界约束。请确认其必要性。
+            {t("permission.bypassWarning")}
           </div>
         )}
       </div>
@@ -130,7 +129,7 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
             onClick={() => reply(true)}
             className="flex-1 rounded-xl bg-emerald-600 py-3 text-sm font-medium text-white active:bg-emerald-500 disabled:opacity-40"
           >
-            允许
+            {t("permission.allow")}
           </button>
         )}
         <button
@@ -139,7 +138,7 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
           onClick={() => reply(false)}
           className="flex-1 rounded-xl bg-slate-800 py-3 text-sm font-medium text-slate-200 active:bg-slate-700 disabled:opacity-40"
         >
-          拒绝
+          {t("permission.deny")}
         </button>
       </div>
     </div>

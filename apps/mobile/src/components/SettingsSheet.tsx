@@ -3,17 +3,21 @@
  * 通知默认关，需用户主动开启；开启失败（授权被拒/浏览器不支持订阅）展示原因并维持关闭。
  */
 
+import { getLocale } from "@spcode/shared/i18n";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { errorText } from "../lib/i18n";
 import { isPushEnabledLocally, isPushSupported } from "../lib/push";
 import { disablePushNotifications, enablePushNotifications } from "../state/controller";
 import { useAppStore } from "../state/store";
 
 export function SettingsSheet({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation("mobile");
   const pairing = useAppStore((s) => s.pairing);
   const vapidKey = useAppStore((s) => s.vapidKey);
   const [enabled, setEnabled] = useState(isPushEnabledLocally);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
 
   const pushSupported = isPushSupported();
 
@@ -30,7 +34,7 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
         setEnabled(true);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(err);
     } finally {
       setBusy(false);
     }
@@ -44,16 +48,16 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
         className="rounded-t-2xl border-t border-slate-700 bg-[#11161d] p-5 pb-8"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="text-base font-semibold text-slate-100">设置</div>
+        <div className="text-base font-semibold text-slate-100">{t("common.settings")}</div>
 
         {pushSupported && (
           <div className="mt-4 flex items-center gap-3 rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3">
             <div className="min-w-0 flex-1">
-              <div className="text-sm text-slate-100">推送通知</div>
+              <div className="text-sm text-slate-100">{t("settings.push")}</div>
               <div className="mt-0.5 text-[11px] leading-4 text-slate-500">
-                会话待批准 / 提问 / 定时任务触发时收到系统通知（经 relay 通道时也能送达）。
+                {t("settings.pushHelp")}
                 {!vapidKey && enabled === false && (
-                  <span className="block text-amber-400/80">等待桌面端下发推送公钥（重连后可用）。</span>
+                  <span className="block text-amber-400/80">{t("settings.waitPushKey")}</span>
                 )}
               </div>
             </div>
@@ -64,7 +68,7 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
               className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
                 enabled ? "bg-emerald-600" : "bg-slate-700"
               } disabled:opacity-40`}
-              aria-label={enabled ? "关闭通知" : "开启通知"}
+              aria-label={enabled ? t("settings.disablePush") : t("settings.enablePush")}
             >
               <span
                 className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${enabled ? "left-[22px]" : "left-0.5"}`}
@@ -72,18 +76,26 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
             </button>
           </div>
         )}
-        {error && <div className="mt-2 text-xs text-red-400">{error}</div>}
+        {error != null && <div className="mt-2 text-xs text-red-400">{errorText(error)}</div>}
 
         {pairing && (
           <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3 text-[11px] leading-5 text-slate-500">
             <div>
-              本机设备：<span className="text-slate-300">{pairing.deviceName}</span>（id {pairing.deviceId.slice(0, 8)}
-              …）
+              {t("settings.device")}
+              <span className="text-slate-300">{pairing.deviceName}</span>
+              {t("settings.deviceId", { id: pairing.deviceId.slice(0, 8) })}
             </div>
             <div>
-              桌面公钥：<span className="font-mono">{pairing.desktopPk.slice(0, 12)}…</span>
+              {t("settings.desktopKey")}
+              <span className="font-mono">{pairing.desktopPk.slice(0, 12)}…</span>
             </div>
-            <div>通道：{pairing.hosts.map((h) => (h.startsWith("relay+") ? "relay" : h)).join("、")}</div>
+            <div>
+              {t("settings.channels", {
+                channels: new Intl.ListFormat(getLocale()).format(
+                  pairing.hosts.map((h) => (h.startsWith("relay+") ? t("settings.relay") : h)),
+                ),
+              })}
+            </div>
           </div>
         )}
       </div>

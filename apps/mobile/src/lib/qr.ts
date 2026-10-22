@@ -5,6 +5,7 @@
  */
 
 import { isValidPublicKey } from "@spcode/shared/crypto";
+import { MobileError } from "./i18n";
 import { isRelayHost } from "./relay";
 
 export interface QrPayload {
@@ -26,42 +27,40 @@ const SCHEME_PREFIX = "spcode-remote://pair";
 export function parseQrPayload(text: string): QrPayload {
   const trimmed = text.trim();
   if (!trimmed.startsWith(SCHEME_PREFIX)) {
-    throw new Error("不是有效的配对码（应以 spcode-remote://pair 开头）");
+    throw new MobileError("qr.invalid");
   }
   const qIndex = trimmed.indexOf("?");
-  if (qIndex < 0) throw new Error("配对码缺少参数");
+  if (qIndex < 0) throw new MobileError("qr.noParams");
   const params = new URLSearchParams(trimmed.slice(qIndex + 1));
 
   const v = params.get("v");
   if (v !== "2") {
-    throw new Error(
-      v === "1"
-        ? "配对码版本过旧：桌面端已升级配对协议（v2），请在桌面设置页重新生成配对码"
-        : `不支持的协议版本：${v ?? "缺失"}`,
-    );
+    if (v === "1") throw new MobileError("qr.oldVersion");
+    if (v == null) throw new MobileError("qr.missingVersion");
+    throw new MobileError("qr.version", { version: v });
   }
 
   const hostsRaw = params.get("hosts");
-  if (!hostsRaw) throw new Error("配对码缺少 hosts 参数");
+  if (!hostsRaw) throw new MobileError("qr.noHosts");
   // URLSearchParams 已整体解码一次；hosts 是逗号分隔的 base url 列表
   const hosts = hostsRaw
     .split(",")
     .map((h) => h.trim())
     .filter(Boolean);
-  if (hosts.length === 0) throw new Error("hosts 为空");
+  if (hosts.length === 0) throw new MobileError("qr.emptyHosts");
   for (const h of hosts) {
     if (isRelayHost(h)) {
-      if (!/^relay\+wss?:\/\//.test(h)) throw new Error(`非法的 relay 地址：${h}`);
+      if (!/^relay\+wss?:\/\//.test(h)) throw new MobileError("qr.relayHost", { host: h });
     } else if (!/^https?:\/\//.test(h)) {
-      throw new Error(`非法的桌面地址：${h}`);
+      throw new MobileError("qr.desktopHost", { host: h });
     }
   }
 
   const desktopPk = params.get("desktop_pk");
-  if (!isValidPublicKey(desktopPk)) throw new Error("配对码中的桌面公钥非法");
+  if (!isValidPublicKey(desktopPk)) throw new MobileError("qr.publicKey");
 
   const otp = params.get("otp");
-  if (!otp || !/^\d{8}$/.test(otp)) throw new Error("配对码中的 OTP 非法（应为 8 位数字）");
+  if (!otp || !/^\d{8}$/.test(otp)) throw new MobileError("qr.otp");
 
   return { version: 2, hosts, desktopPk, otp };
 }

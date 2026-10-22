@@ -1,28 +1,53 @@
-/**
- * 最小 service worker：Web Push 事件 → 系统通知；点击通知聚焦/打开 PWA。
- * 负载约定（桌面侧推送）：JSON { title?: string; body?: string }，标题/正文原样展示；
- * 非 JSON 负载按纯文本正文处理。
- */
+/** Push bodies are generic, desktop-localized messages; never derive text from task content. */
+const LOCALE_CACHE = "spcode-mobile-locale-v1";
+const LOCALE_URL = new URL("__spcode_locale__", self.registration.scope).href;
+const scriptParams = new URL(self.location.href).searchParams;
+const supportedLocales = (scriptParams.get("supportedLocales") || "zh-CN,en").split(",");
+const initialLocale = scriptParams.get("locale") || scriptParams.get("defaultLocale");
+
+function fallbackTitle(locale) {
+  if (locale === "en") return "Spcod Remote Control";
+  if (locale === "zh-CN") return "Spcod 远程控制";
+  return "Spcod";
+}
+
+self.addEventListener("message", (event) => {
+  const data = event.data;
+  if (data?.type !== "locale.changed" || !supportedLocales.includes(data.locale)) return;
+  event.waitUntil((async () => {
+    try {
+      const cache = await caches.open(LOCALE_CACHE);
+      // A profile may customize the generic title; do not store any session information.
+      const title = typeof data.title === "string" && data.title ? data.title : fallbackTitle(data.locale);
+      await cache.put(LOCALE_URL, new Response(JSON.stringify({ locale: data.locale, title })));
+    } catch {
+      // Storage is optional, including in private browsing.
+    }
+  })());
+});
 
 self.addEventListener("push", (event) => {
-  let title = "Spcod 远程控制";
-  let body = "";
-  if (event.data) {
+  event.waitUntil((async () => {
+    let title = fallbackTitle(initialLocale);
+    let body = "";
     try {
-      const data = event.data.json();
+      const cached = await (await caches.open(LOCALE_CACHE)).match(LOCALE_URL);
+      const data = await cached?.json();
+      if (supportedLocales.includes(data?.locale) && typeof data?.title === "string" && data.title) title = data.title;
+    } catch {
+      // The installation URL carries the resolved profile locale when caching is unavailable.
+    }
+    try {
+      const data = event.data?.json();
       if (data && typeof data === "object") {
         if (typeof data.title === "string" && data.title) title = data.title;
         if (typeof data.body === "string") body = data.body;
       }
     } catch {
-      try {
-        body = event.data.text();
-      } catch {
-        // 空负载：只显示默认标题
-      }
+      // Do not expose arbitrary non-JSON payloads on the lock screen.
     }
-  }
-  event.waitUntil(self.registration.showNotification(title, { body }));
+    await self.registration.showNotification(title, { body });
+  })());
 });
 
 self.addEventListener("notificationclick", (event) => {

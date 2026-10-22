@@ -11,7 +11,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RemoteEvent } from "@spcode/shared";
 import { DEFAULT_SETTINGS, type HostCommand, type HostEvent, type ScheduleTask } from "@spcode/shared";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { getLocale, resolveLocale, setLocale } from "@spcode/shared/i18n";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { RemoteServer } from "../../desktop/src/main/remote/index.js";
 import { PairingManager } from "../../desktop/src/main/remote/pairing.js";
 import { LanTransport } from "../../desktop/src/main/remote/transport/lan.js";
@@ -20,6 +21,8 @@ import type { SessionRegistryEntry } from "../../desktop/src/main/session-regist
 import { createRelayServer } from "../../relay/src/index.js";
 import { type ConnectionState, PairError, pairWithQr, RemoteClient } from "../src/lib/client";
 import type { PairingRecord } from "../src/lib/db";
+import { attachPairedRecord, getClient } from "../src/state/controller";
+import { useAppStore } from "../src/state/store";
 
 // ---------------------------------------------------------------------------
 // 桌面端装配（mock 控制面，真实 transport + crypto + pairing）
@@ -63,6 +66,9 @@ beforeAll(async () => {
     },
     replyPermission: () => {},
     replyQuestion: () => {},
+    emitLocal(event: HostEvent) {
+      for (const listener of bridgeListeners) listener(event);
+    },
   };
   const scheduler = {
     list: (): ScheduleTask[] => [],
@@ -207,6 +213,10 @@ describe("PWA ↔ 真实桌面 RemoteServer 全链路", () => {
       // 1) auth 握手成功 → 桌面立即推 session.snapshot
       await mobile.waitState("ready");
       await mobile.waitEvent((e) => e.type === "session.snapshot");
+      expect(await mobile.waitEvent((e) => e.type === "remote.hello")).toMatchObject({
+        type: "remote.hello",
+        locale: DEFAULT_SETTINGS.locale,
+      });
 
       // 2) 加密命令：create → prompt → list → abort（seq 自动递增，响应按 id 关联）
       const { sessionId } = await mobile.client.command<{ sessionId: string }>({
@@ -262,6 +272,50 @@ describe("PWA ↔ 真实桌面 RemoteServer 全链路", () => {
     mobile.start();
     await mobile.waitState("unpaired");
     mobile.stop();
+  });
+
+  it("encrypted hello and locale.changed reach the controller without rewriting raw session data", async () => {
+    const record = await pairWithQr(localQrPayload(), "locale integration device");
+    setLocale("en");
+    useAppStore.getState().reset();
+    attachPairedRecord(record);
+    try {
+      await vi.waitFor(() => expect(useAppStore.getState().localeReady).toBe(true));
+      expect(getLocale()).toBe(resolveLocale(DEFAULT_SETTINGS.locale));
+      const client = getClient()!;
+      const { sessionId } = await client.command<{ sessionId: string }>({
+        type: "session.create",
+        mode: "chat",
+        prompt: "原始 raw session title",
+      });
+      await vi.waitFor(() => expect(useAppStore.getState().sessions[sessionId]?.title).toBe("原始 raw session title"));
+      for (const listener of bridgeListeners) {
+        listener({
+          type: "session.event",
+          sessionId,
+          event: {
+            type: "message_update",
+            assistantMessageEvent: { type: "text_delta", delta: "原始 model output {{keep}}" },
+          },
+        } as HostEvent);
+        listener({ type: "session.event", sessionId, event: { type: "agent_settled" } } as HostEvent);
+      }
+      await vi.waitFor(() =>
+        expect(useAppStore.getState().outputs[sessionId]?.[0]?.chunk).toBe("原始 model output {{keep}}"),
+      );
+      const before = useAppStore.getState().outputs[sessionId];
+      server.setLocale("en");
+      await vi.waitFor(() => expect(getLocale()).toBe(resolveLocale("en")));
+      expect(useAppStore.getState().outputs[sessionId]).toBe(before);
+      expect(useAppStore.getState().sessions[sessionId]?.title).toBe("原始 raw session title");
+      server.setLocale("zh-CN");
+      await vi.waitFor(() => expect(getLocale()).toBe(resolveLocale("zh-CN")));
+      expect(useAppStore.getState().outputs[sessionId]).toBe(before);
+    } finally {
+      getClient()?.stop();
+      useAppStore.getState().reset();
+      setLocale(DEFAULT_SETTINGS.locale);
+    }
   });
 });
 
@@ -422,6 +476,16 @@ describe("PWA ↔ 桌面 RemoteServer 经 relay 全链路", () => {
     try {
       await mobile.waitState("ready");
       await mobile.waitEvent((e) => e.type === "session.snapshot");
+
+      expect(await mobile.waitEvent((e) => e.type === "remote.hello")).toMatchObject({
+        type: "remote.hello",
+        locale: DEFAULT_SETTINGS.locale,
+      });
+      server2.setLocale("en");
+      expect(await mobile.waitEvent((e) => e.type === "locale.changed")).toEqual({
+        type: "locale.changed",
+        locale: "en",
+      });
 
       // 3) 加密命令往返（device→host 帧带 deviceId，host 按它分流到虚拟连接）
       const list = await mobile.client.command<{ sessions: unknown[] }>({ type: "session.list" });

@@ -30,27 +30,28 @@ import {
 } from "@spcode/shared/crypto";
 import type { PairingRecord } from "./db";
 import { savePairing } from "./db";
+import { MobileError, type MobileKey } from "./i18n";
 import { parseQrPayload } from "./qr";
 import { isRelayHost, orderHosts, relayWsUrl } from "./relay";
 
 export type PairErrorCode = "locked" | "expired" | "otp_mismatch" | "bad_payload";
 
-export class PairError extends Error {
+const PAIR_ERROR_KEYS = {
+  locked: "pair.locked",
+  expired: "pair.expired",
+  otp_mismatch: "pair.otpMismatch",
+  bad_payload: "pair.badPayload",
+} as const satisfies Record<PairErrorCode, MobileKey>;
+
+export class PairError extends MobileError {
   constructor(
     readonly code: PairErrorCode,
-    message: string,
+    key: MobileKey = PAIR_ERROR_KEYS[code],
   ) {
-    super(message);
+    super(key);
     this.name = "PairError";
   }
 }
-
-export const PAIR_ERROR_TEXT: Record<PairErrorCode, string> = {
-  locked: "配对已锁定（错误次数过多），请稍后在桌面端重新生成配对码",
-  expired: "配对码已过期，请在桌面端重新生成",
-  otp_mismatch: "配对码不正确或已被使用，请在桌面端重新生成",
-  bad_payload: "配对数据损坏，请重试",
-};
 
 /** 帧 id：非安全上下文下 crypto.randomUUID 不可用，用计数器 + getRandomValues 随机段 */
 let idCounter = 0;
@@ -75,12 +76,12 @@ function waitFrame(
   ws: WebSocket,
   pred: (frame: unknown) => boolean,
   timeoutMs: number,
-  what: string,
+  what: "pair" | "challenge" | "auth",
 ): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       cleanup();
-      reject(new Error(`${what}超时`));
+      reject(new MobileError(`error.${what}Timeout`));
     }, timeoutMs);
     const onMessage = (ev: MessageEvent) => {
       let frame: unknown;
@@ -96,7 +97,7 @@ function waitFrame(
     };
     const onClose = () => {
       cleanup();
-      reject(new Error(`${what}前连接已断开`));
+      reject(new MobileError(`error.${what}Disconnected`));
     };
     const cleanup = () => {
       clearTimeout(timer);
@@ -120,7 +121,7 @@ function connectWs(url: string, timeoutMs = 6000): Promise<WebSocket> {
       } catch {
         // ignore
       }
-      reject(new Error("连接超时"));
+      reject(new MobileError("error.connectionTimeout"));
     }, timeoutMs);
     const ws = new WebSocket(url);
     ws.addEventListener("open", () => {
@@ -133,7 +134,7 @@ function connectWs(url: string, timeoutMs = 6000): Promise<WebSocket> {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      reject(new Error("无法连接到桌面端"));
+      reject(new MobileError("error.connectionFailed"));
     });
   });
 }
@@ -162,22 +163,17 @@ export async function pairWithQr(qrText: string, deviceName: string): Promise<Pa
       ws = await connectWs(connectUrlOf(host, payload.desktopPk));
       // 协议 v2：OTP 不上线，桌面用当前配对窗口 OTP 试解密文验证
       ws.send(JSON.stringify({ t: "pair", c }));
-      const ack = (await waitFrame(ws, (f) => (f as { t?: string }).t === "pair_ack", 8000, "等待配对应答")) as
+      const ack = (await waitFrame(ws, (f) => (f as { t?: string }).t === "pair_ack", 8000, "pair")) as
         | { t: "pair_ack"; ok: true; c: string }
         | { t: "pair_ack"; ok: false; error: string };
       ws.close();
       if (!ack.ok) {
-        throw new PairError(
-          (ack.error as PairErrorCode) in PAIR_ERROR_TEXT ? (ack.error as PairErrorCode) : "bad_payload",
-          PAIR_ERROR_TEXT[
-            (ack.error as PairErrorCode) in PAIR_ERROR_TEXT ? (ack.error as PairErrorCode) : "bad_payload"
-          ],
-        );
+        throw new PairError(Object.hasOwn(PAIR_ERROR_KEYS, ack.error) ? (ack.error as PairErrorCode) : "bad_payload");
       }
       const inner = pairOpen(ack.c, payload.desktopPk, keyPair.secretKey);
-      if (!inner) throw new PairError("bad_payload", PAIR_ERROR_TEXT.bad_payload);
+      if (!inner) throw new PairError("bad_payload");
       if (inner.desktopPk !== payload.desktopPk) {
-        throw new PairError("bad_payload", "应答中的桌面公钥与配对码不一致，已中止（可能遭遇中间人攻击）");
+        throw new PairError("bad_payload", "pair.keyMismatch");
       }
       return {
         version: 1,
@@ -194,7 +190,7 @@ export async function pairWithQr(qrText: string, deviceName: string): Promise<Pa
       lastError = err instanceof Error ? err : new Error(String(err));
     }
   }
-  throw lastError ?? new Error("所有桌面地址均无法连接");
+  throw lastError ?? new MobileError("error.allHostsFailed");
 }
 
 // ---------------------------------------------------------------------------
@@ -208,9 +204,11 @@ export type ConnectionState =
   | "unpaired" // 桌面端不认识本设备（已在桌面侧解除配对）→ 需重新扫码
   | "stopped";
 
+export type ConnectionDetail = string | Error;
+
 export interface RemoteClientCallbacks {
   onEvent(event: RemoteEventExt): void;
-  onState(state: ConnectionState, detail?: string): void;
+  onState(state: ConnectionState, detail?: ConnectionDetail): void;
 }
 
 const BACKOFF_MIN_MS = 1000;
@@ -276,7 +274,7 @@ export class RemoteClient {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
     this.setState("stopped");
-    this.failAllPending(new Error("客户端已停止"));
+    this.failAllPending(new MobileError("error.stopped"));
     this.ws?.close();
     this.ws = null;
   }
@@ -285,20 +283,20 @@ export class RemoteClient {
   command<T = unknown>(cmd: RemoteCommandExt, timeoutMs = COMMAND_TIMEOUT_MS): Promise<T> {
     const ws = this.ws;
     if (this.state !== "ready" || !ws) {
-      return Promise.reject(new Error("未连接到桌面端"));
+      return Promise.reject(new MobileError("error.notConnected"));
     }
     const id = genFrameId();
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error("命令响应超时"));
+        reject(new MobileError("error.commandTimeout"));
       }, timeoutMs);
       this.pending.set(id, { resolve: resolve as (data: unknown) => void, reject, timer });
       this.sendEncrypted(ws, id, { kind: "command", command: cmd as RemoteCommand });
     });
   }
 
-  private setState(state: ConnectionState, detail?: string): void {
+  private setState(state: ConnectionState, detail?: ConnectionDetail): void {
     this.state = state;
     this.cb.onState(state, detail);
   }
@@ -313,7 +311,7 @@ export class RemoteClient {
     try {
       ws = await connectWs(connectUrlOf(host, this.record.desktopPk, this.record.deviceId));
     } catch (err) {
-      this.scheduleReconnect(err instanceof Error ? err.message : "连接失败");
+      this.scheduleReconnect(err instanceof Error ? err : new MobileError("error.connectionFailed"));
       return;
     }
     this.ws = ws;
@@ -322,8 +320,8 @@ export class RemoteClient {
     ws.addEventListener("close", () => {
       if (this.ws === ws) this.ws = null;
       this.persistOutSeq(); // 断连兜底落盘
-      this.failAllPending(new Error("连接已断开"));
-      if (!this.stopped && this.state !== "unpaired") this.scheduleReconnect("连接已断开");
+      this.failAllPending(new MobileError("error.disconnected"));
+      if (!this.stopped && this.state !== "unpaired") this.scheduleReconnect(new MobileError("error.disconnected"));
     });
     ws.addEventListener("error", () => ws.close());
 
@@ -352,7 +350,7 @@ export class RemoteClient {
           return !this.relay || typeof frame.deviceId !== "string" || frame.deviceId === this.record.deviceId;
         },
         8000,
-        "等待认证挑战",
+        "challenge",
       )) as { t: "auth_challenge" | "auth_ack"; nonce?: string; ok?: boolean; error?: string };
 
       if (first.t === "auth_ack") {
@@ -378,7 +376,7 @@ export class RemoteClient {
           return !this.relay || typeof frame.deviceId !== "string" || frame.deviceId === this.record.deviceId;
         },
         8000,
-        "等待认证应答",
+        "auth",
       )) as {
         t: "auth_ack";
         ok: boolean;
@@ -389,14 +387,14 @@ export class RemoteClient {
       if (!ack.ok) {
         // seq_rollback = 本地出站序号被回滚（如清了站点数据但桌面还记得旧 seq）：配对关系已不可信，需重新配对
         this.stopped = true; // 桌面已不认识本设备：不再自动重连，等待用户重新配对
-        this.setState("unpaired", ack.error === "seq_rollback" ? "设备状态与桌面不一致，请重新配对" : undefined);
+        this.setState("unpaired", ack.error === "seq_rollback" ? new MobileError("error.seqRollback") : undefined);
         ws.close();
         return;
       }
       if (ack.desktopPk && ack.desktopPk !== this.record.desktopPk) {
         // 桌面换了身份密钥（重装/重置）：旧配对全部作废
         this.stopped = true;
-        this.setState("unpaired", "桌面端身份已变更，请重新配对");
+        this.setState("unpaired", new MobileError("error.identityChanged"));
         ws.close();
         return;
       }
@@ -410,11 +408,11 @@ export class RemoteClient {
       for (const frame of early) this.onEncryptedFrame(ws, frame);
     } catch (err) {
       ws.close();
-      if (!this.stopped) this.scheduleReconnect(err instanceof Error ? err.message : "认证失败");
+      if (!this.stopped) this.scheduleReconnect(err instanceof Error ? err : new MobileError("error.authFailed"));
     }
   }
 
-  private scheduleReconnect(reason: string): void {
+  private scheduleReconnect(reason: ConnectionDetail): void {
     if (this.stopped || this.reconnectTimer) return;
     this.setState("reconnecting", reason);
     const delay = this.backoff;
@@ -480,7 +478,7 @@ export class RemoteClient {
       this.pending.delete(payload.id);
       clearTimeout(entry.timer);
       if (payload.ok) entry.resolve(payload.data);
-      else entry.reject(new Error(payload.error ?? "命令执行失败"));
+      else entry.reject(payload.error == null ? new MobileError("error.commandFailed") : new Error(payload.error));
     }
   }
 

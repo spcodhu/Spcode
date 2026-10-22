@@ -7,6 +7,8 @@
  *   UI 隐藏开关，全程静默（不报错不打扰）。
  */
 
+import { syncWorkerLocale, workerScriptUrl } from "./i18n";
+
 const PUSH_ENABLED_KEY = "spcode.push.enabled";
 
 export function isPushSupported(): boolean {
@@ -49,9 +51,10 @@ export function urlBase64ToBytes(base64url: string): Uint8Array {
 
 /** 注册最小 service worker（public/sw.js：push → 系统通知，点击聚焦 PWA） */
 export async function ensureSwRegistration(): Promise<ServiceWorkerRegistration> {
-  const reg = await navigator.serviceWorker.register("sw.js");
+  const reg = await navigator.serviceWorker.register(workerScriptUrl());
   // 等 SW 激活，避免 subscribe 打在 installing 态上
   await navigator.serviceWorker.ready;
+  syncWorkerLocale(reg.active);
   return reg;
 }
 

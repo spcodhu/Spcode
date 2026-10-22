@@ -3,9 +3,16 @@
  * 模块级单例（一个 App 一条连接），UI 组件只调这里的函数。
  */
 
-import type { RemoteEvent as RemoteEventExt, ScheduleTask, ScheduleTaskInput, SessionMode } from "@spcode/shared";
+import type {
+  QuestionAnswers,
+  RemoteEvent as RemoteEventExt,
+  ScheduleTask,
+  ScheduleTaskInput,
+  SessionMode,
+} from "@spcode/shared";
 import { RemoteClient } from "../lib/client";
 import { clearPairing, loadPairing, type PairingRecord } from "../lib/db";
+import { applyDesktopLocale, initializeMobileLocale, MobileError } from "../lib/i18n";
 import {
   isPushEnabledLocally,
   isPushSupported,
@@ -16,6 +23,8 @@ import {
 import { getOutputMaxSeq, useAppStore } from "./store";
 
 let client: RemoteClient | null = null;
+/** 只采用最后一次发出的 session.list 响应，避免创建会话的刷新被更早的启动刷新覆盖 */
+let sessionListRequest = 0;
 
 export function getClient(): RemoteClient | null {
   return client;
@@ -23,6 +32,7 @@ export function getClient(): RemoteClient | null {
 
 /** App 启动：读 IndexedDB 配对记录；有则建连，无则进配对页 */
 export async function boot(): Promise<void> {
+  initializeMobileLocale();
   const store = useAppStore.getState();
   let record: PairingRecord | null = null;
   try {
@@ -45,7 +55,9 @@ function startClient(record: PairingRecord): void {
   client = new RemoteClient(record, {
     onEvent: handleEvent,
     onState: (state, detail) => {
-      useAppStore.getState().setConn(state, detail);
+      const current = useAppStore.getState();
+      if (state === "connecting" || state === "reconnecting") current.setLocaleReady(false);
+      current.setConn(state, detail);
       if (state === "ready") {
         void refreshAll();
         void backfillOutputs(); // 断线补拉：auth 成功后按已收到的最大 seq 补缺口
@@ -120,11 +132,16 @@ function handleEvent(event: RemoteEventExt): void {
       void refreshSchedules();
       break;
     case "sessions.changed":
-      void send({ type: "session.list" })
-        .then((data) => s.setSessions((data as { sessions: never[] }).sessions))
-        .catch(() => {});
+      void refreshSessionList();
+      break;
+    case "locale.changed":
+      applyDesktopLocale(event.locale);
+      s.setLocaleReady(true);
       break;
     case "remote.hello":
+      // A missing locale is an older desktop: explicitly use the shared profile default.
+      applyDesktopLocale(event.locale);
+      s.setLocaleReady(true);
       // Web Push 契约：auth 成功后桌面下发 VAPID 公钥；已开启通知则（重）上报订阅
       s.setVapidKey(event.vapidPublicKey);
       void resubscribePushIfEnabled(event.vapidPublicKey);
@@ -140,19 +157,25 @@ function handleEvent(event: RemoteEventExt): void {
 // ---------------------------------------------------------------------------
 
 async function send<T = unknown>(cmd: Parameters<RemoteClient["command"]>[0]): Promise<T> {
-  if (!client) throw new Error("未连接");
+  if (!client) throw new MobileError("error.notConnected");
   return client.command<T>(cmd);
+}
+
+async function refreshSessionList(): Promise<void> {
+  const request = ++sessionListRequest;
+  try {
+    const data = await send<{ sessions: Parameters<ReturnType<typeof useAppStore.getState>["setSessions"]>[0] }>({
+      type: "session.list",
+    });
+    if (request === sessionListRequest) useAppStore.getState().setSessions(data.sessions);
+  } catch {
+    // 快照事件兜底
+  }
 }
 
 /** ready 后拉全量：会话列表 + 定时任务（快照事件也会推会话，双保险） */
 async function refreshAll(): Promise<void> {
-  const s = useAppStore.getState();
-  try {
-    const data = await send<{ sessions: Parameters<typeof s.setSessions>[0] }>({ type: "session.list" });
-    s.setSessions(data.sessions);
-  } catch {
-    // 快照事件兜底
-  }
+  await refreshSessionList();
   await refreshSchedules();
 }
 
@@ -225,7 +248,7 @@ export async function replyPermission(requestId: string, approved: boolean): Pro
   await send({ type: "permission.reply", requestId, approved }).catch(() => {});
 }
 
-export async function replyQuestion(requestId: string, answers: Record<string, string>): Promise<void> {
+export async function replyQuestion(requestId: string, answers: QuestionAnswers): Promise<void> {
   useAppStore.getState().dropQuestion(requestId);
   await send({ type: "question.reply", requestId, answers }).catch(() => {});
 }
@@ -262,7 +285,7 @@ export async function removeSchedule(taskId: string): Promise<void> {
 /** 开启通知：订阅 PushManager 并上报桌面；失败抛错由 UI 展示（开关维持关闭） */
 export async function enablePushNotifications(): Promise<void> {
   const vapidKey = useAppStore.getState().vapidKey;
-  if (!vapidKey) throw new Error("桌面端尚未下发推送公钥（remote.hello），请确认桌面端已升级到支持推送的版本并重连");
+  if (!vapidKey) throw new MobileError("error.pushKey");
   const sub = await subscribePush(vapidKey);
   await send({ type: "push.subscribe", subscription: toPushSubscription(sub) });
   setPushEnabledLocally(true);
@@ -271,8 +294,7 @@ export async function enablePushNotifications(): Promise<void> {
 /** PushSubscription.toJSON() → 协议形状（可选字段收窄；缺 endpoint/keys 视为订阅损坏） */
 function toPushSubscription(sub: PushSubscription): { endpoint: string; keys: { p256dh: string; auth: string } } {
   const j = sub.toJSON();
-  if (!j.endpoint || !j.keys?.p256dh || !j.keys?.auth)
-    throw new Error("推送订阅缺少 endpoint/keys（浏览器返回不完整）");
+  if (!j.endpoint || !j.keys?.p256dh || !j.keys?.auth) throw new MobileError("error.pushSubscription");
   return { endpoint: j.endpoint, keys: { p256dh: j.keys.p256dh, auth: j.keys.auth } };
 }
 

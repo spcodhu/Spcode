@@ -6,17 +6,12 @@
 
 import type { ScheduleFrequency, ScheduleTask, ScheduleTaskInput } from "@spcode/shared";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { errorText, formatWeekday, MobileError } from "../lib/i18n";
 import { createSchedule, updateSchedule } from "../state/controller";
 
-const FREQUENCY_TEXT: Record<ScheduleFrequency, string> = {
-  once: "单次",
-  hourly: "每小时",
-  daily: "每天",
-  weekday: "工作日（周一至五）",
-  weekly: "每周",
-};
-
-const WEEKDAY_TEXT = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+const FREQUENCIES = ["once", "hourly", "daily", "weekday", "weekly"] as const;
+const WEEKDAYS = [0, 1, 2, 3, 4, 5, 6] as const;
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -36,6 +31,7 @@ export function ScheduleEditorSheet({
   task: ScheduleTask | null;
   onClose: () => void;
 }) {
+  const { t } = useTranslation("mobile");
   const [name, setName] = useState(task?.name ?? "");
   const [prompt, setPrompt] = useState(task?.prompt ?? "");
   const [frequency, setFrequency] = useState<ScheduleFrequency>(task?.frequency ?? "daily");
@@ -48,14 +44,14 @@ export function ScheduleEditorSheet({
   const [kind, setKind] = useState<"chat" | "project">(task?.target.kind ?? "chat");
   const [cwd, setCwd] = useState(task?.target.kind === "project" ? task.target.cwd : "");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
 
-  const buildInput = (): ScheduleTaskInput | string => {
+  const buildInput = (): ScheduleTaskInput | MobileError => {
     const trimmedName = name.trim();
     const trimmedPrompt = prompt.trim();
-    if (!trimmedName) return "请填写任务名称";
-    if (!trimmedPrompt) return "请填写任务内容（prompt）";
-    if (kind === "project" && !cwd.trim()) return "项目模式需要填写项目目录";
+    if (!trimmedName) return new MobileError("schedule.nameRequired");
+    if (!trimmedPrompt) return new MobileError("schedule.promptRequired");
+    if (kind === "project" && !cwd.trim()) return new MobileError("schedule.cwdRequired");
 
     const [h = 9, m = 0] = time.split(":").map((v) => Number(v));
     const base: ScheduleTaskInput = {
@@ -70,7 +66,7 @@ export function ScheduleEditorSheet({
     if (frequency === "weekly") base.weekday = weekday;
     if (frequency === "once") {
       const runAt = new Date(runAtLocal).getTime();
-      if (!Number.isFinite(runAt)) return "请选择单次任务的触发时间";
+      if (!Number.isFinite(runAt)) return new MobileError("schedule.runAtRequired");
       base.runAt = runAt;
       // once 不用 hour/minute，但与触发时间对齐保持数据自洽
       const d = new Date(runAt);
@@ -83,7 +79,7 @@ export function ScheduleEditorSheet({
   const submit = async () => {
     if (busy) return;
     const input = buildInput();
-    if (typeof input === "string") {
+    if (input instanceof MobileError) {
       setError(input);
       return;
     }
@@ -94,7 +90,7 @@ export function ScheduleEditorSheet({
       else await createSchedule(input);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(err);
       setBusy(false);
     }
   };
@@ -105,40 +101,40 @@ export function ScheduleEditorSheet({
         className="thin-scroll max-h-[85%] overflow-y-auto rounded-t-2xl border-t border-slate-700 bg-[#11161d] p-5 pb-8"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="text-base font-semibold text-slate-100">{task ? "编辑定时任务" : "新建定时任务"}</div>
+        <div className="text-base font-semibold text-slate-100">{task ? t("schedule.edit") : t("schedule.create")}</div>
 
         <label className="mt-4 block text-xs text-slate-400">
-          名称
+          {t("schedule.name")}
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             maxLength={50}
-            placeholder="如：每日晨报"
+            placeholder={t("schedule.namePlaceholder")}
             className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500"
           />
         </label>
 
         <label className="mt-3 block text-xs text-slate-400">
-          任务内容（prompt）
+          {t("schedule.prompt")}
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             rows={4}
-            placeholder="触发时要执行的指令…"
+            placeholder={t("schedule.promptPlaceholder")}
             className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500"
           />
         </label>
 
         <label className="mt-3 block text-xs text-slate-400">
-          频率
+          {t("schedule.frequency")}
           <select
             value={frequency}
             onChange={(e) => setFrequency(e.target.value as ScheduleFrequency)}
             className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500"
           >
-            {(Object.keys(FREQUENCY_TEXT) as ScheduleFrequency[]).map((f) => (
+            {FREQUENCIES.map((f) => (
               <option key={f} value={f}>
-                {FREQUENCY_TEXT[f]}
+                {t(`schedule.${f}`)}
               </option>
             ))}
           </select>
@@ -146,7 +142,7 @@ export function ScheduleEditorSheet({
 
         {frequency === "once" && (
           <label className="mt-3 block text-xs text-slate-400">
-            触发时间
+            {t("schedule.runAt")}
             <input
               type="datetime-local"
               value={runAtLocal}
@@ -158,7 +154,7 @@ export function ScheduleEditorSheet({
 
         {frequency === "hourly" && (
           <label className="mt-3 block text-xs text-slate-400">
-            每小时的第几分
+            {t("schedule.minute")}
             <input
               type="number"
               min={0}
@@ -172,7 +168,7 @@ export function ScheduleEditorSheet({
 
         {(frequency === "daily" || frequency === "weekday" || frequency === "weekly") && (
           <label className="mt-3 block text-xs text-slate-400">
-            时间
+            {t("schedule.time")}
             <input
               type="time"
               value={time}
@@ -184,22 +180,22 @@ export function ScheduleEditorSheet({
 
         {frequency === "weekly" && (
           <label className="mt-3 block text-xs text-slate-400">
-            星期
+            {t("schedule.dayOfWeek")}
             <select
               value={weekday}
               onChange={(e) => setWeekday(Number(e.target.value))}
               className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500"
             >
-              {WEEKDAY_TEXT.map((w, i) => (
-                <option key={w} value={i}>
-                  {w}
+              {WEEKDAYS.map((day) => (
+                <option key={day} value={day}>
+                  {formatWeekday(day)}
                 </option>
               ))}
             </select>
           </label>
         )}
 
-        <div className="mt-3 text-xs text-slate-400">模式</div>
+        <div className="mt-3 text-xs text-slate-400">{t("schedule.mode")}</div>
         <div className="mt-1 flex gap-2">
           {(["chat", "project"] as const).map((k) => (
             <button
@@ -210,7 +206,7 @@ export function ScheduleEditorSheet({
                 kind === k ? "bg-sky-600 text-white" : "bg-slate-800 text-slate-400"
               }`}
             >
-              {k === "chat" ? "聊天会话" : "项目会话"}
+              {k === "chat" ? t("common.chatSession") : t("common.projectSession")}
             </button>
           ))}
         </div>
@@ -218,19 +214,19 @@ export function ScheduleEditorSheet({
           <input
             value={cwd}
             onChange={(e) => setCwd(e.target.value)}
-            placeholder="项目目录（桌面端绝对路径，如 /Users/…/project）"
+            placeholder={t("common.projectPath")}
             className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500"
           />
         )}
 
-        {error && <div className="mt-3 text-xs text-red-400">{error}</div>}
+        {error != null && <div className="mt-3 text-xs text-red-400">{errorText(error)}</div>}
         <button
           type="button"
           disabled={busy}
           onClick={() => void submit()}
           className="mt-4 w-full rounded-xl bg-sky-600 py-3 text-sm font-medium text-white disabled:opacity-40"
         >
-          {busy ? "保存中…" : task ? "保存" : "创建"}
+          {busy ? t("common.saving") : task ? t("common.save") : t("common.create")}
         </button>
       </div>
     </div>

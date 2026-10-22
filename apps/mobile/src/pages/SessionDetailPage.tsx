@@ -4,10 +4,13 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { errorText, formatNumber } from "../lib/i18n";
 import { abortSession, sendPrompt } from "../state/controller";
 import { useAppStore } from "../state/store";
 
 function OutputView({ sessionId }: { sessionId: string }) {
+  const { t } = useTranslation("mobile");
   const chunks = useAppStore((s) => s.outputs[sessionId]);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true);
@@ -31,13 +34,13 @@ function OutputView({ sessionId }: { sessionId: string }) {
   return (
     <div ref={scrollerRef} onScroll={onScroll} className="thin-scroll min-h-0 flex-1 overflow-y-auto px-4 py-3">
       {!chunks || chunks.length === 0 ? (
-        <div className="py-16 text-center text-sm text-slate-500">暂无输出</div>
+        <div className="py-16 text-center text-sm text-slate-500">{t("session.emptyOutput")}</div>
       ) : (
         chunks.map((c) => {
           if (c.gap) {
             return (
               <div key={c.id} className="my-2 text-center text-[11px] text-slate-600">
-                ··· 断线期间的输出未同步 ···
+                {t("session.gap")}
               </div>
             );
           }
@@ -64,7 +67,7 @@ function OutputView({ sessionId }: { sessionId: string }) {
           onClick={() => setShowThinking((v) => !v)}
           className="mt-1 text-[11px] text-slate-500 underline"
         >
-          {showThinking ? "收起思考过程" : "展开思考过程"}
+          {showThinking ? t("session.hideThinking") : t("session.showThinking")}
         </button>
       )}
       <div ref={bottomRef} />
@@ -73,6 +76,7 @@ function OutputView({ sessionId }: { sessionId: string }) {
 }
 
 function TodoBar({ sessionId }: { sessionId: string }) {
+  const { t } = useTranslation("mobile");
   const todos = useAppStore((s) => s.todos[sessionId]);
   if (!todos || todos.length === 0) return null;
   const done = todos.filter((t) => t.status === "completed").length;
@@ -81,7 +85,7 @@ function TodoBar({ sessionId }: { sessionId: string }) {
     <div className="border-t border-slate-800 bg-[#10151c] px-4 py-2">
       <div className="flex items-center gap-2 text-[11px] text-slate-400">
         <span className="shrink-0">
-          待办 {done}/{todos.length}
+          {t("session.todos", { done: formatNumber(done), total: formatNumber(todos.length) })}
         </span>
         <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-800">
           <div
@@ -98,11 +102,12 @@ function TodoBar({ sessionId }: { sessionId: string }) {
 }
 
 export function SessionDetailPage({ sessionId }: { sessionId: string }) {
+  const { t } = useTranslation("mobile");
   const session = useAppStore((s) => s.sessions[sessionId]);
   const connState = useAppStore((s) => s.connState);
   const setRoute = useAppStore((s) => s.setRoute);
   const [text, setText] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const running = session?.status === "running" || session?.status === "waiting_permission";
 
   const send = async () => {
@@ -113,7 +118,7 @@ export function SessionDetailPage({ sessionId }: { sessionId: string }) {
     try {
       await sendPrompt(sessionId, t); // 运行中发送 = steer 插话（宿主侧无需特判）
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(err);
       setText(t); // 失败回填
     }
   };
@@ -121,13 +126,18 @@ export function SessionDetailPage({ sessionId }: { sessionId: string }) {
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center gap-2 border-b border-slate-800 px-3 py-3">
-        <button type="button" onClick={() => setRoute({ name: "sessions" })} className="px-1 text-lg text-slate-400">
+        <button
+          type="button"
+          aria-label={t("common.back")}
+          onClick={() => setRoute({ name: "sessions" })}
+          className="px-1 text-lg text-slate-400"
+        >
           ‹
         </button>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium text-slate-100">{session?.title ?? "会话"}</div>
+          <div className="truncate text-sm font-medium text-slate-100">{session?.title ?? t("sessions.title")}</div>
           <div className="truncate text-[11px] text-slate-500">
-            {session?.mode === "project" ? session.cwd : "聊天会话"}
+            {session?.mode === "project" ? session.cwd : t("common.chatSession")}
           </div>
         </div>
         {session && (
@@ -140,7 +150,7 @@ export function SessionDetailPage({ sessionId }: { sessionId: string }) {
                   : "bg-slate-800 text-slate-400"
             }`}
           >
-            {session.status === "running" ? "运行中" : session.status === "waiting_permission" ? "待批准" : "空闲"}
+            {t(`status.${session.status}`)}
           </span>
         )}
       </header>
@@ -148,8 +158,10 @@ export function SessionDetailPage({ sessionId }: { sessionId: string }) {
       <OutputView sessionId={sessionId} />
       <TodoBar sessionId={sessionId} />
 
-      {error && (
-        <div className="border-t border-red-900/50 bg-red-950/40 px-4 py-1.5 text-xs text-red-300">{error}</div>
+      {error != null && (
+        <div className="border-t border-red-900/50 bg-red-950/40 px-4 py-1.5 text-xs text-red-300">
+          {errorText(error)}
+        </div>
       )}
 
       <div className="flex items-end gap-2 border-t border-slate-800 bg-[#10151c] px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
@@ -157,17 +169,17 @@ export function SessionDetailPage({ sessionId }: { sessionId: string }) {
           value={text}
           onChange={(e) => setText(e.target.value)}
           rows={1}
-          placeholder={running ? "插话（追加指令）…" : "输入指令…"}
+          placeholder={running ? t("session.steerPlaceholder") : t("session.promptPlaceholder")}
           className="max-h-28 min-h-[38px] flex-1 resize-none rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500"
         />
         {running && (
           <button
             type="button"
-            onClick={() => void abortSession(sessionId).catch((e) => setError(String(e)))}
+            onClick={() => void abortSession(sessionId).catch((e) => setError(e))}
             disabled={connState !== "ready"}
             className="h-[38px] shrink-0 rounded-xl bg-red-900/70 px-3 text-xs text-red-200 disabled:opacity-40"
           >
-            中断
+            {t("session.abort")}
           </button>
         )}
         <button
@@ -176,7 +188,7 @@ export function SessionDetailPage({ sessionId }: { sessionId: string }) {
           disabled={connState !== "ready" || !text.trim()}
           className="h-[38px] shrink-0 rounded-xl bg-sky-600 px-4 text-sm font-medium text-white disabled:opacity-40"
         >
-          发送
+          {t("session.send")}
         </button>
       </div>
     </div>

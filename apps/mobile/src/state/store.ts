@@ -19,7 +19,7 @@ import type {
   TodoItem,
 } from "@spcode/shared";
 import { create } from "zustand";
-import type { ConnectionState } from "../lib/client";
+import type { ConnectionDetail, ConnectionState } from "../lib/client";
 import type { PairingRecord } from "../lib/db";
 
 export type Route = { name: "pair" } | { name: "sessions" } | { name: "session"; id: string } | { name: "schedules" };
@@ -45,7 +45,10 @@ const MAX_CHUNKS = 2000;
 interface AppState {
   route: Route;
   connState: ConnectionState;
-  connDetail?: string;
+  connDetail?: ConnectionDetail;
+  /** Authenticated locale must arrive before rendering newly connected session content. */
+  localeReady: boolean;
+  setLocaleReady(ready: boolean): void;
   pairing: PairingRecord | null;
   sessions: Record<string, SessionView>;
   outputs: Record<string, OutputChunk[]>;
@@ -57,7 +60,7 @@ interface AppState {
   vapidKey: string | null;
 
   setRoute(route: Route): void;
-  setConn(state: ConnectionState, detail?: string): void;
+  setConn(state: ConnectionState, detail?: ConnectionDetail): void;
   setPairing(record: PairingRecord | null): void;
   setSessions(metas: SessionMeta[]): void;
   patchSession(id: string, patch: Partial<SessionView>): void;
@@ -77,7 +80,8 @@ interface AppState {
 const initialData = {
   route: { name: "sessions" } as Route,
   connState: "connecting" as ConnectionState,
-  connDetail: undefined as string | undefined,
+  connDetail: undefined as ConnectionDetail | undefined,
+  localeReady: false,
   pairing: null as PairingRecord | null,
   sessions: {} as Record<string, SessionView>,
   outputs: {} as Record<string, OutputChunk[]>,
@@ -147,6 +151,7 @@ export const useAppStore = create<AppState>((set) => ({
   ...initialData,
 
   setRoute: (route) => set({ route }),
+  setLocaleReady: (localeReady) => set({ localeReady }),
   setConn: (connState, detail) => set({ connState, connDetail: detail }),
   setPairing: (pairing) => set({ pairing }),
 

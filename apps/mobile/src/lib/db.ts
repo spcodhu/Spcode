@@ -3,6 +3,8 @@
  * 密钥对生成后只进不出（无导出接口），与桌面端 ~/.spcode/remote/device.key 同职责。
  */
 
+import { MobileError } from "./i18n";
+
 const DB_NAME = "spcode-remote";
 const STORE = "kv";
 
@@ -32,7 +34,7 @@ function openDb(): Promise<IDBDatabase> {
       if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE);
     };
     req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error ?? new Error("IndexedDB 打开失败"));
+    req.onerror = () => reject(req.error ?? new MobileError("error.dbOpen"));
   });
 }
 
@@ -42,7 +44,7 @@ async function kvGet<T>(key: string): Promise<T | null> {
     return await new Promise<T | null>((resolve, reject) => {
       const req = db.transaction(STORE, "readonly").objectStore(STORE).get(key);
       req.onsuccess = () => resolve((req.result as T | undefined) ?? null);
-      req.onerror = () => reject(req.error ?? new Error("IndexedDB 读取失败"));
+      req.onerror = () => reject(req.error ?? new MobileError("error.dbRead"));
     });
   } finally {
     db.close();
@@ -56,7 +58,7 @@ async function kvSet(key: string, value: unknown): Promise<void> {
       const tx = db.transaction(STORE, "readwrite");
       tx.objectStore(STORE).put(value, key);
       tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error ?? new Error("IndexedDB 写入失败"));
+      tx.onerror = () => reject(tx.error ?? new MobileError("error.dbWrite"));
     });
   } finally {
     db.close();
@@ -70,7 +72,7 @@ async function kvDel(key: string): Promise<void> {
       const tx = db.transaction(STORE, "readwrite");
       tx.objectStore(STORE).delete(key);
       tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error ?? new Error("IndexedDB 删除失败"));
+      tx.onerror = () => reject(tx.error ?? new MobileError("error.dbDelete"));
     });
   } finally {
     db.close();

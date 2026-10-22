@@ -5,24 +5,29 @@
 
 import QrScanner from "qr-scanner";
 import { useEffect, useRef, useState } from "react";
-import { PAIR_ERROR_TEXT, PairError, pairWithQr } from "../lib/client";
+import { useTranslation } from "react-i18next";
+import { pairWithQr } from "../lib/client";
 import { savePairing } from "../lib/db";
+import { errorText, MobileError } from "../lib/i18n";
 import { attachPairedRecord } from "../state/controller";
 
 function guessDeviceName(): string {
   const ua = navigator.userAgent;
   if (/iPhone/i.test(ua)) return "iPhone";
   if (/iPad/i.test(ua)) return "iPad";
-  if (/Android/i.test(ua)) return "Android 手机";
-  return "手机";
+  if (/Android/i.test(ua)) return "android";
+  return "phone";
 }
 
 export function PairPage() {
-  const [name, setName] = useState(guessDeviceName);
+  const { t } = useTranslation("mobile");
+  const [name, setName] = useState<string | null>(null);
+  const device = guessDeviceName();
+  const defaultName = device === "android" ? t("pair.androidPhone") : device === "phone" ? t("pair.phone") : device;
   const [payload, setPayload] = useState("");
   const [scanning, setScanning] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<unknown>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerRef = useRef<QrScanner | null>(null);
 
@@ -31,17 +36,11 @@ export function PairPage() {
     setBusy(true);
     setError(null);
     try {
-      const record = await pairWithQr(qrText, name.trim() || "手机");
+      const record = await pairWithQr(qrText, (name ?? defaultName).trim() || t("pair.phone"));
       await savePairing(record);
       attachPairedRecord(record);
     } catch (err) {
-      setError(
-        err instanceof PairError
-          ? (PAIR_ERROR_TEXT[err.code] ?? err.message)
-          : err instanceof Error
-            ? err.message
-            : String(err),
-      );
+      setError(err);
       setBusy(false);
     }
   };
@@ -62,7 +61,7 @@ export function PairPage() {
     );
     scannerRef.current = scanner;
     scanner.start().catch(() => {
-      setError("无法打开摄像头（需要授权，且在 http 局域网页面下浏览器可能禁止）——可改用下方手动粘贴");
+      setError(new MobileError("pair.cameraError"));
       setScanning(false);
     });
     return () => {
@@ -79,16 +78,13 @@ export function PairPage() {
 
   return (
     <div className="flex h-full flex-col overflow-y-auto px-5 py-8">
-      <h1 className="text-xl font-bold text-slate-100">连接到桌面 Spcod</h1>
-      <p className="mt-2 text-sm leading-6 text-slate-400">
-        在桌面端「设置 → 远程控制」开启服务并展示配对二维码，然后用下方任一方式完成配对。 配对为端到端加密（X25519 +
-        NaCl box），配对码 5 分钟内有效、仅可使用一次。
-      </p>
+      <h1 className="text-xl font-bold text-slate-100">{t("pair.title")}</h1>
+      <p className="mt-2 text-sm leading-6 text-slate-400">{t("pair.help")}</p>
 
       <label className="mt-6 block text-xs text-slate-400">
-        本机设备名
+        {t("pair.deviceName")}
         <input
-          value={name}
+          value={name ?? defaultName}
           onChange={(e) => setName(e.target.value)}
           maxLength={30}
           className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500"
@@ -103,7 +99,7 @@ export function PairPage() {
             onClick={stopScan}
             className="mt-3 w-full rounded-lg border border-slate-700 py-2 text-sm text-slate-300"
           >
-            取消扫码
+            {t("pair.cancelScan")}
           </button>
         </div>
       ) : (
@@ -115,17 +111,17 @@ export function PairPage() {
           }}
           className="mt-4 w-full rounded-xl bg-sky-600 py-3 text-sm font-medium text-white active:bg-sky-500"
         >
-          扫码配对
+          {t("pair.scan")}
         </button>
       )}
 
       <div className="mt-6">
-        <div className="text-xs text-slate-500">摄像头不可用？粘贴配对码（spcode-remote://pair?…）</div>
+        <div className="text-xs text-slate-500">{t("pair.pasteHelp")}</div>
         <textarea
           value={payload}
           onChange={(e) => setPayload(e.target.value)}
           rows={3}
-          placeholder="spcode-remote://pair?v=1&hosts=…"
+          placeholder="spcode-remote://pair?v=2&hosts=…"
           className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 font-mono text-xs text-slate-200 outline-none focus:border-sky-500"
         />
         <button
@@ -134,13 +130,13 @@ export function PairPage() {
           onClick={() => void doPair(payload)}
           className="mt-2 w-full rounded-lg border border-sky-700 py-2 text-sm text-sky-300 disabled:opacity-40"
         >
-          {busy ? "配对中…" : "使用配对码连接"}
+          {busy ? t("pair.pairing") : t("pair.connect")}
         </button>
       </div>
 
-      {error && (
+      {error != null && (
         <div className="mt-4 rounded-lg border border-red-800 bg-red-950/60 px-3 py-2 text-sm leading-6 text-red-200">
-          {error}
+          {errorText(error)}
         </div>
       )}
     </div>
