@@ -30,6 +30,7 @@ import type {
   QuestionRequest,
   SandboxSettings,
   SandboxStatusReport,
+  WebFetchConfig,
 } from "@spcode/shared";
 import { DEFAULT_COMPACTION_SETTINGS, DEFAULT_SANDBOX_SETTINGS } from "@spcode/shared";
 import { getLocale, i18n, setLocale } from "@spcode/shared/i18n";
@@ -74,6 +75,8 @@ let memoryStore: MemoryStore | null = null;
 let distillEnabled = true;
 /** 高级搜索配置（主进程设置页经 search.setAdvancedConfig 下发；宿主重启后由主进程重推） */
 let advancedSearchConfig: AdvancedSearchConfig | null = null;
+/** WebFetch 抓取后端配置（主进程设置页经 webfetch.setConfig 下发；宿主重启后由主进程重推） */
+let webFetchConfig: WebFetchConfig | null = null;
 /** 沙盒设置（主进程设置页经 sandbox.setConfig 下发；未下发前用默认值） */
 let sandboxSettings: SandboxSettings = DEFAULT_SANDBOX_SETTINGS;
 /**
@@ -353,6 +356,7 @@ async function createController(params: {
     askQuestion,
     isDistillEnabled: () => distillEnabled,
     getAdvancedSearchConfig: () => advancedSearchConfig,
+    getWebFetchConfig: () => webFetchConfig,
     getSandboxSettings: () => sandboxSettings,
     getMcpTools: () => getMcpManager().tools(),
     piSettings,
@@ -402,6 +406,10 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
   }
   if (cmd.type === "search.setAdvancedConfig") {
     advancedSearchConfig = cmd.payload.config;
+    return;
+  }
+  if (cmd.type === "webfetch.setConfig") {
+    webFetchConfig = cmd.payload.config;
     return;
   }
   if (cmd.type === "sandbox.setConfig") {

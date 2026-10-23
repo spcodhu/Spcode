@@ -274,6 +274,8 @@ export type HostCommand =
   | { type: "memory.setDistillEnabled"; payload: { enabled: boolean } }
   /** 高级搜索配置下发（设置页变更后推送；宿主就绪时重推） */
   | { type: "search.setAdvancedConfig"; payload: { config: AdvancedSearchConfig | null } }
+  /** WebFetch 抓取后端配置下发（设置页变更后推送；宿主就绪时重推）。工具逐次调用实时读取，活跃会话即时生效 */
+  | { type: "webfetch.setConfig"; payload: { config: WebFetchConfig | null } }
   /** 沙盒设置下发（设置页变更后推送；宿主就绪时重推）。对已创建会话不生效，新会话生效 */
   | { type: "sandbox.setConfig"; payload: { config: SandboxSettings } }
   /** MCP 服务器配置下发（设置页变更后推送；宿主就绪时重推）。对已创建会话不生效，新会话生效 */
@@ -525,6 +527,8 @@ export const IPC = {
   getAppVersion: "spcode:get-app-version",
   /** renderer -> main (invoke)：高级搜索配置测试连接（发真实请求验证） */
   searchTest: "spcode:search-test",
+  /** renderer -> main (invoke)：WebFetch 抓取后端测试连接（发真实请求验证） */
+  webFetchTest: "spcode:webfetch-test",
   /** renderer -> main (invoke)：会话标题+正文全文搜索 */
   searchSessions: "spcode:search-sessions",
   /** renderer -> main (invoke)：会话 git 改动查看/还原（评审 R3-F2） */
@@ -595,8 +599,8 @@ export interface McpServerConfig {
 // 应用设置（主进程持久化）
 // ---------------------------------------------------------------------------
 
-/** 高级搜索协议预设：tavily / 博查 bocha / custom（custom 用 responseSample 推断响应映射） */
-export type AdvancedSearchProtocol = "tavily" | "bocha" | "custom";
+/** 高级搜索协议预设：tavily / 博查 bocha / deepseek / custom（custom 用 responseSample 推断响应映射） */
+export type AdvancedSearchProtocol = "tavily" | "bocha" | "deepseek" | "custom";
 
 export interface AdvancedSearchConfig {
   protocol: AdvancedSearchProtocol;
@@ -616,6 +620,18 @@ export interface AdvancedSearchMapping {
   urlField: string;
   /** 摘要字段可为空（示例里没有可识别的摘要字段时） */
   snippetField: string;
+}
+
+/**
+ * WebFetch 抓取后端配置。缺省（null）走内置直连抓取（SSRF 防护 + Turndown 转 Markdown）；
+ * 配置后 WebFetch 工具改调对应抓取 API（目标页面由服务商服务端抓取）。
+ */
+export interface WebFetchConfig {
+  /** 目前仅 deepseek（POST {url} → {title, content} Markdown）；预留联合类型扩展位 */
+  provider: "deepseek";
+  /** 完整端点 URL（设置页选预设时自动填默认值） */
+  baseUrl: string;
+  apiKey: string;
 }
 
 import type { RemoteSettings } from "./remote.js";
@@ -656,6 +672,8 @@ export interface AppSettings {
   monoFontFile: string;
   /** 高级搜索（配置了才对会话生效；未配置时只用内置 Bing WebSearch） */
   advancedSearch: AdvancedSearchConfig | null;
+  /** WebFetch 抓取后端（null = 内置直连抓取；工具逐次调用实时读取，改配置对活跃会话即时生效） */
+  webFetch: WebFetchConfig | null;
   /** 远程控制（手机 PWA）：局域网 HTTP+WS 服务开关/端口（null = 随机端口）与 relay 地址 */
   remote: RemoteSettings;
   /** 命令沙盒：bash 命令在 OS 级边界内执行（macOS Seatbelt / Linux bubblewrap） */
@@ -828,6 +846,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   uiFontFile: "",
   monoFontFile: "",
   advancedSearch: null,
+  webFetch: null,
   sandbox: DEFAULT_SANDBOX_SETTINGS,
   compaction: DEFAULT_COMPACTION_SETTINGS,
   mcpServers: {},

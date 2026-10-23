@@ -24,6 +24,12 @@ const BOCHA_CONFIG: AdvancedSearchConfig = {
   apiKey: "sk-test",
 };
 
+const DEEPSEEK_CONFIG: AdvancedSearchConfig = {
+  protocol: "deepseek",
+  baseUrl: "https://api.deepseek.com/v1/tools/search",
+  apiKey: "sk-ds-test",
+};
+
 describe("inferMapping（响应示例推断）", () => {
   it("识别嵌套的结果数组与字段（博查风格）", () => {
     const sample = JSON.stringify({
@@ -131,6 +137,26 @@ describe("parseSearchResponse（预设协议）", () => {
     const out = parseSearchResponse(cfg, { results: [{ title: "t", url: "https://a.com", content: "c" }] }, 10);
     expect(out).toEqual([{ title: "t", url: "https://a.com", snippet: "c" }]);
   });
+
+  it("deepseek：解析 results[]，摘要优先取 summary、缺失退回 snippet，过滤无效 URL", () => {
+    const out = parseSearchResponse(
+      DEEPSEEK_CONFIG,
+      {
+        results: [
+          { title: "甲", url: "https://a.com/1", summary: "长摘要", snippet: "短" },
+          { title: "乙", url: "https://a.com/2", snippet: "只有短摘要" },
+          { title: "坏链接", url: "javascript:x", snippet: "x" },
+          { title: "", url: "https://a.com/3" },
+        ],
+      },
+      10,
+    );
+    expect(out).toHaveLength(3);
+    expect(out[0]?.snippet).toBe("长摘要");
+    expect(out[1]?.snippet).toBe("只有短摘要");
+    // 空标题退回 URL；summary/snippet 都缺时摘要为空
+    expect(out[2]).toEqual({ title: "https://a.com/3", url: "https://a.com/3", snippet: "" });
+  });
 });
 
 describe("isAdvancedSearchReady（生效门控）", () => {
@@ -138,6 +164,9 @@ describe("isAdvancedSearchReady（生效门控）", () => {
     expect(isAdvancedSearchReady(null)).toBe(false);
     expect(isAdvancedSearchReady({ ...TAVILY_CONFIG, apiKey: " " })).toBe(false);
     expect(isAdvancedSearchReady(TAVILY_CONFIG)).toBe(true);
+    // deepseek 只需 baseUrl + apiKey（无 mapping 要求）
+    expect(isAdvancedSearchReady(DEEPSEEK_CONFIG)).toBe(true);
+    expect(isAdvancedSearchReady({ ...DEEPSEEK_CONFIG, baseUrl: " " })).toBe(false);
     expect(isAdvancedSearchReady({ protocol: "custom", baseUrl: "https://x.com", apiKey: "k" })).toBe(false);
     expect(
       isAdvancedSearchReady({
@@ -198,5 +227,39 @@ describe("AdvancedSearch 工具（stub fetch）", () => {
     const res = await exec(tool, { query: "test" });
     expect(res.isError).toBe(true);
     expect(res.content[0]?.text).toContain("余额不足");
+  });
+
+  it("deepseek：请求体带 count/need_content，摘要取 summary", async () => {
+    const fetchMock = vi.fn(async (_url: unknown, init?: { headers?: Record<string, string>; body?: string }) => {
+      expect(init?.headers?.Authorization).toBe("Bearer sk-ds-test");
+      expect(JSON.parse(init?.body ?? "{}")).toEqual({ query: "deepseek", count: 10, need_content: false });
+      return new Response(
+        JSON.stringify({ results: [{ title: "DS", url: "https://deepseek.com", summary: "长摘要", snippet: "短" }] }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const tool = createAdvancedSearchTool(() => DEEPSEEK_CONFIG);
+    const res = await exec(tool, { query: "deepseek" });
+    expect(res.isError).toBeFalsy();
+    expect(res.content.map((c) => c.text ?? "").join("\n")).toContain("长摘要");
+  });
+
+  it("deepseek：HTTP 错误附带 OpenAI 风格 error.message 明细", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ error: { message: "Insufficient Balance", type: "invalid_request_error", param: null } }),
+            { status: 402 },
+          ),
+      ),
+    );
+    const tool = createAdvancedSearchTool(() => DEEPSEEK_CONFIG);
+    const res = await exec(tool, { query: "x" });
+    expect(res.isError).toBe(true);
+    expect(res.content[0]?.text).toContain("HTTP 402");
+    expect(res.content[0]?.text).toContain("Insufficient Balance");
   });
 });

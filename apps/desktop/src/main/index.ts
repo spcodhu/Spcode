@@ -22,10 +22,12 @@ import {
   type ScheduleTaskInput,
   SECRET_MASK,
   type SessionMode,
+  type WebFetchConfig,
 } from "@spcode/shared";
 import { executeSearch, isAdvancedSearchReady } from "@spcode/shared/advanced-search";
 import { i18n, setLocale } from "@spcode/shared/i18n";
 import { resolveSpcodeHome } from "@spcode/shared/node";
+import { executeFetch, isWebFetchReady } from "@spcode/shared/web-fetch";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { AgentBridge } from "./agent-bridge.js";
 import { DraftsStore } from "./drafts-store.js";
@@ -578,6 +580,10 @@ function registerIpc(): void {
     if ("advancedSearch" in patch) {
       bridge.push({ type: "search.setAdvancedConfig", payload: { config: next.advancedSearch } });
     }
+    // WebFetch 抓取后端实时下发宿主（工具逐次调用实时读取，活跃会话即时生效）
+    if ("webFetch" in patch) {
+      bridge.push({ type: "webfetch.setConfig", payload: { config: next.webFetch } });
+    }
     // 沙盒设置实时下发宿主（对已创建会话不生效，新会话生效——bash 工具注册在会话创建时固定）
     if ("sandbox" in patch) {
       bridge.push({ type: "sandbox.setConfig", payload: { config: next.sandbox } });
@@ -630,6 +636,20 @@ function registerIpc(): void {
     try {
       const results = await executeSearch(resolved, "test", 3, 15_000);
       return { ok: true as const, count: results.length };
+    } catch (err) {
+      return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // WebFetch 抓取后端「测试连接」：抓固定探针页验证端点/密钥/计费状态
+  ipcMain.handle(IPC.webFetchTest, async (_e, config: WebFetchConfig) => {
+    // 掩码密钥还原（渲染层拿到的是掩码，原样回传时用存储的真值——同 searchTest）
+    const resolved =
+      config.apiKey === SECRET_MASK ? { ...config, apiKey: settings.get().webFetch?.apiKey ?? "" } : config;
+    if (!isWebFetchReady(resolved)) return { ok: false as const, error: i18n.t("integration:search.incomplete") };
+    try {
+      const page = await executeFetch(resolved, "https://example.com", 15_000);
+      return { ok: true as const, length: page.content.length };
     } catch (err) {
       return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
     }
@@ -711,6 +731,7 @@ if (!app.requestSingleInstanceLock()) {
         bridge.push({ type: "locale.set", payload: { locale: settings.get().locale } });
         bridge.push({ type: "memory.setDistillEnabled", payload: { enabled: settings.get().memoryDistill } });
         bridge.push({ type: "search.setAdvancedConfig", payload: { config: settings.get().advancedSearch } });
+        bridge.push({ type: "webfetch.setConfig", payload: { config: settings.get().webFetch } });
         bridge.push({ type: "sandbox.setConfig", payload: { config: settings.get().sandbox } });
         bridge.push({ type: "compaction.setConfig", payload: { config: settings.get().compaction } });
         bridge.push({ type: "mcp.setServers", payload: { servers: settings.get().mcpServers } });

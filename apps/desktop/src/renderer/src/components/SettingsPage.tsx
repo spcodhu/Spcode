@@ -1,6 +1,7 @@
-import type { AdvancedSearchConfig, AdvancedSearchProtocol, SandboxStatusReport } from "@spcode/shared";
+import type { AdvancedSearchConfig, AdvancedSearchProtocol, SandboxStatusReport, WebFetchConfig } from "@spcode/shared";
 import { inferMapping, isAdvancedSearchReady, PRESET_ENDPOINTS } from "@spcode/shared/advanced-search";
 import { getLocale, localeProfile, resolveLocale } from "@spcode/shared/i18n";
+import { DEEPSEEK_FETCH_ENDPOINT, isWebFetchReady } from "@spcode/shared/web-fetch";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useStore } from "../store";
@@ -202,6 +203,9 @@ function GeneralPage() {
       <SectionTitle>{t("general.search")}</SectionTitle>
       <AdvancedSearchSection />
 
+      <SectionTitle>{t("general.webFetch")}</SectionTitle>
+      <WebFetchSection />
+
       <SectionTitle>{t("general.autoUpdate")}</SectionTitle>
       <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-bg-elevated px-4 py-3">
         <div>
@@ -241,6 +245,7 @@ function AdvancedSearchSection() {
   const PROTOCOL_OPTIONS: { value: AdvancedSearchProtocol; label: string }[] = [
     { value: "tavily", label: "Tavily" },
     { value: "bocha", label: t("search.bocha") },
+    { value: "deepseek", label: "DeepSeek" },
     { value: "custom", label: t("search.custom") },
   ];
 
@@ -422,6 +427,151 @@ function AdvancedSearchSection() {
             className="rounded-lg px-3 py-1.5 text-[13px] text-text-tertiary hover:text-danger"
           >
             {t("search.disable")}
+          </button>
+        )}
+        {hint && <span className={`text-[12px] ${hint.ok ? "text-accent" : "text-danger"}`}>{hint.text}</span>}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 网页抓取后端（通用页子区块）
+// ---------------------------------------------------------------------------
+
+function WebFetchSection() {
+  const { t } = useTranslation("settings");
+  const PROVIDER_OPTIONS = [
+    { value: "builtin", label: t("fetch.builtin") },
+    { value: "deepseek", label: "DeepSeek" },
+  ];
+
+  const settings = useStore((s) => s.settings);
+  const saveSettings = useStore((s) => s.saveSettings);
+  const saved = settings?.webFetch ?? null;
+
+  const [provider, setProvider] = useState<"builtin" | "deepseek">(saved?.provider ?? "builtin");
+  const [baseUrl, setBaseUrl] = useState(saved?.baseUrl ?? DEEPSEEK_FETCH_ENDPOINT);
+  const [apiKey, setApiKey] = useState(saved?.apiKey ?? "");
+  const [hint, setHint] = useState<{ ok: boolean; text: string } | null>(null);
+  const [testing, setTesting] = useState(false);
+
+  // settings 异步加载完成后回填一次表单（之后用户编辑为准，不再覆盖）
+  const hydrated = useRef(false);
+  useEffect(() => {
+    if (hydrated.current || !settings) return;
+    hydrated.current = true;
+    const s = settings.webFetch;
+    if (!s) return;
+    setProvider(s.provider);
+    setBaseUrl(s.baseUrl);
+    setApiKey(s.apiKey);
+  }, [settings]);
+
+  const flash = (ok: boolean, text: string) => {
+    setHint({ ok, text });
+    setTimeout(() => setHint(null), 4000);
+  };
+
+  const switchProvider = (p: string) => {
+    const next = p === "deepseek" ? "deepseek" : "builtin";
+    setProvider(next);
+    // 切到 DeepSeek 且端点为空时自动填默认端点
+    if (next === "deepseek" && !baseUrl.trim()) setBaseUrl(DEEPSEEK_FETCH_ENDPOINT);
+  };
+
+  const buildConfig = (onError: (msg: string) => void): WebFetchConfig | null => {
+    const url = baseUrl.trim();
+    const key = apiKey.trim();
+    if (!url || !key) {
+      onError(t("search.missingCredentials"));
+      return null;
+    }
+    return { provider: "deepseek", baseUrl: url, apiKey: key };
+  };
+
+  const save = async () => {
+    // 选内置 = 清空配置（工具始终注册，逐次调用实时读取，即时生效）
+    if (provider === "builtin") {
+      await saveSettings({ webFetch: null });
+      flash(true, t("fetch.disabled"));
+      return;
+    }
+    const config = buildConfig((msg) => flash(false, msg));
+    if (!config) return;
+    await saveSettings({ webFetch: config });
+    flash(true, t("fetch.saved"));
+  };
+
+  const test = async () => {
+    const config = buildConfig((msg) => flash(false, msg));
+    if (!config || testing) return;
+    setTesting(true);
+    try {
+      const result = await window.spcode.webFetchTest(config);
+      flash(
+        result.ok,
+        result.ok ? t("fetch.success", { length: result.length }) : t("search.failure", { error: result.error }),
+      );
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const inputCls =
+    "w-full rounded-lg border border-border bg-bg-main px-3 py-2 text-[13px] text-text-primary outline-none focus:border-accent/50";
+
+  return (
+    <div className="rounded-xl border border-border bg-bg-elevated px-4 py-3">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="text-[12px] text-text-tertiary">{t("fetch.description")}</div>
+        <div className={`shrink-0 text-[12px] ${isWebFetchReady(saved) ? "text-accent" : "text-text-tertiary"}`}>
+          {isWebFetchReady(saved) ? t("fetch.configured") : t("search.notConfigured")}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-[140px_minmax(0,1fr)] items-center gap-x-3 gap-y-2.5">
+        <div className="text-[13px] text-text-secondary">{t("fetch.provider")}</div>
+        <Select value={provider} options={PROVIDER_OPTIONS} onChange={switchProvider} />
+
+        {provider === "deepseek" && (
+          <>
+            <div className="text-[13px] text-text-secondary">{t("search.baseUrl")}</div>
+            <input
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              placeholder={t("fetch.urlPlaceholder")}
+              className={inputCls}
+            />
+
+            <div className="text-[13px] text-text-secondary">{t("search.apiKey")}</div>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder={t("search.keyPlaceholder")}
+              className={inputCls}
+            />
+          </>
+        )}
+      </div>
+
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => void save()}
+          className="rounded-lg bg-accent px-4 py-1.5 text-[13px] text-white hover:bg-accent-dim"
+        >
+          {t("save")}
+        </button>
+        {provider === "deepseek" && (
+          <button
+            type="button"
+            onClick={() => void test()}
+            disabled={testing}
+            className="rounded-lg border border-border px-4 py-1.5 text-[13px] text-text-secondary hover:bg-bg-hover disabled:opacity-40"
+          >
+            {testing ? t("search.testing") : t("search.test")}
           </button>
         )}
         {hint && <span className={`text-[12px] ${hint.ok ? "text-accent" : "text-danger"}`}>{hint.text}</span>}

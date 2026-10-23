@@ -6,6 +6,8 @@
  */
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { WebFetchConfig } from "@spcode/shared";
+import { executeFetch, isWebFetchReady } from "@spcode/shared/web-fetch";
 import TurndownService from "turndown";
 import { type Static, Type } from "typebox";
 import { fetchPublic } from "./ssrf.js";
@@ -28,6 +30,8 @@ interface PageData {
   title?: string;
   contentType: string;
   fullText: string;
+  /** 抓取通道说明（如 "DeepSeek Fetch"，或 DeepSeek 失败后回退内置的原因），信封头展示用 */
+  via?: string;
 }
 
 const cache = new Map<string, PageData>();
@@ -164,7 +168,7 @@ async function fetchPage(url: string, timeoutMs: number, signal?: AbortSignal): 
   };
 }
 
-export function createWebFetchTool(): ToolDefinition {
+export function createWebFetchTool(getBackend?: () => WebFetchConfig | null): ToolDefinition {
   return {
     name: "WebFetch",
     label: "Web Fetch",
@@ -183,9 +187,39 @@ export function createWebFetchTool(): ToolDefinition {
       }
       const timeoutMs = clamp(Number(args.timeout ?? 30) * 1000, 5000, 90000);
       try {
-        const cached = cacheGet(url);
-        const page = cached ?? (await fetchPage(url, timeoutMs, signal));
-        if (!cached) cacheSet(url, page);
+        // 抓取后端逐次调用实时读取：设置页改了配置，活跃会话下一次 WebFetch 即生效。
+        // 缓存键带后端标识，避免切换后端 5 分钟内读到旧通道的缓存。
+        const backend = getBackend?.();
+        const useDeepSeek = isWebFetchReady(backend);
+        const cacheKey = `${useDeepSeek ? "deepseek" : "builtin"}:${url}`;
+        const cached = cacheGet(cacheKey);
+        let page: PageData;
+        if (cached) {
+          page = cached;
+        } else if (useDeepSeek && backend) {
+          try {
+            const fetched = await executeFetch(backend, url, timeoutMs, signal);
+            // DeepSeek 对「无法提取正文」的页面返回空 content（官方约定此时不计费）：按失败处理，回退内置抓取
+            if (!fetched.content.trim()) throw new Error("DeepSeek Fetch returned empty content");
+            page = {
+              at: Date.now(),
+              title: fetched.title || undefined,
+              contentType: "text/markdown",
+              fullText: normalizeLines(fetched.content.trim()),
+              via: "DeepSeek Fetch",
+            };
+          } catch (err) {
+            // 外部 abort 不算可回退的失败，直接向上抛
+            if (signal?.aborted) throw err;
+            // 余额不足/限流/目标不可达等失败：回退内置直连抓取，信封头注明原因（模型可见）
+            const reason = err instanceof Error ? err.message : String(err);
+            page = await fetchPage(url, timeoutMs, signal);
+            page.via = `builtin (DeepSeek Fetch failed: ${reason})`;
+          }
+        } else {
+          page = await fetchPage(url, timeoutMs, signal);
+        }
+        if (!cached) cacheSet(cacheKey, page);
 
         const prompt = (args.prompt ?? "").trim();
         const filtered = prompt ? filterByPrompt(page.fullText, prompt) : page.fullText;
@@ -201,6 +235,7 @@ export function createWebFetchTool(): ToolDefinition {
           `URL: ${url}`,
           page.title ? `Title: ${page.title}` : undefined,
           `Content-Type: ${page.contentType}`,
+          page.via ? `Via: ${page.via}` : undefined,
           `Length: ${content.length} chars${prompt && filtered.length < page.fullText.length ? " [filtered by prompt]" : ""}${cached ? " [cached]" : ""}`,
         ]
           .filter((l): l is string => l !== undefined)

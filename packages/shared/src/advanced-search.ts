@@ -18,9 +18,10 @@ export interface SearchResult {
 }
 
 /** 预设协议的默认端点（设置页切换预设时自动填充 baseUrl） */
-export const PRESET_ENDPOINTS: Record<"tavily" | "bocha", string> = {
+export const PRESET_ENDPOINTS: Record<"tavily" | "bocha" | "deepseek", string> = {
   tavily: "https://api.tavily.com/search",
   bocha: "https://api.bochaai.com/v1/web-search",
+  deepseek: "https://api.deepseek.com/v1/tools/search",
 };
 
 /** 配置是否完整到可以生效（session-controller 据此决定是否注册 AdvancedSearch 工具） */
@@ -158,6 +159,9 @@ function buildBody(config: AdvancedSearchConfig, query: string, numResults: numb
     case "bocha":
       // count 上限 50；summary:true 让每页带长摘要；freshness 按官方推荐 noLimit
       return { query, count: clamp(numResults, 1, 50), summary: true, freshness: "noLimit" };
+    case "deepseek":
+      // count 上限 50；need_content:false 只拿摘要，正文交给 WebFetch 二次抓取（避免单次响应过重）
+      return { query, count: clamp(numResults, 1, 50), need_content: false };
     case "custom":
       return { query, count: numResults };
   }
@@ -213,6 +217,50 @@ export function parseSearchResponse(config: AdvancedSearchConfig, json: unknown,
         );
       return applyMapping(json, config.mapping, limit);
     }
+    case "deepseek": {
+      // 官方响应：results[] 带 rerank_score/title/url/snippet(短)/summary(长)/date 等。
+      // snippet 优先取 summary（600～800 字长摘要，官方注明「适用于给模型阅读」），缺失退回 snippet。
+      const arr = isPlainObject(json) && Array.isArray(json.results) ? json.results : [];
+      const results: SearchResult[] = [];
+      for (const el of arr) {
+        if (!isPlainObject(el)) continue;
+        const url = typeof el.url === "string" ? el.url : "";
+        if (!/^https?:\/\//i.test(url)) continue;
+        const snippet =
+          typeof el.summary === "string" && el.summary ? el.summary : typeof el.snippet === "string" ? el.snippet : "";
+        results.push({
+          title: typeof el.title === "string" && el.title ? el.title : url,
+          url,
+          snippet,
+        });
+        if (results.length >= limit) break;
+      }
+      return results;
+    }
+  }
+}
+
+/**
+ * 从错误响应体里提取人类可读明细（OpenAI 兼容的 error.message，DeepSeek/多数搜索 API 都是这个格式），
+ * 拼在 HTTP 状态码后面，方便设置页「测试连接」直接看到原因（如 402 余额不足）。读取失败/超长则静默截断。
+ */
+export async function extractErrorDetail(res: Response): Promise<string> {
+  try {
+    const text = (await res.text()).slice(0, 500);
+    try {
+      const json: unknown = JSON.parse(text);
+      const err = isPlainObject(json) && isPlainObject(json.error) ? json.error : null;
+      if (err && typeof err.message === "string" && err.message) return `: ${err.message}`;
+      if (typeof (json as Record<string, unknown>).message === "string") {
+        return `: ${(json as Record<string, unknown>).message}`;
+      }
+    } catch {
+      // 非 JSON 错误体：直接附原文（已截断）
+    }
+    const trimmed = text.trim();
+    return trimmed ? `: ${trimmed}` : "";
+  } catch {
+    return "";
   }
 }
 
@@ -243,7 +291,7 @@ export async function executeSearch(
       body: JSON.stringify(buildBody(config, query, numResults)),
       signal: controller.signal,
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}${await extractErrorDetail(res)}`);
     const json: unknown = await res.json();
     return parseSearchResponse(config, json, numResults);
   } finally {

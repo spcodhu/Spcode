@@ -20,6 +20,7 @@ import {
   type SessionRegistryEntry,
   type SessionSearchResultItem,
   type UpdateState,
+  type WebFetchConfig,
 } from "@spcode/shared";
 import { contextBridge, ipcRenderer } from "electron";
 
@@ -73,6 +74,8 @@ export interface SpcodeApi {
   getAppVersion(): Promise<string>;
   /** 高级搜索「测试连接」：主进程发真实请求验证配置 */
   searchTest(config: AdvancedSearchConfig): Promise<{ ok: true; count: number } | { ok: false; error: string }>;
+  /** WebFetch 抓取后端「测试连接」：主进程发真实请求验证配置 */
+  webFetchTest(config: WebFetchConfig): Promise<{ ok: true; length: number } | { ok: false; error: string }>;
   /** 会话 git 改动（评审 R3-F2）：基线状态 / diff 内容 / 还原（stash push 可恢复） */
   sessionGitState(id: string): Promise<{ hasBaseline: boolean; changed: boolean; stat: string }>;
   sessionGitDiff(id: string): Promise<{ stat: string; patch: string; untracked: string[] } | null>;
@@ -185,6 +188,9 @@ const api: SpcodeApi = {
   },
   searchTest(config) {
     return ipcRenderer.invoke(IPC.searchTest, config);
+  },
+  webFetchTest(config) {
+    return ipcRenderer.invoke(IPC.webFetchTest, config);
   },
   sessionGitState(id) {
     return ipcRenderer.invoke(IPC.sessionGitState, id);

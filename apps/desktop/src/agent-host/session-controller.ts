@@ -28,6 +28,7 @@ import type {
   TodoItem,
   ToolRisk,
   UsageRecord,
+  WebFetchConfig,
 } from "@spcode/shared";
 import { isAdvancedSearchReady } from "@spcode/shared/advanced-search";
 import { getLocale } from "@spcode/shared/i18n";
@@ -178,6 +179,8 @@ export interface SessionControllerOptions {
   isDistillEnabled?: () => boolean;
   /** 高级搜索配置（主进程设置页下发，实时读取；配置完整才注册 AdvancedSearch 工具） */
   getAdvancedSearchConfig?: () => AdvancedSearchConfig | null;
+  /** WebFetch 抓取后端配置（主进程设置页下发；工具逐次调用实时读取，活跃会话即时生效） */
+  getWebFetchConfig?: () => WebFetchConfig | null;
   /** 沙盒设置（主进程设置页下发，实时读取；enabled 且平台可用时 bash 走 OS 级沙盒） */
   getSandboxSettings?: () => SandboxSettings;
   /** MCP 工具表快照（评审 R3-F3；会话创建时取，mcp__server__tool 经权限网关） */
@@ -293,7 +296,7 @@ export class SessionController {
         ...(isAdvancedSearchReady(opts.getAdvancedSearchConfig?.())
           ? [createAdvancedSearchTool(() => opts.getAdvancedSearchConfig?.() ?? null)]
           : []),
-        createWebFetchTool(),
+        createWebFetchTool(() => opts.getWebFetchConfig?.() ?? null),
         createTodoWriteTool(opts.emitTodo),
         createAskUserQuestionTool(opts.sessionId, opts.askQuestion),
         createWritePlanTool({

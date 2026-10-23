@@ -2,7 +2,10 @@
  * WebSearch/WebFetch 测试：解析/筛选逻辑用离线夹具，连通性用真网。
  * 真网失败优先怀疑本机网络，其次才是实现退化。
  */
-import { describe, expect, it } from "vitest";
+
+import type { WebFetchConfig } from "@spcode/shared";
+import { executeFetch, isWebFetchReady, parseFetchResponse } from "@spcode/shared/web-fetch";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createWebFetchTool, filterByPrompt, truncateWithNotice } from "../src/agent-host/tools/webfetch.js";
 import { createWebSearchTool, decodeBingRedirect, parseSearchMarkdown } from "../src/agent-host/tools/websearch.js";
 
@@ -111,5 +114,143 @@ describe.skipIf(!process.env.SPCODE_TEST_NETWORK)("WebFetch 真网", () => {
       {} as any,
     )) as ToolResultLike;
     expect(res.isError).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DeepSeek Fetch 后端（stub fetch，不打真网、不消耗额度）
+// ---------------------------------------------------------------------------
+
+const DS_FETCH: WebFetchConfig = {
+  provider: "deepseek",
+  baseUrl: "https://api.deepseek.com/v1/tools/fetch",
+  apiKey: "sk-ds-test",
+};
+
+describe("web-fetch 协议适配（离线）", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("isWebFetchReady：缺 baseUrl/apiKey 不生效", () => {
+    expect(isWebFetchReady(null)).toBe(false);
+    expect(isWebFetchReady({ ...DS_FETCH, apiKey: " " })).toBe(false);
+    expect(isWebFetchReady({ ...DS_FETCH, baseUrl: "" })).toBe(false);
+    expect(isWebFetchReady(DS_FETCH)).toBe(true);
+  });
+
+  it("parseFetchResponse：字段缺失容错为空字符串", () => {
+    expect(parseFetchResponse({ title: "T", content: "# 正文" })).toEqual({ title: "T", content: "# 正文" });
+    expect(parseFetchResponse({})).toEqual({ title: "", content: "" });
+    expect(parseFetchResponse("not-object")).toEqual({ title: "", content: "" });
+  });
+
+  it("executeFetch：POST {url} + Bearer 鉴权", async () => {
+    const fetchMock = vi.fn(async (url: unknown, init?: { headers?: Record<string, string>; body?: string }) => {
+      expect(url).toBe("https://api.deepseek.com/v1/tools/fetch");
+      expect(init?.headers?.Authorization).toBe("Bearer sk-ds-test");
+      expect(JSON.parse(init?.body ?? "{}")).toEqual({ url: "https://example.com/a" });
+      return new Response(JSON.stringify({ title: "T", content: "# 正文" }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const page = await executeFetch(DS_FETCH, "https://example.com/a", 10_000);
+    expect(page).toEqual({ title: "T", content: "# 正文" });
+  });
+
+  it("executeFetch：HTTP 错误附带 OpenAI 风格 error.message 明细", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ error: { message: "Insufficient Balance", type: "invalid_request_error", param: null } }),
+            { status: 402 },
+          ),
+      ),
+    );
+    await expect(executeFetch(DS_FETCH, "https://example.com/a", 10_000)).rejects.toThrow(
+      "HTTP 402: Insufficient Balance",
+    );
+  });
+});
+
+describe("WebFetch 工具 DeepSeek 后端（stub fetch）", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  async function execFetch(
+    tool: ReturnType<typeof createWebFetchTool>,
+    args: Record<string, unknown>,
+  ): Promise<ToolResultLike> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (await tool.execute("tf", args as any, undefined, undefined, {} as any)) as ToolResultLike;
+  }
+
+  /** 分发 stub：DeepSeek 端点走 deepseekResp，其余（内置直连回退）返回 HTML 页 */
+  function stubDispatch(
+    deepseekResp: () => Response,
+    builtinHtml = "<html><head><title>直连页</title></head><body><p>直连抓取内容</p></body></html>",
+  ) {
+    return vi.fn(async (url: unknown) => {
+      if (String(url).includes("api.deepseek.com")) return deepseekResp();
+      return new Response(builtinHtml, { status: 200, headers: { "content-type": "text/html; charset=utf-8" } });
+    });
+  }
+
+  it("配置 DeepSeek 后走 DeepSeek 抓取，信封头标注 Via", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubDispatch(
+        () => new Response(JSON.stringify({ title: "DS 标题", content: "# 服务端抓取的 Markdown" }), { status: 200 }),
+      ),
+    );
+    const tool = createWebFetchTool(() => DS_FETCH);
+    const res = await execFetch(tool, { url: "https://example.com/ds-ok" });
+    expect(res.isError).toBeFalsy();
+    const text = res.content.map((c) => c.text ?? "").join("\n");
+    expect(text).toContain("Via: DeepSeek Fetch");
+    expect(text).toContain("Title: DS 标题");
+    expect(text).toContain("服务端抓取的 Markdown");
+  });
+
+  it("DeepSeek 失败（HTTP 500）自动回退内置直连，信封头注明原因", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubDispatch(() => new Response("server error", { status: 500 })),
+    );
+    const tool = createWebFetchTool(() => DS_FETCH);
+    // 字面公网 IP：SSRF 校验跳过 DNS 解析，回退路径全程 hermetic
+    const res = await execFetch(tool, { url: "https://93.184.216.34/ds-fail" });
+    expect(res.isError).toBeFalsy();
+    const text = res.content.map((c) => c.text ?? "").join("\n");
+    expect(text).toContain("Via: builtin (DeepSeek Fetch failed: HTTP 500");
+    expect(text).toContain("直连抓取内容");
+  });
+
+  it("DeepSeek 返回空正文（不计费情形）按失败处理并回退", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubDispatch(() => new Response(JSON.stringify({ title: "", content: "" }), { status: 200 })),
+    );
+    const tool = createWebFetchTool(() => DS_FETCH);
+    const res = await execFetch(tool, { url: "https://93.184.216.34/ds-empty" });
+    expect(res.isError).toBeFalsy();
+    const text = res.content.map((c) => c.text ?? "").join("\n");
+    expect(text).toContain("Via: builtin (DeepSeek Fetch failed: DeepSeek Fetch returned empty content)");
+    expect(text).toContain("直连抓取内容");
+  });
+
+  it("未配置后端时走内置直连，无 Via 行", async () => {
+    vi.stubGlobal(
+      "fetch",
+      stubDispatch(() => new Response("不应被调用", { status: 500 })),
+    );
+    const tool = createWebFetchTool(() => null);
+    const res = await execFetch(tool, { url: "https://93.184.216.34/builtin" });
+    expect(res.isError).toBeFalsy();
+    const text = res.content.map((c) => c.text ?? "").join("\n");
+    expect(text).not.toContain("Via:");
+    expect(text).toContain("直连抓取内容");
   });
 });

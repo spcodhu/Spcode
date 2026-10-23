@@ -141,6 +141,7 @@ export function redactSettingsForRenderer(s: AppSettings): AppSettings {
     advancedSearch: s.advancedSearch
       ? { ...s.advancedSearch, apiKey: s.advancedSearch.apiKey ? SECRET_MASK : "" }
       : null,
+    webFetch: s.webFetch ? { ...s.webFetch, apiKey: s.webFetch.apiKey ? SECRET_MASK : "" } : null,
     remote: {
       ...s.remote,
       feishu: { ...s.remote.feishu, appSecret: s.remote.feishu.appSecret ? SECRET_MASK : "" },
@@ -153,6 +154,9 @@ export function restoreMaskedSecrets(patch: Partial<AppSettings>, current: AppSe
   const out = { ...patch };
   if (out.advancedSearch && out.advancedSearch.apiKey === SECRET_MASK) {
     out.advancedSearch = { ...out.advancedSearch, apiKey: current.advancedSearch?.apiKey ?? "" };
+  }
+  if (out.webFetch && out.webFetch.apiKey === SECRET_MASK) {
+    out.webFetch = { ...out.webFetch, apiKey: current.webFetch?.apiKey ?? "" };
   }
   if (out.remote?.feishu && out.remote.feishu.appSecret === SECRET_MASK) {
     out.remote = { ...out.remote, feishu: { ...out.remote.feishu, appSecret: current.remote.feishu.appSecret } };
