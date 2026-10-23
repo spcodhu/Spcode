@@ -1,8 +1,14 @@
 import { i18n } from "@spcode/shared/i18n";
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, type ReactNode, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { formatCompact, formatFileSize } from "../format";
-import { type ActivitySegment, buildRunBlocks } from "../run-activity";
+import {
+  type ActivitySegment,
+  buildRunBlocks,
+  type RunBlock,
+  type RunTextBlock,
+  splitCompletedRun,
+} from "../run-activity";
 import { type ChatMessage, flattenSegments, messageText, type ToolCallState } from "../store";
 import { isCommandTool, summarizeArgs, toolLabel } from "../tooling";
 import { DiffPatch } from "./DiffBlock";
@@ -207,7 +213,9 @@ export const NoticeItem = memo(NoticeItemImpl);
  * - 正文（阶段性说明与最终总结）按到达顺序内联在组与组之间；
  * - 组内一步一行：状态圆点（进行中/完成/失败）+ 动作标签 + 参数摘要，
  *   点击展开完整输入与输出；
- * - 运行中且没有正在流出的正文/思考时，尾部显示「继续思考中…」。
+ * - 运行中且没有正在流出的正文/思考时，尾部显示「继续思考中…」；
+ * - 运行结束后只保留最后一段正文（总结），之前的阶段输出与活动组统一收进
+ *   一个「过程」折叠区；展开后仍是完整的时间线，各活动组可继续展开。
  *
  * active 由外层传入（会话 running && 最后一个运行）：回合间隙所有消息的
  * streaming 都是 false，若用消息级状态驱动折叠会在回合之间闪合闪开。
@@ -223,8 +231,23 @@ function AssistantRunItemImpl({
 }) {
   const segments = flattenSegments(messages);
   const blocks = buildRunBlocks(segments);
+
+  if (!active) {
+    // 任务结束：只留最后一段正文（总结），其余按到达顺序收进一个过程折叠区。
+    const { process, summary } = splitCompletedRun(blocks);
+    return (
+      <div className="mb-6">
+        {process.length > 0 ? (
+          <RunProcess blocks={process} summary={summary} />
+        ) : (
+          summary && <Markdown key={summary.key} text={summary.text} />
+        )}
+      </div>
+    );
+  }
+
   // 只有运行中、且位于最末尾的活动组才是「进行中」——一旦后面接上正文，这组就已完成
-  const activeGroupIdx = active && blocks[blocks.length - 1]?.kind === "activity" ? blocks.length - 1 : -1;
+  const activeGroupIdx = blocks[blocks.length - 1]?.kind === "activity" ? blocks.length - 1 : -1;
   const lastMessage = messages[messages.length - 1];
   const streamingTail = lastMessage?.streaming ? lastMessage.segments[lastMessage.segments.length - 1] : undefined;
   // 正文/思考正在流式输出时内容就在眼前，不再重复「继续思考中」
@@ -240,12 +263,12 @@ function AssistantRunItemImpl({
           <ActivityGroup
             key={block.key}
             segments={block.segments}
-            active={active && i === activeGroupIdx}
+            active={i === activeGroupIdx}
             startedAt={i === activeGroupIdx ? startedAt : undefined}
           />
         ),
       )}
-      {active && !streamingContent && <ContinueThinking />}
+      {!streamingContent && <ContinueThinking />}
     </div>
   );
 }
@@ -283,27 +306,19 @@ function ActivityGroup({
 
   return (
     <div className="mb-1 min-w-0" data-testid="run-activity" data-state={active ? "running" : "done"}>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-        data-testid="run-activity-header"
-        className="group grid min-h-8 w-full grid-cols-[20px_minmax(0,1fr)] items-center gap-2 rounded-md py-1.5 text-left text-[13px] leading-5 text-text-tertiary transition-colors hover:text-text-secondary"
-      >
-        <span className="flex size-5 items-center justify-center rounded-md border border-border bg-bg-elevated text-text-tertiary shadow-sm transition-colors group-hover:text-text-secondary">
-          <Icon
-            name="chevronRight"
-            size={12}
-            className={`transition-transform duration-150 ${open ? "rotate-90" : ""}`}
-          />
-        </span>
-        <span className="min-w-0 truncate">
-          {t(active ? "message.running" : "message.processed")}
-          {elapsed !== undefined && <span className="tabular-nums"> · {t("run.seconds", { seconds: elapsed })}</span>}
-        </span>
-      </button>
+      <ActivityHeader
+        open={open}
+        onToggle={() => setOpen(!open)}
+        testId="run-activity-header"
+        label={
+          <>
+            {t(active ? "message.running" : "message.processed")}
+            {elapsed !== undefined && <span className="tabular-nums"> · {t("run.seconds", { seconds: elapsed })}</span>}
+          </>
+        }
+      />
 
-      <div className="collapse-grid" data-open={open}>
+      <div className="collapse-grid" data-open={open} aria-hidden={!open} inert={!open}>
         <div className="collapse-inner">
           <div className="ml-[10px] border-l border-border pb-1 pl-4">
             <div className="min-w-0 space-y-0.5" data-testid="run-activity-steps">
@@ -319,6 +334,90 @@ function ActivityGroup({
         </div>
       </div>
     </div>
+  );
+}
+
+/** 活动组 / 过程折叠共用的行头：方形箭头 + 文案 */
+function ActivityHeader({
+  open,
+  onToggle,
+  label,
+  testId,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  label: ReactNode;
+  testId: string;
+}) {
+  return (
+    <button
+      type="button"
+      aria-expanded={open}
+      onClick={onToggle}
+      data-testid={testId}
+      className="group grid min-h-8 w-full grid-cols-[20px_minmax(0,1fr)] items-center gap-2 rounded-md py-1.5 text-left text-[13px] leading-5 text-text-tertiary transition-colors hover:text-text-secondary"
+    >
+      <span className="flex size-5 items-center justify-center rounded-md border border-border bg-bg-elevated text-text-tertiary shadow-sm transition-colors group-hover:text-text-secondary">
+        <Icon
+          name="chevronRight"
+          size={12}
+          className={`transition-transform duration-150 ${open ? "rotate-90" : ""}`}
+        />
+      </span>
+      <span className="min-w-0 truncate">{label}</span>
+    </button>
+  );
+}
+
+/**
+ * 任务结束后的过程折叠：默认收起，只把最终总结留在页面上。
+ * 展开后按到达顺序还原阶段正文与活动组，活动组仍可继续展开。
+ */
+function RunProcess({ blocks, summary }: { blocks: RunBlock[]; summary?: RunTextBlock }) {
+  const { t } = useTranslation("chat");
+  const [open, setOpen] = useState(false);
+  let toolCount = 0;
+  let failedCount = 0;
+  for (const block of blocks) {
+    if (block.kind !== "activity") continue;
+    for (const seg of block.segments) {
+      if (seg.kind !== "tools") continue;
+      toolCount += seg.calls.length;
+      failedCount += seg.calls.filter((call) => call.status === "error").length;
+    }
+  }
+  const label =
+    toolCount === 0
+      ? t("message.processed")
+      : failedCount > 0
+        ? t("message.toolsRanWithFailures", { count: toolCount, failed: failedCount })
+        : t("message.toolsRan", { count: toolCount });
+
+  return (
+    <>
+      <div className="mb-1 min-w-0" data-testid="run-process" data-state={open ? "expanded" : "collapsed"}>
+        <ActivityHeader
+          open={open}
+          onToggle={() => setOpen(!open)}
+          testId="run-process-header"
+          label={<span className="tabular-nums">{label}</span>}
+        />
+        <div className="collapse-grid" data-open={open} aria-hidden={!open} inert={!open}>
+          <div className="collapse-inner">
+            <div className="min-w-0" data-testid="run-process-body">
+              {blocks.map((block) =>
+                block.kind === "text" ? (
+                  <Markdown key={block.key} text={block.text} />
+                ) : (
+                  <ActivityGroup key={block.key} segments={block.segments} active={false} />
+                ),
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+      {summary && <Markdown key={summary.key} text={summary.text} />}
+    </>
   );
 }
 
@@ -433,7 +532,7 @@ function ThinkingRow({ text, streaming }: { text: string; streaming: boolean }) 
           )}
         </span>
       </button>
-      <div className="collapse-grid" data-open={expanded}>
+      <div className="collapse-grid" data-open={expanded} aria-hidden={!expanded} inert={!expanded}>
         <div className="collapse-inner">
           <div
             ref={bodyRef}
@@ -500,7 +599,7 @@ function ToolRow({ toolCall }: { toolCall: ToolCallState }) {
           )}
         </span>
       </button>
-      <div className="collapse-grid" data-open={open}>
+      <div className="collapse-grid" data-open={open} aria-hidden={!open} inert={!open}>
         <div className="collapse-inner">
           <div
             className="ml-5 mt-1 mb-1 overflow-hidden rounded-md bg-bg-elevated/70 px-2.5 py-1.5"

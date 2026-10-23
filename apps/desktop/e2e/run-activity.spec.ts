@@ -5,9 +5,9 @@ import { launchApp } from "./helpers";
 
 /**
  * 步骤交互回归（Qoder 风格活动组）：
- * - 连续思考/工具调用折叠成一个「已处理」活动组，步骤默认收起；
- * - 组内一步一行，点击步骤展开输入/响应；
- * - 所有阶段性正文按到达顺序常驻，不再有完整/精简两档。
+ * - 任务结束后只留最终总结，中间阶段正文与活动组收进一个过程折叠区；
+ * - 展开过程后按到达顺序恢复「阶段正文 + 已处理活动组」；
+ * - 活动组可继续展开，看到一步一行的思考/工具调用及输入输出。
  */
 
 const PROJECT_CWD = "/tmp/spcode-e2e-run-activity";
@@ -116,18 +116,31 @@ async function openSession(window: Awaited<ReturnType<Awaited<ReturnType<typeof 
   await expect(window.getByText(FINAL)).toBeVisible({ timeout: 15000 });
 }
 
-test("步骤交互：完成后折叠为活动组，正文按顺序常驻", async () => {
+test("任务结束后只留总结，展开过程恢复完整时间线", async () => {
   const app = await launchApp({ seed });
   const window = await app.firstWindow();
   await openSession(window);
 
-  // 所有阶段性正文都在（不再有完整/精简两档）
+  // 默认只保留最终总结；中间阶段正文收进过程折叠区（高度 0、对辅助技术隐藏）
+  await expect(window.getByText(FINAL)).toBeVisible();
+  const process = window.getByTestId("run-process");
+  await expect(process).toHaveCount(1);
+  await expect(process).toHaveAttribute("data-state", "collapsed");
+  const processGrid = process.locator(".collapse-grid").first();
+  await expect(processGrid).toHaveAttribute("aria-hidden", "true");
+  expect(await processGrid.evaluate((el) => el.getBoundingClientRect().height)).toBe(0);
+  const processHeader = window.getByTestId("run-process-header");
+  await expect(processHeader).toHaveAttribute("aria-expanded", "false");
+
+  // 展开过程：阶段正文与两个活动组按到达顺序恢复，总结仍在最下方
+  await processHeader.click();
+  await expect(process).toHaveAttribute("data-state", "expanded");
+  await expect(processGrid).toHaveAttribute("aria-hidden", "false");
+  await expect.poll(() => processGrid.evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThan(0);
   await expect(window.getByText(STAGE1)).toBeVisible();
   await expect(window.getByText(STAGE2)).toBeVisible();
   await expect(window.getByText(FINAL)).toBeVisible();
-  await expect(window.getByTestId("run-reveal-full")).toHaveCount(0);
 
-  // 被正文打断的两段步骤各自成组，结束后都是收起态
   const groups = window.getByTestId("run-activity");
   await expect(groups).toHaveCount(2);
   await expect(groups.first()).toHaveAttribute("data-state", "done");
@@ -135,10 +148,11 @@ test("步骤交互：完成后折叠为活动组，正文按顺序常驻", async
   await expect(headers).toHaveCount(2);
   await expect(headers.first()).toHaveAttribute("aria-expanded", "false");
 
-  // 展开第一组：看到读文件步骤
+  // 活动组可继续展开：看到读文件步骤
   await headers.first().click();
   await expect(headers.first()).toHaveAttribute("aria-expanded", "true");
   const firstGroup = groups.first();
+  await expect(firstGroup.locator(".collapse-grid").first()).toHaveAttribute("aria-hidden", "false");
   const steps = firstGroup.getByTestId("run-tool-step");
   await expect(steps).toHaveCount(1);
   await expect(steps.first()).toHaveAttribute("data-tool", "read");
@@ -147,6 +161,7 @@ test("步骤交互：完成后折叠为活动组，正文按顺序常驻", async
   // 点击步骤展开输入/响应面板
   await steps.first().getByRole("button").click();
   await expect(steps.first().getByRole("button")).toHaveAttribute("aria-expanded", "true");
+  await expect(steps.first().locator(".collapse-grid")).toHaveAttribute("aria-hidden", "false");
   await expect(firstGroup.getByTestId("run-step-detail")).toBeVisible();
 
   await app.close();

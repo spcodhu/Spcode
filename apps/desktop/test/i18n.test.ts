@@ -50,6 +50,14 @@ describe("bundled language resources", () => {
     }
   });
 
+  it("localizes the completed-run process label in both locales", () => {
+    setLocale("en");
+    expect(i18n.t("chat:message.toolsRan", { count: 2 })).toBe("Ran 2 tools");
+    expect(i18n.t("chat:message.toolsRanWithFailures", { count: 2, failed: 1 })).toBe("Ran 2 tools, 1 failed");
+    setLocale("zh-CN");
+    expect(i18n.t("chat:message.toolsRan", { count: 2 })).toBe("执行工具 2 次");
+  });
+
   it("uses the requested locale and independently initialized instances", () => {
     const first = createI18n();
     const second = createI18n();
