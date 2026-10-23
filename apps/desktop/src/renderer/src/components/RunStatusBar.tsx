@@ -1,14 +1,15 @@
 /**
- * 运行状态条：常驻输入框正上方，回答「模型现在在干嘛」。
+ * 运行状态条：常驻输入框正上方，只提示消息流里没有的例外状态
+ * （上下文压缩、等待权限/回答、自动重试）。
  *
- * 背景：运行头（"正在工作…"）与时间线工具行都在消息流里，多轮思考/调用后
- * 被滚出视口，用户在底部看不到模型状态。这里做一个不随消息流滚动的影子
- * 指示器；状态推导逻辑在 ../run-status（纯函数，便于单测）。
+ * 思考/工具/输出/回合间隙由消息流里的 Qoder 活动组与「继续思考中…」
+ * 就地表达，这里不再重复一条「正在工作…」。状态推导逻辑在 ../run-status
+ * （纯函数，便于单测）。
  */
 
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { deriveRunStatus, formatElapsed, type RunStatus } from "../run-status";
+import { deriveRunStatus, formatElapsed, type RunStatus, shouldShowRunStatusBar } from "../run-status";
 import { useStore } from "../store";
 
 const DOT_CLASS: Record<RunStatus["kind"], string> = {
@@ -37,7 +38,7 @@ export function RunStatusBar({ sessionId, onJumpToBottom }: { sessionId: string;
     return () => clearInterval(timer);
   }, [active]);
 
-  if (!status) return null;
+  if (!status || !shouldShowRunStatusBar(session, status)) return null;
   const elapsed = startedAt ? Math.max(0, Math.floor((now - startedAt) / 1000)) : 0;
   const shimmer = status.kind !== "permission" && status.kind !== "question" && status.kind !== "retry";
 

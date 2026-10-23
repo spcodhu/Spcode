@@ -72,6 +72,17 @@ export function deriveRunStatus(
   return { kind: "working", label: i18n.t("chat:run.working") };
 }
 
+/**
+ * 底部常驻状态条是否显示：思考/工具/输出/回合间隙已经由消息流里的
+ * Qoder 活动组与「继续思考中…」表达，不再重复；只有消息流之外的
+ * 例外状态（上下文压缩、等待权限/回答、自动重试）才显示。
+ */
+export function shouldShowRunStatusBar(session: SessionState | undefined, status: RunStatus | null): boolean {
+  if (!status) return false;
+  if (session?.compacting) return true;
+  return status.kind === "permission" || status.kind === "question" || status.kind === "retry";
+}
+
 /** 错误原因精简：去首行/去 provider 前缀噪声，供状态条同行展示（完整内容在错误卡） */
 export function shortReason(message: string, max = 60): string {
   const line = message.split("\n").find((l) => l.trim()) ?? "";

@@ -4,7 +4,7 @@
  */
 import type { PermissionRequest, QuestionRequest } from "@spcode/shared";
 import { describe, expect, it } from "vitest";
-import { deriveRunStatus, formatElapsed } from "../src/renderer/src/run-status.js";
+import { deriveRunStatus, formatElapsed, shouldShowRunStatusBar } from "../src/renderer/src/run-status.js";
 import type { ChatMessage, SessionState } from "../src/renderer/src/store.js";
 
 function makeSession(overrides: Partial<SessionState> = {}): SessionState {
@@ -183,5 +183,26 @@ describe("压缩状态", () => {
     const session = makeSession({ running: true, compacting: true });
     const status = deriveRunStatus(session, [], [], "s1");
     expect(status?.label).toBe("正在压缩上下文…");
+  });
+});
+
+describe("shouldShowRunStatusBar", () => {
+  it("思考/工具/输出/回合间隙由消息流表达，底部状态条不重复", () => {
+    for (const kind of ["thinking", "tool", "text", "working"] as const) {
+      expect(shouldShowRunStatusBar(makeSession(), { kind, label: "x" })).toBe(false);
+    }
+  });
+
+  it("压缩/等待权限/等待回答/重试仍显示底部状态条", () => {
+    expect(
+      shouldShowRunStatusBar(makeSession({ compacting: true }), { kind: "working", label: "正在压缩上下文…" }),
+    ).toBe(true);
+    for (const kind of ["permission", "question", "retry"] as const) {
+      expect(shouldShowRunStatusBar(makeSession(), { kind, label: "x" })).toBe(true);
+    }
+  });
+
+  it("没有运行状态时不显示", () => {
+    expect(shouldShowRunStatusBar(makeSession(), null)).toBe(false);
   });
 });
