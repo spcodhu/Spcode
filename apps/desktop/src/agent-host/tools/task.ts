@@ -35,6 +35,8 @@ type Params = Static<typeof taskSchema>;
 export interface TaskToolContext {
   cwd: string;
   agentDir: string;
+  /** 主会话 id（子代理命令的网络域名询问按主会话的权限模式归因） */
+  sessionId: string;
   modelRuntime: ModelRuntime;
   model: Model<never> | undefined;
   thinkingLevel: string;
@@ -74,7 +76,9 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
       const customTools: ToolDefinition[] = [
         // 子会话沙盒 bash：不开放 dangerouslyDisableSandbox 逃生舱参数
         // （逃生舱批准权属用户与主会话，子代理不得自行申请）
-        ...(sandboxState.state === "active" ? [createSandboxedBashTool(ctx.cwd, { allowBypass: false })] : []),
+        ...(sandboxState.state === "active"
+          ? [createSandboxedBashTool(ctx.cwd, { allowBypass: false, sessionId: ctx.sessionId })]
+          : []),
         ...createGuardedFsTools(ctx.cwd, getFsPolicy),
         // 子会话深度 +1；达到上限后子会话不再拿到 Task（评审 P2-5：让条件与头注释同口径）
         ...(ctx.depth + 1 < MAX_TASK_DEPTH ? [createTaskTool({ ...ctx, depth: ctx.depth + 1 })] : []),

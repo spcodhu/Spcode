@@ -70,6 +70,8 @@ export function matchesExcludedCommand(command: string, rule: string): boolean {
 export interface SandboxedBashToolOptions {
   /** 是否暴露 dangerouslyDisableSandbox 逃生舱参数（子代理必须 false） */
   allowBypass: boolean;
+  /** 命令归属的会话 id（网络域名询问按该会话的权限模式决定要不要打扰用户） */
+  sessionId?: string;
   /** 实时读取沙盒设置（excludedCommands/allowUnsandboxedCommands 热生效）；缺省用服务快照 */
   getSettings?: () => SandboxSettings;
 }
@@ -90,7 +92,7 @@ export function createSandboxedBashTool(cwd: string, opts: SandboxedBashToolOpti
       let wrapped: string;
       let commandId: string;
       try {
-        ({ command: wrapped, commandId } = await sandbox.wrap(command, execCwd));
+        ({ command: wrapped, commandId } = await sandbox.wrap(command, execCwd, opts.sessionId));
       } catch (err) {
         // fail-closed：包装失败绝不裸跑（那等于静默关闭沙盒）
         const message = err instanceof Error ? err.message : String(err);
@@ -105,6 +107,8 @@ export function createSandboxedBashTool(cwd: string, opts: SandboxedBashToolOpti
       const result = await local.exec(wrapped, execCwd, options);
       // 违规归因：把内核/代理拦截记录附到输出尾部，模型据此理解并回应
       const violations = sandbox.violations(commandId);
+      // 命令结束：清掉会话归属（网络域名询问的归因表）
+      sandbox.commandFinished(commandId);
       if (violations.length > 0) {
         const lines = violations.map((v) => `  ${v.line}`).join("\n");
         const hint = allowBypass && getSettings().allowUnsandboxedCommands ? `\n${BYPASS_HINT}` : "";

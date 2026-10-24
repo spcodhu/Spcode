@@ -60,6 +60,40 @@ describe.skipIf(!isMac)("SandboxService（macOS 真跑）", () => {
 
   // 真网用例：默认跳过（离线/CI 不抖），SPCODE_TEST_NETWORK=1 时显式开启
   it.skipIf(!process.env.SPCODE_TEST_NETWORK)(
+    "总不询问档：白名单外域名静默放行（不弹窗）且记审计",
+    async () => {
+      const svc = getSandboxService();
+      expect((await svc.ensureReady()).state).toBe("active");
+      svc.setModeResolver((id) => (id === "s-never" ? "never" : "ask"));
+
+      const before = askCalls.length;
+      const { command, commandId } = await svc.wrap(
+        "curl -sS -m 15 -o /dev/null -w '%{http_code}' https://silent-never-xyz.com",
+        workDir,
+        "s-never",
+      );
+      await run(command);
+      svc.commandFinished(commandId);
+
+      // 只断言「没弹窗、已记审计、不占住归因表」——能不能连通取决于环境出口，不在此断言
+      expect(askCalls.length, "never 档不应触发权限弹窗").toBe(before);
+      expect(svc.silentlyAllowedHostsSnapshot()).toContain("silent-never-xyz.com");
+      expect(svc.inflightSessionSnapshot()).toEqual({});
+    },
+    60_000,
+  );
+
+  it("命令归属：wrap 记录 sessionId，commandFinished 清理", async () => {
+    const svc = getSandboxService();
+    expect((await svc.ensureReady()).state).toBe("active");
+    const { commandId } = await svc.wrap("true", workDir, "s-1");
+    expect(svc.inflightSessionSnapshot()).toEqual({ [commandId]: "s-1" });
+    svc.commandFinished(commandId);
+    expect(svc.inflightSessionSnapshot()).toEqual({});
+  }, 30_000);
+
+  // 真网用例：默认跳过（离线/CI 不抖），SPCODE_TEST_NETWORK=1 时显式开启
+  it.skipIf(!process.env.SPCODE_TEST_NETWORK)(
     "未知域名触发审批回调，放行后可通；二次访问不再询问",
     async () => {
       const svc = getSandboxService();

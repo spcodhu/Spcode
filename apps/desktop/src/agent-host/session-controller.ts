@@ -299,7 +299,13 @@ export class SessionController {
       customTools: [
         // 沙盒化 bash：active 时同名覆盖内置 bash；不可用/关闭时不注册，pi 用内置实现
         ...(sandboxState.state === "active"
-          ? [createSandboxedBashTool(cwd, { allowBypass: true, getSettings: opts.getSandboxSettings })]
+          ? [
+              createSandboxedBashTool(cwd, {
+                allowBypass: true,
+                sessionId: opts.sessionId,
+                getSettings: opts.getSandboxSettings,
+              }),
+            ]
           : []),
         // 路径守卫版 read/write/edit：同名覆盖内置（进程内 fs 不受 OS 沙盒约束，这里是边界）
         ...createGuardedFsTools(cwd, getFsPolicy),
@@ -332,6 +338,7 @@ export class SessionController {
         createTaskTool({
           cwd,
           agentDir: opts.agentDir,
+          sessionId: opts.sessionId,
           modelRuntime: opts.modelRuntime,
           model: model as Model<never> | undefined,
           thinkingLevel: opts.thinkingLevel ?? "medium",
@@ -506,6 +513,11 @@ export class SessionController {
   /** 是否正在运行（含引擎流式中）：宿主休眠/安全释放的前置检查 */
   isRunning(): boolean {
     return this.running || this.session.isStreaming;
+  }
+
+  /** 当前会话的权限模式（沙盒网络询问的会话归因用） */
+  get currentPermissionMode(): PermissionMode {
+    return this.permissionModeRef.current;
   }
 
   private currentModelRef(): ModelRef | null {

@@ -247,6 +247,10 @@ function settlePendingForSession(sessionId: string): void {
 
 // 沙盒网络域名审批：代理回调无法归因到具体会话，走应用级权限弹窗；
 // 同意后仅本次运行生效（永久放行需用户在设置页加白名单），文案里说清这点
+//
+// 会话归因：代理是进程级单例，只能按"当前有在跑命令的会话"判断——这些会话全部处于
+// 「总不询问」档时静默放行（与模式语义一致），否则才弹窗。归因失败一律当"需要问"。
+getSandboxService().setModeResolver((sessionId) => sessions.get(sessionId)?.currentPermissionMode ?? null);
 getSandboxService().setNetworkAskHandler((host, port) =>
   requestPermission({
     requestId: randomUUID(),

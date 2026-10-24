@@ -17,7 +17,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import type { SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
-import { DEFAULT_SANDBOX_SETTINGS, type SandboxSettings } from "@spcode/shared";
+import { DEFAULT_SANDBOX_SETTINGS, type PermissionMode, type SandboxSettings } from "@spcode/shared";
 import { type LocalizedText, renderMessage } from "@spcode/shared/i18n";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 import { buildSandboxRuntimeConfig } from "./config-builder.js";
@@ -36,6 +36,23 @@ export interface SandboxViolation {
   command?: string;
 }
 
+/**
+ * 网络域名询问的归因判定（纯函数）：
+ * 当前所有在跑命令的会话都处于「总不询问」档 → 静默放行（与模式语义一致）；
+ * 空集合/未知会话/任一非 never → 需要弹窗（保守方向）。
+ */
+export function shouldAllowNetworkSilently(
+  inflightSessionIds: Iterable<string>,
+  resolve: (sessionId: string) => PermissionMode | null,
+): boolean {
+  let any = false;
+  for (const id of inflightSessionIds) {
+    any = true;
+    if (resolve(id) !== "never") return false;
+  }
+  return any;
+}
+
 class SandboxService {
   private settings: SandboxSettings | null = null;
   private initialized = false;
@@ -46,10 +63,39 @@ class SandboxService {
   private networkAskHandler: ((host: string, port: number | undefined) => Promise<boolean>) | null = null;
   /** 本次运行内用户已放行的域名（应用级；永久放行需用户写进设置白名单） */
   private sessionAllowedHosts = new Set<string>();
+  /** 「总不询问」档下静默放行的域名（审计用；这些没有经过用户确认） */
+  private silentlyAllowedHosts: string[] = [];
+  /** 在跑命令的会话归属：commandId → sessionId（代理回调无会话信息，靠它归因） */
+  private inflight = new Map<string, string>();
+  /** 会话权限模式解析器（agent-host 注入；未知会话返回 null = 按需问） */
+  private modeResolver: ((sessionId: string) => PermissionMode | null) | null = null;
 
   /** 注入网络域名审批回调（弹窗通道）。须在 initialize 之前调用才生效 */
   setNetworkAskHandler(handler: (host: string, port: number | undefined) => Promise<boolean>): void {
     this.networkAskHandler = handler;
+  }
+
+  /**
+   * 注入会话权限模式解析器：代理是进程级单例、拿不到会话，只能靠"当前在跑的会话"归因。
+   * 归因失败（无在跑命令 / 会话未知）一律按「需要问」处理（保守方向）。
+   */
+  setModeResolver(fn: (sessionId: string) => PermissionMode | null): void {
+    this.modeResolver = fn;
+  }
+
+  /**
+   * 当前所有在跑命令的会话都处于「总不询问」档？
+   * 是 → 白名单外域名静默放行（与模式语义一致）；
+   * 否/无法归因 → 走弹窗。
+   */
+  private allInflightNeverAsk(): boolean {
+    if (!this.modeResolver) return false;
+    return shouldAllowNetworkSilently(this.inflight.values(), this.modeResolver);
+  }
+
+  /** 测试/诊断用：在跑命令的会话归属快照 */
+  inflightSessionSnapshot(): Record<string, string> {
+    return Object.fromEntries(this.inflight);
   }
 
   /** 设置下发（main 经 sandbox.setConfig 推送；未下发前视为 disabled 之外的默认配置不可用） */
@@ -138,9 +184,17 @@ class SandboxService {
       }
       await SandboxManager.initialize(
         this.baseNetworkOnlyConfig(settings),
-        // 未知域名：会话内已放行 → 直接过；否则弹窗问用户（同意则记入会话放行集）
+        // 未知域名：会话内已放行 → 直接过；总不询问档 → 静默放行并记审计；否则弹窗问用户
         async ({ host, port }) => {
           if (this.sessionAllowedHosts.has(host)) return true;
+          if (this.allInflightNeverAsk()) {
+            this.sessionAllowedHosts.add(host);
+            this.silentlyAllowedHosts.push(host);
+            console.info(
+              `[sandbox] network allowed without asking (never-ask mode): ${host}${typeof port === "number" ? `:${port}` : ""}`,
+            );
+            return true;
+          }
           if (!this.networkAskHandler) return false;
           const approved = await this.networkAskHandler(host, port);
           if (approved) this.sessionAllowedHosts.add(host);
@@ -181,7 +235,7 @@ class SandboxService {
    * 包装命令：返回可直接交给 shell 执行的沙盒化命令串。
    * 调用前必须 ensureReady 且 status 为 active；否则抛错（fail-closed）。
    */
-  async wrap(command: string, cwd: string): Promise<{ command: string; commandId: string }> {
+  async wrap(command: string, cwd: string, sessionId?: string): Promise<{ command: string; commandId: string }> {
     const state = await this.ensureReady();
     if (state.state !== "active") {
       throw new Error(
@@ -194,6 +248,8 @@ class SandboxService {
     if (!settings) throw new Error("Sandbox settings have not been supplied");
     const filesystemConfig = buildSandboxRuntimeConfig({ cwd, spcodeHome: resolveSpcodeHome(), settings });
     const commandId = randomUUID();
+    // 命令与命令归属的会话绑定：代理问域名时据此判断该会话是否「总不询问」
+    if (sessionId) this.inflight.set(commandId, sessionId);
     const wrapped = await SandboxManager.wrapWithSandbox(
       command,
       undefined,
@@ -202,6 +258,11 @@ class SandboxService {
       { commandId, commandText: command },
     );
     return { command: wrapped, commandId };
+  }
+
+  /** 命令执行结束：清掉会话归属（避免长期占住归因表） */
+  commandFinished(commandId: string): void {
+    this.inflight.delete(commandId);
   }
 
   /** 取回某次命令执行期间的沙盒违规事件（seatbelt 拒绝、代理拦截等） */
@@ -219,6 +280,11 @@ class SandboxService {
   /** 测试/诊断用：会话级已放行域名快照 */
   approvedHostsSnapshot(): string[] {
     return [...this.sessionAllowedHosts];
+  }
+
+  /** 测试/审计用：「总不询问」档下未经确认就放行的域名 */
+  silentlyAllowedHostsSnapshot(): string[] {
+    return [...this.silentlyAllowedHosts];
   }
 }
 
