@@ -1,17 +1,20 @@
 /**
- * 模型目录 overlay 的宿主侧管理：受管 models.managed.json 的生成与维护。
+ * 自定义模型的宿主侧管理：受管 models.managed.json 的生成与维护（通用机制）。
  *
- * 数据流（三个文件，职责分离）：
+ * 用户在设置页为任意 provider 添加模型 → 写 models.custom.json → 与手写 models.json
+ * 合成为受管文件交给 ModelRuntime。pi 引擎目录滞后（新模型发布到上游收录可能
+ * 相隔数周）时，用户无需手改配置文件即可用上新模型。
+ *
+ * 数据流（两个用户文件，职责分离）：
  *   agent/models.json          用户手写，只读（pi 原生配置入口；坏文件由 pi 自行报错）
  *   agent/models.custom.json   设置页「添加模型」读写（本模块唯一改写对象）
- *   agent/models.managed.json  受管合成 = 补丁 ∪ models.json ∪ models.custom.json → ModelRuntime
+ *   agent/models.managed.json  受管合成 = models.json ∪ models.custom.json → ModelRuntime
  *
  * 设计要点：
  * - 绝不改写用户手写的 models.json（避免丢失注释/格式，也是魔改用户的安全边界）。
- * - 两个用户文件损坏时降级为「仅补丁」：pi 本就解析不了坏文件（等价行为），
- *   但受管文件仍可用，官方补丁不随用户文件损坏而丢失。
- * - source/removable 判定表随每次合成刷新，models.catalog 给模型打 builtin/overlay/custom
- *   标签；removable 仅 UI 添加的模型为 true（手写条目请在文件里自行删除）。
+ * - 两个用户文件损坏时受管文件为空：pi 本就解析不了坏文件（等价行为），等效无自定义。
+ * - source/removable 判定表随每次合成刷新：手写与 UI 添加同为 custom 标签，
+ *   仅 UI 添加的模型可经 models.removeModel 删除（手写条目请在文件里自行删除）。
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";

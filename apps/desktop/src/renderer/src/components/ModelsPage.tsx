@@ -248,14 +248,6 @@ function ProviderDetail({
             <div key={k} className="flex items-center gap-3 rounded-xl border border-border bg-bg-elevated px-4 py-2.5">
               <Icon name="cpu" size={14} className="shrink-0 text-text-tertiary" />
               <span className="min-w-0 flex-1 truncate text-[13px] text-text-primary">{m.displayName}</span>
-              {m.source === "overlay" && (
-                <span
-                  className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-[11px] text-accent"
-                  title={t("models.sourceOverlayHint")}
-                >
-                  {t("models.sourceOverlay")}
-                </span>
-              )}
               {m.source === "custom" && (
                 <span
                   className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] text-text-secondary"
@@ -302,14 +294,15 @@ function AddModelForm({ provider, onAdded }: { provider: string; onAdded: () => 
   const { t } = useTranslation("settings");
   const [modelId, setModelId] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [context, setContext] = useState("262144");
+  const [context, setContext] = useState("");
   const [reasoning, setReasoning] = useState(true);
   const [vision, setVision] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const ctxNum = Number(context);
-  const validationError = modelId.trim() ? validateModelInput({ modelId, contextWindow: ctxNum }) : null;
+  // 空输入不报错（未填状态），有内容后按通用规则校验
+  const validationError = modelId.trim() || context.trim() ? validateModelInput({ modelId, contextWindow: ctxNum }) : null;
 
   const submit = async () => {
     if (validationError || busy) return;
@@ -364,7 +357,8 @@ function AddModelForm({ provider, onAdded }: { provider: string; onAdded: () => 
             min={1}
             value={context}
             onChange={(e) => setContext(e.target.value)}
-            className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-[13px] outline-none focus:border-accent"
+            placeholder="262144"
+            className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-[13px] outline-none placeholder:text-text-tertiary focus:border-accent"
           />
         </label>
       </div>

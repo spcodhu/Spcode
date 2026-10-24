@@ -79,9 +79,10 @@ const SPCODE_HOME = resolveSpcodeHome();
 const AGENT_DIR = join(SPCODE_HOME, "agent");
 
 /**
- * 模型目录 overlay：官方补丁（上游目录滞后的已知模型，如 Kimi K3.1）+ 用户 models.json
- * + 设置页添加的 models.custom.json → 合成受管 models.managed.json 交给 ModelRuntime。
- * 调研结论：pi 目录是随包静态 JSON，上游收录滞后可达数周，不能指望升引擎。
+ * 自定义模型层：设置页「添加模型」与 models.json 的合成功能（通用机制，不写死任何模型）。
+ *
+ * 用户在任意 provider 详情页填写 模型 ID / 显示名 / 上下文长度 / 推理 / 视觉 即可添加模型，
+ * 条目继承该 provider 默认协议，因此同一机制适用于所有 provider 与后续新增模型。
  */
 const modelOverlay = createModelOverlayStore(AGENT_DIR);
 
