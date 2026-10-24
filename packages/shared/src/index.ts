@@ -22,11 +22,42 @@ export interface ModelInfo {
   displayName: string;
   contextWindow: number;
   maxTokens: number;
-  /** 支持的思考档位，如 ["off","low","medium","high"]；空数组表示不支持思考 */
+  /** 支持的思考档位，如 ["off","low","medium","high"];空数组表示不支持思考 */
   thinkingLevels: string[];
   /** 是否已有可用凭证 */
   available: boolean;
 }
+
+/** 设置页「添加模型」表单载荷（models.addModel 命令） */
+export interface AddCustomModelInput {
+  provider: string;
+  modelId: string;
+  displayName?: string;
+  contextWindow: number;
+  reasoning: boolean;
+  vision: boolean;
+}
+
+/** 模型目录条目（models.catalog 响应元素） */
+export interface CatalogModel {
+  provider: string;
+  modelId: string;
+  displayName: string;
+  reasoning: boolean;
+  /** pi 内置 / 官方补丁 / 用户自定义（手写 models.json 与 UI 添加都算） */
+  source: import("./models-overlay.js").ModelSource;
+  /** 仅 UI 添加（models.custom.json）的模型可经 models.removeModel 删除 */
+  removable: boolean;
+}
+
+export interface CatalogProvider {
+  provider: string;
+  name: string;
+  configured: boolean;
+  models: CatalogModel[];
+}
+
+export * from "./models-overlay.js";
 
 // ---------------------------------------------------------------------------
 // 会话
@@ -292,6 +323,10 @@ export type HostCommand =
     }
   | { id: string; type: "models.list" }
   | { id: string; type: "models.catalog" }
+  /** 设置页「添加模型」：追加到用户 models.json（同 id 覆盖），仅自定义模型可删 */
+  | { id: string; type: "models.addModel"; payload: AddCustomModelInput }
+  /** 仅允许删除用户 models.json 里声明的自定义模型；内置/官方补丁模型返回错误 */
+  | { id: string; type: "models.removeModel"; payload: { provider: string; modelId: string } }
   | { id: string; type: "memory.read" }
   /**
    * 沙盒运行状态查询（设置页可观测性）：返回内核边界是否真的生效、不可用的原因。

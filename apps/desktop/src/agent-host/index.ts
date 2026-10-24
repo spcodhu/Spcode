@@ -40,6 +40,14 @@ import { exportSessionContext } from "./export-context.js";
 import { HibernationManager } from "./hibernation.js";
 import { getMcpManager } from "./mcp.js";
 import { MemoryStore } from "./memory-store.js";
+import {
+  addCustomModel,
+  createModelOverlayStore,
+  isRemovable,
+  removeCustomModel,
+  sourceOfModel,
+  syncManagedModelsJson,
+} from "./model-overlay.js";
 import { getSandboxService } from "./sandbox/manager.js";
 import { SessionController } from "./session-controller.js";
 
@@ -69,6 +77,13 @@ function respond(id: string, success: boolean, data?: unknown, error?: string): 
 
 const SPCODE_HOME = resolveSpcodeHome();
 const AGENT_DIR = join(SPCODE_HOME, "agent");
+
+/**
+ * 模型目录 overlay：官方补丁（上游目录滞后的已知模型，如 Kimi K3.1）+ 用户 models.json
+ * + 设置页添加的 models.custom.json → 合成受管 models.managed.json 交给 ModelRuntime。
+ * 调研结论：pi 目录是随包静态 JSON，上游收录滞后可达数周，不能指望升引擎。
+ */
+const modelOverlay = createModelOverlayStore(AGENT_DIR);
 
 let modelRuntime: ModelRuntime | null = null;
 let memoryStore: MemoryStore | null = null;
@@ -121,9 +136,11 @@ const QUESTION_TIMEOUT_MS = 30 * 60_000;
 
 async function getRuntime(): Promise<ModelRuntime> {
   if (!modelRuntime) {
+    // 先合成受管目录（含官方补丁），再交给引擎；此后增删自定义模型只需 rt.refresh() 重读
+    syncManagedModelsJson(modelOverlay);
     modelRuntime = await ModelRuntime.create({
       authPath: join(AGENT_DIR, "auth.json"),
-      modelsPath: join(AGENT_DIR, "models.json"),
+      modelsPath: modelOverlay.managedPath,
     });
   }
   return modelRuntime;
@@ -475,7 +492,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         break;
       }
       case "models.catalog": {
-        // 全量模型目录（含未配置密钥的厂商），模型设置页用
+        // 全量模型目录（含未配置密钥的厂商），模型设置页用；source/removable 区分来源与可删性
         const rt = await getRuntime();
         const catalog = rt.getProviders().map((p) => ({
           provider: p.id,
@@ -486,9 +503,26 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
             modelId: m.id,
             displayName: m.name ?? m.id,
             reasoning: !!m.reasoning,
+            source: sourceOfModel(modelOverlay, m.provider, m.id),
+            removable: isRemovable(modelOverlay, m.provider, m.id),
           })),
         }));
         respond(id, true, catalog);
+        break;
+      }
+      case "models.addModel": {
+        const rt = await getRuntime();
+        addCustomModel(modelOverlay, cmd.payload);
+        // refresh() 内部重读受管 models.json 并 rebuildProviders —— 新模型即时进目录，无需重建 runtime
+        await rt.refresh({ allowNetwork: false });
+        respond(id, true);
+        break;
+      }
+      case "models.removeModel": {
+        const rt = await getRuntime();
+        removeCustomModel(modelOverlay, cmd.payload.provider, cmd.payload.modelId);
+        await rt.refresh({ allowNetwork: false });
+        respond(id, true);
         break;
       }
       case "auth.setApiKey": {

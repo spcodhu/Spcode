@@ -310,6 +310,8 @@ function registerIpc(): void {
     "theme.generate": 120_000, // 要跑一轮模型生成
     "models.list": 60_000, // 首次初始化 ModelRuntime 可能做网络探测
     "models.catalog": 60_000,
+    "models.addModel": 60_000, // 内部触发 ModelRuntime 首次初始化 + rebuildProviders
+    "models.removeModel": 60_000,
     "session.compact": 180_000, // 评审 R3-C11：LLM 压缩大上下文常超 30s（压缩实际会继续，误报错误最迷惑）
   };
 

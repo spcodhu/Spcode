@@ -22,6 +22,7 @@ const PATHS: Record<string, string> = {
   chat: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z",
   toolbox: "M4 7h16v13H4zm4 0V4h8v3M4 12h16",
   x: "M18 6 6 18M6 6l12 12",
+  trash: "M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0-1 14H5L4 6m5 4v7m6-7v7m-3-7v7",
   check: "M20 6 9 17l-5-5",
   zap: "M13 2 3 14h7l-1 8 10-12h-7z",
   shield: "M12 22s8-3 8-10V5l-8-3-8 3v7c0 7 8 10 8 10z",

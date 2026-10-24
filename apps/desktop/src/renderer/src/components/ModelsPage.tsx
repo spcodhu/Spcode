@@ -1,22 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { AddCustomModelInput, CatalogModel, CatalogProvider } from "@spcode/shared";
+import { validateModelInput } from "@spcode/shared";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
 import { Switch } from "./ui/Switch";
 
-interface CatalogModel {
-  provider: string;
-  modelId: string;
-  displayName: string;
-  reasoning: boolean;
-}
-
-interface CatalogProvider {
-  provider: string;
-  name: string;
-  configured: boolean;
-  models: CatalogModel[];
-}
+export type { CatalogModel, CatalogProvider };
 
 export function ModelsPage() {
   const { t } = useTranslation("settings");
@@ -36,6 +26,12 @@ export function ModelsPage() {
   useEffect(() => {
     reload();
   }, [reload]);
+
+  // 目录变化（添加/删除自定义模型）后 Composer 的可用模型列表也要重拉
+  const handleChanged = useCallback(() => {
+    reload();
+    void refreshModels();
+  }, [reload, refreshModels]);
 
   const disabledProviders = useMemo(() => new Set(settings?.disabledProviders ?? []), [settings]);
   const disabledModels = useMemo(() => new Set(settings?.disabledModels ?? []), [settings]);
@@ -67,10 +63,7 @@ export function ModelsPage() {
           disabledModels={disabledModels}
           onToggleModel={toggleModel}
           onBack={() => setDetail(null)}
-          onKeySaved={() => {
-            reload();
-            void refreshModels();
-          }}
+          onChanged={handleChanged}
         />
       ) : (
         <>
@@ -171,7 +164,7 @@ function ProviderRow({
 }
 
 // ---------------------------------------------------------------------------
-// 供应商详情：API Key + 模型逐个启停
+// 供应商详情：API Key + 模型逐个启停 + 添加自定义模型
 // ---------------------------------------------------------------------------
 
 function ProviderDetail({
@@ -179,13 +172,14 @@ function ProviderDetail({
   disabledModels,
   onToggleModel,
   onBack,
-  onKeySaved,
+  onChanged,
 }: {
   provider: CatalogProvider;
   disabledModels: Set<string>;
   onToggleModel: (key: string, enable: boolean) => void;
   onBack: () => void;
-  onKeySaved: () => void;
+  /** 目录变化（存密钥 / 增删模型）后重拉目录与可用模型列表 */
+  onChanged: () => void;
 }) {
   const { t } = useTranslation("settings");
   const [key, setKey] = useState("");
@@ -198,7 +192,16 @@ function ProviderDetail({
     setKey("");
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
-    onKeySaved();
+    onChanged();
+  };
+
+  const removeModel = async (m: CatalogModel) => {
+    if (!window.confirm(t("models.removeConfirm", { name: m.displayName }))) return;
+    await window.spcode.command({
+      type: "models.removeModel",
+      payload: { provider: m.provider, modelId: m.modelId },
+    });
+    onChanged();
   };
 
   return (
@@ -245,10 +248,36 @@ function ProviderDetail({
             <div key={k} className="flex items-center gap-3 rounded-xl border border-border bg-bg-elevated px-4 py-2.5">
               <Icon name="cpu" size={14} className="shrink-0 text-text-tertiary" />
               <span className="min-w-0 flex-1 truncate text-[13px] text-text-primary">{m.displayName}</span>
+              {m.source === "overlay" && (
+                <span
+                  className="shrink-0 rounded-full bg-accent/10 px-2 py-0.5 text-[11px] text-accent"
+                  title={t("models.sourceOverlayHint")}
+                >
+                  {t("models.sourceOverlay")}
+                </span>
+              )}
+              {m.source === "custom" && (
+                <span
+                  className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] text-text-secondary"
+                  title={m.removable ? undefined : t("models.sourceCustomFileHint")}
+                >
+                  {t("models.sourceCustom")}
+                </span>
+              )}
               {m.reasoning && (
                 <span className="shrink-0 rounded-full bg-thinking/15 px-2 py-0.5 text-[11px] text-thinking">
                   {t("models.reasoning")}
                 </span>
+              )}
+              {m.removable && (
+                <button
+                  type="button"
+                  onClick={() => void removeModel(m)}
+                  aria-label={t("models.delete", { name: m.displayName })}
+                  className="shrink-0 text-text-tertiary hover:text-danger"
+                >
+                  <Icon name="trash" size={14} />
+                </button>
               )}
               <Switch
                 on={enabled}
@@ -259,6 +288,104 @@ function ProviderDetail({
           );
         })}
       </div>
+
+      <AddModelForm provider={provider.provider} onAdded={onChanged} />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 添加自定义模型：表单写入 models.custom.json，按 provider 默认协议请求
+// ---------------------------------------------------------------------------
+
+function AddModelForm({ provider, onAdded }: { provider: string; onAdded: () => void }) {
+  const { t } = useTranslation("settings");
+  const [modelId, setModelId] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [context, setContext] = useState("262144");
+  const [reasoning, setReasoning] = useState(true);
+  const [vision, setVision] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const ctxNum = Number(context);
+  const validationError = modelId.trim() ? validateModelInput({ modelId, contextWindow: ctxNum }) : null;
+
+  const submit = async () => {
+    if (validationError || busy) return;
+    setBusy(true);
+    setError(null);
+    const payload: AddCustomModelInput = {
+      provider,
+      modelId: modelId.trim(),
+      displayName: displayName.trim() || undefined,
+      contextWindow: ctxNum,
+      reasoning,
+      vision,
+    };
+    try {
+      await window.spcode.command({ type: "models.addModel", payload });
+      setModelId("");
+      setDisplayName("");
+      onAdded();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-6 rounded-xl border border-border bg-bg-elevated p-4">
+      <div className="text-[13px] font-semibold text-text-secondary">{t("models.addModel")}</div>
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <label className="block">
+          <span className="mb-1 block text-[12px] text-text-tertiary">{t("models.addModelId")}</span>
+          <input
+            value={modelId}
+            onChange={(e) => setModelId(e.target.value)}
+            placeholder={t("models.addModelIdPlaceholder")}
+            className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-[13px] outline-none placeholder:text-text-tertiary focus:border-accent"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-[12px] text-text-tertiary">{t("models.addModelName")}</span>
+          <input
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder={t("models.addModelNamePlaceholder")}
+            className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-[13px] outline-none placeholder:text-text-tertiary focus:border-accent"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-[12px] text-text-tertiary">{t("models.addModelContext")}</span>
+          <input
+            type="number"
+            min={1}
+            value={context}
+            onChange={(e) => setContext(e.target.value)}
+            className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-[13px] outline-none focus:border-accent"
+          />
+        </label>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2">
+        <Switch on={reasoning} onChange={setReasoning} label={t("models.addModelReasoning")} />
+        <Switch on={vision} onChange={setVision} label={t("models.addModelVision")} />
+        <button
+          type="button"
+          onClick={() => void submit()}
+          disabled={!!validationError || !modelId.trim() || busy}
+          className="ml-auto rounded-lg bg-accent px-4 py-1.5 text-[12px] text-white hover:bg-accent-dim disabled:opacity-40"
+        >
+          {t("models.addModelSubmit")}
+        </button>
+      </div>
+      <p className="mt-2 text-[12px] text-text-tertiary">{t("models.addModelHint")}</p>
+      {(validationError || error) && (
+        <p className="mt-1 text-[12px] text-danger">
+          {validationError ? t(validationError) : t(error as "models.notRemovable")}
+        </p>
+      )}
     </div>
   );
 }
