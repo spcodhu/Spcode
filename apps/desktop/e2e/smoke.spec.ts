@@ -371,4 +371,65 @@ test.describe("Spcode 冒烟 E2E", () => {
 
     await app.close();
   });
+
+  test("权限模式：三档菜单、Shift+Tab 循环与「总不询问」二次确认", async () => {
+    const app = await launchApp();
+    const window = await app.firstWindow();
+
+    await window.getByRole("button", { name: /新建聊天/ }).click();
+    const pill = window.getByTestId("composer-permission-mode");
+    // 默认落在最保守的一档
+    await expect(pill).toHaveAttribute("data-mode", "ask", { timeout: 15000 });
+
+    // 菜单：三项都在，且当前项标记为选中
+    await pill.click();
+    await expect(window.getByTestId("permission-mode-menu")).toBeVisible();
+    for (const mode of ["ask", "auto", "never"]) {
+      await expect(window.getByTestId(`permission-mode-option-${mode}`)).toBeVisible();
+    }
+    await expect(window.getByTestId("permission-mode-option-ask")).toHaveAttribute("aria-checked", "true");
+
+    // 选「必要时询问」：菜单关闭、胶囊切换（不弹确认）
+    await window.getByTestId("permission-mode-option-auto").click();
+    await expect(pill).toHaveAttribute("data-mode", "auto");
+    await expect(window.getByTestId("permission-mode-confirm")).toHaveCount(0);
+
+    // 选「总不询问」：必须先过二次确认；取消则保持原档
+    await pill.click();
+    await window.getByTestId("permission-mode-option-never").click();
+    await expect(window.getByTestId("permission-mode-confirm")).toBeVisible();
+    await window.getByTestId("permission-mode-confirm-cancel").click();
+    await expect(pill).toHaveAttribute("data-mode", "auto");
+
+    // 确认后才真正生效
+    await pill.click();
+    await window.getByTestId("permission-mode-option-never").click();
+    await window.getByTestId("permission-mode-confirm-ok").click();
+    await expect(pill).toHaveAttribute("data-mode", "never");
+
+    // 输入框内 Shift+Tab 循环：never → ask
+    const input = window.getByPlaceholder(/说点什么/);
+    await input.click();
+    await input.press("Shift+Tab");
+    await expect(pill).toHaveAttribute("data-mode", "ask");
+
+    await app.close();
+  });
+
+  test("设置页：权限模式是「新会话默认」，三档可选", async () => {
+    const app = await launchApp();
+    const window = await app.firstWindow();
+
+    await window.getByTitle("设置", { exact: true }).click();
+    await window.getByRole("button", { name: "通用" }).click();
+    const group = window.getByTestId("settings-permission-mode");
+    await expect(group).toBeVisible();
+    for (const label of ["总是询问", "必要时询问", "总不询问"]) {
+      await expect(group.getByRole("button", { name: new RegExp(label) })).toBeVisible();
+    }
+    // 默认档标注为「总是询问」（与出厂默认一致）
+    await expect(group.getByRole("button", { name: /总是询问/ })).toHaveClass(/border-accent/);
+
+    await app.close();
+  });
 });

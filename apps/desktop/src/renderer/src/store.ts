@@ -17,6 +17,7 @@ import type {
   ImageAttachment,
   ModelInfo,
   ModelRef,
+  PermissionMode,
   PermissionRequest,
   QuestionRequest,
   SessionInfo,
@@ -182,6 +183,8 @@ export interface SessionState {
   todos: TodoItem[];
   /** 计划模式：模型只读调研并出计划，批准后才执行（持久化在主进程注册表） */
   planMode: boolean;
+  /** 权限模式：三档（总是询问 / 必要时询问 / 总不询问），按会话生效（持久化在主进程注册表） */
+  permissionMode: PermissionMode;
   /** pi 会话文件路径（宿主休眠后凭它唤醒；来自 create/open/activate 响应） */
   sessionFile?: string | null;
   /** 本次运行开始时间（agent_start 时记录，运行状态条耗时显示用；不持久化） */
@@ -261,6 +264,8 @@ interface StoreState {
   setModel(ref: ModelRef): Promise<void>;
   setThinkingLevel(level: string): Promise<void>;
   setPlanMode(enabled: boolean): Promise<void>;
+  /** 切换当前会话的权限模式（三档，立即生效并持久化到注册表） */
+  setPermissionMode(mode: PermissionMode): Promise<void>;
   replyPermission(requestId: string, approved: boolean): void;
   replyQuestion(requestId: string, answers: import("@spcode/shared").QuestionAnswers): void;
   applyHostEvent(event: HostEvent): void;
@@ -1023,6 +1028,8 @@ export const useStore = create<StoreState>((set, get) => ({
       supportedThinkingLevels: modelInfo?.thinkingLevels ?? [],
       todos: [],
       planMode: false,
+      // 新草稿取设置页的新会话默认档（创建时主进程也会按同一默认值落注册表）
+      permissionMode: get().settings?.permissionMode ?? "ask",
       draft: true,
     };
     // 草稿只进内存、不进注册表：侧栏不出现，发送第一条消息时才真正创建（materializeDraft）
@@ -1094,6 +1101,7 @@ export const useStore = create<StoreState>((set, get) => ({
       supportedThinkingLevels: info.supportedThinkingLevels ?? [],
       todos: [],
       planMode: info.planMode ?? entry.planMode ?? false,
+      permissionMode: info.permissionMode ?? entry.permissionMode ?? get().settings?.permissionMode ?? "ask",
       sessionFile: info.sessionFile ?? entry.sessionFile,
       hostAwake: true,
     };
@@ -1148,6 +1156,7 @@ export const useStore = create<StoreState>((set, get) => ({
     const title =
       opts.title?.trim() || i18n.t("integration:session.forkTitle", { title: localizeDefaultTitle(source).title });
     const planMode = info.planMode ?? opts.planMode ?? source.planMode ?? false;
+    const permissionMode = info.permissionMode ?? source.permissionMode ?? "ask";
     const session: SessionState = {
       meta: {
         id: newId,
@@ -1167,6 +1176,7 @@ export const useStore = create<StoreState>((set, get) => ({
       supportedThinkingLevels: info.supportedThinkingLevels ?? [],
       todos: [],
       planMode,
+      permissionMode,
       sessionFile: info.sessionFile ?? null,
       sandbox: info.sandbox,
       hostAwake: true,
@@ -1188,6 +1198,7 @@ export const useStore = create<StoreState>((set, get) => ({
             thinkingLevel: info.thinkingLevel,
             sessionFile: info.sessionFile ?? null,
             planMode,
+            permissionMode,
             planFile: null,
             forkedFrom: sourceId,
             createdAt: now,
@@ -1425,6 +1436,31 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
 
+  async setPermissionMode(mode) {
+    const { activeSessionId } = get();
+    if (!activeSessionId) return;
+    const current = get().sessions[activeSessionId]?.permissionMode ?? "ask";
+    if (current === mode) return;
+    // 先本地切换（按钮即时响应），宿主的 session.permissionmode 事件随后到达，幂等
+    set((s) =>
+      touchSession(s, activeSessionId, (draft) => {
+        draft.permissionMode = mode;
+      }),
+    );
+    // 草稿会话：只记本地，首次发送落盘时由 materializeDraft 同步给宿主
+    if (get().sessions[activeSessionId]?.draft) return;
+    try {
+      await window.spcode.command({ type: "session.setPermissionMode", payload: { sessionId: activeSessionId, mode } });
+    } catch (e) {
+      set((s) =>
+        touchSession(s, activeSessionId, (draft) => {
+          draft.permissionMode = current;
+        }),
+      );
+      set({ lastError: e instanceof Error ? e.message : String(e) });
+    }
+  },
+
   replyPermission(requestId, approved) {
     window.spcode.replyPermission(requestId, approved);
     set((s) => ({
@@ -1511,6 +1547,10 @@ export const useStore = create<StoreState>((set, get) => ({
           // ExitPlanMode 批准后宿主也会推这个事件；与本地乐观更新幂等
           return touchSession(s, event.sessionId, (draft) => {
             draft.planMode = event.enabled;
+          });
+        case "session.permissionmode":
+          return touchSession(s, event.sessionId, (draft) => {
+            draft.permissionMode = event.mode;
           });
         case "session.renamed": {
           // AI 起的标题：更新会话元信息 + 侧栏注册表条目
@@ -1601,6 +1641,7 @@ async function ensureAwake(sessionId: string): Promise<void> {
         };
         d.supportedThinkingLevels = info.supportedThinkingLevels ?? d.supportedThinkingLevels;
         if (typeof info.planMode === "boolean") d.planMode = info.planMode;
+        if (info.permissionMode) d.permissionMode = info.permissionMode;
       }),
     );
     if (useStore.getState().activeSessionId !== sessionId) hibernateIfIdle(sessionId);
@@ -1622,6 +1663,7 @@ async function doMaterializeDraft(draftId: string): Promise<string> {
       cwd: draft.meta.cwd,
       model: draft.meta.model ?? undefined,
       thinkingLevel: draft.meta.thinkingLevel,
+      permissionMode: draft.permissionMode,
     },
   });
   const now = Date.now();
@@ -1653,6 +1695,7 @@ async function doMaterializeDraft(draftId: string): Promise<string> {
           thinkingLevel: info.thinkingLevel,
           sessionFile: null,
           planMode: draft.planMode,
+          permissionMode: info.permissionMode ?? draft.permissionMode,
           planFile: null,
           createdAt: draft.meta.createdAt,
           updatedAt: now,
@@ -1665,6 +1708,12 @@ async function doMaterializeDraft(draftId: string): Promise<string> {
   if (draft.planMode) {
     await window.spcode
       .command({ type: "session.setPlanMode", payload: { sessionId: id, enabled: true } })
+      .catch(() => {});
+  }
+  // 草稿期改过权限模式（与创建时的默认档不同）：以本地选择为准同步给宿主
+  if (info.permissionMode && info.permissionMode !== draft.permissionMode) {
+    await window.spcode
+      .command({ type: "session.setPermissionMode", payload: { sessionId: id, mode: draft.permissionMode } })
       .catch(() => {});
   }
   return id;

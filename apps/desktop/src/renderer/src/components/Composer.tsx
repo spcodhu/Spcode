@@ -1,4 +1,4 @@
-import type { ComposerDraft, ImageAttachment, ModelInfo, ModelRef } from "@spcode/shared";
+import type { ComposerDraft, ImageAttachment, ModelInfo, ModelRef, PermissionMode } from "@spcode/shared";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { buildFileBlocks, type DraftFile } from "../file-blocks";
@@ -56,11 +56,10 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const setModel = useStore((s) => s.setModel);
   const setThinkingLevel = useStore((s) => s.setThinkingLevel);
   const setPlanMode = useStore((s) => s.setPlanMode);
+  const setPermissionMode = useStore((s) => s.setPermissionMode);
   const compactSession = useStore((s) => s.compactSession);
-  const saveSettings = useStore((s) => s.saveSettings);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const mdEditorRef = useRef<MdEditorHandle>(null);
-
   const updateDraft = (patch: Partial<Omit<ComposerDraft, "updatedAt">>) => setComposerDraft(draftKey, patch);
 
   /** 追加附件/文件：读 getState 最新值，避免异步回调里的旧闭包覆盖并发追加 */
@@ -168,7 +167,38 @@ export function Composer({ sessionId }: { sessionId: string }) {
     void Promise.all(imgFiles.map((f, i) => fileToAttachment(f, i))).then((imgs) => appendToDraft("attachments", imgs));
   };
 
-  const actMode = settings?.permissionMode === "auto";
+  // 权限模式：按会话生效（草稿会话只存本地，首次发送时同步给宿主）
+  const permissionMode: PermissionMode = session?.permissionMode ?? settings?.permissionMode ?? "ask";
+  /** 待确认的目标档位（切到「总不询问」需二次确认） */
+  const [pendingMode, setPendingMode] = useState<PermissionMode | null>(null);
+  const pickPermissionMode = (next: PermissionMode) => {
+    if (next === permissionMode) return;
+    if (next === "never") {
+      setPendingMode(next);
+      return;
+    }
+    void setPermissionMode(next);
+  };
+  /** Shift+Tab 循环：总是询问 → 必要时询问 → 总不询问 → 总是询问 */
+  const cyclePermissionMode = () => {
+    const order: PermissionMode[] = ["ask", "auto", "never"];
+    pickPermissionMode(order[(order.indexOf(permissionMode) + 1) % order.length] ?? "ask");
+  };
+  // 焦点在 Composer 内时 Shift+Tab 循环权限模式（不抢页面级焦点导航）
+  const composerRootRef = useRef<HTMLDivElement>(null);
+  const cycleRef = useRef(cyclePermissionMode);
+  cycleRef.current = cyclePermissionMode;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Tab" || !e.shiftKey) return;
+      const target = e.target as Node | null;
+      if (!target || !composerRootRef.current?.contains(target)) return;
+      e.preventDefault();
+      cycleRef.current();
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, []);
   const enabledModels = models.filter(
     (m) =>
       !(settings?.disabledProviders ?? []).includes(m.provider) &&
@@ -184,7 +214,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
     );
 
   return (
-    <div className="shrink-0 px-6 pb-4 pt-1">
+    <div ref={composerRootRef} className="shrink-0 px-6 pb-4 pt-1">
       <div className="mx-auto max-w-3xl">
         <div
           className={`relative rounded-2xl border bg-bg-elevated shadow-lg transition-colors ${
@@ -365,21 +395,12 @@ export function Composer({ sessionId }: { sessionId: string }) {
               </ToolButton>
             )}
 
-            {/* 权限模式 */}
-            <button
-              type="button"
-              onClick={() => void saveSettings({ permissionMode: actMode ? "ask" : "auto" })}
-              title={t(actMode ? "composer.modeAutoHint" : "composer.modeAskHint")}
-              data-testid="composer-permission-mode"
-              className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] transition-colors ${
-                actMode
-                  ? "bg-warning/15 text-warning"
-                  : "text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
-              }`}
-            >
-              <Icon name={actMode ? "zap" : "shield"} size={13} />
-              {t(actMode ? "composer.modeAuto" : "composer.modeAsk")}
-            </button>
+            {/* 权限模式（三档，按会话生效） */}
+            <PermissionModeMenu
+              mode={permissionMode}
+              sandboxState={session?.sandbox?.state}
+              onPick={pickPermissionMode}
+            />
 
             {/* 计划模式 */}
             <button
@@ -454,6 +475,172 @@ export function Composer({ sessionId }: { sessionId: string }) {
           onNavigate={setPreviewIdx}
         />
       )}
+      {pendingMode === "never" && (
+        <PermissionModeConfirm
+          onCancel={() => setPendingMode(null)}
+          onConfirm={() => {
+            setPendingMode(null);
+            void setPermissionMode("never");
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 权限模式（三档）：胶囊按钮 + 弹层菜单
+// ---------------------------------------------------------------------------
+
+const PERMISSION_MODE_STYLE: Record<PermissionMode, { icon: string; tone: string; iconTone: string }> = {
+  ask: {
+    icon: "shield",
+    tone: "text-text-tertiary hover:bg-bg-hover hover:text-text-secondary",
+    iconTone: "text-text-tertiary",
+  },
+  auto: {
+    icon: "shieldCheck",
+    tone: "bg-accent/15 text-accent hover:bg-accent/25",
+    iconTone: "text-accent",
+  },
+  never: {
+    icon: "zap",
+    tone: "bg-danger/15 text-danger hover:bg-danger/25",
+    iconTone: "text-danger",
+  },
+};
+
+function PermissionModeMenu({
+  mode,
+  sandboxState,
+  onPick,
+}: {
+  mode: PermissionMode;
+  sandboxState?: "active" | "disabled" | "unavailable";
+  onPick: (mode: PermissionMode) => void;
+}) {
+  const { t } = useTranslation("chat");
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  const active = PERMISSION_MODE_STYLE[mode];
+  const options = [
+    { mode: "ask" as const, label: t("composer.modeAsk"), hint: t("composer.modeAskHint") },
+    { mode: "auto" as const, label: t("composer.modeAuto"), hint: t("composer.modeAutoHint") },
+    { mode: "never" as const, label: t("composer.modeNever"), hint: t("composer.modeNeverHint") },
+  ];
+  const activeLabel = options.find((o) => o.mode === mode)?.label ?? "";
+  const activeHint = options.find((o) => o.mode === mode)?.hint ?? "";
+  // 沙盒未生效时，「必要时询问」「总不询问」的自动放行没有内核兜底，必须当面提醒
+  const sandboxInactive = sandboxState !== undefined && sandboxState !== "active";
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        title={activeHint}
+        data-testid="composer-permission-mode"
+        data-mode={mode}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] transition-colors ${active.tone}`}
+      >
+        <Icon name={active.icon} size={13} />
+        {activeLabel}
+        {sandboxInactive && mode !== "ask" && <Icon name="alert" size={11} className="shrink-0" />}
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          data-testid="permission-mode-menu"
+          className="absolute bottom-9 left-0 z-50 w-80 rounded-2xl border border-border bg-bg-elevated p-1.5 shadow-2xl"
+        >
+          {options.map((o) => {
+            const ui = PERMISSION_MODE_STYLE[o.mode];
+            const current = o.mode === mode;
+            return (
+              <button
+                type="button"
+                key={o.mode}
+                role="menuitemradio"
+                aria-checked={current}
+                data-testid={`permission-mode-option-${o.mode}`}
+                onClick={() => {
+                  setOpen(false);
+                  onPick(o.mode);
+                }}
+                className={`flex w-full items-start gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-bg-hover ${
+                  current ? "bg-bg-hover/60" : ""
+                }`}
+              >
+                <Icon name={ui.icon} size={15} className={`mt-0.5 shrink-0 ${ui.iconTone}`} />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[13px] text-text-primary">{o.label}</span>
+                  <span className="mt-0.5 block text-[11.5px] leading-snug text-text-tertiary">{o.hint}</span>
+                </span>
+                {current && <Icon name="check" size={14} className="mt-0.5 shrink-0 text-accent" />}
+              </button>
+            );
+          })}
+          <div className="mt-1 border-t border-border px-2.5 pb-1 pt-2 text-[11px] leading-snug text-text-tertiary">
+            {t("composer.modeMenuHint")}
+            {sandboxInactive && mode !== "ask" && (
+              <div data-testid="permission-mode-sandbox-warning" className="mt-1 text-danger">
+                {t("composer.modeSandboxWarning")}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 切到「总不询问」的二次确认：把不可逆后果说清楚，默认不启用 */
+function PermissionModeConfirm({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
+  const { t } = useTranslation("chat");
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50">
+      <div
+        role="dialog"
+        aria-modal="true"
+        data-testid="permission-mode-confirm"
+        className="w-[420px] rounded-xl border border-danger/40 bg-bg-elevated shadow-2xl"
+      >
+        <div className="rounded-t-xl bg-danger/10 px-4 py-3">
+          <div className="text-sm font-semibold text-danger">{t("composer.modeNeverConfirmTitle")}</div>
+        </div>
+        <div className="px-4 py-3 text-[12.5px] leading-relaxed text-text-secondary">
+          {t("composer.modeNeverConfirmBody")}
+        </div>
+        <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
+          <button
+            type="button"
+            data-testid="permission-mode-confirm-cancel"
+            onClick={onCancel}
+            className="rounded-md border border-border px-4 py-1.5 text-xs text-text-secondary hover:bg-bg-hover"
+          >
+            {t("composer.modeNeverConfirmCancel")}
+          </button>
+          <button
+            type="button"
+            data-testid="permission-mode-confirm-ok"
+            onClick={onConfirm}
+            className="rounded-md bg-danger px-4 py-1.5 text-xs font-medium text-white hover:bg-danger/80"
+          >
+            {t("composer.modeNeverConfirmOk")}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
