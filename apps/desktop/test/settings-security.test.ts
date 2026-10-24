@@ -34,6 +34,17 @@ describe("sanitizeAppSettings（fail-safe）", () => {
     expect({ ...DEFAULT_SETTINGS, ...out }.permissionMode).toBe("ask");
   });
 
+  it("旧值 act 迁移为 auto（语义等同：仅危险命令确认）", () => {
+    const out = sanitizeAppSettings({ permissionMode: "act" as never });
+    expect(out.permissionMode).toBe("auto");
+  });
+
+  it("三档合法值原样保留", () => {
+    for (const mode of ["ask", "auto", "never"] as const) {
+      expect(sanitizeAppSettings({ permissionMode: mode }).permissionMode, mode).toBe(mode);
+    }
+  });
+
   it("类型不符的布尔/字符串/数组字段剔除；permissionRules 滤掉非字符串", () => {
     const out = sanitizeAppSettings({
       memoryDistill: "yes" as never,
@@ -58,7 +69,7 @@ describe("settings.json 权限", () => {
   it("写入即 0600；存量 0644 文件构造时收紧", () => {
     if (process.platform === "win32") return;
     const store = new SettingsStore(dir);
-    store.set({ permissionMode: "act" });
+    store.set({ permissionMode: "auto" });
     expect(statSync(`${store.dir}/settings.json`).mode & 0o777).toBe(0o600);
 
     // 模拟存量 0644 文件 → 新实例构造即收紧

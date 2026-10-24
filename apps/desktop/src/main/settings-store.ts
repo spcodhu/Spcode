@@ -2,11 +2,18 @@
  * 应用设置存储：~/.spcode/settings.json，原子写入 + 0600（含飞书 appSecret/搜索 apiKey）。
  * 评审 R3-C8：
  * - 字段级 sanitize（fail-safe）：非法 permissionMode 回落默认 ask（坏值会让 write 全放行）；
+ *   `sandbox.autoAllow` 字段已退役（行为改由三档权限模式决定），存量值读取时丢弃。
  * - getSettings 对渲染层脱敏（主进程 index.ts 的 redactSettingsForRenderer），写回时掩码还原。
  */
 import { chmodSync } from "node:fs";
 import { join } from "node:path";
-import { type AppSettings, DEFAULT_SETTINGS, SECRET_MASK, sanitizeCompactionSettings } from "@spcode/shared";
+import {
+  type AppSettings,
+  DEFAULT_SETTINGS,
+  normalizePermissionMode,
+  SECRET_MASK,
+  sanitizeCompactionSettings,
+} from "@spcode/shared";
 import { resolveLocale } from "@spcode/shared/i18n";
 import { readJsonFile, resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
 
@@ -23,9 +30,11 @@ function validateSettings(data: unknown): Partial<AppSettings> | null {
 export function sanitizeAppSettings(input: Partial<AppSettings>): Partial<AppSettings> {
   const out = { ...input };
   if ("locale" in out) out.locale = resolveLocale(out.locale);
-  // 枚举：非法值剔除（合并时回落默认 ask）
-  if (out.permissionMode !== undefined && out.permissionMode !== "ask" && out.permissionMode !== "act") {
-    delete out.permissionMode;
+  // 枚举：非法值剔除（合并时回落默认 ask）；旧值 act 迁移为 auto（语义等同：仅危险命令确认）
+  if (out.permissionMode !== undefined) {
+    const mode = normalizePermissionMode(out.permissionMode);
+    if (mode) out.permissionMode = mode;
+    else delete out.permissionMode;
   }
   // 布尔字段
   for (const k of ["memoryDistill", "quickQuota", "autoUpdate", "betaUpdates"] as const) {

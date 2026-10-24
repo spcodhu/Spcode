@@ -89,6 +89,8 @@ export interface SessionRegistryEntry extends SessionMeta {
   sessionFile: string | null;
   /** 计划模式状态（恢复会话时随 session.open 传给宿主） */
   planMode?: boolean;
+  /** 权限模式（按会话生效；缺省/new 会话取 settings.permissionMode） */
+  permissionMode?: import("./permission.js").PermissionMode;
   /** WritePlan 落盘的 PLAN.md 路径（~/.spcode/plans/<id>.md），删会话时一并清理 */
   planFile?: string | null;
   /** Fork 来源会话 id（分叉会话才有；UI tooltip 标注用） */
@@ -100,6 +102,8 @@ export interface SessionInfo {
   sessionId: string;
   sessionFile: string | null;
   planMode: boolean;
+  /** 当前会话的权限模式（三档：总是询问/必要时询问/总不询问） */
+  permissionMode: import("./permission.js").PermissionMode;
   /** 沙盒状态：active=内核边界生效；disabled=用户关闭；unavailable=平台/依赖不满足 */
   sandbox: { state: "active" | "disabled" | "unavailable"; reason?: string };
   model: ModelRef | null;
@@ -137,21 +141,28 @@ export interface UsageAggregate extends UsageSample {
 // 权限
 // ---------------------------------------------------------------------------
 
-export type ToolRisk = "readonly" | "write" | "outward" | "danger";
+import type { PermissionMode, PermissionRequest } from "./permission.js";
+import { DEFAULT_PERMISSION_MODE } from "./permission.js";
 
-export type PermissionMode = "ask" | "act";
-
-export interface PermissionRequest {
-  requestId: string;
-  sessionId: string;
-  toolName: string;
-  args: unknown;
-  risk: ToolRisk;
-  /** 该命令是否将在 OS 沙盒内执行（渲染层据此标注「沙盒内」；false/缺省 = 无沙盒兜底） */
-  sandboxed?: boolean;
-  /** 逃生舱请求：模型申请在沙盒外执行（dangerouslyDisableSandbox）。渲染层据此强警示——不受文件/网络边界约束 */
-  bypass?: boolean;
-}
+/**
+ * 权限裁决矩阵下沉到 permission.ts（纯函数，宿主与主进程共用）：
+ * 模式只管"问不问"，沙盒只管"拦不拦"，逃生舱是三档共用的唯一人工确认点。
+ */
+export type {
+  DecidePermissionInput,
+  PermissionMode,
+  PermissionRequest,
+  PermissionVerdict,
+  ToolRisk,
+} from "./permission.js";
+export {
+  BYPASS_DISABLED_REASON,
+  DEFAULT_PERMISSION_MODE,
+  decidePermissionMatrix,
+  normalizePermissionMode,
+  PERMISSION_MODES,
+  permissionModeLabel,
+} from "./permission.js";
 
 // ---------------------------------------------------------------------------
 // 结构化提问（AskUserQuestion 工具走这条通道）
@@ -194,6 +205,8 @@ export type HostCommand =
         model?: ModelRef;
         thinkingLevel?: string /** 定时任务等场景：关闭标题自动化（标题由调用方指定） */;
         noTitleAutomation?: boolean;
+        /** 权限模式；缺省取主进程设置里的新会话默认值 */
+        permissionMode?: import("./permission.js").PermissionMode;
       };
     }
   | {
@@ -204,6 +217,8 @@ export type HostCommand =
         sessionFile: string;
         cwd: string /** 注册表里的计划模式状态（主进程注入，用于恢复计划态） */;
         planMode?: boolean;
+        /** 注册表里的权限模式（主进程注入，用于恢复档位） */
+        permissionMode?: import("./permission.js").PermissionMode;
       };
     }
   | {
@@ -219,6 +234,8 @@ export type HostCommand =
         model?: ModelRef;
         thinkingLevel?: string;
         planMode?: boolean;
+        /** 缺省继承源会话的权限模式 */
+        permissionMode?: import("./permission.js").PermissionMode;
         /** 以下字段由主进程从注册表补全，渲染层不传 */
         sourceSessionFile?: string;
         cwd?: string;
@@ -239,6 +256,12 @@ export type HostCommand =
       };
     }
   | { id: string; type: "session.setPlanMode"; payload: { sessionId: string; enabled: boolean } }
+  /** 切换当前会话的权限模式（三档；运行中切换立即生效） */
+  | {
+      id: string;
+      type: "session.setPermissionMode";
+      payload: { sessionId: string; mode: import("./permission.js").PermissionMode };
+    }
   | { id: string; type: "session.abort"; payload: { sessionId: string } }
   | {
       id: string;
@@ -259,7 +282,13 @@ export type HostCommand =
       id: string;
       /** 唤醒（幂等）：宿主已有实例直接返回 info，否则按 sessionFile 恢复并回放历史 */
       type: "session.activate";
-      payload: { sessionId: string; sessionFile: string; cwd: string; planMode?: boolean };
+      payload: {
+        sessionId: string;
+        sessionFile: string;
+        cwd: string;
+        planMode?: boolean;
+        permissionMode?: import("./permission.js").PermissionMode;
+      };
     }
   | { id: string; type: "models.list" }
   | { id: string; type: "models.catalog" }
@@ -309,6 +338,12 @@ export type HostEvent =
   | { type: "session.renamed"; sessionId: string; title: string }
   /** 计划模式开关变化（用户在 Composer 切换 / ExitPlanMode 批准后关闭） */
   | { type: "session.planmode"; sessionId: string; enabled: boolean }
+  /** 权限模式变化（主进程据此持久化到注册表，重开会话据此恢复档位） */
+  | {
+      type: "session.permissionmode";
+      sessionId: string;
+      mode: import("./permission.js").PermissionMode;
+    }
   /** WritePlan 工具落盘了计划文件（主进程回填 planFile 用） */
   | { type: "session.plan"; sessionId: string; path: string }
   | { type: "permission.request"; request: PermissionRequest }
@@ -645,6 +680,7 @@ export interface AppSettings {
   /** 默认模型 */
   defaultModel: ModelRef | null;
   defaultThinkingLevel: string;
+  /** 新会话默认权限模式（三档）；单会话可在输入框左下角覆盖 */
   permissionMode: PermissionMode;
   /** UI 主题 id，dark 为内置默认 */
   themeId: string;
@@ -697,8 +733,6 @@ export interface AppSettings {
 export interface SandboxSettings {
   /** 总开关；关掉则回退到纯审批网关（每条写类命令都弹窗） */
   enabled: boolean;
-  /** 沙盒内 readonly/write 级命令免审批；danger/outward 级仍然弹窗 */
-  autoAllow: boolean;
   /**
    * 逃生舱（对齐 Claude Code allowUnsandboxedCommands，默认开）：命令与沙盒根本冲突
    * （GUI/Electron 应用、钥匙串、Mach 服务等）时，模型可用 dangerouslyDisableSandbox=true
@@ -707,7 +741,7 @@ export interface SandboxSettings {
   allowUnsandboxedCommands: boolean;
   /**
    * 沙盒外命令白名单（命令前缀匹配，如 "git push"、"pnpm test:e2e"）：命中的命令
-   * 不经沙盒直接执行，走普通权限流（不享受 autoAllow 免审批）。「总允许」逃生舱请求时会自动写入。
+   * 不经沙盒直接执行，走普通权限流（模式仍决定是否弹窗）。「总允许」逃生舱请求时会自动写入。
    */
   excludedCommands: string[];
   network: {
@@ -750,7 +784,6 @@ export const DEFAULT_SANDBOX_ALLOWED_DOMAINS: string[] = [
 
 export const DEFAULT_SANDBOX_SETTINGS: SandboxSettings = {
   enabled: true,
-  autoAllow: true,
   allowUnsandboxedCommands: true,
   excludedCommands: [],
   network: {
@@ -777,7 +810,6 @@ export interface SandboxStatusReport {
   platform: string;
   /** 设置页当前开关快照（可能与 state 不一致，正好用来解释“为何没生效”） */
   enabled: boolean;
-  autoAllow: boolean;
   allowUnsandboxedCommands: boolean;
 }
 
@@ -832,7 +864,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   locale: "zh-CN",
   defaultModel: null,
   defaultThinkingLevel: "medium",
-  permissionMode: "ask",
+  permissionMode: DEFAULT_PERMISSION_MODE,
   themeId: "spcode-dark",
   customTheme: null,
   uiFontFamily: "",

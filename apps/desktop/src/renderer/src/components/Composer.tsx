@@ -168,7 +168,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
     void Promise.all(imgFiles.map((f, i) => fileToAttachment(f, i))).then((imgs) => appendToDraft("attachments", imgs));
   };
 
-  const actMode = settings?.permissionMode === "act";
+  const actMode = settings?.permissionMode === "auto";
   const enabledModels = models.filter(
     (m) =>
       !(settings?.disabledProviders ?? []).includes(m.provider) &&
@@ -368,8 +368,8 @@ export function Composer({ sessionId }: { sessionId: string }) {
             {/* 权限模式 */}
             <button
               type="button"
-              onClick={() => void saveSettings({ permissionMode: actMode ? "ask" : "act" })}
-              title={t(actMode ? "composer.actHint" : "composer.askHint")}
+              onClick={() => void saveSettings({ permissionMode: actMode ? "ask" : "auto" })}
+              title={t(actMode ? "composer.modeAutoHint" : "composer.modeAskHint")}
               data-testid="composer-permission-mode"
               className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] transition-colors ${
                 actMode
@@ -378,7 +378,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
               }`}
             >
               <Icon name={actMode ? "zap" : "shield"} size={13} />
-              {t(actMode ? "composer.act" : "composer.ask")}
+              {t(actMode ? "composer.modeAuto" : "composer.modeAsk")}
             </button>
 
             {/* 计划模式 */}

@@ -19,6 +19,7 @@ import {
 import type {
   AdvancedSearchConfig,
   ModelRef,
+  PermissionMode,
   PermissionRequest,
   QuestionAnswers,
   QuestionRequest,
@@ -30,6 +31,7 @@ import type {
   UsageRecord,
   WebFetchConfig,
 } from "@spcode/shared";
+import { DEFAULT_PERMISSION_MODE } from "@spcode/shared";
 import { isAdvancedSearchReady } from "@spcode/shared/advanced-search";
 import { getLocale } from "@spcode/shared/i18n";
 import { resolveSpcodeHome } from "@spcode/shared/node";
@@ -38,6 +40,7 @@ import { buildLanguagePolicy, installLanguagePolicy } from "./language-policy.js
 import type { MemoryStore } from "./memory-store.js";
 import { maybeMicrocompact } from "./microcompact.js";
 import { createBeforeToolCallGate } from "./permission-gate.js";
+import { PERMISSION_MODE_CUSTOM_TYPE, permissionModeNote } from "./permission-mode.js";
 import {
   NORMAL_MODE_TOOLS,
   PLAN_MODE_CUSTOM_TYPE,
@@ -164,11 +167,15 @@ export interface SessionControllerOptions {
   sessionManager?: SessionManager;
   /** 恢复会话时带上计划模式状态（来自会话注册表），true 则创建后直接进入计划态 */
   planMode?: boolean;
+  /** 权限模式（三档）；缺省「总是询问」——主进程按会话注册表/设置默认值传入 */
+  permissionMode?: PermissionMode;
   emitEvent: (event: AgentSessionEvent) => void;
   emitUsage: (usage: UsageRecord) => void;
   emitTodo: (todos: TodoItem[]) => void;
   /** 计划模式开关变化（主进程回填注册表、渲染进程更新 UI） */
   emitPlanMode: (enabled: boolean) => void;
+  /** 权限模式变化（主进程回填注册表、渲染进程更新 UI） */
+  emitPermissionMode?: (mode: PermissionMode) => void;
   /** WritePlan 落盘了计划文件（主进程回填 planFile） */
   emitPlan: (path: string) => void;
   /** 模型通过 RenameSession 工具起的标题（空函数 = 忽略） */
@@ -203,6 +210,10 @@ export class SessionController {
   private firstUserText: string | null = null;
   /** 计划模式状态（beforeToolCall 门禁实时读取；持久化在主进程注册表） */
   private planMode = false;
+  /**
+   * 权限模式（三档）的唯一事实源：用 ref 对象而非普通字段，因为 Task 子代理工具
+   * 在 controller 构造完成前就要拿到 getter——子代理与主会话共用同一档位。
+   */
 
   private constructor(
     readonly sessionId: string,
@@ -211,6 +222,8 @@ export class SessionController {
     private readonly runtime: ModelRuntime,
     private readonly emitEvent: (e: AgentSessionEvent) => void,
     private readonly emitPlanMode: (enabled: boolean) => void,
+    private readonly permissionModeRef: { current: PermissionMode },
+    private readonly emitPermissionMode: (mode: PermissionMode) => void,
     /** 会话创建时的沙盒状态（与 bash 工具注册同生命周期，中途不变） */
     private readonly sandboxInfo: { state: string; reason?: string },
     private readonly titleCtx: {
@@ -247,6 +260,8 @@ export class SessionController {
 
     // RenameSession 触发探针：模型主动改名后置位，兜底生成器据此让位
     const renameProbe = { fired: false };
+    // 权限模式唯一事实源（Task 工具与网关都拿这个 ref；controller 构造前就需可读）
+    const permissionModeRef: { current: PermissionMode } = { current: opts.permissionMode ?? DEFAULT_PERMISSION_MODE };
 
     // 沙盒：下发设置并惰性初始化；active 时注册同名 bash 覆盖内置（pi 注册表 customTools 同名覆盖语义）
     const sandbox = getSandboxService();
@@ -322,6 +337,7 @@ export class SessionController {
           thinkingLevel: opts.thinkingLevel ?? "medium",
           depth: 0,
           getSandboxSettings: opts.getSandboxSettings,
+          getPermissionMode: () => permissionModeRef.current,
           requestPermission: opts.requestPermission,
         }),
       ],
@@ -335,6 +351,8 @@ export class SessionController {
       opts.modelRuntime,
       opts.emitEvent,
       opts.emitPlanMode,
+      permissionModeRef,
+      opts.emitPermissionMode ?? (() => {}),
       sandboxState.state === "unavailable"
         ? { state: sandboxState.state, reason: sandboxState.reason }
         : { state: sandboxState.state },
@@ -362,6 +380,15 @@ export class SessionController {
       await session.sendCustomMessage({
         customType: PLAN_MODE_CUSTOM_TYPE,
         content: PLAN_MODE_ON_MESSAGE,
+        display: false,
+      });
+    }
+    // 非默认档位（必要时询问/总不询问）恢复或新建时，重注一次模式说明：
+    // 上次注入的消息可能已被压缩/截断，模型需要知道现在问不问
+    if (permissionModeRef.current !== DEFAULT_PERMISSION_MODE) {
+      await session.sendCustomMessage({
+        customType: PERMISSION_MODE_CUSTOM_TYPE,
+        content: permissionModeNote(permissionModeRef.current),
         display: false,
       });
     }
@@ -397,6 +424,7 @@ export class SessionController {
     session.agent.beforeToolCall = createBeforeToolCallGate({
       sessionId: opts.sessionId,
       isPlanMode: () => ctl.planMode,
+      getPermissionMode: () => permissionModeRef.current,
       getFsPolicy,
       getSandboxSettings: opts.getSandboxSettings,
       sandboxState,
@@ -412,6 +440,7 @@ export class SessionController {
       sessionId: this.sessionId,
       sessionFile: this.sessionFile,
       planMode: this.planMode,
+      permissionMode: this.permissionModeRef.current,
       sandbox: this.sandboxInfo as SessionInfo["sandbox"],
       model: model ? { provider: model.provider, modelId: model.id } : null,
       thinkingLevel: this.session.thinkingLevel,
@@ -443,6 +472,21 @@ export class SessionController {
       });
     }
     this.emitPlanMode(enabled);
+  }
+
+  /**
+   * 切当前会话的权隖模式（三档，运行中切换立即生效）：更新 ref + 注入模型可见说明 + 上抬事件。
+   * 模式只影响"问不问"，不改变沙盒边界与计划模式门禁。
+   */
+  async setPermissionMode(mode: PermissionMode): Promise<void> {
+    if (this.permissionModeRef.current === mode) return;
+    this.permissionModeRef.current = mode;
+    this.emitPermissionMode(mode);
+    await this.session.sendCustomMessage({
+      customType: PERMISSION_MODE_CUSTOM_TYPE,
+      content: permissionModeNote(mode),
+      display: false,
+    });
   }
 
   /** 恢复会话时给渲染进程回放历史消息 */

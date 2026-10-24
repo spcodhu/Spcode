@@ -1,13 +1,23 @@
 /**
- * 权限网关（beforeToolCall）的统一实现：计划模式门禁 → 文件路径守卫 → 风险分级 → 沙盒联动。
+ * 权限网关（beforeToolCall）的统一实现：计划模式门禁 → 文件路径守卫 → 权限模式矩阵。
  *
  * 从 session-controller 抽出独立模块的原因（评审 R3-C4）：Task 子代理的会话
  * 与主会话共享同一套裁决链——子代理此前不挂网关，edit/write 可无审批写任意文件
  * （记忆投毒面）。现在主会话与子代理都调 createBeforeToolCallGate，唯一差别是
  * 子代理永远不在计划模式（计划模式下 Task 工具本身不挂载）。
+ *
+ * 三档权限模式（总是询问/必要时询问/总不询问）的判定下沉到 shared 的纯函数
+ * decidePermissionMatrix：模式决定"问不问"，沙盒决定"拦不拦"，两者正交。
+ * 本文件只负责在矩阵前后摆好三道硬闸（计划模式、凭据区、逃生舱严格模式）
+ * 与权限请求的组装。
  */
 import { randomUUID } from "node:crypto";
-import type { PermissionRequest, SandboxSettings } from "@spcode/shared";
+import {
+  decidePermissionMatrix,
+  type PermissionMode,
+  type PermissionRequest,
+  type SandboxSettings,
+} from "@spcode/shared";
 import type { LocalizedText } from "@spcode/shared/i18n";
 import { isPlanModeSafeCommand, PLAN_MODE_BASH_BLOCK_REASON, PLAN_MODE_WRITE_BLOCK_REASON } from "./plan-mode.js";
 import { matchesExcludedCommand } from "./sandbox/bash-tool.js";
@@ -27,6 +37,8 @@ export interface PermissionGateDeps {
   sessionId: string;
   /** 实时读取计划模式状态（子代理恒 false） */
   isPlanMode: () => boolean;
+  /** 实时读取当前会话的权限模式（三档，运行中切换立即生效）；缺省按最保守的「总是询问」 */
+  getPermissionMode?: () => PermissionMode;
   /** 实时读取文件路径守卫策略（cwd/敏感清单） */
   getFsPolicy: () => FsGuardPolicy;
   /** 实时读取沙盒设置（excludedCommands/allowUnsandboxedCommands 热生效） */
@@ -42,8 +54,9 @@ const DENIED_MESSAGE: LocalizedText = { key: "main:permission.denied" };
 export function createBeforeToolCallGate(deps: PermissionGateDeps) {
   return async (ctx: BeforeToolCallCtx): Promise<ToolCallVerdict> => {
     const toolName = ctx.toolCall.name.toLowerCase();
+    const mode: PermissionMode = deps.getPermissionMode?.() ?? "ask";
 
-    // 计划模式门禁（实时读取，运行中切换也立即生效）：
+    // 计划模式门禁（实时读取，运行中切换也立即生效），三档模式下都是硬闸：
     // bash 走只读白名单；写类调用本不该出现在计划工具集里，兜底拦截
     if (deps.isPlanMode()) {
       if (toolName === "bash" || toolName === "powershell") {
@@ -61,12 +74,14 @@ export function createBeforeToolCallGate(deps: PermissionGateDeps) {
       return undefined;
     }
 
-    // 文件路径守卫（R3-C3）：deny 硬拦；prompt 走 danger 级弹窗（任何权限模式都弹）。
+    // 文件路径守卫（R3-C3）：deny 硬拦（三档都不放开，凭据区是底线）；
+    // prompt 按 danger 级风险参与矩阵——「总不询问」档自动放行，「总是/必要时」弹窗。
     const fsVerdict = judgeFsToolCall(ctx.toolCall.name, ctx.toolCall.arguments, deps.getFsPolicy());
     if (fsVerdict?.action === "deny") {
       return { block: true, reason: `Spcode path policy: ${fsVerdict.reason}`, reasonMessage: fsVerdict.reasonMessage };
     }
     if (fsVerdict?.action === "prompt") {
+      if (decidePermissionMatrix({ risk: "danger", mode }).action === "allow") return undefined;
       const approved = await deps.requestPermission({
         requestId: randomUUID(),
         sessionId: deps.sessionId,
@@ -78,16 +93,10 @@ export function createBeforeToolCallGate(deps: PermissionGateDeps) {
       return approved ? undefined : { block: true, reason: DENIED_BY_USER, reasonMessage: DENIED_MESSAGE };
     }
 
-    const risk = classifyToolRisk(ctx.toolCall.name, ctx.toolCall.arguments);
-    if (risk === "readonly") return undefined;
-
     // 沙盒联动（创建时固定，与工具注册同生命周期）：
     // - 仅 bash/powershell 受沙盒约束；edit/write 等进程内文件工具由上面的路径守卫约束
-    // - 沙盒内 write 级命令在 autoAllow 开启时免审批（内核边界已兜底）
-    // - outward（对外动作）/danger 仍弹窗——沙盒管不住语义级后果
-    // - 逃生舱（dangerouslyDisableSandbox=true）：严格模式直接拒；否则强制弹窗（bypass 标记），
-    //   不享受 autoAllow——批准后命令在沙盒外以完整权限执行
-    // - excludedCommands（沙盒外白名单）命中的命令不经沙盒，不享受 autoAllow，走普通权限流
+    // - excludedCommands（沙盒外白名单）命中的命令不经沙盒，卡片上不再标「沙盒内」
+    // - 逃生舱（dangerouslyDisableSandbox=true）：三档模式都要弹窗；设置关闭则直接拒
     const sandboxed = deps.sandboxState.state === "active";
     const isShellTool = toolName === "bash" || toolName === "powershell";
     const sandboxSettings = deps.getSandboxSettings?.();
@@ -95,26 +104,6 @@ export function createBeforeToolCallGate(deps: PermissionGateDeps) {
       isShellTool &&
       sandboxed &&
       (ctx.toolCall.arguments as { dangerouslyDisableSandbox?: unknown } | null)?.dangerouslyDisableSandbox === true;
-    if (bypassRequested) {
-      if (!sandboxSettings?.allowUnsandboxedCommands) {
-        return {
-          block: true,
-          reason:
-            "Sandbox strict mode: dangerouslyDisableSandbox is disabled (sandbox.allowUnsandboxedCommands=false). Run the command inside the sandbox or ask the user to allow it in Settings → Sandbox.",
-          reasonMessage: { key: "main:permission.sandboxStrict" },
-        };
-      }
-      const approved = await deps.requestPermission({
-        requestId: randomUUID(),
-        sessionId: deps.sessionId,
-        toolName: ctx.toolCall.name,
-        args: ctx.toolCall.arguments,
-        risk,
-        sandboxed: false,
-        bypass: true,
-      });
-      return approved ? undefined : { block: true, reason: DENIED_BY_USER, reasonMessage: DENIED_MESSAGE };
-    }
     const cmd = extractCommand(ctx.toolCall.arguments);
     const excludedHit =
       isShellTool &&
@@ -122,8 +111,17 @@ export function createBeforeToolCallGate(deps: PermissionGateDeps) {
       cmd !== null &&
       (sandboxSettings?.excludedCommands ?? []).some((r) => matchesExcludedCommand(cmd, r));
     const effectiveSandboxed = sandboxed && isShellTool && !excludedHit;
-    if (effectiveSandboxed && risk === "write" && sandboxSettings?.autoAllow) {
-      return undefined;
+
+    const risk = classifyToolRisk(ctx.toolCall.name, ctx.toolCall.arguments);
+    const verdict = decidePermissionMatrix({
+      risk,
+      mode,
+      bypass: bypassRequested,
+      bypassDisabled: !sandboxSettings?.allowUnsandboxedCommands,
+    });
+    if (verdict.action === "allow") return undefined;
+    if (verdict.action === "block") {
+      return { block: true, reason: verdict.reason, reasonMessage: { key: verdict.reasonKey } };
     }
     const approved = await deps.requestPermission({
       requestId: randomUUID(),
@@ -131,7 +129,9 @@ export function createBeforeToolCallGate(deps: PermissionGateDeps) {
       toolName: ctx.toolCall.name,
       args: ctx.toolCall.arguments,
       risk,
-      sandboxed: effectiveSandboxed,
+      // 逃生舱请求最终会在沙盒外执行，卡片不能标「沙盒内」
+      sandboxed: effectiveSandboxed && !bypassRequested,
+      bypass: bypassRequested || undefined,
     });
     return approved ? undefined : { block: true, reason: DENIED_BY_USER, reasonMessage: DENIED_MESSAGE };
   };

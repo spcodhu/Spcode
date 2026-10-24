@@ -120,7 +120,6 @@ const ledger = new UsageLedger();
 const gitBaselines = new Map<string, GitBaseline>();
 const quota = new QuotaService(undefined, (providerId) => ledger.providerUsage(providerId));
 const bridge = new AgentBridge({
-  getPermissionMode: () => settings.get().permissionMode,
   getPermissionRules: () => settings.get().permissionRules,
 });
 /** 桌面通知（R3-F4）：窗口未聚焦时的审批/提问/长任务完成提醒 + Dock 徽标 */
@@ -233,6 +232,11 @@ function watchSessionLifecycle(): void {
       registry.patch(event.sessionId, { planMode: event.enabled });
       return;
     }
+    // 权限模式切换：持久化到注册表（重开/唤醒会话时据此还原档位）
+    if (event.type === "session.permissionmode") {
+      registry.patch(event.sessionId, { permissionMode: event.mode });
+      return;
+    }
     // WritePlan 落盘：回填计划文件路径
     if (event.type === "session.plan") {
       registry.patch(event.sessionId, { planFile: event.path });
@@ -317,6 +321,8 @@ function registerIpc(): void {
     // 创建/恢复会话时写入注册表
     if (cmd.type === "session.create") {
       const now = Date.now();
+      // 新会话继承设置页的默认档位（单会话随后可在输入框覆盖）
+      cmd.payload.permissionMode = cmd.payload.permissionMode ?? settings.get().permissionMode;
       registry.upsert({
         id: cmd.payload.sessionId,
         mode: cmd.payload.mode,
@@ -328,6 +334,7 @@ function registerIpc(): void {
         titleKind: "default",
         model: cmd.payload.model ?? settings.get().defaultModel,
         thinkingLevel: cmd.payload.thinkingLevel ?? settings.get().defaultThinkingLevel,
+        permissionMode: cmd.payload.permissionMode,
         sessionFile: null,
         createdAt: now,
         updatedAt: now,
@@ -351,7 +358,9 @@ function registerIpc(): void {
 
     // 恢复/唤醒会话：把注册表里的计划模式状态捎带给宿主（渲染进程不感知这个字段）
     if (cmd.type === "session.open" || cmd.type === "session.activate") {
-      cmd.payload.planMode = registry.get(cmd.payload.sessionId)?.planMode ?? false;
+      const entry = registry.get(cmd.payload.sessionId);
+      cmd.payload.planMode = entry?.planMode ?? false;
+      cmd.payload.permissionMode = entry?.permissionMode ?? settings.get().permissionMode;
     }
 
     // Fork 会话：渲染层只传 sourceSessionId/newSessionId 与可选项，
@@ -447,7 +456,6 @@ function registerIpc(): void {
     const snapshot = settings.get().sandbox;
     const fallback = {
       enabled: snapshot.enabled,
-      autoAllow: snapshot.autoAllow,
       allowUnsandboxedCommands: snapshot.allowUnsandboxedCommands,
       platform: process.platform,
     };

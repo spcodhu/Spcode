@@ -1,4 +1,10 @@
-import type { AdvancedSearchConfig, AdvancedSearchProtocol, SandboxStatusReport, WebFetchConfig } from "@spcode/shared";
+import type {
+  AdvancedSearchConfig,
+  AdvancedSearchProtocol,
+  PermissionMode,
+  SandboxStatusReport,
+  WebFetchConfig,
+} from "@spcode/shared";
 import { inferMapping, isAdvancedSearchReady, PRESET_ENDPOINTS } from "@spcode/shared/advanced-search";
 import { getLocale, localeProfile, resolveLocale } from "@spcode/shared/i18n";
 import { DEEPSEEK_FETCH_ENDPOINT, isWebFetchReady } from "@spcode/shared/web-fetch";
@@ -130,11 +136,12 @@ function GeneralPage() {
         </div>
       )}
       <SectionTitle>{t("general.permissionMode")}</SectionTitle>
-      <div className="flex gap-2">
+      <div className="flex gap-2" data-testid="settings-permission-mode">
         {(
           [
-            { id: "ask", label: t("general.ask"), desc: t("general.askDescription") },
-            { id: "act", label: t("general.act"), desc: t("general.actDescription") },
+            { id: "ask", label: t("general.modeAsk"), desc: t("general.modeAskDescription") },
+            { id: "auto", label: t("general.modeAuto"), desc: t("general.modeAutoDescription") },
+            { id: "never", label: t("general.modeNever"), desc: t("general.modeNeverDescription") },
           ] as const
         ).map((m) => (
           <button
@@ -154,6 +161,7 @@ function GeneralPage() {
           </button>
         ))}
       </div>
+      <div className="text-[12px] text-text-tertiary">{t("general.permissionModeHint")}</div>
 
       <PermissionRulesSection />
 
@@ -1035,15 +1043,7 @@ function SandboxSection() {
         <Switch on={sandbox.enabled} onChange={(v) => patch({ enabled: v })} label={t("sandbox.enable")} />
       </div>
 
-      <SandboxBehaviorTable enabled={sandbox.enabled} autoAllow={sandbox.autoAllow} />
-
-      <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-bg-elevated px-4 py-3">
-        <div>
-          <div className="text-[14px] text-text-primary">{t("sandbox.autoAllow")}</div>
-          <div className="mt-0.5 text-[12px] text-text-tertiary">{t("sandbox.autoAllowDescription")}</div>
-        </div>
-        <Switch on={sandbox.autoAllow} onChange={(v) => patch({ autoAllow: v })} label={t("sandbox.autoAllow")} />
-      </div>
+      <SandboxBehaviorTable enabled={sandbox.enabled} permissionMode={settings?.permissionMode ?? "ask"} />
 
       <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-bg-elevated px-4 py-3">
         <div>
@@ -1141,8 +1141,8 @@ function SandboxStatusLine({
             {t("sandbox.reason", { reason: status.reason })}
           </div>
         )}
-        {status?.state === "active" && !status.autoAllow && (
-          <div className="mt-1 text-[12px] text-text-tertiary">{t("sandbox.approvalsRequired")}</div>
+        {status?.state === "active" && (
+          <div className="mt-1 text-[12px] text-text-tertiary">{t("sandbox.approvalsByMode")}</div>
         )}
       </div>
       <button
@@ -1158,9 +1158,16 @@ function SandboxStatusLine({
   );
 }
 
-/** 开启/关闭两套行为速查：让「这个开关到底管什么」在界面上可自证 */
-function SandboxBehaviorTable({ enabled, autoAllow }: { enabled: boolean; autoAllow: boolean }) {
+/** 开启/关闭两套行为速查：让「沙盒开关到底管什么」在界面上可自证。
+ *  写类命令的弹窗策略已从 autoAllow 开关改为新会话默认权限模式驱动，这里同步展示。 */
+function SandboxBehaviorTable({ enabled, permissionMode }: { enabled: boolean; permissionMode: PermissionMode }) {
   const { t } = useTranslation("settings");
+  const modeLabel =
+    permissionMode === "ask"
+      ? t("general.modeAsk")
+      : permissionMode === "auto"
+        ? t("general.modeAuto")
+        : t("general.modeNever");
   const rows = [
     {
       label: t("sandbox.execution"),
@@ -1169,8 +1176,8 @@ function SandboxBehaviorTable({ enabled, autoAllow }: { enabled: boolean; autoAl
     },
     {
       label: t("sandbox.writeApprovals"),
-      active: autoAllow ? t("sandbox.writeAuto") : t("sandbox.writeAsk"),
-      off: t("sandbox.writeOff"),
+      active: t("sandbox.writeByMode", { mode: modeLabel }),
+      off: t("sandbox.writeByMode", { mode: modeLabel }),
     },
     { label: t("sandbox.dangerous"), active: t("sandbox.dangerousActive"), off: t("sandbox.dangerousOff") },
     { label: t("sandbox.domains"), active: t("sandbox.domainsActive"), off: t("sandbox.domainsOff") },

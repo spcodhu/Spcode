@@ -92,6 +92,8 @@ export function prepareForkCommand(
       model: payload.model ?? source.model ?? undefined,
       thinkingLevel: payload.thinkingLevel ?? source.thinkingLevel,
       planMode: payload.planMode ?? source.planMode ?? false,
+      // 权限模式同样缺省继承源会话；源会话没有记录时也留 undefined，由宿主用默认档兜底
+      permissionMode: payload.permissionMode ?? source.permissionMode,
     },
   };
 }

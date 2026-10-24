@@ -10,7 +10,7 @@
 import type { Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
-import type { PermissionRequest, SandboxSettings } from "@spcode/shared";
+import type { PermissionMode, PermissionRequest, SandboxSettings } from "@spcode/shared";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 import { type Static, Type } from "typebox";
 import { installLanguagePolicy } from "../language-policy.js";
@@ -41,6 +41,8 @@ export interface TaskToolContext {
   depth: number;
   /** 沙盒设置 getter（主会话透传；子代理 bash 与主会话同边界） */
   getSandboxSettings?: () => SandboxSettings;
+  /** 权限模式 getter（主会话透传；子代理与主会话同档位） */
+  getPermissionMode?: () => PermissionMode;
   /** 权限网关通道（主会话透传，评审 R3-C4：子代理的写/危险操作同样弹窗裁决） */
   requestPermission: (req: PermissionRequest) => Promise<boolean>;
 }
@@ -92,6 +94,7 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
       session.agent.beforeToolCall = createBeforeToolCallGate({
         sessionId: `task-subagent@${ctx.cwd}`,
         isPlanMode: () => false,
+        getPermissionMode: ctx.getPermissionMode,
         getFsPolicy,
         getSandboxSettings: ctx.getSandboxSettings,
         sandboxState,

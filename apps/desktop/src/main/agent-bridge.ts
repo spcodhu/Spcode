@@ -12,14 +12,7 @@ import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { QuestionAnswers } from "@spcode/shared";
-import {
-  type HostCommand,
-  type HostEvent,
-  IPC,
-  type PermissionMode,
-  type PermissionRequest,
-  type QuestionRequest,
-} from "@spcode/shared";
+import { type HostCommand, type HostEvent, IPC, type PermissionRequest, type QuestionRequest } from "@spcode/shared";
 import { i18n } from "@spcode/shared/i18n";
 import { type UtilityProcess, utilityProcess, type WebContents } from "electron";
 
@@ -63,26 +56,28 @@ export function matchesPermissionRule(command: string, rule: string): boolean {
 }
 
 /**
- * 权限裁决（纯函数，导出供单测）：
- * - danger 永远弹窗，免审批规则不适用（不可逆操作没有「总允许」）
- * - outward（对外动作/网络域名询问）两种权限模式都弹窗
- * - write 在 ask 模式弹窗、act 模式放行；readonly 不会到达这里
- * - 免审批规则命中（仅 bash/powershell 的 write/outward）时免弹窗
+ * 权限裁决（纯函数，导出供单测）——主进程侧只做两件事：
+ * 1. 免审批规则（权限卡「总允许」沉淀）命中时就地放行；
+ * 2. 把其余请求广播给用户。
+ *
+ * 注意：**权限模式不在这里判**。三档模式（总是/必要时/总不询问）决定的是
+ * "要不要发出权限请求"，那一步在宿主的 permission-gate 里（它拿得到会话级模式与沙盒状态）。
+ * 能走到这里的请求，已经是宿主认为"需要人看一眼"的请求，所以默认结论就是弹窗。
+ *
+ * 三条不可让步的边界：
+ * - danger 永远弹窗，免审批规则不适用（不可逆操作没有「总允许」）；
+ * - 逃生舱请求（bypass，沙盒外执行）永不被规则自动放行——它是唯一会移除内核边界的动作；
+ * - 只有 bash/powershell 的 write/outward 参与规则匹配（网络域名询问等不适用）。
  */
-export function decidePermission(
-  request: PermissionRequest,
-  mode: PermissionMode,
-  rules: string[],
-): PermissionDecision {
+export function decidePermission(request: PermissionRequest, rules: string[]): PermissionDecision {
   if (request.risk === "danger") return "ask";
+  if (request.bypass === true) return "ask";
   const isShell = request.toolName === "bash" || request.toolName === "powershell";
   if (isShell && (request.risk === "write" || request.risk === "outward")) {
     const cmd = extractShellCommand(request.args);
     if (cmd && rules.some((r) => matchesPermissionRule(cmd, r))) return "auto-approve";
   }
-  if (request.risk === "outward") return "ask";
-  if (request.risk === "write" && mode === "ask") return "ask";
-  return "auto-approve";
+  return "ask";
 }
 
 export class AgentBridge {
@@ -94,11 +89,9 @@ export class AgentBridge {
   private pendingPermissions = new Map<string, { request: PermissionRequest; timer: ReturnType<typeof setTimeout> }>();
   /** 渲染进程未决的结构化提问（重播给重建窗口用；评审 R3-C11）——宿主侧 30 分钟超时会发 question.resolved 兜底 */
   private pendingQuestions = new Map<string, QuestionRequest>();
-  private getPermissionMode: () => PermissionMode;
   private getPermissionRules: () => string[];
 
-  constructor(opts: { getPermissionMode: () => PermissionMode; getPermissionRules?: () => string[] }) {
-    this.getPermissionMode = opts.getPermissionMode;
+  constructor(opts: { getPermissionRules?: () => string[] }) {
     this.getPermissionRules = opts.getPermissionRules ?? (() => []);
   }
 
@@ -189,9 +182,9 @@ export class AgentBridge {
     this.broadcast(event);
   }
 
-  /** 权限策略：danger 与 outward 永远询问；write 在 ask 模式询问、act 模式放行；免审批规则命中的 shell 命令放行 */
+  /** 权限策略：免审批规则命中的 shell 命令就地放行，其余一律弹窗（模式已在宿主侧裁决过） */
   private adjudicate(request: PermissionRequest): void {
-    if (decidePermission(request, this.getPermissionMode(), this.getPermissionRules()) === "auto-approve") {
+    if (decidePermission(request, this.getPermissionRules()) === "auto-approve") {
       this.post({ type: "permission.reply", payload: { requestId: request.requestId, approved: true } });
       return;
     }

@@ -25,6 +25,7 @@ import type {
   HostEvent,
   ModelInfo,
   ModelRef,
+  PermissionMode,
   PermissionRequest,
   QuestionAnswers,
   QuestionRequest,
@@ -91,7 +92,10 @@ const sessions = new Map<string, SessionController>();
 /** 会话创建时的原始 cwd（chat 为 ""），休眠墓碑据此推断恢复模式 */
 const sessionCwd = new Map<string, string>();
 /** 已休眠会话的墓碑：凭 sessionFile 可在任意 session.* 命令到达时自动唤醒 */
-const hibernated = new Map<string, { sessionFile: string; cwd: string; planMode: boolean }>();
+const hibernated = new Map<
+  string,
+  { sessionFile: string; cwd: string; planMode: boolean; permissionMode: PermissionMode }
+>();
 /** 等待主进程裁决的权限请求（带会话归属与超时兜底——评审 P1-1） */
 const pendingPermissions = new Map<
   string,
@@ -274,6 +278,7 @@ async function sleepSession(sessionId: string): Promise<void> {
       sessionFile: info.sessionFile,
       cwd: sessionCwd.get(sessionId) ?? "",
       planMode: info.planMode,
+      permissionMode: info.permissionMode,
     });
   }
   settlePendingForSession(sessionId);
@@ -310,6 +315,7 @@ async function getOrRevive(sessionId: string): Promise<SessionController | null>
     mode: tomb.cwd.trim() ? "project" : "chat",
     sessionFile: tomb.sessionFile,
     planMode: tomb.planMode,
+    permissionMode: tomb.permissionMode,
   });
   sessions.set(sessionId, ctl);
   // 唤醒后回放历史：渲染进程只在本地为空时采用（session.history 处理器有 guard）
@@ -329,6 +335,8 @@ async function createController(params: {
   sessionManager?: SessionManager;
   /** 恢复会话时的计划模式状态（来自注册表） */
   planMode?: boolean;
+  /** 权限模式（来自注册表；缺省使用主进程下发的默认档） */
+  permissionMode?: PermissionMode;
   noTitleAutomation?: boolean;
 }): Promise<SessionController> {
   const rt = await getRuntime();
@@ -345,11 +353,13 @@ async function createController(params: {
     sessionFile: params.sessionFile,
     sessionManager: params.sessionManager,
     planMode: params.planMode,
+    permissionMode: params.permissionMode,
     noTitleAutomation: params.noTitleAutomation,
     emitEvent: (event) => emit({ type: "session.event", sessionId: params.sessionId, event }),
     emitUsage: (usage) => emit({ type: "session.usage", sessionId: params.sessionId, usage }),
     emitTodo: (todos) => emit({ type: "session.todo", sessionId: params.sessionId, todos }),
     emitPlanMode: (enabled) => emit({ type: "session.planmode", sessionId: params.sessionId, enabled }),
+    emitPermissionMode: (mode) => emit({ type: "session.permissionmode", sessionId: params.sessionId, mode }),
     emitPlan: (path) => emit({ type: "session.plan", sessionId: params.sessionId, path }),
     onRename: (title) => emit({ type: "session.renamed", sessionId: params.sessionId, title }),
     requestPermission,
@@ -456,7 +466,6 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
           reason: state.state === "unavailable" ? state.reason : undefined,
           platform: process.platform,
           enabled: snapshot.enabled,
-          autoAllow: snapshot.autoAllow,
           allowUnsandboxedCommands: snapshot.allowUnsandboxedCommands,
         } satisfies SandboxStatusReport);
         break;
@@ -511,6 +520,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
           model: cmd.payload.model,
           thinkingLevel: cmd.payload.thinkingLevel,
           noTitleAutomation: cmd.payload.noTitleAutomation,
+          permissionMode: cmd.payload.permissionMode,
         });
         sessions.set(cmd.payload.sessionId, ctl);
         respond(id, true, ctl.info());
@@ -533,6 +543,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
           mode: cmd.payload.cwd?.trim() ? "project" : "chat",
           sessionFile: cmd.payload.sessionFile,
           planMode: cmd.payload.planMode,
+          permissionMode: cmd.payload.permissionMode,
         });
         sessions.set(cmd.payload.sessionId, ctl);
         // 先回响应，再推历史（渲染进程按序处理）
@@ -579,6 +590,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
           thinkingLevel: cmd.payload.thinkingLevel,
           sessionManager: forkedManager,
           planMode: cmd.payload.planMode,
+          permissionMode: cmd.payload.permissionMode,
         });
         sessions.set(newSessionId, ctl);
         respond(id, true, ctl.info());
@@ -612,6 +624,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
           mode: cmd.payload.cwd?.trim() ? "project" : "chat",
           sessionFile: cmd.payload.sessionFile,
           planMode: cmd.payload.planMode,
+          permissionMode: cmd.payload.permissionMode,
         });
         sessions.set(cmd.payload.sessionId, ctl);
         respond(id, true, ctl.info());
@@ -731,6 +744,13 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         const ctl = await getOrRevive(cmd.payload.sessionId);
         if (!ctl) throw new Error(i18n.t("integration:session.missing", { id: cmd.payload.sessionId }));
         await ctl.setPlanMode(cmd.payload.enabled);
+        respond(id, true, ctl.info());
+        break;
+      }
+      case "session.setPermissionMode": {
+        const ctl = await getOrRevive(cmd.payload.sessionId);
+        if (!ctl) throw new Error(i18n.t("integration:session.missing", { id: cmd.payload.sessionId }));
+        await ctl.setPermissionMode(cmd.payload.mode);
         respond(id, true, ctl.info());
         break;
       }
