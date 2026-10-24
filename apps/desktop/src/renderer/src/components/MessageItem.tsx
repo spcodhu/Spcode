@@ -5,7 +5,9 @@ import { formatCompact, formatFileSize } from "../format";
 import {
   type ActivitySegment,
   buildRunBlocks,
+  currentRunProgress,
   type RunBlock,
+  type RunProgressState,
   type RunTextBlock,
   splitCompletedRun,
 } from "../run-activity";
@@ -213,7 +215,8 @@ export const NoticeItem = memo(NoticeItemImpl);
  * - 正文（阶段性说明与最终总结）按到达顺序内联在组与组之间；
  * - 组内一步一行：状态圆点（进行中/完成/失败）+ 动作标签 + 参数摘要，
  *   点击展开完整输入与输出；
- * - 运行中且没有正在流出的正文/思考时，尾部显示「继续思考中…」；
+ * - 运行中尾部始终显示当前步骤的进度行（思考/工具/输出/等待），活动组被
+ *   用户收起时仍能告诉用户现在在做什么；
  * - 运行结束后只保留最后一段正文（总结），之前的阶段输出与活动组统一收进
  *   一个「过程」折叠区；展开后仍是完整的时间线，各活动组可继续展开。
  *
@@ -250,9 +253,7 @@ function AssistantRunItemImpl({
   const activeGroupIdx = blocks[blocks.length - 1]?.kind === "activity" ? blocks.length - 1 : -1;
   const lastMessage = messages[messages.length - 1];
   const streamingTail = lastMessage?.streaming ? lastMessage.segments[lastMessage.segments.length - 1] : undefined;
-  // 正文/思考正在流式输出时内容就在眼前，不再重复「继续思考中」
-  const streamingContent =
-    streamingTail?.kind === "text" || (streamingTail?.kind === "thinking" && !streamingTail.done);
+  const progress = currentRunProgress(streamingTail);
 
   return (
     <div className="mb-6">
@@ -268,7 +269,7 @@ function AssistantRunItemImpl({
           />
         ),
       )}
-      {!streamingContent && <ContinueThinking />}
+      <RunProgress state={progress} />
     </div>
   );
 }
@@ -456,13 +457,28 @@ function StepStatusIcon({ status }: { status: "running" | "done" | "error" }) {
   );
 }
 
-/** 尾部思考指示（Qoder：四点图标 + 继续思考中…） */
-function ContinueThinking() {
+/**
+ * 运行中常驻进度行（Qoder：四点图标 + 闪光文案）。
+ * 任务进行时始终显示，文案跟随当前步骤；活动组被用户收起时也不会消失。
+ */
+function RunProgress({ state }: { state: RunProgressState }) {
   const { t } = useTranslation("chat");
+  const label =
+    state.kind === "tool"
+      ? toolStepTitle(state.call.name, state.call.status)
+      : state.kind === "thinking"
+        ? t("message.thinking")
+        : state.kind === "output"
+          ? t("run.output")
+          : t("message.continueThinking");
+  const detail = state.kind === "tool" ? summarizeArgs(state.call.name, state.call.args) : "";
+
   return (
     <div
-      className="flex min-h-7 items-center gap-2 px-0.5 py-1 text-[13px] leading-5 text-text-tertiary"
-      data-testid="run-continue-thinking"
+      className="flex min-h-7 min-w-0 items-center gap-2 px-0.5 py-1 text-[13px] leading-5 text-text-tertiary"
+      data-testid="run-progress"
+      data-kind={state.kind}
+      data-tool={state.kind === "tool" ? state.call.name : undefined}
     >
       <span className="flex size-5 shrink-0 items-center justify-center" aria-hidden>
         <span className="grid grid-cols-2 gap-[3px]">
@@ -475,7 +491,17 @@ function ContinueThinking() {
           ))}
         </span>
       </span>
-      <span className="thinking-shimmer">{t("message.continueThinking")}</span>
+      <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+        <span className="thinking-shimmer shrink-0">{label}</span>
+        {detail && (
+          <>
+            <span className="shrink-0 text-text-tertiary">·</span>
+            <span className="mono min-w-0 truncate text-[12px] text-text-tertiary" title={detail}>
+              {detail}
+            </span>
+          </>
+        )}
+      </span>
     </div>
   );
 }

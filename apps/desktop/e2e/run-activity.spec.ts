@@ -7,7 +7,8 @@ import { launchApp } from "./helpers";
  * 步骤交互回归（Qoder 风格活动组）：
  * - 任务结束后只留最终总结，中间阶段正文与活动组收进一个过程折叠区；
  * - 展开过程后按到达顺序恢复「阶段正文 + 已处理活动组」；
- * - 活动组可继续展开，看到一步一行的思考/工具调用及输入输出。
+ * - 活动组可继续展开，看到一步一行的思考/工具调用及输入输出；
+ * - 运行中进度行始终跟随当前步骤，活动组收起后仍然可见。
  */
 
 const PROJECT_CWD = "/tmp/spcode-e2e-run-activity";
@@ -16,6 +17,10 @@ const THINKING = "先确认 README 的现有结构";
 const STAGE1 = "我先看下这份 README，再决定改哪几段。";
 const STAGE2 = "已经改好了，接下来更新目录。";
 const FINAL = "改完了：新增快速开始，重排了配置说明。";
+
+const ACTIVE_CWD = "/tmp/spcode-e2e-run-progress";
+const ACTIVE_SESSION_ID = "e2e-run-progress-1";
+const ACTIVE_PROMPT = "开始测试运行中的进度";
 
 function seed(home: string): void {
   mkdirSync(PROJECT_CWD, { recursive: true });
@@ -109,6 +114,56 @@ function seed(home: string): void {
   );
 }
 
+/** 运行中用例：只预置一条用户消息，随后通过宿主事件驱动一次真实运行 */
+function seedActive(home: string): void {
+  mkdirSync(ACTIVE_CWD, { recursive: true });
+  const sessionsDir = join(home, "agent", "sessions", "-tmp-spcode-e2e-run-progress");
+  mkdirSync(sessionsDir, { recursive: true });
+  const sessionFile = join(sessionsDir, "2026-02-01T00-00-00-000Z_e2erunprogress1.jsonl");
+  const lines = [
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "e2erunprogress1",
+      timestamp: "2026-02-01T00:00:00.000Z",
+      cwd: ACTIVE_CWD,
+    }),
+    JSON.stringify({
+      type: "message",
+      id: "cccc0001",
+      parentId: null,
+      timestamp: "2026-02-01T00:00:00.000Z",
+      message: {
+        role: "user",
+        content: [{ type: "text", text: ACTIVE_PROMPT }],
+        timestamp: 1769904000000,
+      },
+    }),
+  ];
+  writeFileSync(sessionFile, `${lines.join("\n")}\n`, "utf-8");
+  writeFileSync(
+    join(home, "sessions.json"),
+    JSON.stringify(
+      [
+        {
+          id: ACTIVE_SESSION_ID,
+          mode: "project",
+          cwd: ACTIVE_CWD,
+          title: "E2E 运行中进度",
+          model: null,
+          thinkingLevel: "medium",
+          sessionFile,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+      null,
+      2,
+    ),
+    "utf-8",
+  );
+}
+
 async function openSession(window: Awaited<ReturnType<Awaited<ReturnType<typeof launchApp>>["firstWindow"]>>) {
   const row = window.locator("div.group", { hasText: "E2E 步骤交互" }).first();
   await expect(row).toBeVisible({ timeout: 15000 });
@@ -164,5 +219,56 @@ test("任务结束后只留总结，展开过程恢复完整时间线", async ()
   await expect(steps.first().locator(".collapse-grid")).toHaveAttribute("aria-hidden", "false");
   await expect(firstGroup.getByTestId("run-step-detail")).toBeVisible();
 
+  await app.close();
+});
+
+test("运行中：进度行跟随当前步骤，活动组收起后仍可见", async () => {
+  const app = await launchApp({ seed: seedActive });
+  const window = await app.firstWindow();
+  const row = window.locator("div.group", { hasText: "E2E 运行中进度" }).first();
+  await expect(row).toBeVisible({ timeout: 15000 });
+  await row.click();
+  await expect(window.getByText(ACTIVE_PROMPT)).toBeVisible({ timeout: 15000 });
+
+  const send = (event: unknown) =>
+    app.evaluate(
+      ({ BrowserWindow }, payload) => {
+        BrowserWindow.getAllWindows()[0]?.webContents.send("spcode:host-event", payload);
+      },
+      { type: "session.event", sessionId: ACTIVE_SESSION_ID, event },
+    );
+
+  await send({ type: "agent_start" });
+  await send({
+    type: "message_update",
+    assistantMessageEvent: { type: "thinking_delta", delta: "先确认应用是否已安装。" },
+  });
+
+  const progress = window.getByTestId("run-progress");
+  await expect(progress).toBeVisible();
+  await expect(progress).toHaveAttribute("data-kind", "thinking");
+
+  await send({
+    type: "tool_execution_start",
+    toolCallId: "t1",
+    toolName: "bash",
+    args: { command: "open -a /Applications/Maccy.app && sleep 2 && pgrep -l Maccy" },
+  });
+  await expect(progress).toHaveAttribute("data-kind", "tool");
+  await expect(progress).toHaveAttribute("data-tool", "bash");
+
+  // 收起活动组：步骤不可见，但进度行仍显示当前工具
+  const header = window.getByTestId("run-activity-header").first();
+  await expect(header).toHaveAttribute("aria-expanded", "true");
+  await header.click();
+  await expect(header).toHaveAttribute("aria-expanded", "false");
+  await expect(progress).toBeVisible();
+  await expect(progress).toHaveAttribute("data-kind", "tool");
+  await expect(progress).toHaveAttribute("data-tool", "bash");
+
+  // 阶段状态不再占用底部状态条（行内进度行是唯一提示）
+  await expect(window.getByTestId("run-status-bar")).toHaveCount(0);
+
+  await send({ type: "agent_settled" });
   await app.close();
 });

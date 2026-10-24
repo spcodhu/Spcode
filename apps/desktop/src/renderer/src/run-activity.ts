@@ -11,7 +11,7 @@
  * 其余全部收进「过程」折叠区（见 splitCompletedRun）。
  */
 
-import type { Segment } from "./store";
+import type { Segment, ToolCallState } from "./store";
 
 export type ActivitySegment = Exclude<Segment, { kind: "text" }>;
 
@@ -48,4 +48,24 @@ export function splitCompletedRun(blocks: RunBlock[]): CompletedRunView {
   const tail = blocks[blocks.length - 1];
   if (tail?.kind !== "text") return { process: blocks };
   return { process: blocks.slice(0, -1), summary: tail };
+}
+
+/**
+ * 运行中「当前在做什么」，供消息流底部的常驻进度行使用。
+ * 活动组被用户收起时，步骤详情不可见，这一行仍要告诉用户当前动作。
+ */
+export type RunProgressState =
+  | { kind: "tool"; call: ToolCallState }
+  | { kind: "thinking" }
+  | { kind: "output" }
+  | { kind: "idle" };
+
+export function currentRunProgress(streamingTail: Segment | undefined): RunProgressState {
+  if (streamingTail?.kind === "tools") {
+    const running = [...streamingTail.calls].reverse().find((call) => call.status === "running");
+    if (running) return { kind: "tool", call: running };
+  }
+  if (streamingTail?.kind === "thinking" && !streamingTail.done) return { kind: "thinking" };
+  if (streamingTail?.kind === "text") return { kind: "output" };
+  return { kind: "idle" };
 }

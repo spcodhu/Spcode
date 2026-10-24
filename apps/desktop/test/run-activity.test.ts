@@ -3,7 +3,7 @@
  * 结束后最后一段正文作为总结，其余收进过程折叠区。
  */
 import { describe, expect, it } from "vitest";
-import { buildRunBlocks, splitCompletedRun } from "../src/renderer/src/run-activity.js";
+import { buildRunBlocks, currentRunProgress, splitCompletedRun } from "../src/renderer/src/run-activity.js";
 import type { Segment } from "../src/renderer/src/store.js";
 
 const thinking = (text = "想一下"): Segment => ({ kind: "thinking", id: "t", text, done: true });
@@ -74,5 +74,38 @@ describe("splitCompletedRun", () => {
     const { process, summary } = splitCompletedRun(buildRunBlocks([text("总结")]));
     expect(process).toHaveLength(0);
     expect(summary?.text).toBe("总结");
+  });
+});
+
+describe("currentRunProgress", () => {
+  it("运行中的工具 → 当前步骤（多个调用取最后一个运行中）", () => {
+    const seg: Segment = {
+      kind: "tools",
+      id: "g",
+      calls: [
+        { id: "c1", name: "read", args: {}, status: "done", output: "" },
+        { id: "c2", name: "bash", args: { command: "ls" }, status: "running", output: "" },
+      ],
+    };
+    const progress = currentRunProgress(seg);
+    expect(progress.kind).toBe("tool");
+    expect(progress.kind === "tool" && progress.call.name).toBe("bash");
+  });
+
+  it("工具全部完成 → 等待下一动作", () => {
+    expect(currentRunProgress(tools()).kind).toBe("idle");
+  });
+
+  it("思考流式中 → thinking；思考完成 → 等待下一动作", () => {
+    expect(currentRunProgress({ kind: "thinking", id: "t", text: "想", done: false }).kind).toBe("thinking");
+    expect(currentRunProgress(thinking()).kind).toBe("idle");
+  });
+
+  it("正文流式中 → output", () => {
+    expect(currentRunProgress(text("输出中")).kind).toBe("output");
+  });
+
+  it("没有流式尾段（回合间隙/空占位）→ 等待下一动作", () => {
+    expect(currentRunProgress(undefined).kind).toBe("idle");
   });
 });
