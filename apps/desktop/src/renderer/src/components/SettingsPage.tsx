@@ -1033,6 +1033,13 @@ function SandboxSection() {
         >
           <div className="text-[13px] font-semibold text-danger">{t("sandbox.disabledWarning")}</div>
           <div className="mt-1 text-[12px] leading-5 text-danger/80">{t("sandbox.disabledDescription")}</div>
+          {settings?.permissionMode !== "ask" && (
+            <div data-testid="sandbox-disabled-mode-warning" className="mt-1 text-[12px] leading-5 text-danger">
+              {t("sandbox.disabledPlusModeWarning", {
+                mode: settings?.permissionMode === "auto" ? t("general.modeAuto") : t("general.modeNever"),
+              })}
+            </div>
+          )}
         </div>
       )}
       <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-bg-elevated px-4 py-3">

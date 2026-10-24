@@ -430,6 +430,16 @@ test.describe("Spcode 冒烟 E2E", () => {
     // 默认档标注为「总是询问」（与出厂默认一致）
     await expect(group.getByRole("button", { name: /总是询问/ })).toHaveClass(/border-accent/);
 
+    // 两个开关叠加的安全网：默认档改成「总不询问」+ 关闭沙盒 → 红字警示出现
+    await group.getByRole("button", { name: /总不询问/ }).click();
+    await expect(group.getByRole("button", { name: /总不询问/ })).toHaveClass(/border-accent/);
+    const sandboxSection = window.getByTestId("sandbox-settings");
+    const sandboxToggle = sandboxSection.getByRole("switch", { name: "启用命令沙盒" });
+    await sandboxToggle.click();
+    await expect(window.getByTestId("sandbox-disabled-mode-warning")).toBeVisible();
+    await sandboxToggle.click();
+    await expect(window.getByTestId("sandbox-disabled-mode-warning")).toHaveCount(0);
+
     await app.close();
   });
 });

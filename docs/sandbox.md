@@ -7,7 +7,11 @@ Spcode 的 bash/powershell 工具命令在 OS 级沙盒内执行，由内核强�
 | 层 | 管什么 |
 |---|---|
 | 沙盒（内核强制） | 文件写入边界、敏感路径禁读、网络域名白名单 |
-| 审批网关（应用层） | 危险命令（rm -rf、sudo…）与对外动作（git push、发布…）始终弹窗；免审批规则（「总允许」沉淀）只对 write/outward 生效，danger 永远弹窗 |
+| 权限模式（应用层） | 问不问：总是询问 / 必要时询问 / 总不询问（详见 [`permission-modes.md`](./permission-modes.md)） |
+| 审批网关（应用层） | danger 与对外动作在非「总不询问」档始终弹窗；免审批规则（「总允许」沉淀）只对 write/outward 生效，danger 与逃生舱永不被规则放行 |
+
+> 分工原则：**模式决定问不问，沙盒决定拦不拦**。沙盒开关不改变弹窗策略，
+> 只改变被拦住时的表现（EPERM/403 而不是弹窗）。
 
 ## 平台支持
 
@@ -27,8 +31,8 @@ fail-closed 原则：沙盒包装失败的命令不会被执行（绝不静默�
 
 | 开关 | 工具集 | 审批 | 网络白名单 |
 |---|---|---|---|
-| 开 | 沙盒版 bash（内核边界） | `autoAllow` 开时沙盒内 write 免弹窗；danger/outward 仍弹 | 生效 |
-| 关 | pi 内置 bash（进程权限直跑） | 每条 write/outward 都弹窗（`autoAllow` 失效） | 不生效 |
+| 开 | 沙盒版 bash（内核边界） | 由会话的权限模式决定（总是询问 → 写也弹；必要时询问 → 写免弹窗） | 生效 |
+| 关 | pi 内置 bash（进程权限直跑） | 同上（模式不依赖沙盒；设置页会在“沙盒关闭 + 默认档非 ask”时给红色警示） | 不生效 |
 
 - 工具集在会话创建时固定，**改动只对新会话生效**（已打开会话沿用创建时的工具集）。
 - `read`/`write`/`edit` 由进程内路径守卫（`fs-guard`）约束，与本开关无关。
@@ -57,6 +61,9 @@ plans/ / projects/ 等精确枚举）、项目内 `.env*`。
 Maven/Gradle。白名单外域名首次访问会弹窗询问；同意后本次运行内有效，
 永久放行请到 设置 → 沙盒 → 网络白名单 添加。
 
+> 「总不询问」档是例外：白名单外域名**静默放行**（与 never 语义一致），
+> 但会记入审计日志（`silentlyAllowedHosts`）；`deniedDomains` 在任何档位都是硬拒。
+
 **本地端口**：默认允许沙盒内命令监听 localhost（dev server、playwright 等
 开发场景需要）；可在 设置 → 沙盒 → 允许监听本地端口 关闭。
 
@@ -71,7 +78,7 @@ Maven/Gradle。白名单外域名首次访问会弹窗询问；同意后本次�
 
 1. 命令在沙盒内执行失败，违规归因（内核/代理拦截记录）附在工具输出尾部，
    并提示模型「可用 `dangerouslyDisableSandbox=true` 重试」；
-2. 模型带该参数重试 → **强制弹窗**（不享受 autoAllow 免审批），卡片以
+2. 模型带该参数重试 → **强制弹窗**（三档权限模式都不享受自动放行），卡片以
    「沙盒外」红色徽标强警示：命令将以完整权限运行，不受文件/网络边界约束；
 3. 用户批准后，命令由独立的纯本地执行路径运行（不经 wrap、不写违规归因）。
 
@@ -86,9 +93,9 @@ Maven/Gradle。白名单外域名首次访问会弹窗询问；同意后本次�
 两类用户可控的「放松」，都在设置页可视可删：
 
 - **沙盒外命令白名单**（设置 → 沙盒）：前缀匹配（如 `git push`、`pnpm test:e2e`），
-  命中的命令固定不经沙盒直接执行，但仍走普通权限审批（不享受 autoAllow）。
-- **免审批规则**（设置 → 通用 → 权限模式）：权限卡点「总允许」沉淀的命令前缀，
-  命中的 write/outward 级 shell 命令免弹窗；**danger 级永远不免**，
+  命中的命令固定不经沙盒直接执行，但仍走普通权限审批（按会话的权限模式裁决）。
+- **免审批规则**（设置 → 权限卡「总允许」沉淀）：
+  命中的 write/outward 级 shell 命令免弹窗；**danger 级与逃生舱请求永远不免**，
   网络域名询问不参与规则匹配。
 
 权限卡「总允许」作用于逃生舱请求时会**双写**两条：以后该前缀的命令直接
@@ -108,7 +115,7 @@ Maven/Gradle。白名单外域名首次访问会弹窗询问；同意后本次�
 
 ```
 模型 bash 调用
-  → 权限网关（readonly 放行 / 沙盒内 write 免审批 / outward、danger、bypass 弹窗 / 免审批规则放行）
+  → 权限网关（计划模式门禁 / 凭据区硬拦 / 权限模式矩阵：allow → 放行，ask → 弹窗，block → 拦截）
   → 沙盒化 bash 工具（同名 customTool 覆盖 pi 内置 bash）
      ├─ dangerouslyDisableSandbox=true → 独立纯本地定义执行（网关已批）
      ├─ excludedCommands 命中 → 跳过 wrap 直接执行
@@ -130,8 +137,9 @@ Maven/Gradle。白名单外域名首次访问会弹窗询问；同意后本次�
 | 能力 | Claude Code | Finch | Spcode |
 |---|---|---|---|
 | OS 级沙盒 | sandbox-runtime（同源） | 无（纯权限） | sandbox-runtime |
-| 沙盒内免审批 | autoAllowBashIfSandboxed | Act 模式 | autoAllow |
-| 逃生舱 | dangerouslyDisableSandbox + allowUnsandboxedCommands | 不适用 | 同名参数 + 同名开关 |
+| 三档权限模式 | default / acceptEdits / bypassPermissions | 询问/行动二档 | ask / auto / never（按会话） |
+| 沙盒内免审批 | autoAllowBashIfSandboxed | Act 模式 | 「必要时询问」档（模式即策略，不再有独立开关） |
+| 逃生舱 | dangerouslyDisableSandbox + allowUnsandboxedCommands | 不适用 | 同名参数 + 同名开关（三档都要问） |
 | 固定沙盒外命令 | excludedCommands | 不适用 | excludedCommands |
 | 规则沉淀 | allow 规则（settings） | 「总允许」permissionRuleStore | 权限卡「总允许」→ permissionRules |
 | 本地端口 | allowLocalBinding | 不适用 | allowLocalBinding（默认开） |

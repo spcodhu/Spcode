@@ -138,6 +138,8 @@ export const zhCN = {
     "bash 工具在会话创建时就确定了（沙盒版或内置版），已打开的会话沿用创建时的工具集；改动后请新建或重新打开会话。",
   "sandbox.unsupported": "当前平台暂不支持沙盒（Windows 支持规划中），命令仅靠审批网关约束。",
   "sandbox.disabledWarning": "沙盒已关闭：命令将以你的完整权限直接执行",
+  "sandbox.disabledPlusModeWarning":
+    "且默认权限模式是「{{mode}}」：写类命令既没有内核兜底，也不会弹窗确认——两个开关叠在一起等于完全裸跑",
   "sandbox.disabledDescription":
     "关闭后，AI 执行的命令不再受内核级边界约束：可以读写本机任意文件（包括 ~/.ssh 密钥、 ~/.spcode 记忆与配置）、可自由访问网络。届时唯一防线只剩审批弹窗——而黑名单可被绕过、逐条审批容易疲劳误点。除非你明确知道在做什么，否则不建议关闭。",
   "sandbox.enable": "启用命令沙盒",
@@ -545,6 +547,8 @@ export const en = {
   "sandbox.unsupported":
     "Sandboxing is not supported on this platform yet (Windows support is planned). Commands are restricted only by the approval gateway.",
   "sandbox.disabledWarning": "Sandbox disabled: commands run with your full permissions",
+  "sandbox.disabledPlusModeWarning":
+    "The default permission mode is also “{{mode}}”: writes have neither kernel boundaries nor approval dialogs — together they mean fully unrestricted execution",
   "sandbox.disabledDescription":
     "Without the sandbox, AI commands have no kernel-enforced boundaries: they can read or write any local file (including ~/.ssh keys and ~/.spcode memory and settings) and access the network freely. Approval dialogs are the only remaining defense, and blocklists can be bypassed while repeated approvals can cause mistakes. Disable only if you understand the consequences.",
   "sandbox.enable": "Enable command sandbox",
