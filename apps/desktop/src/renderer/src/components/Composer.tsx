@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { buildFileBlocks, type DraftFile } from "../file-blocks";
 import { formatCompact, formatFileSize } from "../format";
+import { openImageContextMenu } from "../image-actions";
 import { resolveImageRefs } from "../md-editor";
 import { composerDraftKeyOf, type SessionState, useStore } from "../store";
 import { thinkingLevelLabel } from "../tooling";
@@ -252,6 +253,12 @@ export function Composer({ sessionId }: { sessionId: string }) {
                     <img
                       src={`data:${img.mimeType};base64,${img.data}`}
                       alt={img.name}
+                      data-testid="composer-image"
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        void openImageContextMenu(img);
+                      }}
                       className="h-12 w-12 rounded-lg border border-border object-cover"
                     />
                   </button>

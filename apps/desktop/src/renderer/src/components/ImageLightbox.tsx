@@ -3,6 +3,7 @@
 import type { ImageAttachment } from "@spcode/shared";
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { openImageContextMenu } from "../image-actions";
 import { Icon } from "./Icon";
 
 export function ImageLightbox({
@@ -80,6 +81,12 @@ export function ImageLightbox({
       <img
         src={`data:${current.mimeType};base64,${current.data}`}
         alt={current.name}
+        data-testid="image-preview-image"
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          void openImageContextMenu(current);
+        }}
         className="relative max-h-[86vh] max-w-[92vw] rounded-xl object-contain shadow-2xl"
       />
 

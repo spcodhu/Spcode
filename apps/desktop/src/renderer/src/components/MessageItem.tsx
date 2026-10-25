@@ -2,6 +2,7 @@ import { i18n } from "@spcode/shared/i18n";
 import { memo, type ReactNode, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { formatCompact, formatFileSize } from "../format";
+import { openImageContextMenu } from "../image-actions";
 import {
   type ActivitySegment,
   buildRunBlocks,
@@ -46,6 +47,12 @@ function MessageItemImpl({ message }: { message: ChatMessage }) {
               <img
                 src={`data:${img.mimeType};base64,${img.data}`}
                 alt={img.name}
+                data-testid="message-image"
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  void openImageContextMenu(img);
+                }}
                 className="max-h-40 rounded-xl border border-border object-cover transition-opacity hover:opacity-85"
               />
             </button>

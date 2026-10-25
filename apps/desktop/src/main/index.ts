@@ -31,6 +31,7 @@ import { executeFetch, isWebFetchReady } from "@spcode/shared/web-fetch";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { AgentBridge } from "./agent-bridge.js";
 import { DraftsStore } from "./drafts-store.js";
+import { showImageContextMenu } from "./image-actions.js";
 import { Notifier } from "./notifier.js";
 import { QuotaService } from "./quota-service.js";
 import { RemoteServer } from "./remote/index.js";
@@ -490,6 +491,7 @@ function registerIpc(): void {
   });
 
   // 图片附件：多选，读成 base64 内联（>10MB 的跳过，避免撑爆上下文）
+  ipcMain.handle(IPC.imageContextMenu, showImageContextMenu);
   ipcMain.handle(IPC.pickImages, async () => {
     if (!mainWindow) return [];
     const result = await dialog.showOpenDialog(mainWindow, {

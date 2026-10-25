@@ -9,6 +9,8 @@ import {
   type DailyUsage,
   type HostCommandInput,
   type HostEvent,
+  type ImageAttachment,
+  type ImageContextMenuResult,
   IPC,
   type PickedFile,
   type QuotaInfo,
@@ -59,6 +61,8 @@ export interface SpcodeApi {
   revealPath(path: string): Promise<void>;
   /** 选择图片附件（多选，base64 内联） */
   pickImages(): Promise<{ name: string; mimeType: string; data: string }[]>;
+  /** 显示原生图片菜单：复制位图 / 另存为 / 默认应用打开 */
+  showImageContextMenu(image: ImageAttachment): Promise<ImageContextMenuResult>;
   /** 选择任意文件（MD 输入模式）：文本类含内容，图片转附件，二进制/超大标 rejected */
   pickFiles(): Promise<PickedFile[]>;
   /** 输入框草稿：全量读取（启动时）/ 全量保存（防抖） */
@@ -158,6 +162,9 @@ const api: SpcodeApi = {
   },
   pickImages() {
     return ipcRenderer.invoke(IPC.pickImages);
+  },
+  showImageContextMenu(image) {
+    return ipcRenderer.invoke(IPC.imageContextMenu, image);
   },
   pickFiles() {
     return ipcRenderer.invoke(IPC.pickFiles);

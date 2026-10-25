@@ -103,7 +103,11 @@ export default function App() {
         {scheduleOpen && <SchedulePage onClose={() => setScheduleOpen(false)} />}
         {notice && (
           <div className="fixed bottom-4 right-4 z-50 flex max-w-md items-start gap-2 rounded-lg border border-accent/40 bg-bg-elevated px-4 py-3 text-sm text-text-primary shadow-xl">
-            <Icon name="clock" size={15} className="mt-0.5 shrink-0 text-accent" />
+            <Icon
+              name={notice.tone === "success" ? "check" : "clock"}
+              size={15}
+              className="mt-0.5 shrink-0 text-accent"
+            />
             <button
               type="button"
               onClick={() => {

@@ -231,7 +231,7 @@ interface StoreState {
   pendingPermissions: PermissionRequest[];
   lastError: string | null;
   /** 轻量通知（定时任务触发等）：自动消失，点击可跳到对应会话 */
-  notice: { text: string; presentation?: LocalizedText; sessionId?: string } | null;
+  notice: { text: string; presentation?: LocalizedText; sessionId?: string; tone?: "success" } | null;
   /** 更新状态机（主进程推送；idle 时侧栏不显示更新按钮） */
   updateState: UpdateState;
 

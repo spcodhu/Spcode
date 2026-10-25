@@ -72,6 +72,12 @@ export interface ImageAttachment {
   data: string;
 }
 
+/** 桌面原生图片菜单的操作结果；取消与失败（IPC reject）明确区分。 */
+export type ImageContextMenuResult =
+  | { type: "cancelled" }
+  | { type: "copied" }
+  | { type: "saved" | "opened"; path: string };
+
 /**
  * 文件选择结果（IPC pickFiles，Markdown 输入模式「添加文件」用）：
  * - text：文本类文件（扩展名白名单+二进制唿探，≤200KB），渲染层发送时拼进消息文本
@@ -584,6 +590,7 @@ export const IPC = {
   /** renderer -> main (invoke)：选择项目文件夹 / 图片附件 / 任意文件（MD 输入模式） */
   pickDirectory: "spcode:pick-directory",
   pickImages: "spcode:pick-images",
+  imageContextMenu: "spcode:image-context-menu",
   pickFiles: "spcode:pick-files",
   /** renderer -> main (invoke)：输入框草稿全量读/写（渲染层防抖保存） */
   getComposerDrafts: "spcode:get-composer-drafts",
