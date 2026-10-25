@@ -77,7 +77,7 @@ export function PairPage() {
   };
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto px-5 py-8">
+    <div className="flex h-full flex-col overflow-y-auto px-5 pb-[max(2rem,env(safe-area-inset-bottom))] pt-6">
       <h1 className="text-xl font-bold text-slate-100">{t("pair.title")}</h1>
       <p className="mt-2 text-sm leading-6 text-slate-400">{t("pair.help")}</p>
 
@@ -85,19 +85,20 @@ export function PairPage() {
         {t("pair.deviceName")}
         <input
           value={name ?? defaultName}
+          disabled={busy}
           onChange={(e) => setName(e.target.value)}
           maxLength={30}
-          className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500"
+          className="mt-1 min-h-11 w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2.5 text-base text-slate-100 outline-none focus:border-teal-500"
         />
       </label>
 
       {scanning ? (
         <div className="mt-4">
-          <video ref={videoRef} className="w-full rounded-xl bg-black" muted playsInline />
+          <video ref={videoRef} className="aspect-[4/3] w-full rounded-xl bg-black object-cover" muted playsInline />
           <button
             type="button"
             onClick={stopScan}
-            className="mt-3 w-full rounded-lg border border-slate-700 py-2 text-sm text-slate-300"
+            className="mt-3 min-h-11 w-full rounded-xl border border-slate-700 px-4 py-2.5 text-sm text-slate-200"
           >
             {t("pair.cancelScan")}
           </button>
@@ -105,11 +106,12 @@ export function PairPage() {
       ) : (
         <button
           type="button"
+          disabled={busy}
           onClick={() => {
             setError(null);
             setScanning(true);
           }}
-          className="mt-4 w-full rounded-xl bg-sky-600 py-3 text-sm font-medium text-white active:bg-sky-500"
+          className="mt-4 min-h-12 w-full rounded-xl bg-teal-700 px-4 py-3 text-sm font-medium text-white active:bg-teal-600 disabled:opacity-40"
         >
           {t("pair.scan")}
         </button>
@@ -119,23 +121,27 @@ export function PairPage() {
         <div className="text-xs text-slate-500">{t("pair.pasteHelp")}</div>
         <textarea
           value={payload}
+          disabled={busy}
           onChange={(e) => setPayload(e.target.value)}
           rows={3}
           placeholder="spcode-remote://pair?v=2&hosts=…"
-          className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 font-mono text-xs text-slate-200 outline-none focus:border-sky-500"
+          className="mt-2 min-h-24 w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2.5 font-mono text-base leading-6 text-slate-200 outline-none focus:border-teal-500"
         />
         <button
           type="button"
           disabled={busy || !payload.trim()}
           onClick={() => void doPair(payload)}
-          className="mt-2 w-full rounded-lg border border-sky-700 py-2 text-sm text-sky-300 disabled:opacity-40"
+          className="mt-2 min-h-12 w-full rounded-xl border border-teal-700 px-4 py-3 text-sm text-teal-200 disabled:opacity-40"
         >
           {busy ? t("pair.pairing") : t("pair.connect")}
         </button>
       </div>
 
       {error != null && (
-        <div className="mt-4 rounded-lg border border-red-800 bg-red-950/60 px-3 py-2 text-sm leading-6 text-red-200">
+        <div
+          role="alert"
+          className="safe-break mt-4 rounded-xl border border-red-800 bg-red-950/60 px-3 py-2.5 text-sm leading-6 text-red-200"
+        >
           {errorText(error)}
         </div>
       )}

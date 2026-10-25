@@ -24,8 +24,8 @@ function ConnBanner() {
   const text = detail ? t("connection.detail", { message, detail: errorText(detail) }) : message;
   return (
     <div
-      className={`px-4 py-2 text-center text-xs ${
-        connState === "unpaired" ? "bg-red-900/80 text-red-100" : "bg-amber-900/70 text-amber-100"
+      className={`safe-break px-4 py-2 text-center text-xs leading-5 ${
+        connState === "unpaired" ? "bg-red-950 text-red-100" : "bg-amber-950/90 text-amber-100"
       }`}
     >
       {text}
@@ -54,7 +54,7 @@ export default function App() {
   }, []);
 
   return (
-    <div className="mx-auto flex h-full max-w-md flex-col bg-[#0b0f14]">
+    <div className="mobile-app relative mx-auto flex w-full max-w-md flex-col bg-[#0b100f]">
       {route.name !== "pair" && <ConnBanner />}
       <div className="min-h-0 flex-1">
         {!showContent && (

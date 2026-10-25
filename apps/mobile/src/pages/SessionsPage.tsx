@@ -8,14 +8,15 @@ import type { SessionMeta, SessionMode } from "@spcode/shared";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { SettingsSheet } from "../components/SettingsSheet";
+import { Sheet } from "../components/Sheet";
 import { errorText, formatDate } from "../lib/i18n";
 import { createSession, removeSession, renameSession, unpair } from "../state/controller";
 import { type SessionStatus, useAppStore } from "../state/store";
 
 const STATUS_CLASS: Record<SessionStatus, string> = {
-  running: "bg-emerald-900/70 text-emerald-300",
+  running: "bg-teal-950 text-teal-300",
   idle: "bg-slate-800 text-slate-400",
-  waiting_permission: "bg-amber-900/70 text-amber-300",
+  waiting_permission: "bg-amber-950 text-amber-300",
 };
 
 function NewTaskSheet({ onClose }: { onClose: () => void }) {
@@ -40,32 +41,48 @@ function NewTaskSheet({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="absolute inset-0 z-30 flex flex-col justify-end bg-black/60" onClick={onClose}>
-      <div
-        className="rounded-t-2xl border-t border-slate-700 bg-[#11161d] p-5 pb-8"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="text-base font-semibold text-slate-100">{t("sessions.newTask")}</div>
-        <div className="mt-3 flex gap-2">
+    <Sheet
+      title={t("sessions.newTask")}
+      onClose={onClose}
+      busy={busy}
+      footer={
+        <button
+          type="button"
+          disabled={busy || !prompt.trim() || (mode === "project" && !cwd.trim())}
+          onClick={() => void submit()}
+          className="min-h-12 w-full rounded-xl bg-teal-700 px-4 py-3 text-sm font-medium text-white transition-colors active:bg-teal-600 disabled:opacity-40"
+        >
+          {busy ? t("common.creating") : t("sessions.start")}
+        </button>
+      }
+    >
+      <div className="space-y-4">
+        <fieldset className="flex gap-2" aria-label={t("sessions.newTask")}>
           {(["chat", "project"] as const).map((m) => (
             <button
               key={m}
               type="button"
+              aria-pressed={mode === m}
               onClick={() => setMode(m)}
-              className={`flex-1 rounded-lg py-2 text-sm ${
-                mode === m ? "bg-sky-600 text-white" : "bg-slate-800 text-slate-400"
+              className={`min-h-11 flex-1 rounded-xl border px-3 py-2.5 text-sm transition-colors ${
+                mode === m
+                  ? "border-teal-600 bg-teal-800/70 text-teal-50"
+                  : "border-slate-700 bg-slate-800/70 text-slate-300"
               }`}
             >
               {m === "chat" ? t("common.chat") : t("common.project")}
             </button>
           ))}
-        </div>
+        </fieldset>
         {mode === "project" && (
           <input
             value={cwd}
             onChange={(e) => setCwd(e.target.value)}
             placeholder={t("common.projectPath")}
-            className="mt-3 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500"
+            aria-label={t("common.projectPath")}
+            autoCapitalize="off"
+            spellCheck={false}
+            className="min-h-11 w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2.5 text-base text-slate-100 outline-none placeholder:text-slate-600 focus:border-teal-500"
           />
         )}
         <textarea
@@ -73,19 +90,16 @@ function NewTaskSheet({ onClose }: { onClose: () => void }) {
           onChange={(e) => setPrompt(e.target.value)}
           rows={4}
           placeholder={t("sessions.prompt")}
-          className="mt-3 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500"
+          aria-label={t("sessions.prompt")}
+          className="min-h-28 w-full resize-y rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2.5 text-base leading-6 text-slate-100 outline-none placeholder:text-slate-600 focus:border-teal-500"
         />
-        {error != null && <div className="mt-2 text-xs text-red-400">{errorText(error)}</div>}
-        <button
-          type="button"
-          disabled={busy || !prompt.trim() || (mode === "project" && !cwd.trim())}
-          onClick={() => void submit()}
-          className="mt-3 w-full rounded-xl bg-sky-600 py-3 text-sm font-medium text-white disabled:opacity-40"
-        >
-          {busy ? t("common.creating") : t("sessions.start")}
-        </button>
+        {error != null && (
+          <div role="alert" className="safe-break text-xs leading-5 text-red-300">
+            {errorText(error)}
+          </div>
+        )}
       </div>
-    </div>
+    </Sheet>
   );
 }
 
@@ -110,91 +124,93 @@ function SessionActionsSheet({ session, onClose }: { session: SessionMeta; onClo
     }
   };
 
-  return (
-    <div className="absolute inset-0 z-30 flex flex-col justify-end bg-black/60" onClick={onClose}>
-      <div
-        className="rounded-t-2xl border-t border-slate-700 bg-[#11161d] p-5 pb-8"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="truncate text-base font-semibold text-slate-100">{session.title}</div>
-
-        {mode === "menu" && (
-          <div className="mt-4 flex flex-col gap-2">
-            <button
-              type="button"
-              onClick={() => setMode("rename")}
-              className="w-full rounded-lg bg-slate-800 py-2.5 text-sm text-slate-200"
-            >
-              {t("sessions.rename")}
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode("remove")}
-              className="w-full rounded-lg bg-red-950/70 py-2.5 text-sm text-red-300"
-            >
-              {t("sessions.delete")}
-            </button>
-          </div>
-        )}
-
-        {mode === "rename" && (
-          <div className="mt-4">
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              maxLength={60}
-              // biome-ignore lint/a11y/noAutofocus: 移动端重命名弹层聚焦输入框是预期交互（软键盘直接弹出）
-              autoFocus
-              className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500"
-            />
-            <div className="mt-3 flex gap-2">
-              <button
-                type="button"
-                onClick={() => setMode("menu")}
-                className="flex-1 rounded-lg bg-slate-800 py-2.5 text-sm text-slate-400"
-              >
-                {t("common.back")}
-              </button>
-              <button
-                type="button"
-                disabled={busy || !title.trim() || title.trim() === session.title}
-                onClick={() => void run(() => renameSession(session.id, title.trim()))}
-                className="flex-1 rounded-lg bg-sky-600 py-2.5 text-sm font-medium text-white disabled:opacity-40"
-              >
-                {busy ? t("common.saving") : t("common.save")}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {mode === "remove" && (
-          <div className="mt-4">
-            <div className="rounded-lg border border-red-900/60 bg-red-950/50 px-3 py-2 text-xs leading-5 text-red-200">
-              {t("sessions.deleteWarning", { title: session.title })}
-            </div>
-            <div className="mt-3 flex gap-2">
-              <button
-                type="button"
-                onClick={() => setMode("menu")}
-                className="flex-1 rounded-lg bg-slate-800 py-2.5 text-sm text-slate-400"
-              >
-                {t("common.cancel")}
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void run(() => removeSession(session.id))}
-                className="flex-1 rounded-lg bg-red-700 py-2.5 text-sm font-medium text-white disabled:opacity-40"
-              >
-                {busy ? t("common.deleting") : t("common.confirmDelete")}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {error != null && <div className="mt-3 text-xs text-red-400">{errorText(error)}</div>}
+  const footer =
+    mode === "rename" ? (
+      <div className="flex gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => setMode("menu")}
+          className="min-h-12 flex-1 rounded-xl bg-slate-800 px-3 py-3 text-sm text-slate-300 disabled:opacity-40"
+        >
+          {t("common.back")}
+        </button>
+        <button
+          type="button"
+          disabled={busy || !title.trim() || title.trim() === session.title}
+          onClick={() => void run(() => renameSession(session.id, title.trim()))}
+          className="min-h-12 flex-1 rounded-xl bg-teal-700 px-3 py-3 text-sm font-medium text-white disabled:opacity-40"
+        >
+          {busy ? t("common.saving") : t("common.save")}
+        </button>
       </div>
-    </div>
+    ) : mode === "remove" ? (
+      <div className="flex gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => setMode("menu")}
+          className="min-h-12 flex-1 rounded-xl bg-slate-800 px-3 py-3 text-sm text-slate-300 disabled:opacity-40"
+        >
+          {t("common.cancel")}
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void run(() => removeSession(session.id))}
+          className="min-h-12 flex-1 rounded-xl bg-red-800 px-3 py-3 text-sm font-medium text-white disabled:opacity-40"
+        >
+          {busy ? t("common.deleting") : t("common.confirmDelete")}
+        </button>
+      </div>
+    ) : undefined;
+
+  return (
+    <Sheet title={session.title} onClose={onClose} busy={busy} footer={footer}>
+      {mode === "menu" && (
+        <div className="flex flex-col gap-2">
+          <button
+            type="button"
+            onClick={() => setMode("rename")}
+            className="min-h-12 w-full rounded-xl bg-slate-800 px-4 py-3 text-sm text-slate-100 transition-colors active:bg-slate-700"
+          >
+            {t("sessions.rename")}
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("remove")}
+            className="min-h-12 w-full rounded-xl bg-red-950/70 px-4 py-3 text-sm text-red-300 transition-colors active:bg-red-950"
+          >
+            {t("sessions.delete")}
+          </button>
+        </div>
+      )}
+
+      {mode === "rename" && (
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          maxLength={60}
+          aria-label={t("sessions.rename")}
+          data-dialog-initial-focus
+          // biome-ignore lint/a11y/noAutofocus: 重命名弹层主动聚焦输入框，便于直接编辑
+          autoFocus
+          className="min-h-11 w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2.5 text-base text-slate-100 outline-none focus:border-teal-500"
+        />
+      )}
+
+      {mode === "remove" && (
+        <div className="safe-break rounded-xl border border-red-900/70 bg-red-950/50 px-3 py-2.5 text-xs leading-5 text-red-200">
+          {t("sessions.deleteWarning", { title: session.title })}
+        </div>
+      )}
+
+      {error != null && (
+        <div role="alert" className="safe-break mt-3 text-xs leading-5 text-red-300">
+          {errorText(error)}
+        </div>
+      )}
+    </Sheet>
   );
 }
 
@@ -212,23 +228,25 @@ export function SessionsPage() {
 
   return (
     <div className="relative flex h-full flex-col">
-      <header className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
-        <div className="flex items-center gap-2">
-          <div className="text-base font-bold text-slate-100">{t("sessions.title")}</div>
+      <header className="shrink-0 space-y-3 border-b border-slate-800/80 px-4 py-3">
+        <div className="flex min-w-0 items-center justify-between gap-3">
+          <h1 className="min-w-0 truncate text-lg font-semibold tracking-tight text-slate-100">
+            {t("sessions.title")}
+          </h1>
           <button
             type="button"
             onClick={() => setShowSettings(true)}
             aria-label={t("common.settings")}
-            className="rounded-lg bg-slate-800 px-2 py-1 text-xs text-slate-400"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-800/80 text-base text-slate-300 transition-colors active:bg-slate-700"
           >
-            ⚙
+            <span aria-hidden="true">⚙</span>
           </button>
         </div>
-        <div className="flex gap-2">
+        <div className="grid grid-cols-2 gap-2">
           <button
             type="button"
             onClick={() => setRoute({ name: "schedules" })}
-            className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs text-slate-300"
+            className="min-h-11 rounded-xl bg-slate-800/80 px-3 py-2.5 text-xs font-medium text-slate-200 transition-colors active:bg-slate-700"
           >
             {t("schedules.title")}
           </button>
@@ -236,7 +254,7 @@ export function SessionsPage() {
             type="button"
             onClick={() => setShowNew(true)}
             disabled={connState !== "ready"}
-            className="rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40"
+            className="min-h-11 rounded-xl bg-teal-700 px-3 py-2.5 text-xs font-medium text-white transition-colors active:bg-teal-600 disabled:opacity-40"
           >
             {t("sessions.addTask")}
           </button>
@@ -245,25 +263,27 @@ export function SessionsPage() {
 
       <div className="thin-scroll min-h-0 flex-1 overflow-y-auto">
         {list.length === 0 ? (
-          <div className="px-6 py-16 text-center text-sm text-slate-500">
+          <div className="px-6 py-16 text-center text-sm leading-7 text-slate-500">
             {t("sessions.empty")}
             <br />
             {t("sessions.emptyHint")}
           </div>
         ) : (
           list.map((s) => (
-            <div key={s.id} className="flex items-center border-b border-slate-800/60">
+            <div key={s.id} className="flex items-stretch border-b border-slate-800/60">
               <button
                 type="button"
                 onClick={() => setRoute({ name: "session", id: s.id })}
-                className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left active:bg-slate-800/40"
+                className="min-w-0 flex-1 px-4 py-3.5 text-left transition-colors active:bg-slate-800/40"
               >
-                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] ${STATUS_CLASS[s.status]}`}>
-                  {t(`status.${s.status}`)}
+                <span className="safe-break line-clamp-2 block text-sm font-medium leading-6 text-slate-100">
+                  {s.title}
                 </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm text-slate-100">{s.title}</span>
-                  <span className="mt-0.5 block truncate text-[11px] text-slate-500">
+                <span className="mt-1.5 flex min-w-0 items-center gap-2">
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] leading-4 ${STATUS_CLASS[s.status]}`}>
+                    {t(`status.${s.status}`)}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-[11px] leading-4 text-slate-500">
                     {s.mode === "project" ? s.cwd : t("common.chat")} · {formatDate(s.updatedAt)}
                   </span>
                 </span>
@@ -272,28 +292,36 @@ export function SessionsPage() {
                 type="button"
                 onClick={() => setActionsFor(s)}
                 aria-label={t("sessions.actions", { title: s.title })}
-                className="shrink-0 px-3 py-3 text-slate-500 active:text-slate-300"
+                className="flex min-h-11 w-12 shrink-0 items-center justify-center self-stretch text-lg text-slate-500 transition-colors active:bg-slate-800/40 active:text-slate-200"
               >
-                ⋯
+                <span aria-hidden="true">⋯</span>
               </button>
             </div>
           ))
         )}
       </div>
 
-      <footer className="border-t border-slate-800 px-4 py-2 text-center">
+      <footer className="shrink-0 border-t border-slate-800/80 px-4 py-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] text-center">
         {confirmUnpair ? (
-          <span className="text-xs text-red-400">
-            {t("sessions.confirmUnpair")}
-            <button type="button" className="ml-2 underline" onClick={() => void unpair()}>
+          <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs text-red-300">
+            <span>{t("sessions.confirmUnpair")}</span>
+            <button type="button" className="min-h-11 px-2 underline" onClick={() => void unpair()}>
               {t("common.confirm")}
             </button>
-            <button type="button" className="ml-2 text-slate-500 underline" onClick={() => setConfirmUnpair(false)}>
+            <button
+              type="button"
+              className="min-h-11 px-2 text-slate-400 underline"
+              onClick={() => setConfirmUnpair(false)}
+            >
               {t("common.cancel")}
             </button>
-          </span>
+          </div>
         ) : (
-          <button type="button" className="text-[11px] text-slate-600" onClick={() => setConfirmUnpair(true)}>
+          <button
+            type="button"
+            className="min-h-11 px-2 text-[11px] text-slate-500"
+            onClick={() => setConfirmUnpair(true)}
+          >
             {t("sessions.footer")}
           </button>
         )}

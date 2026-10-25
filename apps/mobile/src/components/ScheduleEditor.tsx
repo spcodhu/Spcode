@@ -5,13 +5,16 @@
  */
 
 import type { ScheduleFrequency, ScheduleTask, ScheduleTaskInput } from "@spcode/shared";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorText, formatWeekday, MobileError } from "../lib/i18n";
 import { createSchedule, updateSchedule } from "../state/controller";
+import { Sheet } from "./Sheet";
 
 const FREQUENCIES = ["once", "hourly", "daily", "weekday", "weekly"] as const;
 const WEEKDAYS = [0, 1, 2, 3, 4, 5, 6] as const;
+const FIELD_CLASS =
+  "mt-1.5 min-h-11 w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2.5 text-base text-slate-100 outline-none placeholder:text-slate-600 focus:border-teal-500";
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -21,6 +24,15 @@ function pad2(n: number): string {
 function toLocalInputValue(ts: number): string {
   const d = new Date(ts);
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+function parseTime(value: string): { hour: number; minute: number } | null {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour > 23 || minute > 59) return null;
+  return { hour, minute };
 }
 
 export function ScheduleEditorSheet({
@@ -38,35 +50,55 @@ export function ScheduleEditorSheet({
   const [time, setTime] = useState(task ? `${pad2(task.hour)}:${pad2(task.minute)}` : "09:00");
   const [minute, setMinute] = useState(task?.minute ?? 0);
   const [weekday, setWeekday] = useState(task?.weekday ?? 1);
-  const [runAtLocal, setRunAtLocal] = useState(() =>
-    toLocalInputValue(task?.runAt && task.runAt > Date.now() ? task.runAt : Date.now() + 3600_000),
-  );
+  const [initialRunAtLocal] = useState(() => toLocalInputValue(task?.runAt ?? Date.now() + 3600_000));
+  const [runAtLocal, setRunAtLocal] = useState(initialRunAtLocal);
   const [kind, setKind] = useState<"chat" | "project">(task?.target.kind ?? "chat");
   const [cwd, setCwd] = useState(task?.target.kind === "project" ? task.target.cwd : "");
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const mountedRef = useRef(true);
+  const submissionGeneration = useRef(0);
   const [error, setError] = useState<unknown>(null);
 
-  const buildInput = (): ScheduleTaskInput | MobileError => {
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      submissionGeneration.current += 1;
+    };
+  }, []);
+
+  const buildInput = (): ScheduleTaskInput | Error => {
     const trimmedName = name.trim();
     const trimmedPrompt = prompt.trim();
     if (!trimmedName) return new MobileError("schedule.nameRequired");
     if (!trimmedPrompt) return new MobileError("schedule.promptRequired");
     if (kind === "project" && !cwd.trim()) return new MobileError("schedule.cwdRequired");
 
-    const [h = 9, m = 0] = time.split(":").map((v) => Number(v));
+    let hour = task?.hour ?? 9;
+    let scheduledMinute = frequency === "hourly" ? minute : (task?.minute ?? 0);
+    if (frequency === "daily" || frequency === "weekday" || frequency === "weekly") {
+      const parsed = parseTime(time);
+      if (!parsed) return new Error(t("schedule.timeInvalid"));
+      hour = parsed.hour;
+      scheduledMinute = parsed.minute;
+    }
+
     const base: ScheduleTaskInput = {
       name: trimmedName,
       prompt: trimmedPrompt,
       target: kind === "project" ? { kind: "project", cwd: cwd.trim() } : { kind: "chat" },
       frequency,
-      hour: h,
-      minute: frequency === "hourly" ? minute : m,
+      hour,
+      minute: scheduledMinute,
       enabled: task?.enabled ?? true,
     };
     if (frequency === "weekly") base.weekday = weekday;
     if (frequency === "once") {
-      const runAt = new Date(runAtLocal).getTime();
-      if (!Number.isFinite(runAt)) return new MobileError("schedule.runAtRequired");
+      // datetime-local 只有分钟精度；未修改时保留原时间戳，避免仅改名就丢失秒/毫秒或刷新过期时间。
+      const keepOriginal = task?.frequency === "once" && task.runAt != null && runAtLocal === initialRunAtLocal;
+      const runAt = keepOriginal ? task.runAt! : new Date(runAtLocal).getTime();
+      if (!runAtLocal.trim() || !Number.isFinite(runAt)) return new MobileError("schedule.runAtRequired");
       base.runAt = runAt;
       // once 不用 hour/minute，但与触发时间对齐保持数据自洽
       const d = new Date(runAt);
@@ -77,60 +109,82 @@ export function ScheduleEditorSheet({
   };
 
   const submit = async () => {
-    if (busy) return;
+    if (busyRef.current) return;
     const input = buildInput();
-    if (input instanceof MobileError) {
+    if (input instanceof Error) {
       setError(input);
       return;
     }
+    const generation = ++submissionGeneration.current;
+    busyRef.current = true;
     setBusy(true);
     setError(null);
     try {
       if (task) await updateSchedule(task.id, input);
       else await createSchedule(input);
+      // 旧表单的异步结果不得关闭后来打开的新表单，也不得在卸载后更新 state。
+      if (!mountedRef.current || generation !== submissionGeneration.current) return;
       onClose();
     } catch (err) {
+      if (!mountedRef.current || generation !== submissionGeneration.current) return;
       setError(err);
+      busyRef.current = false;
       setBusy(false);
     }
   };
 
-  return (
-    <div className="absolute inset-0 z-30 flex flex-col justify-end bg-black/60" onClick={onClose}>
-      <div
-        className="thin-scroll max-h-[85%] overflow-y-auto rounded-t-2xl border-t border-slate-700 bg-[#11161d] p-5 pb-8"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="text-base font-semibold text-slate-100">{task ? t("schedule.edit") : t("schedule.create")}</div>
+  const requestClose = () => {
+    if (busyRef.current) return;
+    submissionGeneration.current += 1;
+    onClose();
+  };
 
-        <label className="mt-4 block text-xs text-slate-400">
+  return (
+    <Sheet
+      title={task ? t("schedule.edit") : t("schedule.create")}
+      onClose={requestClose}
+      busy={busy}
+      footer={
+        <button
+          type="button"
+          data-testid="schedule-submit"
+          disabled={busy}
+          onClick={() => void submit()}
+          className="min-h-12 w-full rounded-xl bg-teal-700 px-4 py-3 text-sm font-medium text-white transition-colors active:bg-teal-600 disabled:opacity-40"
+        >
+          {busy ? t("common.saving") : task ? t("common.save") : t("common.create")}
+        </button>
+      }
+    >
+      <div className="space-y-4">
+        <label className="block text-xs font-medium text-slate-400">
           {t("schedule.name")}
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             maxLength={50}
             placeholder={t("schedule.namePlaceholder")}
-            className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500"
+            className={FIELD_CLASS}
           />
         </label>
 
-        <label className="mt-3 block text-xs text-slate-400">
+        <label className="block text-xs font-medium text-slate-400">
           {t("schedule.prompt")}
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             rows={4}
             placeholder={t("schedule.promptPlaceholder")}
-            className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500"
+            className={`${FIELD_CLASS} min-h-28 resize-y leading-6`}
           />
         </label>
 
-        <label className="mt-3 block text-xs text-slate-400">
+        <label className="block text-xs font-medium text-slate-400">
           {t("schedule.frequency")}
           <select
             value={frequency}
             onChange={(e) => setFrequency(e.target.value as ScheduleFrequency)}
-            className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500"
+            className={FIELD_CLASS}
           >
             {FREQUENCIES.map((f) => (
               <option key={f} value={f}>
@@ -141,19 +195,19 @@ export function ScheduleEditorSheet({
         </label>
 
         {frequency === "once" && (
-          <label className="mt-3 block text-xs text-slate-400">
+          <label className="block text-xs font-medium text-slate-400">
             {t("schedule.runAt")}
             <input
               type="datetime-local"
               value={runAtLocal}
               onChange={(e) => setRunAtLocal(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500"
+              className={FIELD_CLASS}
             />
           </label>
         )}
 
         {frequency === "hourly" && (
-          <label className="mt-3 block text-xs text-slate-400">
+          <label className="block text-xs font-medium text-slate-400">
             {t("schedule.minute")}
             <input
               type="number"
@@ -161,31 +215,28 @@ export function ScheduleEditorSheet({
               max={59}
               value={minute}
               onChange={(e) => setMinute(Math.max(0, Math.min(59, Number(e.target.value) || 0)))}
-              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500"
+              className={FIELD_CLASS}
             />
           </label>
         )}
 
         {(frequency === "daily" || frequency === "weekday" || frequency === "weekly") && (
-          <label className="mt-3 block text-xs text-slate-400">
+          <label className="block text-xs font-medium text-slate-400">
             {t("schedule.time")}
             <input
               type="time"
               value={time}
+              required
               onChange={(e) => setTime(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500"
+              className={FIELD_CLASS}
             />
           </label>
         )}
 
         {frequency === "weekly" && (
-          <label className="mt-3 block text-xs text-slate-400">
+          <label className="block text-xs font-medium text-slate-400">
             {t("schedule.dayOfWeek")}
-            <select
-              value={weekday}
-              onChange={(e) => setWeekday(Number(e.target.value))}
-              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500"
-            >
+            <select value={weekday} onChange={(e) => setWeekday(Number(e.target.value))} className={FIELD_CLASS}>
               {WEEKDAYS.map((day) => (
                 <option key={day} value={day}>
                   {formatWeekday(day)}
@@ -195,40 +246,44 @@ export function ScheduleEditorSheet({
           </label>
         )}
 
-        <div className="mt-3 text-xs text-slate-400">{t("schedule.mode")}</div>
-        <div className="mt-1 flex gap-2">
-          {(["chat", "project"] as const).map((k) => (
-            <button
-              key={k}
-              type="button"
-              onClick={() => setKind(k)}
-              className={`flex-1 rounded-lg py-2 text-sm ${
-                kind === k ? "bg-sky-600 text-white" : "bg-slate-800 text-slate-400"
-              }`}
-            >
-              {k === "chat" ? t("common.chatSession") : t("common.projectSession")}
-            </button>
-          ))}
+        <div>
+          <div className="text-xs font-medium text-slate-400">{t("schedule.mode")}</div>
+          <fieldset className="mt-1.5 flex gap-2" aria-label={t("schedule.mode")}>
+            {(["chat", "project"] as const).map((k) => (
+              <button
+                key={k}
+                type="button"
+                aria-pressed={kind === k}
+                onClick={() => setKind(k)}
+                className={`min-h-11 flex-1 rounded-xl border px-3 py-2.5 text-sm transition-colors ${
+                  kind === k
+                    ? "border-teal-600 bg-teal-800/70 text-teal-50"
+                    : "border-slate-700 bg-slate-800/70 text-slate-300"
+                }`}
+              >
+                {k === "chat" ? t("common.chatSession") : t("common.projectSession")}
+              </button>
+            ))}
+          </fieldset>
+          {kind === "project" && (
+            <input
+              value={cwd}
+              onChange={(e) => setCwd(e.target.value)}
+              placeholder={t("common.projectPath")}
+              aria-label={t("common.projectPath")}
+              autoCapitalize="off"
+              spellCheck={false}
+              className={FIELD_CLASS}
+            />
+          )}
         </div>
-        {kind === "project" && (
-          <input
-            value={cwd}
-            onChange={(e) => setCwd(e.target.value)}
-            placeholder={t("common.projectPath")}
-            className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500"
-          />
-        )}
 
-        {error != null && <div className="mt-3 text-xs text-red-400">{errorText(error)}</div>}
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void submit()}
-          className="mt-4 w-full rounded-xl bg-sky-600 py-3 text-sm font-medium text-white disabled:opacity-40"
-        >
-          {busy ? t("common.saving") : task ? t("common.save") : t("common.create")}
-        </button>
+        {error != null && (
+          <div role="alert" className="safe-break text-xs leading-5 text-red-300">
+            {errorText(error)}
+          </div>
+        )}
       </div>
-    </div>
+    </Sheet>
   );
 }
