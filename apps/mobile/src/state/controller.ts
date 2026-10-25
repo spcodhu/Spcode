@@ -25,6 +25,13 @@ import { getOutputMaxSeq, useAppStore } from "./store";
 let client: RemoteClient | null = null;
 /** 只采用最后一次发出的 session.list 响应，避免创建会话的刷新被更早的启动刷新覆盖 */
 let sessionListRequest = 0;
+/** 配对/客户端代次：旧客户端的迟到事件与响应不得覆盖新配对状态。 */
+let clientGeneration = 0;
+interface OutputRequest {
+  generation: number;
+  promise: Promise<void>;
+}
+const outputRequests = new Map<string, OutputRequest>();
 
 export function getClient(): RemoteClient | null {
   return client;
@@ -45,16 +52,23 @@ export async function boot(): Promise<void> {
     return;
   }
   store.setPairing(record);
-  store.setRoute({ name: "sessions" });
+  // 常规启动仍进列表；若调用方在 cold boot 前已恢复某个详情路由，则保留 sessionId 供 ready 补拉。
+  if (useAppStore.getState().route.name !== "session") useAppStore.getState().setRoute({ name: "sessions" });
   startClient(record);
 }
 
 function startClient(record: PairingRecord): void {
+  const generation = ++clientGeneration;
+  sessionListRequest++;
+  outputRequests.clear();
   client?.stop();
   const store = useAppStore.getState();
   client = new RemoteClient(record, {
-    onEvent: handleEvent,
+    onEvent: (event) => {
+      if (generation === clientGeneration) handleEvent(event);
+    },
     onState: (state, detail) => {
+      if (generation !== clientGeneration) return;
       const current = useAppStore.getState();
       if (state === "connecting" || state === "reconnecting") current.setLocaleReady(false);
       current.setConn(state, detail);
@@ -76,6 +90,9 @@ export function attachPairedRecord(record: PairingRecord): void {
 
 /** 解除配对：清本地记录 + 停连接 + 重置状态（桌面侧设备列表需在桌面设置页移除） */
 export async function unpair(): Promise<void> {
+  clientGeneration++;
+  sessionListRequest++;
+  outputRequests.clear();
   client?.stop();
   client = null;
   try {
@@ -95,7 +112,7 @@ function handleEvent(event: RemoteEventExt): void {
   const s = useAppStore.getState();
   switch (event.type) {
     case "session.snapshot":
-      s.setSessions(event.sessions);
+      s.applySessionSnapshot(event.sessions, event.pendingPermissions ?? [], event.pendingQuestions ?? []);
       break;
     case "session.status":
       s.patchSession(event.sessionId, { status: event.status, updatedAt: Date.now() });
@@ -163,11 +180,14 @@ async function send<T = unknown>(cmd: Parameters<RemoteClient["command"]>[0]): P
 
 async function refreshSessionList(): Promise<void> {
   const request = ++sessionListRequest;
+  const generation = clientGeneration;
   try {
     const data = await send<{ sessions: Parameters<ReturnType<typeof useAppStore.getState>["setSessions"]>[0] }>({
       type: "session.list",
     });
-    if (request === sessionListRequest) useAppStore.getState().setSessions(data.sessions);
+    if (request === sessionListRequest && generation === clientGeneration) {
+      useAppStore.getState().setSessions(data.sessions);
+    }
   } catch {
     // 快照事件兜底
   }
@@ -175,35 +195,69 @@ async function refreshSessionList(): Promise<void> {
 
 /** ready 后拉全量：会话列表 + 定时任务（快照事件也会推会话，双保险） */
 async function refreshAll(): Promise<void> {
-  await refreshSessionList();
-  await refreshSchedules();
+  await Promise.all([refreshSessionList(), refreshSchedules()]);
 }
 
 /**
- * 断线补拉：对「已有输出记录的会话 + 当前打开的会话」发 session.output.since，
- * 桌面回 session.output.backfill 事件（只含 seq > afterSeq 的 chunk），由 mergeBackfill 合并。
+ * 拉取单个会话输出。相同客户端代次内按 sessionId 去重；loaded/error 在普通路由进入时
+ * 不重复请求，只有重连补拉或用户显式重试才强制发起。无缓存时 afterSeq 固定为 -1。
  */
+export function ensureSessionOutput(sessionId: string, force = false): Promise<void> {
+  const s = useAppStore.getState();
+  if (s.connState !== "ready" || !client) return Promise.resolve();
+  const existing = outputRequests.get(sessionId);
+  if (existing?.generation === clientGeneration) return existing.promise;
+  if (!force) {
+    const status = s.outputSync[sessionId]?.status;
+    if (status === "loaded" || status === "error") return Promise.resolve();
+  }
+
+  const generation = clientGeneration;
+  const knownSession = !!s.sessions[sessionId];
+  s.setOutputSync(sessionId, { status: "loading" });
+  const promise = (async () => {
+    try {
+      await send({ type: "session.output.since", sessionId, afterSeq: getOutputMaxSeq(sessionId) ?? -1 });
+      if (generation !== clientGeneration) return;
+      const current = useAppStore.getState();
+      // 请求期间已被权威列表删除：不要把旧响应重新写回该会话。
+      if (knownSession && !current.sessions[sessionId]) return;
+      current.setOutputSync(sessionId, { status: "loaded" });
+    } catch (error) {
+      if (generation !== clientGeneration) return;
+      const current = useAppStore.getState();
+      if (knownSession && !current.sessions[sessionId]) return;
+      current.setOutputSync(sessionId, { status: "error", error });
+    }
+  })();
+  const entry = { generation, promise };
+  outputRequests.set(sessionId, entry);
+  void promise.finally(() => {
+    if (outputRequests.get(sessionId) === entry) outputRequests.delete(sessionId);
+  });
+  return promise;
+}
+
+export function retrySessionOutput(sessionId: string): Promise<void> {
+  return ensureSessionOutput(sessionId, true);
+}
+
+/** 重连后补拉有缓存的会话和当前详情；空缓存的冷启动详情也使用 afterSeq=-1。 */
 async function backfillOutputs(): Promise<void> {
   const s = useAppStore.getState();
   const targets = new Set<string>();
   for (const id of Object.keys(s.outputs)) {
     if (getOutputMaxSeq(id) !== undefined) targets.add(id);
   }
-  if (s.route.name === "session") targets.add(s.route.id); // 打开的会话：即使本地无记录也补最近输出
-  for (const sessionId of targets) {
-    const afterSeq = getOutputMaxSeq(sessionId) ?? -1;
-    try {
-      await send({ type: "session.output.since", sessionId, afterSeq });
-    } catch {
-      // 连接抖动等：缺口标记保留，下次重连再补
-    }
-  }
+  if (s.route.name === "session") targets.add(s.route.id);
+  await Promise.all([...targets].map((sessionId) => ensureSessionOutput(sessionId, true)));
 }
 
 export async function refreshSchedules(): Promise<void> {
+  const generation = clientGeneration;
   try {
     const data = await send<{ tasks: ScheduleTask[] }>({ type: "schedule.list" });
-    useAppStore.getState().setSchedules(data.tasks);
+    if (generation === clientGeneration) useAppStore.getState().setSchedules(data.tasks);
   } catch {
     // 非 ready 等场景忽略
   }
@@ -226,12 +280,10 @@ export async function renameSession(sessionId: string, title: string): Promise<v
   useAppStore.getState().patchSession(sessionId, { title });
 }
 
-/** 删除会话（桌面完成后广播 sessions.changed；本地立即移除，若正在详情页则退回列表） */
+/** 删除会话（store 统一清理缓存；若正在详情页则退回列表） */
 export async function removeSession(sessionId: string): Promise<void> {
   await send({ type: "session.remove", sessionId });
-  const s = useAppStore.getState();
-  s.removeSession(sessionId);
-  if (s.route.name === "session" && s.route.id === sessionId) s.setRoute({ name: "sessions" });
+  useAppStore.getState().removeSession(sessionId);
 }
 
 export async function sendPrompt(sessionId: string, text: string): Promise<void> {
@@ -242,15 +294,15 @@ export async function abortSession(sessionId: string): Promise<void> {
   await send({ type: "session.abort", sessionId });
 }
 
-/** 权限批复：先到先得——本地先移除卡片，重复响应对端会忽略 */
+/** 权限/提问回复：只有桌面确认后才撤卡；失败原样抛出，由卡片保留内容并允许手动重试。 */
 export async function replyPermission(requestId: string, approved: boolean): Promise<void> {
+  await send({ type: "permission.reply", requestId, approved });
   useAppStore.getState().dropPermission(requestId);
-  await send({ type: "permission.reply", requestId, approved }).catch(() => {});
 }
 
 export async function replyQuestion(requestId: string, answers: QuestionAnswers): Promise<void> {
+  await send({ type: "question.reply", requestId, answers });
   useAppStore.getState().dropQuestion(requestId);
-  await send({ type: "question.reply", requestId, answers }).catch(() => {});
 }
 
 export async function createSchedule(input: ScheduleTaskInput): Promise<void> {

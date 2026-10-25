@@ -225,6 +225,8 @@ export class RemoteClient {
   private ws: WebSocket | null = null;
   private state: ConnectionState = "stopped";
   private stopped = true;
+  /** start/stop 代次：stop 后完成的异步握手不得再发布 ready/unpaired。 */
+  private generation = 0;
   private backoff: number;
   private readonly backoffMin: number;
   private readonly backoffMax: number;
@@ -265,12 +267,16 @@ export class RemoteClient {
   start(): void {
     if (!this.stopped) return;
     this.stopped = false;
+    const generation = ++this.generation;
     this.backoff = this.backoffMin;
-    void this.connectOnce();
+    void this.connectOnce(generation);
   }
 
   stop(): void {
     this.stopped = true;
+    // close 回调会因代次失效而忽略，因此 stop 自己必须先保存跨连接出站序号。
+    this.persistOutSeq();
+    this.generation++;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
     this.setState("stopped");
@@ -292,7 +298,13 @@ export class RemoteClient {
         reject(new MobileError("error.commandTimeout"));
       }, timeoutMs);
       this.pending.set(id, { resolve: resolve as (data: unknown) => void, reject, timer });
-      this.sendEncrypted(ws, id, { kind: "command", command: cmd as RemoteCommand });
+      try {
+        this.sendEncrypted(ws, id, { kind: "command", command: cmd as RemoteCommand });
+      } catch (error) {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
     });
   }
 
@@ -301,8 +313,8 @@ export class RemoteClient {
     this.cb.onState(state, detail);
   }
 
-  private async connectOnce(): Promise<void> {
-    if (this.stopped) return;
+  private async connectOnce(generation: number): Promise<void> {
+    if (this.stopped || generation !== this.generation) return;
     this.setState(this.state === "reconnecting" ? "reconnecting" : "connecting");
     const host = this.hosts[this.hostIndex % this.hosts.length]!;
     this.hostIndex++;
@@ -311,17 +323,26 @@ export class RemoteClient {
     try {
       ws = await connectWs(connectUrlOf(host, this.record.desktopPk, this.record.deviceId));
     } catch (err) {
-      this.scheduleReconnect(err instanceof Error ? err : new MobileError("error.connectionFailed"));
+      if (generation === this.generation) {
+        this.scheduleReconnect(err instanceof Error ? err : new MobileError("error.connectionFailed"), generation);
+      }
+      return;
+    }
+    if (this.stopped || generation !== this.generation) {
+      ws.close();
       return;
     }
     this.ws = ws;
 
     ws.addEventListener("message", (ev) => this.onRawMessage(ws, ev));
     ws.addEventListener("close", () => {
-      if (this.ws === ws) this.ws = null;
+      if (generation !== this.generation || this.ws !== ws) return;
+      this.ws = null;
       this.persistOutSeq(); // 断连兜底落盘
       this.failAllPending(new MobileError("error.disconnected"));
-      if (!this.stopped && this.state !== "unpaired") this.scheduleReconnect(new MobileError("error.disconnected"));
+      if (!this.stopped && this.state !== "unpaired") {
+        this.scheduleReconnect(new MobileError("error.disconnected"), generation);
+      }
     });
     ws.addEventListener("error", () => ws.close());
 
@@ -353,6 +374,7 @@ export class RemoteClient {
         "challenge",
       )) as { t: "auth_challenge" | "auth_ack"; nonce?: string; ok?: boolean; error?: string };
 
+      if (this.stopped || generation !== this.generation) return;
       if (first.t === "auth_ack") {
         // 未配对即拒（无挑战）：进入 unpaired 等用户重新扫码
         this.stopped = true;
@@ -384,6 +406,7 @@ export class RemoteClient {
         resumeSeq?: number;
         error?: string;
       };
+      if (this.stopped || generation !== this.generation) return;
       if (!ack.ok) {
         // seq_rollback = 本地出站序号被回滚（如清了站点数据但桌面还记得旧 seq）：配对关系已不可信，需重新配对
         this.stopped = true; // 桌面已不认识本设备：不再自动重连，等待用户重新配对
@@ -408,18 +431,20 @@ export class RemoteClient {
       for (const frame of early) this.onEncryptedFrame(ws, frame);
     } catch (err) {
       ws.close();
-      if (!this.stopped) this.scheduleReconnect(err instanceof Error ? err : new MobileError("error.authFailed"));
+      if (!this.stopped && generation === this.generation) {
+        this.scheduleReconnect(err instanceof Error ? err : new MobileError("error.authFailed"), generation);
+      }
     }
   }
 
-  private scheduleReconnect(reason: ConnectionDetail): void {
-    if (this.stopped || this.reconnectTimer) return;
+  private scheduleReconnect(reason: ConnectionDetail, generation: number): void {
+    if (this.stopped || generation !== this.generation || this.reconnectTimer) return;
     this.setState("reconnecting", reason);
     const delay = this.backoff;
     this.backoff = Math.min(this.backoff * 2, this.backoffMax);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      void this.connectOnce();
+      if (!this.stopped && generation === this.generation) void this.connectOnce(generation);
     }, delay);
   }
 

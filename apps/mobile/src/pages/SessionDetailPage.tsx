@@ -6,12 +6,14 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorText, formatNumber } from "../lib/i18n";
-import { abortSession, sendPrompt } from "../state/controller";
+import { abortSession, ensureSessionOutput, retrySessionOutput, sendPrompt } from "../state/controller";
 import { useAppStore } from "../state/store";
 
 function OutputView({ sessionId }: { sessionId: string }) {
   const { t } = useTranslation("mobile");
   const chunks = useAppStore((s) => s.outputs[sessionId]);
+  const outputSync = useAppStore((s) => s.outputSync[sessionId]);
+  const connState = useAppStore((s) => s.connState);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
@@ -55,8 +57,31 @@ function OutputView({ sessionId }: { sessionId: string }) {
         className="thin-scroll h-full overflow-y-auto overscroll-contain px-4 py-4"
       >
         <div className="mx-auto max-w-prose">
+          {outputSync?.status === "error" && (
+            <div
+              role="alert"
+              className="safe-break mb-3 rounded-xl border border-red-900/60 bg-red-950/40 px-3 py-2.5 text-xs leading-5 text-red-300"
+            >
+              <div>{errorText(outputSync.error)}</div>
+              <button
+                type="button"
+                data-testid="output-retry"
+                disabled={connState !== "ready"}
+                onClick={() => void retrySessionOutput(sessionId)}
+                className="mt-1 min-h-11 px-1 text-red-100 underline disabled:opacity-40"
+              >
+                {t("session.retry")}
+              </button>
+            </div>
+          )}
           {!chunks || chunks.length === 0 ? (
-            <div className="py-16 text-center text-sm text-slate-500">{t("session.emptyOutput")}</div>
+            outputSync?.status === "loaded" ? (
+              <div className="py-16 text-center text-sm text-slate-500">{t("session.emptyOutput")}</div>
+            ) : outputSync?.status === "error" ? null : (
+              <div role="status" className="py-16 text-center text-sm text-slate-500">
+                {t("session.loadingOutput")}
+              </div>
+            )
           ) : (
             <div className="space-y-3">
               {chunks.map((c) => {
@@ -193,20 +218,50 @@ export function SessionDetailPage({ sessionId }: { sessionId: string }) {
   const session = useAppStore((s) => s.sessions[sessionId]);
   const connState = useAppStore((s) => s.connState);
   const setRoute = useAppStore((s) => s.setRoute);
-  const [text, setText] = useState("");
+  const text = useAppStore((s) => s.inputDrafts[sessionId]?.text ?? "");
+  const setInputDraft = useAppStore((s) => s.setInputDraft);
+  const restoreInputDraft = useAppStore((s) => s.restoreInputDraft);
+  const [sending, setSending] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const sendGeneration = useRef(0);
+  const sendLocks = useRef(new Set<string>());
+  const sessionRef = useRef(sessionId);
+  sessionRef.current = sessionId;
   const running = session?.status === "running" || session?.status === "waiting_permission";
 
-  const send = async () => {
-    const t = text.trim();
-    if (!t || connState !== "ready") return;
-    setText("");
+  useEffect(() => {
+    if (connState === "ready") void ensureSessionOutput(sessionId);
+  }, [connState, sessionId]);
+
+  useEffect(() => {
+    sessionRef.current = sessionId;
+    sendGeneration.current++;
+    setSending(false);
     setError(null);
+    return () => {
+      sendGeneration.current++;
+    };
+  }, [sessionId]);
+
+  const send = async () => {
+    const snapshot = text;
+    const prompt = snapshot.trim();
+    if (!prompt || connState !== "ready" || sendLocks.current.has(sessionId)) return;
+    const id = sessionId;
+    const generation = ++sendGeneration.current;
+    sendLocks.current.add(id);
+    setSending(true);
+    setError(null);
+    // 清空会产生新版本；失败时只有版本仍指向这次等待，才恢复发送前快照。
+    const waitingVersion = setInputDraft(id, "");
     try {
-      await sendPrompt(sessionId, t); // 运行中发送 = steer 插话（宿主侧无需特判）
+      await sendPrompt(id, prompt); // 运行中发送 = steer 插话（宿主侧无需特判）
     } catch (err) {
-      setError(err);
-      setText(t); // 失败回填
+      restoreInputDraft(id, snapshot, waitingVersion);
+      if (generation === sendGeneration.current && sessionRef.current === id) setError(err);
+    } finally {
+      sendLocks.current.delete(id);
+      if (generation === sendGeneration.current) setSending(false);
     }
   };
 
@@ -260,8 +315,9 @@ export function SessionDetailPage({ sessionId }: { sessionId: string }) {
 
       <div className="flex shrink-0 items-end gap-2 border-t border-slate-800/80 bg-[#101716] px-3 py-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <textarea
+          data-testid="session-input"
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => setInputDraft(sessionId, e.target.value)}
           rows={1}
           placeholder={running ? t("session.steerPlaceholder") : t("session.promptPlaceholder")}
           className="thin-scroll max-h-32 min-h-11 min-w-0 flex-1 resize-none overflow-y-auto rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2.5 text-base leading-6 text-slate-100 outline-none placeholder:text-slate-600 focus:border-teal-500"
@@ -278,11 +334,12 @@ export function SessionDetailPage({ sessionId }: { sessionId: string }) {
         )}
         <button
           type="button"
+          data-testid="session-send"
           onClick={() => void send()}
-          disabled={connState !== "ready" || !text.trim()}
+          disabled={sending || connState !== "ready" || !text.trim()}
           className="min-h-11 shrink-0 rounded-xl bg-teal-700 px-4 py-2.5 text-sm font-medium text-white transition-colors active:bg-teal-600 disabled:opacity-40"
         >
-          {t("session.send")}
+          {sending ? t("session.sending") : t("session.send")}
         </button>
       </div>
     </div>

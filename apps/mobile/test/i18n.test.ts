@@ -245,6 +245,15 @@ describe("mobile locale lifecycle", () => {
     expect(storage.get(LOCALE_CACHE_KEY)).toBe(resolveLocale("en"));
     expect([...storage.values()]).not.toContain(record.keyPair.secretKey);
   });
+
+  it("announces connection state appropriately and exposes an explicit re-pair action", () => {
+    useAppStore.getState().setConn("connecting");
+    expect(render(createElement(App))).toContain('role="status"');
+    useAppStore.getState().setConn("unpaired");
+    const html = render(createElement(App));
+    expect(html).toContain('role="alert"');
+    expect(html).toContain(mobileText("connection.repair"));
+  });
 });
 
 describe("localized rendering keeps raw content unchanged", () => {

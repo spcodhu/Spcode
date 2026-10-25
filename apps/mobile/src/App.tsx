@@ -7,7 +7,7 @@ import { PairPage } from "./pages/PairPage";
 import { SchedulesPage } from "./pages/SchedulesPage";
 import { SessionDetailPage } from "./pages/SessionDetailPage";
 import { SessionsPage } from "./pages/SessionsPage";
-import { boot } from "./state/controller";
+import { boot, unpair } from "./state/controller";
 import { useAppStore } from "./state/store";
 
 function ConnBanner() {
@@ -24,11 +24,17 @@ function ConnBanner() {
   const text = detail ? t("connection.detail", { message, detail: errorText(detail) }) : message;
   return (
     <div
+      role={connState === "unpaired" ? "alert" : "status"}
       className={`safe-break px-4 py-2 text-center text-xs leading-5 ${
         connState === "unpaired" ? "bg-red-950 text-red-100" : "bg-amber-950/90 text-amber-100"
       }`}
     >
-      {text}
+      <span>{text}</span>
+      {connState === "unpaired" && (
+        <button type="button" onClick={() => void unpair()} className="ml-2 min-h-11 px-2 font-medium underline">
+          {t("connection.repair")}
+        </button>
+      )}
     </div>
   );
 }
@@ -65,7 +71,7 @@ export default function App() {
         <div hidden={!showContent} data-testid="session-content" className="h-full">
           {route.name === "pair" && <PairPage />}
           {route.name === "sessions" && <SessionsPage />}
-          {route.name === "session" && <SessionDetailPage sessionId={route.id} />}
+          {route.name === "session" && <SessionDetailPage key={route.id} sessionId={route.id} />}
           {route.name === "schedules" && <SchedulesPage />}
         </div>
       </div>

@@ -44,6 +44,7 @@ import { handleRemoteCommand, type RemoteHandlerDeps } from "./handlers.js";
 import { SessionOutputLog } from "./output-log.js";
 import { PairingManager } from "./pairing.js";
 import { PushService } from "./push.js";
+import { RemoteRuntimeTracker } from "./runtime-snapshot.js";
 import { LanTransport } from "./transport/lan.js";
 import { deriveChannelId, RelayTransport } from "./transport/relay.js";
 import { TailscaleManager } from "./transport/tailscale.js";
@@ -111,12 +112,12 @@ export class RemoteServer {
   private readonly pairing: PairingManager;
   private readonly aggregator: RemoteEventAggregator;
   private readonly outputLog: SessionOutputLog;
+  private readonly runtime: RemoteRuntimeTracker;
   private readonly push: PushService;
   private readonly tailscale: TailscaleManager;
   private readonly peers = new Set<PeerState>();
   private lanTransport: RemoteTransport | null;
   private relayTransport: RemoteTransport | null = null;
-  private unsubscribeBridge: (() => void) | null = null;
   private running = false;
   /** 当前运行对应的配置指纹（端口 / relayUrl 变更后重启） */
   private activeConfigPort: number | null = null;
@@ -134,11 +135,23 @@ export class RemoteServer {
     this.lanTransport = deps.transport ?? null;
     this.relayTransport = deps.relayTransport ?? null;
     this.outputLog = new SessionOutputLog();
+    this.runtime = new RemoteRuntimeTracker();
     this.aggregator = new RemoteEventAggregator({ emit: (event) => this.emitRemote(event) });
     this.push = deps.push ?? new PushService();
     this.tailscale =
       deps.tailscale ??
       new TailscaleManager({ log: (msg, extra) => console.warn(`[remote/tailscale] ${msg}`, extra ?? "") });
+    // RemoteServer 与 AgentBridge 同为应用级单例，且构造早于 bridge.start()。
+    // 永久保留这一份订阅：即使远程服务停用/重启，认证快照镜像仍持续跟踪权威宿主事件。
+    deps.bridge.onEvent((event) => {
+      this.runtime.handle(event);
+      if (!this.running) return;
+      this.aggregator.handle(event);
+      // Web Push 触发点（M2）：无内容提醒；设置关闭或失败都不影响主流程
+      void this.push
+        .notifyForHostEvent(event, this.deps.settings.get().remote.pushEnabled === true)
+        .catch((err) => console.warn("[remote/push] 推送异常", err));
+    });
   }
 
   /** 按 settings.remote 启停（设置变更后由 IPC 层显式调用） */
@@ -204,13 +217,6 @@ export class RemoteServer {
     this.activeRelayUrl = relayUrl;
     // 首次启用即生成 VAPID 密钥对（remote.hello 携带公钥供设备订阅推送）
     this.push.ensureVapid();
-    this.unsubscribeBridge = this.deps.bridge.onEvent((event) => {
-      this.aggregator.handle(event);
-      // Web Push 触发点（M2）：无内容提醒；设置关闭或失败都不影响主流程
-      void this.push
-        .notifyForHostEvent(event, this.deps.settings.get().remote.pushEnabled === true)
-        .catch((err) => console.warn("[remote/push] 推送异常", err));
-    });
     this.running = true;
     // tailscale serve 依赖 LAN 已起（需要实际端口）
     await this.syncTailscale();
@@ -226,8 +232,6 @@ export class RemoteServer {
     }
     if (!this.running) return;
     this.running = false;
-    this.unsubscribeBridge?.();
-    this.unsubscribeBridge = null;
     this.aggregator.dispose();
     for (const state of this.peers) state.peer.close();
     this.peers.clear();
@@ -588,7 +592,7 @@ export class RemoteServer {
   private sendSnapshot(state: PeerState): void {
     this.sendEncrypted(state, {
       kind: "event",
-      event: { type: "session.snapshot", sessions: this.deps.registry.list() },
+      event: { type: "session.snapshot", ...this.runtime.snapshot(this.deps.registry.list()) },
     });
   }
 

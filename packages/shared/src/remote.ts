@@ -53,6 +53,13 @@ export type RemoteCommand =
   /** 删除会话（注册表 + 计划文件 + 宿主实例一并清理，完成后广播 sessions.changed） */
   | { type: "session.remove"; sessionId: string };
 
+export type RemoteSessionStatus = "running" | "idle" | "waiting_permission";
+
+/** 认证快照中的会话：注册表元数据 + 主进程事件镜像推导出的当前运行状态。 */
+export interface RemoteSessionSnapshot extends SessionMeta {
+  status: RemoteSessionStatus;
+}
+
 /** 桌面 → 手机 */
 export type RemoteEvent =
   /**
@@ -61,9 +68,14 @@ export type RemoteEvent =
    */
   | { type: "remote.hello"; vapidPublicKey: string; locale?: import("./i18n/types.js").Locale }
   | { type: "locale.changed"; locale: import("./i18n/types.js").Locale }
-  /** 连接/配对成功后的全量快照 */
-  | { type: "session.snapshot"; sessions: SessionMeta[] }
-  | { type: "session.status"; sessionId: string; status: "running" | "idle" | "waiting_permission" }
+  /** 连接/配对成功后的权威全量快照；移动端据此替换运行状态与待决请求，而非追加旧卡片 */
+  | {
+      type: "session.snapshot";
+      sessions: RemoteSessionSnapshot[];
+      pendingPermissions: PermissionRequest[];
+      pendingQuestions: QuestionRequest[];
+    }
+  | { type: "session.status"; sessionId: string; status: RemoteSessionStatus }
   /** 节流聚合（约 400ms 窗口）后的输出增量；seq 每会话单调递增 */
   | { type: "session.output"; sessionId: string; chunk: string; seq: number; kind?: "text" | "thinking" }
   | { type: "session.todo"; sessionId: string; todos: TodoItem[] }

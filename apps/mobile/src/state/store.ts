@@ -14,6 +14,7 @@ import type {
   PermissionRequest,
   QuestionRequest,
   RemoteOutputChunk,
+  RemoteSessionSnapshot,
   ScheduleTask,
   SessionMeta,
   TodoItem,
@@ -39,6 +40,21 @@ export interface SessionView extends SessionMeta {
   status: SessionStatus;
 }
 
+export type OutputSyncState = { status: "loading" } | { status: "loaded" } | { status: "error"; error: unknown };
+
+/** 输入草稿使用单调版本而非只比较文本：等待期间改成相同文本也算继续编辑。 */
+export interface InputDraft {
+  text: string;
+  updatedAt: number;
+  version: number;
+}
+
+export interface QuestionDraft {
+  answers: Record<string, string[]>;
+  freeText: Record<string, string>;
+  updatedAt: number;
+}
+
 /** 单会话输出缓存上限（超出丢弃最旧，防长时间挂机撑爆内存） */
 const MAX_CHUNKS = 2000;
 
@@ -52,6 +68,9 @@ interface AppState {
   pairing: PairingRecord | null;
   sessions: Record<string, SessionView>;
   outputs: Record<string, OutputChunk[]>;
+  outputSync: Record<string, OutputSyncState>;
+  inputDrafts: Record<string, InputDraft>;
+  questionDrafts: Record<string, QuestionDraft>;
   todos: Record<string, TodoItem[]>;
   permissions: PermissionRequest[];
   questions: QuestionRequest[];
@@ -63,10 +82,19 @@ interface AppState {
   setConn(state: ConnectionState, detail?: ConnectionDetail): void;
   setPairing(record: PairingRecord | null): void;
   setSessions(metas: SessionMeta[]): void;
+  applySessionSnapshot(
+    metas: RemoteSessionSnapshot[],
+    pendingPermissions: PermissionRequest[],
+    pendingQuestions: QuestionRequest[],
+  ): void;
   patchSession(id: string, patch: Partial<SessionView>): void;
   removeSession(id: string): void;
   appendOutput(sessionId: string, chunk: string, kind: "text" | "thinking", seq: number): void;
   mergeBackfill(sessionId: string, chunks: RemoteOutputChunk[]): void;
+  setOutputSync(sessionId: string, state: OutputSyncState): void;
+  setInputDraft(sessionId: string, text: string): number;
+  restoreInputDraft(sessionId: string, text: string, expectedVersion: number): boolean;
+  setQuestionDraft(requestId: string, draft: Omit<QuestionDraft, "updatedAt">): void;
   setTodos(sessionId: string, todos: TodoItem[]): void;
   pushPermission(req: PermissionRequest): void;
   dropPermission(requestId: string): void;
@@ -85,6 +113,9 @@ const initialData = {
   pairing: null as PairingRecord | null,
   sessions: {} as Record<string, SessionView>,
   outputs: {} as Record<string, OutputChunk[]>,
+  outputSync: {} as Record<string, OutputSyncState>,
+  inputDrafts: {} as Record<string, InputDraft>,
+  questionDrafts: {} as Record<string, QuestionDraft>,
   todos: {} as Record<string, TodoItem[]>,
   permissions: [] as PermissionRequest[],
   questions: [] as QuestionRequest[],
@@ -104,6 +135,7 @@ const outputTracks: Record<string, OutputTrack> = {};
 
 /** OutputChunk 渲染 key 计数器 */
 let chunkIdCounter = 0;
+let inputDraftVersion = 0;
 
 function trackOf(sessionId: string): OutputTrack {
   let t = outputTracks[sessionId];
@@ -147,6 +179,42 @@ export function getOutputMaxSeq(sessionId: string): number | undefined {
   return t && t.maxSeq >= 0 ? t.maxSeq : undefined;
 }
 
+/** 全量列表/快照共用对账：删除会话的缓存、草稿、待决卡与详情路由一并收敛。 */
+function reconcileSessions(
+  s: AppState,
+  sessions: Record<string, SessionView>,
+  pendingPermissions = s.permissions,
+  pendingQuestions = s.questions,
+): Partial<AppState> {
+  const retained = new Set(Object.keys(sessions));
+  const removed = new Set(
+    [
+      ...Object.keys(s.sessions),
+      ...Object.keys(s.outputs),
+      ...Object.keys(s.outputSync),
+      ...Object.keys(s.inputDrafts),
+      ...Object.keys(s.todos),
+    ].filter((id) => !retained.has(id)),
+  );
+  for (const id of removed) delete outputTracks[id];
+  const keepSessions = <T>(record: Record<string, T>): Record<string, T> =>
+    Object.fromEntries(Object.entries(record).filter(([id]) => retained.has(id)));
+  const permissions = pendingPermissions.filter((request) => !request.sessionId || retained.has(request.sessionId));
+  const questions = pendingQuestions.filter((request) => retained.has(request.sessionId));
+  const questionIds = new Set(questions.map((request) => request.requestId));
+  return {
+    sessions,
+    outputs: keepSessions(s.outputs),
+    outputSync: keepSessions(s.outputSync),
+    inputDrafts: keepSessions(s.inputDrafts),
+    todos: keepSessions(s.todos),
+    permissions,
+    questions,
+    questionDrafts: Object.fromEntries(Object.entries(s.questionDrafts).filter(([id]) => questionIds.has(id))),
+    route: s.route.name === "session" && !retained.has(s.route.id) ? { name: "sessions" } : s.route,
+  };
+}
+
 export const useAppStore = create<AppState>((set) => ({
   ...initialData,
 
@@ -159,7 +227,14 @@ export const useAppStore = create<AppState>((set) => ({
     set((s) => {
       const sessions: Record<string, SessionView> = {};
       for (const m of metas) sessions[m.id] = { ...m, status: s.sessions[m.id]?.status ?? "idle" };
-      return { sessions };
+      return reconcileSessions(s, sessions);
+    }),
+
+  applySessionSnapshot: (metas, pendingPermissions, pendingQuestions) =>
+    set((s) => {
+      const sessions: Record<string, SessionView> = {};
+      for (const m of metas) sessions[m.id] = { ...m, status: m.status ?? "idle" };
+      return reconcileSessions(s, sessions, pendingPermissions, pendingQuestions);
     }),
 
   patchSession: (id, patch) =>
@@ -167,15 +242,9 @@ export const useAppStore = create<AppState>((set) => ({
 
   removeSession: (id) =>
     set((s) => {
-      if (!s.sessions[id]) return {};
-      delete outputTracks[id];
       const sessions = { ...s.sessions };
-      const outputs = { ...s.outputs };
-      const todos = { ...s.todos };
       delete sessions[id];
-      delete outputs[id];
-      delete todos[id];
-      return { sessions, outputs, todos };
+      return reconcileSessions(s, sessions);
     }),
 
   appendOutput: (sessionId, chunk, kind, seq) =>
@@ -222,6 +291,34 @@ export const useAppStore = create<AppState>((set) => ({
       return { outputs: { ...s.outputs, [sessionId]: buildView(t) } };
     }),
 
+  setOutputSync: (sessionId, state) => set((s) => ({ outputSync: { ...s.outputSync, [sessionId]: state } })),
+
+  setInputDraft: (sessionId, text) => {
+    const draft: InputDraft = { text, updatedAt: Date.now(), version: ++inputDraftVersion };
+    set((s) => ({ inputDrafts: { ...s.inputDrafts, [sessionId]: draft } }));
+    return draft.version;
+  },
+
+  restoreInputDraft: (sessionId, text, expectedVersion) => {
+    let restored = false;
+    set((s) => {
+      const current = s.inputDrafts[sessionId];
+      if (!current || current.version !== expectedVersion || current.text !== "") return {};
+      restored = true;
+      const draft: InputDraft = { text, updatedAt: Date.now(), version: ++inputDraftVersion };
+      return { inputDrafts: { ...s.inputDrafts, [sessionId]: draft } };
+    });
+    return restored;
+  },
+
+  setQuestionDraft: (requestId, draft) =>
+    set((s) => ({
+      questionDrafts: {
+        ...s.questionDrafts,
+        [requestId]: { ...draft, updatedAt: Date.now() },
+      },
+    })),
+
   setTodos: (sessionId, todos) => set((s) => ({ todos: { ...s.todos, [sessionId]: todos } })),
 
   pushPermission: (req) =>
@@ -234,7 +331,15 @@ export const useAppStore = create<AppState>((set) => ({
   pushQuestion: (req) =>
     set((s) => (s.questions.some((q) => q.requestId === req.requestId) ? {} : { questions: [...s.questions, req] })),
 
-  dropQuestion: (requestId) => set((s) => ({ questions: s.questions.filter((q) => q.requestId !== requestId) })),
+  dropQuestion: (requestId) =>
+    set((s) => {
+      const questionDrafts = { ...s.questionDrafts };
+      delete questionDrafts[requestId];
+      return {
+        questions: s.questions.filter((q) => q.requestId !== requestId),
+        questionDrafts,
+      };
+    }),
 
   setSchedules: (schedules) => set({ schedules }),
 
@@ -242,6 +347,7 @@ export const useAppStore = create<AppState>((set) => ({
 
   reset: () => {
     for (const k of Object.keys(outputTracks)) delete outputTracks[k];
+    // inputDraftVersion 不归零：旧异步发送跨 reset 迟到时也不能撞上新版本号。
     set({ ...initialData });
   },
 }));

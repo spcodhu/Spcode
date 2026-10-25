@@ -213,6 +213,39 @@ describe("RemoteClient：relay 通道", () => {
     expect(ws.closed).toBe(false);
   });
 
+  it("命令超时只拒绝当前 Promise，不自动重发结果未知的命令", async () => {
+    const ws = await startToReady();
+    await ackAuth(ws);
+    const encryptedCount = () =>
+      ws.sent.map((raw) => JSON.parse(raw) as { t?: string }).filter((frame) => frame.t === "encrypted").length;
+    await expect(
+      client.command({ type: "permission.reply", requestId: "unknown", approved: true }, 20),
+    ).rejects.toThrow("命令响应超时");
+    expect(encryptedCount()).toBe(1);
+    await tick(60);
+    expect(encryptedCount()).toBe(1);
+  });
+
+  it("stop 后迟到的 auth_ack 不得覆盖新连接的 connecting/ready 状态", async () => {
+    const oldWs = await startToReady();
+    oldWs.message({ t: "auth_challenge", nonce: "old-challenge", deviceId: "dev-1" });
+    await tick();
+    client.stop();
+    client.start();
+    await tick();
+    const freshWs = FakeWs.instances.at(-1)!;
+    expect(freshWs).not.toBe(oldWs);
+    freshWs.open();
+    await tick();
+
+    oldWs.message({ t: "auth_ack", ok: true, desktopPk: desktop.publicKey, deviceId: "dev-1", resumeSeq: 0 });
+    await tick();
+    expect(states.at(-1)).toBe("connecting");
+    expect(freshWs.closed).toBe(false);
+    await ackAuth(freshWs);
+    expect(states.at(-1)).toBe("ready");
+  });
+
   it("重连后重新 auth：出站 seq 持久续接不归零、入站 SeqGuard 重置（兼容桌面出站不归零）", async () => {
     const ws1 = await startToReady();
     await ackAuth(ws1);

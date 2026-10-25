@@ -91,3 +91,73 @@ describe("appendOutput / mergeBackfill", () => {
     expect(useAppStore.getState().sessions[S]).toBeUndefined();
   });
 });
+
+describe("按 session/request 保存的草稿", () => {
+  it("输入草稿按 sessionId 隔离，失败恢复只接受未继续编辑的等待版本", () => {
+    const s = useAppStore.getState();
+    s.setInputDraft(S, "发送前快照");
+    s.setInputDraft("other", "另一会话");
+    const waitingVersion = s.setInputDraft(S, "");
+    s.setInputDraft(S, "等待期间的新文本");
+
+    expect(s.restoreInputDraft(S, "发送前快照", waitingVersion)).toBe(false);
+    expect(useAppStore.getState().inputDrafts[S]?.text).toBe("等待期间的新文本");
+    expect(useAppStore.getState().inputDrafts.other?.text).toBe("另一会话");
+
+    const secondWaitingVersion = s.setInputDraft(S, "");
+    const before = useAppStore.getState().inputDrafts[S]!;
+    expect(s.restoreInputDraft(S, "第二次快照", secondWaitingVersion)).toBe(true);
+    const restored = useAppStore.getState().inputDrafts[S]!;
+    expect(restored.text).toBe("第二次快照");
+    expect(restored.version).toBeGreaterThan(before.version);
+    expect(restored.updatedAt).toBeGreaterThanOrEqual(before.updatedAt);
+  });
+
+  it("reset 不复用草稿版本，旧请求不能覆盖 reset 后的新会话输入", () => {
+    const s = useAppStore.getState();
+    s.setInputDraft(S, "旧快照");
+    const oldWaitingVersion = s.setInputDraft(S, "");
+    s.reset();
+    s.setInputDraft(S, "reset 后新文本");
+    const newWaitingVersion = s.setInputDraft(S, "");
+    expect(newWaitingVersion).not.toBe(oldWaitingVersion);
+    expect(s.restoreInputDraft(S, "旧快照", oldWaitingVersion)).toBe(false);
+    expect(useAppStore.getState().inputDrafts[S]?.text).toBe("");
+    expect(s.restoreInputDraft(S, "reset 后快照", newWaitingVersion)).toBe(true);
+    expect(useAppStore.getState().inputDrafts[S]?.text).toBe("reset 后快照");
+  });
+
+  it("提问草稿按 requestId 保留到真正 resolved，删除会话会退出详情并清理相关状态", () => {
+    const s = useAppStore.getState();
+    s.setSessions([sessionMeta(S), sessionMeta("other")]);
+    s.pushQuestion({ requestId: "q1", sessionId: S, questions: [] });
+    s.setQuestionDraft("q1", { answers: { "0": ["a"] }, freeText: { "1": "文本" } });
+    s.setInputDraft(S, "草稿");
+    s.appendOutput(S, "out", "text", 0);
+    s.setRoute({ name: "session", id: S });
+
+    // 权限卡临时置顶不需要 dropQuestion；草稿因而可在重新展示时恢复。
+    expect(useAppStore.getState().questionDrafts.q1?.answers["0"]).toEqual(["a"]);
+    s.setSessions([sessionMeta("other")]);
+    const next = useAppStore.getState();
+    expect(next.route).toEqual({ name: "sessions" });
+    expect(next.inputDrafts[S]).toBeUndefined();
+    expect(next.outputs[S]).toBeUndefined();
+    expect(next.questions).toEqual([]);
+    expect(next.questionDrafts.q1).toBeUndefined();
+  });
+});
+
+function sessionMeta(id: string) {
+  return {
+    id,
+    title: id,
+    mode: "chat",
+    cwd: "",
+    model: null,
+    thinkingLevel: "medium",
+    sessionFile: null,
+    createdAt: 0,
+    updatedAt: 0,
+  } as const;
+}

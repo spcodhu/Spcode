@@ -1,6 +1,6 @@
 /**
  * 配对页：摄像头扫码（qr-scanner）+ 手动粘贴 QR payload 兜底。
- * 配对错误按桌面语义展示（otp 错误/过期/锁定）；成功后记录落 IndexedDB 并建连。
+ * 扫码与手动提交共享互斥锁；扫描器和配对请求均有代次保护，迟到结果不会覆盖新状态。
  */
 
 import QrScanner from "qr-scanner";
@@ -30,51 +30,81 @@ export function PairPage() {
   const [error, setError] = useState<unknown>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerRef = useRef<QrScanner | null>(null);
+  const scanGenerationRef = useRef(0);
+  const pairGenerationRef = useRef(0);
+  const busyRef = useRef(false);
+  const mountedRef = useRef(true);
+  const deviceNameRef = useRef("");
+  deviceNameRef.current = (name ?? defaultName).trim() || t("pair.phone");
+
+  const stopScan = () => {
+    scanGenerationRef.current++;
+    scannerRef.current?.destroy();
+    scannerRef.current = null;
+    setScanning(false);
+  };
 
   const doPair = async (qrText: string) => {
-    if (busy) return;
+    if (busyRef.current || !mountedRef.current) return;
+    // 手动配对与扫码互斥；扫描回调也走这里，先使旧 scanner 的后续回调失效。
+    stopScan();
+    busyRef.current = true;
+    const generation = ++pairGenerationRef.current;
+    const deviceName = deviceNameRef.current;
     setBusy(true);
     setError(null);
     try {
-      const record = await pairWithQr(qrText, (name ?? defaultName).trim() || t("pair.phone"));
+      const record = await pairWithQr(qrText, deviceName);
+      if (generation !== pairGenerationRef.current || !mountedRef.current) return;
       await savePairing(record);
+      if (generation !== pairGenerationRef.current || !mountedRef.current) return;
       attachPairedRecord(record);
     } catch (err) {
+      if (generation !== pairGenerationRef.current || !mountedRef.current) return;
       setError(err);
+      busyRef.current = false;
       setBusy(false);
     }
   };
 
-  // 扫码生命周期
-  // biome-ignore lint/correctness/useExhaustiveDependencies: 仅在扫码开关变化时重建扫描器（doPair 读取最新 state 即可）
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+      pairGenerationRef.current++;
+      scanGenerationRef.current++;
+      scannerRef.current?.destroy();
+      scannerRef.current = null;
+    },
+    [],
+  );
+
+  // 扫码生命周期。设备名通过 ref 在识别成功时读取，避免 scanner 闭包冻结旧值。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 仅在扫码开关变化时重建扫描器，配对函数统一走 ref/代次保护
   useEffect(() => {
     if (!scanning) return;
     const video = videoRef.current;
     if (!video) return;
+    const generation = scanGenerationRef.current;
     const scanner = new QrScanner(
       video,
       (result) => {
-        stopScan();
+        if (generation !== scanGenerationRef.current || busyRef.current || !mountedRef.current) return;
         void doPair(result.data);
       },
       { returnDetailedScanResult: true, highlightScanRegion: true },
     );
     scannerRef.current = scanner;
     scanner.start().catch(() => {
+      if (generation !== scanGenerationRef.current || !mountedRef.current) return;
       setError(new MobileError("pair.cameraError"));
       setScanning(false);
     });
     return () => {
+      if (scanGenerationRef.current === generation) scanGenerationRef.current++;
       scanner.destroy();
-      scannerRef.current = null;
+      if (scannerRef.current === scanner) scannerRef.current = null;
     };
   }, [scanning]);
-
-  const stopScan = () => {
-    scannerRef.current?.destroy();
-    scannerRef.current = null;
-    setScanning(false);
-  };
 
   return (
     <div className="flex h-full flex-col overflow-y-auto px-5 pb-[max(2rem,env(safe-area-inset-bottom))] pt-6">
@@ -84,6 +114,7 @@ export function PairPage() {
       <label className="mt-6 block text-xs text-slate-400">
         {t("pair.deviceName")}
         <input
+          data-testid="pair-device-name"
           value={name ?? defaultName}
           disabled={busy}
           onChange={(e) => setName(e.target.value)}
@@ -106,8 +137,11 @@ export function PairPage() {
       ) : (
         <button
           type="button"
+          data-testid="pair-scan"
           disabled={busy}
           onClick={() => {
+            if (busyRef.current) return;
+            scanGenerationRef.current++;
             setError(null);
             setScanning(true);
           }}
@@ -120,6 +154,7 @@ export function PairPage() {
       <div className="mt-6">
         <div className="text-xs text-slate-500">{t("pair.pasteHelp")}</div>
         <textarea
+          data-testid="pair-payload"
           value={payload}
           disabled={busy}
           onChange={(e) => setPayload(e.target.value)}
@@ -129,6 +164,7 @@ export function PairPage() {
         />
         <button
           type="button"
+          data-testid="pair-connect"
           disabled={busy || !payload.trim()}
           onClick={() => void doPair(payload)}
           className="mt-2 min-h-12 w-full rounded-xl border border-teal-700 px-4 py-3 text-sm text-teal-200 disabled:opacity-40"
