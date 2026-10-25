@@ -225,7 +225,7 @@ export function Sidebar({
                   {/* biome-ignore lint/a11y/useSemanticElements: 行内含嵌套按钮（菜单/新建），原生 button 不能嵌套交互元素 */}
                   <div
                     className={`group flex h-9 cursor-pointer items-center gap-1.5 rounded-lg px-2 transition-colors ${
-                      containsActive ? "bg-bg-active" : "hover:bg-bg-hover"
+                      containsActive ? "bg-bg-hover/45" : "hover:bg-bg-hover"
                     }`}
                     onClick={() => setSpaceCollapsed((m) => ({ ...m, [sp.cwd]: expanded }))}
                     role="button"
@@ -249,14 +249,14 @@ export function Sidebar({
                     <Icon name="folder" size={15} className="shrink-0 text-text-tertiary" />
                     <span className="min-w-0 flex-1 truncate text-[13px] text-text-primary">{sp.name}</span>
                     {!expanded && (
-                      <span className="shrink-0 text-[11px] text-text-tertiary group-hover:hidden">
+                      <span className="shrink-0 text-[11px] text-text-tertiary transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
                         {t("sidebar.sessionCount", { count: sp.sessions.length })}
                       </span>
                     )}
                     {/* hover 出现的操作：… 更多菜单 + 新建会话（Finch 同款） */}
                     {/* biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: 纯事件隔离容器，阻止冒泡到行点击，本身不是控件 */}
                     <div
-                      className="hidden shrink-0 items-center gap-0.5 group-hover:flex"
+                      className="pointer-events-none flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <SectionMenu
@@ -495,7 +495,7 @@ function SectionHeader({
 }
 
 /** 会话行（空间内嵌套 / 聊天列表共用）：bullet + 标题 + 状态标记 + 相对时间，hover 出现删除 */
-function SessionRow({
+export function SessionRow({
   r,
   active,
   running,
@@ -536,9 +536,12 @@ function SessionRow({
           onOpen();
         }
       }}
+      aria-current={active ? "page" : undefined}
       title={forkedFromTitle ? t("sidebar.forkOrigin", { title: r.title, source: forkedFromTitle }) : r.title}
     >
-      <span className={`shrink-0 rounded-full ${active ? "h-1.5 w-1.5 bg-accent" : "h-1 w-1 bg-text-tertiary/70"}`} />
+      <span aria-hidden className="flex h-3 w-3 shrink-0 items-center justify-center">
+        <span className={`rounded-full ${active ? "h-1.5 w-1.5 bg-accent" : "h-1 w-1 bg-text-tertiary/40"}`} />
+      </span>
       <span className={`min-w-0 flex-1 truncate text-[13px] ${active ? "text-accent" : "text-text-secondary"}`}>
         {r.title}
       </span>
@@ -553,27 +556,38 @@ function SessionRow({
       {running && (
         <span title={t("sidebar.running")} className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent" />
       )}
-      <span className="shrink-0 text-[11px] text-text-tertiary group-hover:hidden">{formatRelative(r.updatedAt)}</span>
-      {menuItems && menuItems.length > 0 && (
-        // biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: 纯事件隔离容器，阻止冒泡到行点击，本身不是控件
-        <span className="hidden shrink-0 group-hover:block" onClick={(e) => e.stopPropagation()}>
-          <SectionMenu title={t("sidebar.sessionActions")} items={menuItems} />
+      <div className="relative h-6 w-16 shrink-0">
+        <span className="absolute inset-0 flex items-center justify-end text-[11px] text-text-tertiary transition-opacity group-hover:opacity-0 group-focus-within:opacity-0">
+          {formatRelative(r.updatedAt)}
         </span>
-      )}
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          // 评审 R3-C11：行内删除与菜单删除同款二次确认（误点不可恢复）
-          if (window.confirm(t("sidebar.confirmDelete", { title: r.title }))) onDelete();
-        }}
-        title={t("sidebar.deleteSession")}
-        aria-label={t("sidebar.deleteSession")}
-        data-testid="sidebar-delete-session"
-        className="hidden shrink-0 text-text-tertiary hover:text-danger group-hover:block"
-      >
-        <Icon name="x" size={13} />
-      </button>
+        {/* 操作始终可 Tab 到达；行获得焦点即显现，且不再替换时间造成布局位移。 */}
+        {/* biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: 纯事件隔离容器，本身不是控件 */}
+        <div
+          className="pointer-events-none absolute inset-0 flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {menuItems && menuItems.length > 0 && (
+            // biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: 纯事件隔离容器，阻止冒泡到行点击，本身不是控件
+            <span className="shrink-0" onClick={(e) => e.stopPropagation()}>
+              <SectionMenu title={t("sidebar.sessionActions")} items={menuItems} />
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              // 评审 R3-C11：行内删除与菜单删除同款二次确认（误点不可恢复）
+              if (window.confirm(t("sidebar.confirmDelete", { title: r.title }))) onDelete();
+            }}
+            title={t("sidebar.deleteSession")}
+            aria-label={t("sidebar.deleteSession")}
+            data-testid="sidebar-delete-session"
+            className="shrink-0 text-text-tertiary hover:text-danger"
+          >
+            <Icon name="x" size={13} />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
