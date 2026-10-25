@@ -13,6 +13,7 @@ import type { ButtonHTMLAttributes } from "react";
 import { useTranslation } from "react-i18next";
 
 export interface SwitchProps {
+  id?: string;
   on: boolean;
   onChange: (v: boolean) => void;
   disabled?: boolean;
@@ -22,10 +23,11 @@ export interface SwitchProps {
   onClickCapture?: ButtonHTMLAttributes<HTMLButtonElement>["onClick"];
 }
 
-export function Switch({ on, onChange, disabled, label, className = "" }: SwitchProps) {
+export function Switch({ id, on, onChange, disabled, label, className = "" }: SwitchProps) {
   const { t } = useTranslation("chat");
   return (
     <button
+      id={id}
       type="button"
       role="switch"
       aria-checked={on}

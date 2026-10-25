@@ -52,7 +52,7 @@ export interface ComposeResult {
 
 /** 容错解析 models.json；坏文件返回 null（由调用方决定降级策略，不抛异常） */
 export function parseModelsJson(text: string | undefined | null): ModelsJsonFile | null {
-  if (!text || !text.trim()) return null;
+  if (!text?.trim()) return null;
   try {
     const data = JSON.parse(text) as ModelsJsonFile;
     if (!data || typeof data !== "object" || !data.providers || typeof data.providers !== "object") return null;
@@ -67,7 +67,10 @@ export function parseModelsJson(text: string | undefined | null): ModelsJsonFile
  * 后者胜（UI 文件在手写之后 → UI 同 ID 覆盖手写，对齐 pi applyModelsJson 语义）。
  * provider 级字段以 UI 文件为先（UI 文件仅由添加模型写入，实际只含 models）。
  */
-export function composeManagedModelsJson(handwritten: ModelsJsonFile | null, uiAdded: ModelsJsonFile | null): ComposeResult {
+export function composeManagedModelsJson(
+  handwritten: ModelsJsonFile | null,
+  uiAdded: ModelsJsonFile | null,
+): ComposeResult {
   const sources = new Map<string, ModelSource>();
   const removable = new Set<string>();
   const providers: Record<string, ModelsJsonProviderEntry> = {};
@@ -115,7 +118,17 @@ export function buildCustomModelEntry(input: {
     // 思考档位映射 low/high/max + off 关闭（对齐 kimi 系等主流推理模型约定）；
     // 非推理模型不声明（引擎视为无档位）
     ...(input.reasoning
-      ? { thinkingLevelMap: { off: null, minimal: null, low: "low", medium: null, high: "high", xhigh: null, max: "max" } }
+      ? {
+          thinkingLevelMap: {
+            off: null,
+            minimal: null,
+            low: "low",
+            medium: null,
+            high: "high",
+            xhigh: null,
+            max: "max",
+          },
+        }
       : {}),
     input: input.vision ? ["text", "image"] : ["text"],
     // 订阅 provider 不按 token 计价；按量 provider 的自定义模型仅影响用量展示精度

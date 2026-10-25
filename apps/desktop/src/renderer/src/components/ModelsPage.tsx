@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useTranslation } from "react-i18next";
 import type { AddCustomModelInput, CatalogModel, CatalogProvider } from "@spcode/shared";
 import { validateModelInput } from "@spcode/shared";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
 import { Switch } from "./ui/Switch";
@@ -368,12 +368,12 @@ function AddModelForm({ provider, onAdded }: { provider: string; onAdded: () => 
         </label>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2">
-        <label className="flex items-center gap-2 text-[13px] text-text-secondary">
-          <Switch on={reasoning} onChange={setReasoning} label={t("models.addModelReasoning")} />
+        <label htmlFor="model-reasoning" className="flex items-center gap-2 text-[13px] text-text-secondary">
+          <Switch id="model-reasoning" on={reasoning} onChange={setReasoning} label={t("models.addModelReasoning")} />
           {t("models.addModelReasoning")}
         </label>
-        <label className="flex items-center gap-2 text-[13px] text-text-secondary">
-          <Switch on={vision} onChange={setVision} label={t("models.addModelVision")} />
+        <label htmlFor="model-vision" className="flex items-center gap-2 text-[13px] text-text-secondary">
+          <Switch id="model-vision" on={vision} onChange={setVision} label={t("models.addModelVision")} />
           {t("models.addModelVision")}
         </label>
         <button

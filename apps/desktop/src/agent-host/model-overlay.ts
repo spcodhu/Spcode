@@ -20,12 +20,12 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ModelSource } from "@spcode/shared";
 import {
+  type AddCustomModelInput,
   buildCustomModelEntry,
   composeManagedModelsJson,
   parseModelsJson,
   sourceOf,
   validateModelInput,
-  type AddCustomModelInput,
 } from "@spcode/shared";
 import { writeJsonFileAtomic } from "@spcode/shared/node";
 
