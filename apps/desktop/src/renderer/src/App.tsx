@@ -1,24 +1,22 @@
-import { renderMessage } from "@spcode/shared/i18n";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChatView } from "./components/ChatView";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ForkDialog } from "./components/ForkDialog";
-import { Icon } from "./components/Icon";
 import { PermissionCard } from "./components/PermissionCard";
 import { SchedulePage } from "./components/SchedulePage";
 import { SearchPalette } from "./components/SearchPalette";
 import { SettingsPage } from "./components/SettingsPage";
 import { Sidebar } from "./components/Sidebar";
+import { ToastRegion } from "./components/ToastRegion";
 import { TopBar } from "./components/TopBar";
+import { closeTopModal } from "./components/ui/Modal";
 import { teardownHostEvents, useStore } from "./store";
 import { applyAppearance } from "./theme";
 
 export default function App() {
   const { t } = useTranslation("chat");
   const ready = useStore((s) => s.ready);
-  const lastError = useStore((s) => s.lastError);
-  const notice = useStore((s) => s.notice);
   const activeSessionId = useStore((s) => s.activeSessionId);
   const forkDialogFor = useStore((s) => s.forkDialogFor);
   const setForkDialogFor = useStore((s) => s.setForkDialogFor);
@@ -32,44 +30,33 @@ export default function App() {
     return () => teardownHostEvents();
   }, []);
 
-  // 快捷键：Cmd+, 开关设置面板，Cmd+K 搜索会话，ESC 关闭各浮层
+  // 快捷键：Cmd+, 切换设置；Cmd+K 用搜索替换当前弹层；Esc 只关闭最上层。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && (e.key === "," || e.code === "Comma")) {
         e.preventDefault();
-        setSettingsOpen((v) => !v);
+        if (!closeTopModal()) setSettingsOpen((v) => !v);
       } else if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.code === "KeyK")) {
         e.preventDefault();
-        setSearchOpen((v) => !v);
+        if (searchOpen) {
+          setSearchOpen(false);
+        } else {
+          closeTopModal();
+          setSearchOpen(true);
+        }
       } else if (e.key === "Escape") {
-        setSettingsOpen(false);
-        setSearchOpen(false);
-        setScheduleOpen(false);
+        closeTopModal();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [searchOpen]);
 
   // 外观设置变化时即时应用（主题/字体）
   const settings = useStore((s) => s.settings);
   useEffect(() => {
     if (settings) void applyAppearance(settings);
   }, [settings]);
-
-  // 错误提示：6 秒自动消失，也可手动关闭
-  useEffect(() => {
-    if (!lastError) return;
-    const timer = setTimeout(() => useStore.setState({ lastError: null }), 6000);
-    return () => clearTimeout(timer);
-  }, [lastError]);
-
-  // 定时任务触发通知：8 秒自动消失
-  useEffect(() => {
-    if (!notice) return;
-    const timer = setTimeout(() => useStore.setState({ notice: null }), 8000);
-    return () => clearTimeout(timer);
-  }, [notice]);
 
   if (!ready) {
     return <div className="flex h-full items-center justify-center text-text-secondary">{t("app.starting")}</div>;
@@ -101,48 +88,7 @@ export default function App() {
         {settingsOpen && <SettingsPage onClose={() => setSettingsOpen(false)} />}
         {searchOpen && <SearchPalette onClose={() => setSearchOpen(false)} />}
         {scheduleOpen && <SchedulePage onClose={() => setScheduleOpen(false)} />}
-        {notice && (
-          <div className="fixed bottom-4 right-4 z-50 flex max-w-md items-start gap-2 rounded-lg border border-accent/40 bg-bg-elevated px-4 py-3 text-sm text-text-primary shadow-xl">
-            <Icon
-              name={notice.tone === "success" ? "check" : "clock"}
-              size={15}
-              className="mt-0.5 shrink-0 text-accent"
-            />
-            <button
-              type="button"
-              onClick={() => {
-                if (notice.sessionId) void useStore.getState().openSessionById(notice.sessionId);
-                useStore.setState({ notice: null });
-              }}
-              className="flex-1 text-left"
-            >
-              {notice.presentation ? renderMessage(notice.presentation) : notice.text}
-            </button>
-            <button
-              type="button"
-              onClick={() => useStore.setState({ notice: null })}
-              title={t("common.close")}
-              aria-label={t("common.close")}
-              className="shrink-0 text-text-tertiary hover:text-text-primary"
-            >
-              ✕
-            </button>
-          </div>
-        )}
-        {lastError && (
-          <div className="fixed bottom-4 right-4 z-50 flex max-w-md items-start gap-2 rounded-lg border border-danger/40 bg-bg-elevated px-4 py-3 text-sm text-danger shadow-xl">
-            <span className="flex-1">{lastError}</span>
-            <button
-              type="button"
-              onClick={() => useStore.setState({ lastError: null })}
-              className="shrink-0 text-text-tertiary hover:text-text-primary"
-              title={t("common.close")}
-              aria-label={t("common.close")}
-            >
-              ✕
-            </button>
-          </div>
-        )}
+        <ToastRegion />
       </div>
     </ErrorBoundary>
   );

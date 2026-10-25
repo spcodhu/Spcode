@@ -12,6 +12,7 @@ import { ImageLightbox } from "./ImageLightbox";
 import { Markdown } from "./Markdown";
 import { fileToAttachment, MdEditor, type MdEditorHandle } from "./MdEditor";
 import { MdToolbar, type MdView } from "./MdToolbar";
+import { Modal } from "./ui/Modal";
 
 // ---------------------------------------------------------------------------
 // 外部预填输入框（空态建议卡片等场景点击后把提示词填进输入框并聚焦）
@@ -639,39 +640,39 @@ function PermissionModeMenu({
 function PermissionModeConfirm({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
   const { t } = useTranslation("chat");
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50">
-      <div
-        role="dialog"
-        aria-modal="true"
-        data-testid="permission-mode-confirm"
-        className="w-[420px] rounded-xl border border-danger/40 bg-bg-elevated shadow-2xl"
-      >
-        <div className="rounded-t-xl bg-danger/10 px-4 py-3">
-          <div className="text-sm font-semibold text-danger">{t("composer.modeNeverConfirmTitle")}</div>
-        </div>
-        <div className="px-4 py-3 text-[12.5px] leading-relaxed text-text-secondary">
-          {t("composer.modeNeverConfirmBody")}
-        </div>
-        <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
-          <button
-            type="button"
-            data-testid="permission-mode-confirm-cancel"
-            onClick={onCancel}
-            className="rounded-md border border-border px-4 py-1.5 text-xs text-text-secondary hover:bg-bg-hover"
-          >
-            {t("composer.modeNeverConfirmCancel")}
-          </button>
-          <button
-            type="button"
-            data-testid="permission-mode-confirm-ok"
-            onClick={onConfirm}
-            className="rounded-md bg-danger px-4 py-1.5 text-xs font-medium text-on-danger hover:bg-danger/80"
-          >
-            {t("composer.modeNeverConfirmOk")}
-          </button>
-        </div>
+    <Modal
+      title={t("composer.modeNeverConfirmTitle")}
+      role="alertdialog"
+      onClose={onCancel}
+      layerClassName="items-center justify-center"
+      panelClassName="w-[420px] max-w-[92vw] rounded-xl border border-danger/40 bg-bg-elevated shadow-2xl"
+      testId="permission-mode-confirm"
+    >
+      <div className="rounded-t-xl bg-danger/10 px-4 py-3">
+        <div className="text-sm font-semibold text-danger">{t("composer.modeNeverConfirmTitle")}</div>
       </div>
-    </div>
+      <div className="px-4 py-3 text-[12.5px] leading-relaxed text-text-secondary">
+        {t("composer.modeNeverConfirmBody")}
+      </div>
+      <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
+        <button
+          type="button"
+          data-testid="permission-mode-confirm-cancel"
+          onClick={onCancel}
+          className="rounded-md border border-border px-4 py-1.5 text-xs text-text-secondary hover:bg-bg-hover"
+        >
+          {t("composer.modeNeverConfirmCancel")}
+        </button>
+        <button
+          type="button"
+          data-testid="permission-mode-confirm-ok"
+          onClick={onConfirm}
+          className="rounded-md bg-danger px-4 py-1.5 text-xs font-medium text-on-danger hover:bg-danger/80"
+        >
+          {t("composer.modeNeverConfirmOk")}
+        </button>
+      </div>
+    </Modal>
   );
 }
 

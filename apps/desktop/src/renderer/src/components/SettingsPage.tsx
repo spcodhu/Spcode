@@ -17,6 +17,7 @@ import { ModelsPage } from "./ModelsPage";
 import { QuotaPage } from "./QuotaPage";
 import { RemotePage } from "./RemotePage";
 import { UsagePage } from "./UsagePage";
+import { Modal } from "./ui/Modal";
 import { Select } from "./ui/Select";
 import { Switch } from "./ui/Switch";
 
@@ -39,63 +40,59 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
   const [page, setPage] = useState<PageId>("general");
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: 遮罩点外关闭，Esc 另有键盘关闭（评审 R3：待统一 Modal 组件化时收敛）
-    <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 backdrop-blur-[2px]"
-      onMouseDown={(e) => {
-        // 点击面板外部任意位置关闭
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <Modal
+      title={t("title")}
+      onClose={onClose}
+      layerClassName="items-center justify-center"
+      panelClassName="flex h-[720px] max-h-[86vh] w-[1100px] max-w-[92vw] overflow-hidden rounded-2xl border border-border-strong bg-bg-main shadow-2xl"
     >
-      <div className="flex h-[720px] max-h-[86vh] w-[1100px] max-w-[92vw] overflow-hidden rounded-2xl border border-border-strong bg-bg-main shadow-2xl">
-        {/* 左侧导航 */}
-        <nav className="flex w-52 shrink-0 flex-col border-r border-border bg-bg-sidebar">
-          <div className="titlebar-drag flex h-12 items-center justify-center border-b border-border">
-            <span className="text-[14px] font-semibold text-text-primary">{t("title")}</span>
-          </div>
-          <div className="flex-1 overflow-y-auto px-2 py-3">
-            {NAV.map((item) => (
-              <button
-                type="button"
-                key={item.id}
-                data-testid={`settings-nav-${item.id}`}
-                onClick={() => setPage(item.id)}
-                className={`mb-0.5 flex h-9 w-full items-center gap-2.5 rounded-lg px-3 text-[13px] transition-colors ${
-                  page === item.id ? "bg-accent text-on-accent" : "text-text-secondary hover:bg-bg-hover"
-                }`}
-              >
-                <Icon name={item.icon} size={15} />
-                {t(item.label)}
-              </button>
-            ))}
-          </div>
-          <div className="border-t border-border px-3 py-2 text-[11px] text-text-tertiary">{t("closeHint")}</div>
-        </nav>
+      {/* 左侧导航 */}
+      <nav className="flex w-52 shrink-0 flex-col border-r border-border bg-bg-sidebar">
+        <div className="titlebar-drag flex h-12 items-center justify-center border-b border-border">
+          <span className="text-[14px] font-semibold text-text-primary">{t("title")}</span>
+        </div>
+        <div className="flex-1 overflow-y-auto px-2 py-3">
+          {NAV.map((item) => (
+            <button
+              type="button"
+              key={item.id}
+              data-testid={`settings-nav-${item.id}`}
+              onClick={() => setPage(item.id)}
+              className={`mb-0.5 flex h-9 w-full items-center gap-2.5 rounded-lg px-3 text-[13px] transition-colors ${
+                page === item.id ? "bg-accent text-on-accent" : "text-text-secondary hover:bg-bg-hover"
+              }`}
+            >
+              <Icon name={item.icon} size={15} />
+              {t(item.label)}
+            </button>
+          ))}
+        </div>
+        <div className="border-t border-border px-3 py-2 text-[11px] text-text-tertiary">{t("closeHint")}</div>
+      </nav>
 
-        {/* 内容区 */}
-        <div className="relative min-w-0 flex-1 overflow-y-auto">
-          <button
-            type="button"
-            onClick={onClose}
-            title={t("closeSettings")}
-            className="absolute right-4 top-3.5 rounded-lg p-1.5 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
-          >
-            <Icon name="x" size={16} />
-          </button>
-          <div className="mx-auto max-w-[760px] px-8 py-6">
-            {page === "general" && <GeneralPage />}
-            {page === "appearance" && <AppearancePage />}
-            {page === "models" && <ModelsPage />}
-            {page === "usage" && <UsagePage />}
-            {page === "quota" && <QuotaPage />}
-            {page === "remote" && <RemotePage />}
-            {page === "memory" && <MemoryPage />}
-            {page === "mcp" && <McpPage />}
-            {page === "about" && <AboutPage />}
-          </div>
+      {/* 内容区 */}
+      <div className="relative min-w-0 flex-1 overflow-y-auto">
+        <button
+          type="button"
+          onClick={onClose}
+          title={t("closeSettings")}
+          className="absolute right-4 top-3.5 rounded-lg p-1.5 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
+        >
+          <Icon name="x" size={16} />
+        </button>
+        <div className="mx-auto max-w-[760px] px-8 py-6">
+          {page === "general" && <GeneralPage />}
+          {page === "appearance" && <AppearancePage />}
+          {page === "models" && <ModelsPage />}
+          {page === "usage" && <UsagePage />}
+          {page === "quota" && <QuotaPage />}
+          {page === "remote" && <RemotePage />}
+          {page === "memory" && <MemoryPage />}
+          {page === "mcp" && <McpPage />}
+          {page === "about" && <AboutPage />}
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 

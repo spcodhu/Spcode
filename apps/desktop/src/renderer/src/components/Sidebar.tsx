@@ -1,5 +1,5 @@
 import { baseName } from "@spcode/shared";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { formatRelative } from "../format";
 import { type RegistrySession, useStore } from "../store";
@@ -616,23 +616,69 @@ function SectionMenu({ title, items }: { title: string; items: SectionMenuItem[]
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const btnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuId = useId();
 
+  const closeWithFocus = () => {
+    setOpen(false);
+    requestAnimationFrame(() => btnRef.current?.focus());
+  };
   const openMenu = () => {
     const r = btnRef.current?.getBoundingClientRect();
-    if (r) setPos({ x: Math.min(r.left, window.innerWidth - 220), y: r.bottom + 4 });
+    if (r) {
+      setPos({
+        x: Math.max(8, Math.min(r.left, window.innerWidth - 220)),
+        y: Math.min(r.bottom + 4, window.innerHeight - 16),
+      });
+    }
     setConfirmKey(null);
     setOpen(true);
   };
 
   useEffect(() => {
     if (!open) return;
+    const frame = requestAnimationFrame(() =>
+      menuRef.current?.querySelector<HTMLButtonElement>("button:not([disabled])")?.focus(),
+    );
     const onDown = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (!menuRef.current?.contains(t) && !btnRef.current?.contains(t)) setOpen(false);
+      const target = e.target as Node;
+      if (!menuRef.current?.contains(target) && !btnRef.current?.contains(target)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      setOpen(false);
+      requestAnimationFrame(() => btnRef.current?.focus());
     };
     document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey, true);
+    };
   }, [open]);
+
+  const onMenuKeyDown = (e: React.KeyboardEvent) => {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
+    const options = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>("button:not([disabled])") ?? []);
+    if (options.length === 0) return;
+    e.preventDefault();
+    const index = options.indexOf(document.activeElement as HTMLButtonElement);
+    const next =
+      e.key === "Home"
+        ? 0
+        : e.key === "End"
+          ? options.length - 1
+          : index < 0
+            ? e.key === "ArrowDown"
+              ? 0
+              : options.length - 1
+            : e.key === "ArrowDown"
+              ? (index + 1) % options.length
+              : (index - 1 + options.length) % options.length;
+    options[next]?.focus();
+  };
 
   return (
     <>
@@ -640,15 +686,28 @@ function SectionMenu({ title, items }: { title: string; items: SectionMenuItem[]
         type="button"
         ref={btnRef}
         onClick={() => (open ? setOpen(false) : openMenu())}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            openMenu();
+          }
+        }}
         className="rounded p-0.5 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
         title={title}
         aria-label={title}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
       >
         <Icon name="dots" size={13} />
       </button>
       {open && (
         <div
+          id={menuId}
           ref={menuRef}
+          role="menu"
+          aria-label={title}
+          onKeyDown={onMenuKeyDown}
           style={{ left: pos.x, top: pos.y }}
           className="fixed z-[80] w-52 rounded-xl border border-border bg-bg-elevated p-1.5 shadow-2xl"
         >
@@ -657,6 +716,8 @@ function SectionMenu({ title, items }: { title: string; items: SectionMenuItem[]
             return (
               <button
                 type="button"
+                role="menuitem"
+                tabIndex={-1}
                 key={item.key}
                 disabled={item.disabled}
                 title={item.disabled ? item.disabledHint : undefined}
@@ -666,9 +727,9 @@ function SectionMenu({ title, items }: { title: string; items: SectionMenuItem[]
                     setConfirmKey(item.key);
                     return;
                   }
-                  setOpen(false);
                   setConfirmKey(null);
                   item.onClick();
+                  closeWithFocus();
                 }}
                 className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] ${
                   item.disabled

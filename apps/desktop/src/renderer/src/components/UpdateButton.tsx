@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
+import { Modal } from "./ui/Modal";
 
 /**
  * 侧栏底部「更新」按钮（Finch 式手动更新）：
@@ -84,132 +85,129 @@ export function UpdateButton() {
 function UpdateDialog({ state, onClose }: { state: UpdateState; onClose: () => void }) {
   const { t } = useTranslation("settings");
   const version = "version" in state ? state.version : "";
+  const title =
+    state.status === "downloaded"
+      ? t("update.restartTitle")
+      : state.status === "error"
+        ? t("update.failed")
+        : t("update.available", { version });
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: 遮罩点外关闭（待统一 Modal 组件化收敛）；onClick 已改 onMouseDown 与其余弹层一致
-    <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 backdrop-blur-[2px]"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <Modal
+      title={title}
+      onClose={onClose}
+      layerClassName="items-center justify-center"
+      panelClassName="w-[440px] max-w-[92vw] rounded-2xl border border-border bg-bg-elevated p-5 shadow-2xl"
     >
-      <div className="w-[440px] rounded-2xl border border-border bg-bg-elevated p-5 shadow-2xl">
-        <div className="flex items-center justify-between">
-          <h2 className="text-[15px] font-semibold text-text-primary">
-            {state.status === "downloaded"
-              ? t("update.restartTitle")
-              : state.status === "error"
-                ? t("update.failed")
-                : t("update.available", { version })}
-          </h2>
-          <button
-            type="button"
-            onClick={onClose}
-            title={t("close")}
-            className="rounded-md p-1 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
-          >
-            <Icon name="x" size={15} />
-          </button>
-        </div>
-
-        {state.status === "available" && (
-          <>
-            <div className="mt-3 max-h-64 overflow-y-auto rounded-lg border border-border bg-bg-main px-3 py-2.5 text-[13px] leading-6 text-text-secondary whitespace-pre-wrap">
-              {state.releaseNotes || t("update.noNotes")}
-            </div>
-            <div className="mt-4 flex items-center justify-between">
-              <button
-                type="button"
-                onClick={() => {
-                  void window.spcode.updateIgnore(state.version);
-                  onClose();
-                }}
-                className="rounded-lg px-3 py-1.5 text-[12.5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
-              >
-                {t("update.ignore")}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  void window.spcode.updateDownload();
-                  onClose();
-                }}
-                className="rounded-lg bg-accent px-4 py-1.5 text-[12.5px] font-medium text-on-accent transition-colors hover:bg-accent-dim"
-              >
-                {t("update.confirm")}
-              </button>
-            </div>
-          </>
-        )}
-
-        {state.status === "downloading" && (
-          <>
-            <div className="mt-4 h-2 overflow-hidden rounded-full bg-bg-hover">
-              <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${state.percent}%` }} />
-            </div>
-            <div className="mt-2 text-[12px] text-text-tertiary">
-              {t("update.progress", { version: state.version, percent: formatPercent(state.percent) })}
-            </div>
-            <div className="mt-4 flex justify-end">
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-lg px-3 py-1.5 text-[12.5px] text-text-secondary transition-colors hover:bg-bg-hover"
-              >
-                {t("update.background")}
-              </button>
-            </div>
-          </>
-        )}
-
-        {state.status === "downloaded" && (
-          <>
-            <p className="mt-3 text-[13px] leading-6 text-text-secondary">
-              {t("update.restartWarning", { version: state.version })}
-            </p>
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-lg px-3 py-1.5 text-[12.5px] text-text-secondary transition-colors hover:bg-bg-hover"
-              >
-                {t("update.later")}
-              </button>
-              <button
-                type="button"
-                onClick={() => void window.spcode.updateInstall()}
-                className="rounded-lg bg-accent px-4 py-1.5 text-[12.5px] font-medium text-on-accent transition-colors hover:bg-accent-dim"
-              >
-                {t("update.restartNow")}
-              </button>
-            </div>
-          </>
-        )}
-
-        {state.status === "error" && (
-          <>
-            <p className="mt-3 break-all text-[13px] leading-6 text-text-secondary">{state.message}</p>
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-lg px-3 py-1.5 text-[12.5px] text-text-secondary transition-colors hover:bg-bg-hover"
-              >
-                {t("close")}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  void window.spcode.updateDownload();
-                  onClose();
-                }}
-                className="rounded-lg bg-accent px-4 py-1.5 text-[12.5px] font-medium text-on-accent transition-colors hover:bg-accent-dim"
-              >
-                {t("update.retry")}
-              </button>
-            </div>
-          </>
-        )}
+      <div className="flex items-center justify-between">
+        <div className="text-[15px] font-semibold text-text-primary">{title}</div>
+        <button
+          type="button"
+          onClick={onClose}
+          title={t("close")}
+          className="rounded-md p-1 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
+        >
+          <Icon name="x" size={15} />
+        </button>
       </div>
-    </div>
+
+      {state.status === "available" && (
+        <>
+          <div className="mt-3 max-h-64 overflow-y-auto rounded-lg border border-border bg-bg-main px-3 py-2.5 text-[13px] leading-6 text-text-secondary whitespace-pre-wrap">
+            {state.releaseNotes || t("update.noNotes")}
+          </div>
+          <div className="mt-4 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => {
+                void window.spcode.updateIgnore(state.version);
+                onClose();
+              }}
+              className="rounded-lg px-3 py-1.5 text-[12.5px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
+            >
+              {t("update.ignore")}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                void window.spcode.updateDownload();
+                onClose();
+              }}
+              className="rounded-lg bg-accent px-4 py-1.5 text-[12.5px] font-medium text-on-accent transition-colors hover:bg-accent-dim"
+            >
+              {t("update.confirm")}
+            </button>
+          </div>
+        </>
+      )}
+
+      {state.status === "downloading" && (
+        <>
+          <div className="mt-4 h-2 overflow-hidden rounded-full bg-bg-hover">
+            <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${state.percent}%` }} />
+          </div>
+          <div className="mt-2 text-[12px] text-text-tertiary">
+            {t("update.progress", { version: state.version, percent: formatPercent(state.percent) })}
+          </div>
+          <div className="mt-4 flex justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg px-3 py-1.5 text-[12.5px] text-text-secondary transition-colors hover:bg-bg-hover"
+            >
+              {t("update.background")}
+            </button>
+          </div>
+        </>
+      )}
+
+      {state.status === "downloaded" && (
+        <>
+          <p className="mt-3 text-[13px] leading-6 text-text-secondary">
+            {t("update.restartWarning", { version: state.version })}
+          </p>
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg px-3 py-1.5 text-[12.5px] text-text-secondary transition-colors hover:bg-bg-hover"
+            >
+              {t("update.later")}
+            </button>
+            <button
+              type="button"
+              onClick={() => void window.spcode.updateInstall()}
+              className="rounded-lg bg-accent px-4 py-1.5 text-[12.5px] font-medium text-on-accent transition-colors hover:bg-accent-dim"
+            >
+              {t("update.restartNow")}
+            </button>
+          </div>
+        </>
+      )}
+
+      {state.status === "error" && (
+        <>
+          <p className="mt-3 break-all text-[13px] leading-6 text-text-secondary">{state.message}</p>
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg px-3 py-1.5 text-[12.5px] text-text-secondary transition-colors hover:bg-bg-hover"
+            >
+              {t("close")}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                void window.spcode.updateDownload();
+                onClose();
+              }}
+              className="rounded-lg bg-accent px-4 py-1.5 text-[12.5px] font-medium text-on-accent transition-colors hover:bg-accent-dim"
+            >
+              {t("update.retry")}
+            </button>
+          </div>
+        </>
+      )}
+    </Modal>
   );
 }

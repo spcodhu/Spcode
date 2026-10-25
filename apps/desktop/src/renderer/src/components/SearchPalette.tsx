@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { formatRelative } from "../format";
 import { type RegistrySession, useStore } from "../store";
 import { Icon } from "./Icon";
+import { Modal } from "./ui/Modal";
 
 interface Row {
   entry: RegistrySession;
@@ -101,105 +102,100 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
       const row = rows[selected];
       if (row) open(row);
     } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
       onClose();
     }
   };
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: 遮罩点外关闭，Esc 另有键盘关闭（评审 R3：待统一 Modal 组件化时收敛）
-    <div
-      className="fixed inset-0 z-40 flex items-start justify-center bg-black/55 pt-[14vh] backdrop-blur-[2px]"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <Modal
+      title={t("search.placeholder")}
+      onClose={onClose}
+      layerClassName="items-start justify-center pt-[14vh]"
+      panelClassName="flex max-h-[60vh] w-[640px] max-w-[92vw] flex-col overflow-hidden rounded-2xl border border-border-strong bg-bg-main shadow-2xl"
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={t("search.placeholder")}
-        className="flex max-h-[60vh] w-[640px] max-w-[92vw] flex-col overflow-hidden rounded-2xl border border-border-strong bg-bg-main shadow-2xl"
-      >
-        <div className="flex items-center gap-2.5 border-b border-border px-4">
-          <Icon name="search" size={16} className="shrink-0 text-text-tertiary" />
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={onKeyDown}
-            data-testid="session-search-input"
-            role="combobox"
-            aria-autocomplete="list"
-            aria-expanded="true"
-            aria-controls="session-search-results"
-            aria-activedescendant={rows[selected] ? `session-search-option-${selected}` : undefined}
-            aria-label={t("search.placeholder")}
-            placeholder={t("search.placeholder")}
-            className="h-12 min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-text-tertiary"
-          />
-          {searching && <span className="shrink-0 text-[11px] text-text-tertiary">{t("search.searching")}</span>}
-        </div>
-
-        <div
-          id="session-search-results"
-          role="listbox"
-          aria-busy={searching}
-          className="min-h-0 flex-1 overflow-y-auto p-1.5"
-        >
-          {query.trim() && !searching && searchError && (
-            <div
-              role="alert"
-              data-testid="session-search-error"
-              className="px-3 py-8 text-center text-[13px] text-danger"
-            >
-              {tSettings("quota.error", { error: searchError })}
-            </div>
-          )}
-          {query.trim() && !searching && !searchError && rows.length === 0 && (
-            <div data-testid="session-search-empty" className="px-3 py-8 text-center text-[13px] text-text-tertiary">
-              {t("search.empty")}
-            </div>
-          )}
-          {rows.map((row, i) => (
-            <button
-              type="button"
-              role="option"
-              id={`session-search-option-${i}`}
-              aria-selected={i === selected}
-              ref={(node) => {
-                optionRefs.current[i] = node;
-              }}
-              key={row.entry.id}
-              onClick={() => open(row)}
-              onMouseEnter={() => setSelected(i)}
-              className={`flex w-full items-start gap-2.5 rounded-xl px-3 py-2.5 text-left ${
-                i === selected ? "bg-bg-active" : ""
-              }`}
-            >
-              <Icon
-                name={row.entry.mode === "project" ? "folder" : "chat"}
-                size={15}
-                className="mt-0.5 shrink-0 text-text-tertiary"
-              />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13px] text-text-primary">
-                  <Highlight text={row.entry.title} query={query.trim()} />
-                </span>
-                {row.hits.map((h) => (
-                  <span key={h.snippet} className="mt-0.5 block truncate text-[12px] text-text-tertiary">
-                    <Highlight text={h.snippet} query={query.trim()} />
-                  </span>
-                ))}
-              </span>
-              <span className="shrink-0 pt-0.5 text-[11px] text-text-tertiary">
-                {formatRelative(row.entry.updatedAt)}
-              </span>
-            </button>
-          ))}
-        </div>
-
-        <div className="border-t border-border px-4 py-2 text-[11px] text-text-tertiary">{t("search.keys")}</div>
+      <div className="flex items-center gap-2.5 border-b border-border px-4">
+        <Icon name="search" size={16} className="shrink-0 text-text-tertiary" />
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={onKeyDown}
+          data-testid="session-search-input"
+          data-modal-initial-focus
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded="true"
+          aria-controls="session-search-results"
+          aria-activedescendant={rows[selected] ? `session-search-option-${selected}` : undefined}
+          aria-label={t("search.placeholder")}
+          placeholder={t("search.placeholder")}
+          className="h-12 min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-text-tertiary"
+        />
+        {searching && <span className="shrink-0 text-[11px] text-text-tertiary">{t("search.searching")}</span>}
       </div>
-    </div>
+
+      <div
+        id="session-search-results"
+        role="listbox"
+        aria-busy={searching}
+        className="min-h-0 flex-1 overflow-y-auto p-1.5"
+      >
+        {query.trim() && !searching && searchError && (
+          <div
+            role="alert"
+            data-testid="session-search-error"
+            className="px-3 py-8 text-center text-[13px] text-danger"
+          >
+            {tSettings("quota.error", { error: searchError })}
+          </div>
+        )}
+        {query.trim() && !searching && !searchError && rows.length === 0 && (
+          <div data-testid="session-search-empty" className="px-3 py-8 text-center text-[13px] text-text-tertiary">
+            {t("search.empty")}
+          </div>
+        )}
+        {rows.map((row, i) => (
+          <button
+            type="button"
+            role="option"
+            id={`session-search-option-${i}`}
+            aria-selected={i === selected}
+            ref={(node) => {
+              optionRefs.current[i] = node;
+            }}
+            key={row.entry.id}
+            onClick={() => open(row)}
+            onMouseEnter={() => setSelected(i)}
+            className={`flex w-full items-start gap-2.5 rounded-xl px-3 py-2.5 text-left ${
+              i === selected ? "bg-bg-active" : ""
+            }`}
+          >
+            <Icon
+              name={row.entry.mode === "project" ? "folder" : "chat"}
+              size={15}
+              className="mt-0.5 shrink-0 text-text-tertiary"
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] text-text-primary">
+                <Highlight text={row.entry.title} query={query.trim()} />
+              </span>
+              {row.hits.map((h) => (
+                <span key={h.snippet} className="mt-0.5 block truncate text-[12px] text-text-tertiary">
+                  <Highlight text={h.snippet} query={query.trim()} />
+                </span>
+              ))}
+            </span>
+            <span className="shrink-0 pt-0.5 text-[11px] text-text-tertiary">
+              {formatRelative(row.entry.updatedAt)}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      <div className="border-t border-border px-4 py-2 text-[11px] text-text-tertiary">{t("search.keys")}</div>
+    </Modal>
   );
 }
 

@@ -45,7 +45,8 @@ function deferred<T>() {
 }
 
 let root: Root;
-let container: HTMLDivElement;
+const container = document;
+let mount: HTMLDivElement;
 let onClose: ReturnType<typeof vi.fn>;
 let searchSessions: ReturnType<typeof vi.fn>;
 let scrollIntoView: ReturnType<typeof vi.fn>;
@@ -63,14 +64,14 @@ beforeEach(() => {
   scrollIntoView = vi.fn();
   Object.defineProperty(window, "spcode", { configurable: true, value: { searchSessions } });
   Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
+  mount = document.createElement("div");
+  document.body.append(mount);
+  root = createRoot(mount);
 });
 
 afterEach(async () => {
   await act(async () => root.unmount());
-  container.remove();
+  mount.remove();
   Reflect.deleteProperty(window, "spcode");
   vi.useRealTimers();
   vi.unstubAllGlobals();

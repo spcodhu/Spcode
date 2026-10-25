@@ -1,5 +1,6 @@
 export const zhCN = {
   "common.close": "关闭",
+  "common.notifications": "通知",
   "common.cancel": "取消",
   "common.retry": "重试",
   "common.collapse": "收起",
@@ -323,6 +324,7 @@ export const zhCN = {
 
 export const en = {
   "common.close": "Close",
+  "common.notifications": "Notifications",
   "common.cancel": "Cancel",
   "common.retry": "Retry",
   "common.collapse": "Collapse",

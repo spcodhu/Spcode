@@ -40,7 +40,8 @@ function remoteStatus(enabled: boolean) {
 }
 
 let root: Root;
-let container: HTMLDivElement;
+const container = document;
+let mount: HTMLDivElement;
 let quotaQuery: ReturnType<typeof vi.fn>;
 let remoteStatusQuery: ReturnType<typeof vi.fn>;
 let command: ReturnType<typeof vi.fn>;
@@ -60,14 +61,14 @@ beforeEach(() => {
     configurable: true,
     value: { quotaQuery, remoteStatus: remoteStatusQuery, command, getAppVersion },
   });
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
+  mount = document.createElement("div");
+  document.body.append(mount);
+  root = createRoot(mount);
 });
 
 afterEach(async () => {
   await act(async () => root.unmount());
-  container.remove();
+  mount.remove();
   Reflect.deleteProperty(window, "spcode");
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -114,8 +115,8 @@ describe("配额页读取状态", () => {
       },
     ]);
     await render(createElement(QuotaPage));
-    expect(container.textContent).toContain("Demo Provider");
-    expect(container.textContent).toContain("Pro");
+    expect(document.body.textContent).toContain("Demo Provider");
+    expect(document.body.textContent).toContain("Pro");
     expect(container.querySelector('[data-testid="quota-load-error"]')).toBeNull();
     expect(container.querySelector('[data-testid="quota-empty"]')).toBeNull();
   });

@@ -36,7 +36,8 @@ function deferred<T>() {
 }
 
 let root: Root;
-let container: HTMLDivElement;
+const container = document;
+let mount: HTMLDivElement;
 let scheduleList: ReturnType<typeof vi.fn>;
 let scheduleRunNow: ReturnType<typeof vi.fn>;
 let onClose: ReturnType<typeof vi.fn>;
@@ -57,14 +58,14 @@ beforeEach(() => {
       scheduleDelete: vi.fn(),
     },
   });
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
+  mount = document.createElement("div");
+  document.body.append(mount);
+  root = createRoot(mount);
 });
 
 afterEach(async () => {
   await act(async () => root.unmount());
-  container.remove();
+  mount.remove();
   Reflect.deleteProperty(window, "spcode");
   vi.unstubAllGlobals();
   setLocale("zh-CN");

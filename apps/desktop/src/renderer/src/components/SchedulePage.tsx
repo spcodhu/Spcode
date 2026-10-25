@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { formatRelative } from "../format";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
+import { Modal } from "./ui/Modal";
 import { Select } from "./ui/Select";
 import { Switch } from "./ui/Switch";
 
@@ -74,146 +75,143 @@ export function SchedulePage({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: 遮罩点外关闭，Esc 另有键盘关闭（评审 R3：待统一 Modal 组件化时收敛）
-    <div
-      className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 backdrop-blur-[2px]"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <Modal
+      title={t("schedule.title")}
+      onClose={onClose}
+      layerClassName="items-center justify-center"
+      panelClassName="flex h-[640px] max-h-[86vh] w-[720px] max-w-[92vw] flex-col overflow-hidden rounded-2xl border border-border-strong bg-bg-main shadow-2xl"
     >
-      <div className="flex h-[640px] max-h-[86vh] w-[720px] max-w-[92vw] flex-col overflow-hidden rounded-2xl border border-border-strong bg-bg-main shadow-2xl">
-        <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
-          <span className="flex items-center gap-2 text-[14px] font-semibold text-text-primary">
-            <Icon name="clock" size={15} className="text-text-tertiary" />
-            {t("schedule.title")}
-          </span>
-          <div className="flex items-center gap-2">
-            {editing === null && (
-              <button
-                type="button"
-                onClick={() => setEditing("new")}
-                className="flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-[12px] text-on-accent hover:bg-accent-dim"
-              >
-                <Icon name="plus" size={13} />
-                {t("schedule.new")}
-              </button>
-            )}
+      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
+        <span className="flex items-center gap-2 text-[14px] font-semibold text-text-primary">
+          <Icon name="clock" size={15} className="text-text-tertiary" />
+          {t("schedule.title")}
+        </span>
+        <div className="flex items-center gap-2">
+          {editing === null && (
             <button
               type="button"
-              onClick={onClose}
-              title={t("close")}
-              className="rounded-lg p-1.5 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
+              onClick={() => setEditing("new")}
+              className="flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-[12px] text-on-accent hover:bg-accent-dim"
             >
-              <Icon name="x" size={16} />
+              <Icon name="plus" size={13} />
+              {t("schedule.new")}
             </button>
-          </div>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          {editing === null && tasks !== null && loadError && <ScheduleLoadError error={loadError} onRetry={reload} />}
-          {editing !== null ? (
-            <TaskForm
-              task={editing === "new" ? null : editing}
-              onCancel={() => setEditing(null)}
-              onSaved={() => {
-                setEditing(null);
-                reload();
-              }}
-            />
-          ) : tasks === null ? (
-            loading ? (
-              <div data-testid="schedule-loading" className="py-10 text-center text-[13px] text-text-tertiary">
-                {t("loading")}
-              </div>
-            ) : (
-              <ScheduleLoadError error={loadError ?? t("unknownError")} onRetry={reload} />
-            )
-          ) : tasks.length === 0 ? (
-            loadError ? null : (
-              <div data-testid="schedule-empty" className="py-10 text-center text-[13px] text-text-tertiary">
-                {t("schedule.empty")}
-              </div>
-            )
-          ) : (
-            <div className="space-y-2">
-              {tasks.map((item) => (
-                <div
-                  key={item.id}
-                  data-testid={`schedule-task-${item.id}`}
-                  className="rounded-xl border border-border bg-bg-elevated px-4 py-3"
-                >
-                  <div className="flex items-center gap-3">
-                    <Switch
-                      on={item.enabled}
-                      onChange={() => toggle(item)}
-                      label={t("enableName", { name: item.name })}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[14px] text-text-primary">{item.name}</div>
-                      <div className="mt-0.5 text-[12px] text-text-tertiary">
-                        {describeSchedule(item)} ·{" "}
-                        {item.target.kind === "project"
-                          ? t("schedule.project", { name: baseName(item.target.cwd) })
-                          : t("schedule.chat")}
-                        {item.lastStatus === "ok" && item.lastRunAt
-                          ? t("schedule.lastRun", { time: formatRelative(item.lastRunAt) })
-                          : ""}
-                        {item.lastStatus === "error"
-                          ? t("schedule.lastError", { error: item.lastError ?? t("unknownError") })
-                          : ""}
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => runNow(item)}
-                      data-testid={`schedule-run-${item.id}`}
-                      disabled={runningIds.has(item.id)}
-                      title={t("schedule.runOnce")}
-                      className="rounded-lg px-2.5 py-1.5 text-[12px] text-accent hover:bg-bg-hover disabled:opacity-40"
-                    >
-                      {runningIds.has(item.id) ? t("schedule.running") : t("schedule.run")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setEditing(item)}
-                      title={t("schedule.edit")}
-                      className="rounded-lg p-1.5 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
-                    >
-                      <Icon name="gear" size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => (confirmDelete === item.id ? remove(item.id) : setConfirmDelete(item.id))}
-                      title={t("schedule.delete")}
-                      className={`rounded-lg p-1.5 text-[12px] ${
-                        confirmDelete === item.id
-                          ? "text-danger"
-                          : "text-text-tertiary hover:bg-bg-hover hover:text-danger"
-                      }`}
-                    >
-                      {confirmDelete === item.id ? t("schedule.confirmDelete") : <Icon name="x" size={14} />}
-                    </button>
-                  </div>
-                  {runErrors[item.id] && (
-                    <div
-                      role="alert"
-                      data-testid={`schedule-run-error-${item.id}`}
-                      className="mt-2 rounded-lg bg-danger/10 px-3 py-2 text-[12px] text-danger"
-                    >
-                      {t("schedule.runFailed", { error: runErrors[item.id] ?? t("unknownError") })}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
           )}
-        </div>
-
-        <div className="shrink-0 border-t border-border px-5 py-2 text-[11px] text-text-tertiary">
-          {t("schedule.footer")}
+          <button
+            type="button"
+            onClick={onClose}
+            title={t("close")}
+            className="rounded-lg p-1.5 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
+          >
+            <Icon name="x" size={16} />
+          </button>
         </div>
       </div>
-    </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+        {editing === null && tasks !== null && loadError && <ScheduleLoadError error={loadError} onRetry={reload} />}
+        {editing !== null ? (
+          <TaskForm
+            task={editing === "new" ? null : editing}
+            onCancel={() => setEditing(null)}
+            onSaved={() => {
+              setEditing(null);
+              reload();
+            }}
+          />
+        ) : tasks === null ? (
+          loading ? (
+            <div data-testid="schedule-loading" className="py-10 text-center text-[13px] text-text-tertiary">
+              {t("loading")}
+            </div>
+          ) : (
+            <ScheduleLoadError error={loadError ?? t("unknownError")} onRetry={reload} />
+          )
+        ) : tasks.length === 0 ? (
+          loadError ? null : (
+            <div data-testid="schedule-empty" className="py-10 text-center text-[13px] text-text-tertiary">
+              {t("schedule.empty")}
+            </div>
+          )
+        ) : (
+          <div className="space-y-2">
+            {tasks.map((item) => (
+              <div
+                key={item.id}
+                data-testid={`schedule-task-${item.id}`}
+                className="rounded-xl border border-border bg-bg-elevated px-4 py-3"
+              >
+                <div className="flex items-center gap-3">
+                  <Switch
+                    on={item.enabled}
+                    onChange={() => toggle(item)}
+                    label={t("enableName", { name: item.name })}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[14px] text-text-primary">{item.name}</div>
+                    <div className="mt-0.5 text-[12px] text-text-tertiary">
+                      {describeSchedule(item)} ·{" "}
+                      {item.target.kind === "project"
+                        ? t("schedule.project", { name: baseName(item.target.cwd) })
+                        : t("schedule.chat")}
+                      {item.lastStatus === "ok" && item.lastRunAt
+                        ? t("schedule.lastRun", { time: formatRelative(item.lastRunAt) })
+                        : ""}
+                      {item.lastStatus === "error"
+                        ? t("schedule.lastError", { error: item.lastError ?? t("unknownError") })
+                        : ""}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => runNow(item)}
+                    data-testid={`schedule-run-${item.id}`}
+                    disabled={runningIds.has(item.id)}
+                    title={t("schedule.runOnce")}
+                    className="rounded-lg px-2.5 py-1.5 text-[12px] text-accent hover:bg-bg-hover disabled:opacity-40"
+                  >
+                    {runningIds.has(item.id) ? t("schedule.running") : t("schedule.run")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditing(item)}
+                    title={t("schedule.edit")}
+                    className="rounded-lg p-1.5 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
+                  >
+                    <Icon name="gear" size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => (confirmDelete === item.id ? remove(item.id) : setConfirmDelete(item.id))}
+                    title={t("schedule.delete")}
+                    className={`rounded-lg p-1.5 text-[12px] ${
+                      confirmDelete === item.id
+                        ? "text-danger"
+                        : "text-text-tertiary hover:bg-bg-hover hover:text-danger"
+                    }`}
+                  >
+                    {confirmDelete === item.id ? t("schedule.confirmDelete") : <Icon name="x" size={14} />}
+                  </button>
+                </div>
+                {runErrors[item.id] && (
+                  <div
+                    role="alert"
+                    data-testid={`schedule-run-error-${item.id}`}
+                    className="mt-2 rounded-lg bg-danger/10 px-3 py-2 text-[12px] text-danger"
+                  >
+                    {t("schedule.runFailed", { error: runErrors[item.id] ?? t("unknownError") })}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="shrink-0 border-t border-border px-5 py-2 text-[11px] text-text-tertiary">
+        {t("schedule.footer")}
+      </div>
+    </Modal>
   );
 }
 
