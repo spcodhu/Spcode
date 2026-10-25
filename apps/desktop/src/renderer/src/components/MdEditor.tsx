@@ -51,6 +51,8 @@ export interface MdEditorHandle {
   /** 工具栏动作：包裹/行前缀/块插入/撤销重做 */
   applyAction(action: MdAction): void;
   focus(): void;
+  /** 外部 prefill 重建内容后聚焦，并把选区折叠到文档末尾 */
+  focusAtEnd(): void;
 }
 
 /** 富文本粘贴 → Markdown（模块级单例） */
@@ -318,6 +320,17 @@ export const MdEditor = forwardRef<
     },
     focus() {
       rootRef.current?.focus();
+    },
+    focusAtEnd() {
+      const root = rootRef.current;
+      if (!root) return;
+      root.focus();
+      const range = document.createRange();
+      range.selectNodeContents(root);
+      range.collapse(false);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
     },
   }));
 

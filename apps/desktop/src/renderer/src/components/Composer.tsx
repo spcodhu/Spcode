@@ -61,29 +61,41 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const compactSession = useStore((s) => s.compactSession);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const mdEditorRef = useRef<MdEditorHandle>(null);
-  const updateDraft = (patch: Partial<Omit<ComposerDraft, "updatedAt">>) => setComposerDraft(draftKey, patch);
+  // 每个草稿独立记录本地编辑修订：发送清空不算新编辑，发送后的输入/附件变化才算。
+  const draftRevisionsRef = useRef(new Map<string, number>());
+  const markDraftEdited = () => {
+    const revisions = draftRevisionsRef.current;
+    revisions.set(draftKey, (revisions.get(draftKey) ?? 0) + 1);
+  };
+  const updateDraft = (patch: Partial<Omit<ComposerDraft, "updatedAt">>) => {
+    markDraftEdited();
+    setComposerDraft(draftKey, patch);
+  };
 
   /** 追加附件/文件：读 getState 最新值，避免异步回调里的旧闭包覆盖并发追加 */
   const appendToDraft = (field: "attachments" | "files", items: ImageAttachment[] | DraftFile[]) => {
     const cur = useStore.getState().composerDrafts[draftKey];
+    markDraftEdited();
     setComposerDraft(draftKey, { [field]: [...(cur?.[field] ?? []), ...items] });
   };
 
-  // 监听外部预填请求：填入文本、聚焦并把光标移到末尾
+  // 监听外部预填请求：已有草稿追加两个换行，空草稿直接填入；随后聚焦并把光标移到末尾
   // biome-ignore lint/correctness/useExhaustiveDependencies: updateDraft 随 draftKey 重建，只需在 key 变化时重绑
   useEffect(() => {
     const onPrefill = (e: Event) => {
       const text = (e as CustomEvent<{ text: string }>).detail?.text ?? "";
-      updateDraft({ text });
+      const currentText = useStore.getState().composerDrafts[draftKey]?.text ?? "";
+      const nextText = currentText ? `${currentText}\n\n${text}` : text;
+      updateDraft({ text: nextText });
       requestAnimationFrame(() => {
         const mode = useStore.getState().composerDrafts[draftKey]?.inputMode ?? "plain";
         if (mode === "markdown") {
-          mdEditorRef.current?.focus();
+          mdEditorRef.current?.focusAtEnd();
           return;
         }
         const el = textareaRef.current;
         el?.focus();
-        el?.setSelectionRange(text.length, text.length);
+        el?.setSelectionRange(nextText.length, nextText.length);
       });
     };
     window.addEventListener(COMPOSER_PREFILL_EVENT, onPrefill);
@@ -107,18 +119,23 @@ export function Composer({ sessionId }: { sessionId: string }) {
     const value = text.trim() + buildFileBlocks(files);
     const imgs = attachments;
     const fileMeta = files.map(({ name, size }) => ({ name, size }));
-    // 乐观清空 + 失败恢复快照（评审 R3-C11：发送失败不再丢整段输入）
-    const snapshot = useStore.getState().composerDrafts[draftKey];
-    clearComposerDraft(draftKey);
+    // 乐观清空 + 失败恢复快照。key/修订在发起时固定，迟到结果不能写入别的会话或新草稿。
+    const sentDraftKey = draftKey;
+    const snapshot = useStore.getState().composerDrafts[sentDraftKey];
+    const sentRevision = draftRevisionsRef.current.get(sentDraftKey) ?? 0;
+    clearComposerDraft(sentDraftKey);
     void sendPrompt(value, imgs.length ? imgs : undefined, fileMeta.length ? fileMeta : undefined).then((ok) => {
-      if (!ok && snapshot) {
-        setComposerDraft(draftKey, {
-          text: snapshot.text,
-          attachments: snapshot.attachments,
-          files: snapshot.files,
-          inputMode: snapshot.inputMode,
-        });
-      }
+      if (ok || !snapshot) return;
+      const hasLocalEdits = (draftRevisionsRef.current.get(sentDraftKey) ?? 0) !== sentRevision;
+      const currentDraft = useStore.getState().composerDrafts[sentDraftKey];
+      // currentDraft 还覆盖组件重挂载后由其他实例产生的编辑（updatedAt 已是新修订）。
+      if (hasLocalEdits || currentDraft) return;
+      useStore.getState().setComposerDraft(sentDraftKey, {
+        text: snapshot.text,
+        attachments: snapshot.attachments,
+        files: snapshot.files,
+        inputMode: snapshot.inputMode,
+      });
     });
     requestAnimationFrame(() => {
       if (mdMode) mdEditorRef.current?.focus();
@@ -185,15 +202,21 @@ export function Composer({ sessionId }: { sessionId: string }) {
     const order: PermissionMode[] = ["ask", "auto", "never"];
     pickPermissionMode(order[(order.indexOf(permissionMode) + 1) % order.length] ?? "ask");
   };
-  // 焦点在 Composer 内时 Shift+Tab 循环权限模式（不抢页面级焦点导航）
+  // 仅在真正的文本编辑区里用 Shift+Tab 循环权限；工具栏/按钮保持标准反向焦点导航。
   const composerRootRef = useRef<HTMLDivElement>(null);
   const cycleRef = useRef(cyclePermissionMode);
   cycleRef.current = cyclePermissionMode;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Tab" || !e.shiftKey) return;
-      const target = e.target as Node | null;
-      if (!target || !composerRootRef.current?.contains(target)) return;
+      if (e.key !== "Tab" || !e.shiftKey || e.isComposing) return;
+      const target = e.target;
+      if (!(target instanceof Node) || !composerRootRef.current?.contains(target)) return;
+      const isPlainEditor = target === textareaRef.current;
+      const isMarkdownEditor =
+        target instanceof HTMLElement &&
+        target.getAttribute("data-testid") === "md-editor" &&
+        target.getAttribute("contenteditable") === "true";
+      if (!isPlainEditor && !isMarkdownEditor) return;
       e.preventDefault();
       cycleRef.current();
     };

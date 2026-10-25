@@ -114,25 +114,30 @@ export function MdToolbar({
         {GROUPS.map((group, gi) => (
           <div key={group[0]?.key ?? gi} className="flex shrink-0 items-center gap-0.5">
             {gi > 0 && <span className="mx-0.5 h-3.5 w-px shrink-0 bg-border" />}
-            {group.map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                title={t(item.title)}
-                aria-label={t(item.title)}
-                data-testid={`md-tool-${item.key}`}
-                // mousedown 阻止默认：点工具栏不夺走编辑器选区/焦点
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => (item.pickImage ? onPickImages() : item.action && onAction(item.action))}
-                className="flex h-6.5 w-6.5 shrink-0 items-center justify-center rounded-md text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
-              >
-                {item.icon ? (
-                  <Icon name={item.icon} size={13} />
-                ) : (
-                  <span className="text-[11.5px] font-medium leading-none">{item.text}</span>
-                )}
-              </button>
-            ))}
+            {group.map((item) => {
+              // 预览态没有编辑器，普通动作必须明确禁用；图片仍走 Composer 的切回编辑并插入通道。
+              const disabled = view === "preview" && !item.pickImage;
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  title={t(item.title)}
+                  aria-label={t(item.title)}
+                  data-testid={`md-tool-${item.key}`}
+                  disabled={disabled}
+                  // mousedown 阻止默认：点工具栏不夺走编辑器选区/焦点
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => (item.pickImage ? onPickImages() : item.action && onAction(item.action))}
+                  className="flex h-6.5 w-6.5 shrink-0 items-center justify-center rounded-md text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-tertiary"
+                >
+                  {item.icon ? (
+                    <Icon name={item.icon} size={13} />
+                  ) : (
+                    <span className="text-[11.5px] font-medium leading-none">{item.text}</span>
+                  )}
+                </button>
+              );
+            })}
           </div>
         ))}
       </div>
