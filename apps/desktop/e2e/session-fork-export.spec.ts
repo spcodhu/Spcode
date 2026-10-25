@@ -97,9 +97,9 @@ test.describe("Fork 会话 + 导出上下文", () => {
     await row.getByTitle("会话操作").click();
 
     // 菜单里 Fork / 导出 / 删除都在，且可用（「删除会话」同时匹配行尾 × 按钮，取首个=菜单项）
-    await expect(window.getByRole("button", { name: "Fork 会话", exact: true })).toBeEnabled();
-    await expect(window.getByRole("button", { name: "导出会话上下文", exact: true })).toBeEnabled();
-    await expect(window.getByRole("button", { name: "删除会话" }).first()).toBeVisible();
+    await expect(window.getByRole("menuitem", { name: "Fork 会话", exact: true })).toBeEnabled();
+    await expect(window.getByRole("menuitem", { name: "导出会话上下文", exact: true })).toBeEnabled();
+    await expect(window.getByRole("menuitem", { name: "删除会话", exact: true })).toBeVisible();
     // 点主区域空白处关掉菜单（避免点中侧栏其他会话行误触发切换）
     await window.mouse.click(600, 400);
 
@@ -107,9 +107,9 @@ test.describe("Fork 会话 + 导出上下文", () => {
     const emptyRow = window.locator("div.group", { hasText: "E2E 空会话" }).first();
     await emptyRow.hover();
     await emptyRow.getByTitle("会话操作").click();
-    await expect(window.getByRole("button", { name: "Fork 会话", exact: true })).toBeDisabled();
-    await expect(window.getByRole("button", { name: "导出会话上下文", exact: true })).toBeDisabled();
-    await expect(window.getByRole("button", { name: "删除会话" }).first()).toBeEnabled();
+    await expect(window.getByRole("menuitem", { name: "Fork 会话", exact: true })).toBeDisabled();
+    await expect(window.getByRole("menuitem", { name: "导出会话上下文", exact: true })).toBeDisabled();
+    await expect(window.getByRole("menuitem", { name: "删除会话", exact: true })).toBeEnabled();
 
     await app.close();
   });
@@ -128,7 +128,7 @@ test.describe("Fork 会话 + 导出上下文", () => {
     await expect(row).toBeVisible({ timeout: 15000 });
     await row.hover();
     await row.getByTitle("会话操作").click();
-    await window.getByRole("button", { name: "导出会话上下文", exact: true }).click();
+    await window.getByRole("menuitem", { name: "导出会话上下文", exact: true }).click();
 
     // UI 反馈先断言：notice 8 秒自动消失，必须在文件检查之前完成
     // （剪贴板在 headless 下可能被拒走 handoff.md 兜底文案，两种都算成功）
@@ -168,7 +168,7 @@ test.describe("Fork 会话 + 导出上下文", () => {
     await expect(row).toBeVisible({ timeout: 15000 });
     await row.hover();
     await row.getByTitle("会话操作").click();
-    await window.getByRole("button", { name: "Fork 会话", exact: true }).click();
+    await window.getByRole("menuitem", { name: "Fork 会话", exact: true }).click();
 
     // ForkDialog 打开：标题默认「<源标题> · 分叉」
     const titleInput = window.locator("input").first();

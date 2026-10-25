@@ -6,11 +6,9 @@ import { launchApp } from "./helpers";
 
 async function chooseLanguage(page: Page, locale: "zh-CN" | "en") {
   const group = page.getByTestId("settings-language");
-  await group.getByRole("button").first().click();
-  await group
-    .getByRole("button")
-    .nth(locale === "en" ? 2 : 1)
-    .click();
+  await group.getByRole("button").click();
+  const label = locale === "en" ? /English|英语/ : /简体中文|Simplified Chinese/;
+  await group.getByRole("option", { name: label }).click();
   await expect(page.locator("html")).toHaveAttribute("lang", locale);
 }
 
