@@ -12,6 +12,7 @@ import {
   HEAT_WEEKS,
   modelColorIndex,
   niceCeil,
+  niceScale,
   stackedDailyMax,
   stackSegments,
 } from "../src/renderer/src/chart.js";
@@ -33,6 +34,27 @@ describe("niceCeil", () => {
     expect(niceCeil(2400)).toBe(2500);
     expect(niceCeil(450)).toBe(500);
     expect(niceCeil(9)).toBe(10);
+  });
+});
+
+describe("niceScale", () => {
+  it("生成整洁且覆盖峰值的线性刻度", () => {
+    expect(niceScale(180_000_000)).toEqual({
+      max: 200_000_000,
+      ticks: [0, 50_000_000, 100_000_000, 150_000_000, 200_000_000],
+    });
+    expect(niceScale(240_000_000)).toEqual({
+      max: 300_000_000,
+      ticks: [0, 100_000_000, 200_000_000, 300_000_000],
+    });
+    expect(niceScale(120)).toEqual({ max: 150, ticks: [0, 50, 100, 150] });
+    expect(niceScale(9)).toEqual({ max: 10, ticks: [0, 2.5, 5, 7.5, 10] });
+  });
+
+  it("空值和非法值退化为 0..1，不产生 NaN", () => {
+    for (const value of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(niceScale(value)).toEqual({ max: 1, ticks: [0, 1] });
+    }
   });
 });
 

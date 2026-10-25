@@ -147,6 +147,21 @@ export function niceCeil(v: number): number {
   return step * mag;
 }
 
+/** 线性坐标刻度：约 4 个间隔，刻度与轴顶都落在 1/2/2.5/5 步长的整数倍。 */
+export function niceScale(v: number): { max: number; ticks: number[] } {
+  if (!(v > 0) || !Number.isFinite(v)) return { max: 1, ticks: [0, 1] };
+  const rawStep = v / 4;
+  const mag = 10 ** Math.floor(Math.log10(rawStep));
+  const norm = rawStep / mag;
+  const stepNorm = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 2.5 ? 2.5 : norm <= 5 ? 5 : 10;
+  const step = stepNorm * mag;
+  const intervals = Math.max(1, Math.ceil(v / step - 1e-10));
+  return {
+    max: intervals * step,
+    ticks: Array.from({ length: intervals + 1 }, (_, i) => i * step),
+  };
+}
+
 /** 连续打卡统计：最长连续 / 当前连续（今天没记录则算到昨天）/ 累计打卡天数 */
 export function computeStreaks(dateKeys: string[]): { longest: number; current: number; total: number } {
   const nums = [...new Set(dateKeys.map(dayNumOf))].sort((a, b) => a - b);

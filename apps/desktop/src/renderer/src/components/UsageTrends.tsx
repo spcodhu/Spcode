@@ -12,7 +12,7 @@ import {
   computeStreaks,
   dateKeyOf,
   HEAT_WEEKS,
-  niceCeil,
+  niceScale,
   shortModelName,
   stackedDailyMax,
   stackSegments,
@@ -142,8 +142,8 @@ export function UsageTrends({
     <>
       {/* Token 消耗：按模型堆叠的柱状图 */}
       <section className="mt-6 rounded-2xl border border-border bg-bg-elevated p-6" data-testid="usage-trend">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+          <div className="min-w-0">
             <h2 className="text-[15px] font-semibold text-text-primary">{t("usage.consumption")}</h2>
             <div className="mt-1 flex flex-wrap items-baseline gap-x-2 gap-y-1">
               <span
@@ -157,16 +157,16 @@ export function UsageTrends({
                 {t("usage.tokensWithScope", { scope: scopeLabel })}
               </span>
             </div>
-            <p className="mt-1 text-[12px] text-text-tertiary">{t("usage.chartDescription")}</p>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex rounded-full bg-bg-hover p-0.5">
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <div className="flex h-9 items-center rounded-full bg-bg-hover p-1">
               {TREND_RANGES.map((r) => (
                 <button
                   type="button"
                   key={r}
                   onClick={() => setDays(r)}
-                  className={`rounded-full px-3 py-1 text-[12px] transition-colors ${
+                  aria-pressed={days === r}
+                  className={`h-7 rounded-full px-3 text-[12px] transition-colors ${
                     days === r ? "bg-accent text-on-accent" : "text-text-secondary hover:text-text-primary"
                   }`}
                 >
@@ -177,6 +177,7 @@ export function UsageTrends({
             <Select value={model} options={modelOptions} onChange={setModel} className="w-44" />
           </div>
         </div>
+        <p className="mt-2 text-[12px] leading-5 text-text-tertiary">{t("usage.chartDescription")}</p>
         <div className="mt-4">
           <StackedBarChart dates={dates} series={series} seriesColor={seriesColor} />
         </div>
@@ -266,15 +267,16 @@ function StackedBarChart({
   // 刻度必须按「每日堆叠总量」取，不是单序列最大值——否则柱子会顶破最高刻度线
   const max = stackedDailyMax(series.map((s) => s.values));
   const hasData = series.length > 0 && max > 0;
-  const yMax = niceCeil(max);
+  const scale = niceScale(max);
+  const yMax = scale.max;
 
   const yAt = (v: number) => padT + plotH - (v / yMax) * plotH;
   const step = plotW / Math.max(1, dates.length);
-  // 柱宽随柱子数量收缩，但至少留 1px 可见；两侧各留 1px 间隙
-  const barW = Math.max(1, step - (step > 4 ? 2 : 0.5));
+  // 柱宽随日期槽收缩，但 7 天视图也不撑满；最多 56px，保留足够负空间。
+  const barW = Math.max(1, Math.min(56, step * 0.68));
   const xAt = (i: number) => padL + i * step + (step - barW) / 2;
   const labelStep = Math.max(1, Math.ceil(dates.length / 8));
-  const ticks = [0, 1 / 3, 2 / 3, 1].map((t) => t * yMax);
+  const ticks = scale.ticks;
   // 当前高亮的日（悬浮优先，其次点击锁定）：其余日变暗，只留当日与模型明细
   const activeIdx = tip.activeId ? dates.indexOf(tip.activeId) : -1;
 
@@ -328,7 +330,7 @@ function StackedBarChart({
               y={yAt(t)}
               textAnchor="end"
               dominantBaseline="central"
-              fontSize={10}
+              fontSize={11}
               fill="var(--color-text-tertiary)"
             >
               {formatZh(Math.round(t))}
@@ -358,7 +360,7 @@ function StackedBarChart({
               x={xAt(i) + barW / 2}
               y={H - 8}
               textAnchor="middle"
-              fontSize={10}
+              fontSize={11}
               fill="var(--color-text-tertiary)"
             >
               {formatDateKey(d, false)}
@@ -438,8 +440,8 @@ function StackedBarChart({
       {series.length > 1 && (
         <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 px-2">
           {series.map((s, i) => (
-            <span key={s.key} className="flex items-center gap-1.5 text-[11.5px] text-text-tertiary">
-              <span className="h-2 w-2 rounded-full" style={{ background: seriesColor(s.key, i) }} />
+            <span key={s.key} className="flex items-center gap-1.5 text-[12px] text-text-secondary">
+              <span className="h-2 w-2 rounded-[2px]" style={{ background: seriesColor(s.key, i) }} />
               {s.label}
             </span>
           ))}

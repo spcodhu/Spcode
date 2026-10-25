@@ -79,13 +79,14 @@ export function UsagePage() {
           <p className="mt-1 text-[13px] text-text-tertiary">{t("usage.description")}</p>
         </div>
         {/* 区间切换 */}
-        <div className="flex rounded-full bg-bg-elevated p-1">
+        <div className="flex h-9 items-center rounded-full bg-bg-elevated p-1">
           {RANGE_LABELS.map((r) => (
             <button
               type="button"
               key={r.id}
               onClick={() => setRange(r.id)}
-              className={`rounded-full px-4 py-1.5 text-[13px] transition-colors ${
+              aria-pressed={range === r.id}
+              className={`h-7 rounded-full px-4 text-[13px] transition-colors ${
                 range === r.id ? "bg-accent text-on-accent" : "text-text-secondary hover:text-text-primary"
               }`}
             >
