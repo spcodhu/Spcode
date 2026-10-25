@@ -66,7 +66,13 @@ export function applyTheme(theme: CustomTheme | null): void {
   const root = document.documentElement;
   // 先清掉所有可能残留的主题变量
   for (const key of THEME_KEYS) root.style.removeProperty(`--color-${toKebab(key)}`);
-  if (!theme) return;
+  if (!theme) {
+    root.dataset.themeBase = "dark";
+    root.style.colorScheme = "dark";
+    return;
+  }
+  root.dataset.themeBase = theme.base;
+  root.style.colorScheme = theme.base;
   for (const [k, v] of Object.entries(theme.colors)) {
     root.style.setProperty(`--color-${toKebab(k)}`, v);
   }
