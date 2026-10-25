@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useStore } from "../store";
 import { DiffPatch } from "./DiffBlock";
+import { Modal } from "./ui/Modal";
 
 export function GitChangesBar({ sessionId }: { sessionId: string }) {
   const { t } = useTranslation("chat");
@@ -17,6 +18,7 @@ export function GitChangesBar({ sessionId }: { sessionId: string }) {
   const [state, setState] = useState<{ hasBaseline: boolean; changed: boolean; stat: string } | null>(null);
   const [diffOpen, setDiffOpen] = useState(false);
   const [diff, setDiff] = useState<{ stat: string; patch: string; untracked: string[] } | null>(null);
+  const [diffError, setDiffError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<"git.reverted" | "git.revertFailed" | null>(null);
 
@@ -33,11 +35,17 @@ export function GitChangesBar({ sessionId }: { sessionId: string }) {
     };
   }, [sessionId, cwd, running]);
 
-  if (!cwd || !state?.hasBaseline || !state.changed) return null;
+  if (!cwd || !state?.hasBaseline || (!state.changed && !notice)) return null;
 
   const openDiff = async () => {
     setDiffOpen(true);
-    setDiff(await window.spcode.sessionGitDiff(sessionId));
+    setDiff(null);
+    setDiffError(null);
+    try {
+      setDiff(await window.spcode.sessionGitDiff(sessionId));
+    } catch (error) {
+      setDiffError(error instanceof Error ? error.message : String(error));
+    }
   };
 
   const revert = async () => {
@@ -48,6 +56,8 @@ export function GitChangesBar({ sessionId }: { sessionId: string }) {
       setNotice(out ? "git.reverted" : "git.revertFailed");
       setDiffOpen(false);
       setState(await window.spcode.sessionGitState(sessionId));
+    } catch {
+      setNotice("git.revertFailed");
     } finally {
       setBusy(false);
       setTimeout(() => setNotice(null), 5000);
@@ -58,72 +68,80 @@ export function GitChangesBar({ sessionId }: { sessionId: string }) {
     <div className="shrink-0 px-6 pb-2">
       <div className="mx-auto max-w-3xl">
         {notice && (
-          <div className="mb-1.5 rounded-lg border border-border bg-bg-elevated px-3 py-1.5 text-[12px] text-text-secondary">
+          <div
+            role="status"
+            className="mb-1.5 rounded-lg border border-border bg-bg-elevated px-3 py-1.5 text-[12px] text-text-secondary"
+          >
             {t(notice)}
           </div>
         )}
-        <div className="flex items-center gap-2 rounded-lg border border-border bg-bg-elevated px-3 py-1.5">
-          <span className="text-[12px] text-warning">●</span>
-          <span className="min-w-0 flex-1 truncate text-[12px] text-text-secondary" title={state.stat}>
-            {state.stat ? t("git.changedStat", { stat: state.stat.split("\n").pop()?.trim() ?? "" }) : t("git.changed")}
-          </span>
-          <button
-            type="button"
-            onClick={() => void openDiff()}
-            className="shrink-0 rounded px-2 py-0.5 text-[12px] text-accent hover:bg-bg-hover"
-          >
-            {t("git.viewDiff")}
-          </button>
-          <button
-            type="button"
-            onClick={() => void revert()}
-            disabled={busy}
-            className="shrink-0 rounded px-2 py-0.5 text-[12px] text-danger hover:bg-danger/10 disabled:opacity-40"
-          >
-            {t("git.revert")}
-          </button>
-        </div>
+        {state.changed && (
+          <div className="flex items-center gap-2 rounded-lg border border-border bg-bg-elevated px-3 py-1.5">
+            <span className="text-[12px] text-warning">●</span>
+            <span className="min-w-0 flex-1 truncate text-[12px] text-text-secondary" title={state.stat}>
+              {state.stat
+                ? t("git.changedStat", { stat: state.stat.split("\n").pop()?.trim() ?? "" })
+                : t("git.changed")}
+            </span>
+            <button
+              type="button"
+              onClick={() => void openDiff()}
+              className="shrink-0 rounded px-2 py-0.5 text-[12px] text-accent hover:bg-bg-hover"
+            >
+              {t("git.viewDiff")}
+            </button>
+            <button
+              type="button"
+              onClick={() => void revert()}
+              disabled={busy}
+              className="shrink-0 rounded px-2 py-0.5 text-[12px] text-danger hover:bg-danger/10 disabled:opacity-40"
+            >
+              {t("git.revert")}
+            </button>
+          </div>
+        )}
       </div>
 
       {diffOpen && (
-        // biome-ignore lint/a11y/noStaticElementInteractions: 遮罩点外关闭（待统一 Modal 组件化收敛）
-        <div
-          className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 backdrop-blur-[2px]"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) setDiffOpen(false);
-          }}
+        <Modal
+          title={t("git.title")}
+          onClose={() => setDiffOpen(false)}
+          layerClassName="items-center justify-center"
+          panelClassName="flex max-h-[80vh] w-[760px] max-w-[94vw] flex-col rounded-2xl border border-border-strong bg-bg-main p-4 shadow-2xl"
         >
-          <div className="flex max-h-[80vh] w-[760px] max-w-[94vw] flex-col rounded-2xl border border-border-strong bg-bg-main p-4 shadow-2xl">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="text-[13px] font-semibold text-text-primary">{t("git.title")}</div>
-              <button
-                type="button"
-                onClick={() => setDiffOpen(false)}
-                className="rounded px-2 py-1 text-[12px] text-text-tertiary hover:bg-bg-hover"
-              >
-                {t("common.close")}
-              </button>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto">
-              {diff ? (
-                <>
-                  {diff.patch ? (
-                    <DiffPatch patch={diff.patch} maxChars={60000} />
-                  ) : (
-                    <div className="px-2 py-3 text-[12px] text-text-tertiary">{t("git.noTracked")}</div>
-                  )}
-                  {diff.untracked.length > 0 && (
-                    <div className="mt-2 px-2 text-[12px] text-text-tertiary">
-                      {t("git.untracked", { files: diff.untracked.join("\n") })}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="px-2 py-3 text-[12px] text-text-tertiary">{t("git.loading")}</div>
-              )}
-            </div>
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-[13px] font-semibold text-text-primary">{t("git.title")}</div>
+            <button
+              type="button"
+              onClick={() => setDiffOpen(false)}
+              className="rounded px-2 py-1 text-[12px] text-text-tertiary hover:bg-bg-hover"
+            >
+              {t("common.close")}
+            </button>
           </div>
-        </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {diffError ? (
+              <div role="alert" className="px-2 py-3 text-[12px] text-danger">
+                {diffError}
+              </div>
+            ) : diff ? (
+              <>
+                {diff.patch ? (
+                  <DiffPatch patch={diff.patch} maxChars={60000} />
+                ) : (
+                  <div className="px-2 py-3 text-[12px] text-text-tertiary">{t("git.noTracked")}</div>
+                )}
+                {diff.untracked.length > 0 && (
+                  <div className="mt-2 px-2 text-[12px] text-text-tertiary">
+                    {t("git.untracked", { files: diff.untracked.join("\n") })}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="px-2 py-3 text-[12px] text-text-tertiary">{t("git.loading")}</div>
+            )}
+          </div>
+        </Modal>
       )}
     </div>
   );
