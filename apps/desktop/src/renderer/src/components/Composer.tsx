@@ -754,7 +754,7 @@ function ContextRing({
 // 模型菜单：胶囊 → 上弹面板（模型行 + 推理强度行 → 各自二级列表）
 // ---------------------------------------------------------------------------
 
-interface ModelOption {
+export interface ModelOption {
   provider: string;
   modelId: string;
   displayName: string;
@@ -762,7 +762,7 @@ interface ModelOption {
 
 type MenuView = "main" | "models" | "levels";
 
-function ModelMenu({
+export function ModelMenu({
   models,
   value,
   thinkingLevel,
@@ -781,15 +781,47 @@ function ModelMenu({
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<MenuView>("main");
   const rootRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const selectedOptionRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
     };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (view !== "main") {
+        setView("main");
+      } else {
+        setOpen(false);
+        buttonRef.current?.focus();
+      }
+    };
     document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, [open]);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open, view]);
+
+  // 打开主菜单时聚焦第一项；进入二级列表时聚焦并滚动到当前值。
+  useEffect(() => {
+    if (!open) return;
+    const frame = requestAnimationFrame(() => {
+      const target =
+        view === "main"
+          ? panelRef.current?.querySelector<HTMLElement>("[data-menu-option]")
+          : (selectedOptionRef.current ?? panelRef.current?.querySelector<HTMLElement>("[data-menu-option]"));
+      target?.focus();
+      if (view === "models") selectedOptionRef.current?.scrollIntoView({ block: "nearest" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open, view]);
 
   const current = value ? models.find((m) => m.provider === value.provider && m.modelId === value.modelId) : null;
   const pillText = current
@@ -797,14 +829,60 @@ function ModelMenu({
       ? t("model.withThinking", { model: current.displayName, level: thinkingLevelLabel(thinkingLevel) })
       : current.displayName
     : t("common.selectModel");
+  const groups = new Map<string, ModelOption[]>();
+  const nameCounts = new Map<string, number>();
+  for (const m of models) {
+    const group = groups.get(m.provider) ?? [];
+    group.push(m);
+    groups.set(m.provider, group);
+    const nameKey = `${m.provider}/${m.displayName}`;
+    nameCounts.set(nameKey, (nameCounts.get(nameKey) ?? 0) + 1);
+  }
+  const firstModelKey = models[0] ? `${models[0].provider}/${models[0].modelId}` : "";
+
+  const closeWithTriggerFocus = () => {
+    setOpen(false);
+    requestAnimationFrame(() => buttonRef.current?.focus());
+  };
+  const onMenuKeyDown = (e: React.KeyboardEvent) => {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
+    const options = Array.from(panelRef.current?.querySelectorAll<HTMLElement>("[data-menu-option]") ?? []);
+    if (options.length === 0) return;
+    e.preventDefault();
+    const index = options.indexOf(document.activeElement as HTMLElement);
+    const next =
+      e.key === "Home"
+        ? 0
+        : e.key === "End"
+          ? options.length - 1
+          : index < 0
+            ? e.key === "ArrowDown"
+              ? 0
+              : options.length - 1
+            : e.key === "ArrowDown"
+              ? (index + 1) % options.length
+              : (index - 1 + options.length) % options.length;
+    options[next]?.focus();
+  };
 
   return (
     <div ref={rootRef} className="relative">
       {/* 胶囊按钮 */}
       <button
+        ref={buttonRef}
         type="button"
         data-testid="composer-model-menu"
         aria-label={t("common.selectModel")}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-controls={open ? "composer-model-popup" : undefined}
+        onKeyDown={(e) => {
+          if (!open && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+            e.preventDefault();
+            setOpen(true);
+            setView("main");
+          }
+        }}
         onClick={() => {
           setOpen(!open);
           setView("main");
@@ -818,12 +896,21 @@ function ModelMenu({
 
       {/* 弹出面板 */}
       {open && (
-        <div className="absolute bottom-9 right-0 z-50 w-72 rounded-2xl border border-border bg-bg-elevated p-2 shadow-2xl">
+        <div
+          id="composer-model-popup"
+          ref={panelRef}
+          role="dialog"
+          aria-label={t("common.model")}
+          onKeyDown={onMenuKeyDown}
+          className="absolute bottom-9 right-0 z-50 w-80 rounded-2xl border border-border bg-bg-elevated p-2 shadow-2xl"
+        >
           {view === "main" && (
             <>
               <div className="px-2.5 pb-1 pt-1.5 text-[12px] text-text-tertiary">{t("common.model")}</div>
               <button
                 type="button"
+                data-menu-option
+                data-testid="composer-open-models"
                 onClick={() => setView("models")}
                 className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2.5 hover:bg-bg-hover"
               >
@@ -839,6 +926,8 @@ function ModelMenu({
               <div className="my-1.5 border-t border-border" />
               <button
                 type="button"
+                data-menu-option
+                data-testid="composer-open-levels"
                 onClick={() => thinkingLevels.length > 0 && setView("levels")}
                 className={`w-full rounded-xl bg-bg-hover/60 px-2.5 py-2.5 ${thinkingLevels.length === 0 ? "opacity-50" : "hover:bg-bg-hover"}`}
               >
@@ -858,30 +947,59 @@ function ModelMenu({
           {view === "models" && (
             <>
               <MenuHeader title={t("common.selectModel")} onBack={() => setView("main")} />
-              <div className="max-h-72 overflow-y-auto">
+              <div className="max-h-80 overflow-y-auto" role="listbox" aria-label={t("common.selectModel")}>
                 {models.length === 0 && (
                   <div className="px-3 py-4 text-[12px] text-text-tertiary">{t("model.empty")}</div>
                 )}
-                {models.map((m) => {
-                  const active = value?.provider === m.provider && value?.modelId === m.modelId;
-                  return (
-                    <button
-                      type="button"
-                      key={`${m.provider}/${m.modelId}`}
-                      onClick={() => {
-                        onChange({ provider: m.provider, modelId: m.modelId });
-                        setOpen(false);
-                      }}
-                      className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left hover:bg-bg-hover ${active ? "text-accent" : "text-text-primary"}`}
+                {[...groups].map(([provider, items]) => (
+                  <fieldset key={provider} aria-label={provider} className="mb-1 min-w-0 last:mb-0">
+                    <div
+                      className="px-2.5 pb-1 pt-2 text-[11px] font-medium text-text-tertiary"
+                      data-testid="composer-model-provider"
                     >
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[13px]">{m.displayName}</span>
-                        <span className="block truncate text-[11px] text-text-tertiary">{m.provider}</span>
-                      </span>
-                      {active && <Icon name="check" size={14} className="shrink-0" />}
-                    </button>
-                  );
-                })}
+                      {provider}
+                    </div>
+                    <div role="presentation" className="space-y-0.5">
+                      {items.map((m) => {
+                        const key = `${m.provider}/${m.modelId}`;
+                        const active = value?.provider === m.provider && value?.modelId === m.modelId;
+                        const showId = (nameCounts.get(`${m.provider}/${m.displayName}`) ?? 0) > 1;
+                        return (
+                          <button
+                            ref={active ? selectedOptionRef : undefined}
+                            type="button"
+                            role="option"
+                            aria-selected={active}
+                            data-menu-option
+                            data-testid="composer-model-option"
+                            data-model={m.modelId}
+                            data-provider={m.provider}
+                            tabIndex={active || (!current && key === firstModelKey) ? 0 : -1}
+                            title={`${m.provider}/${m.modelId}`}
+                            key={key}
+                            onClick={() => {
+                              onChange({ provider: m.provider, modelId: m.modelId });
+                              closeWithTriggerFocus();
+                            }}
+                            className={`flex min-h-9 w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left transition-colors ${
+                              active ? "bg-accent-soft text-accent" : "text-text-primary hover:bg-bg-hover"
+                            }`}
+                          >
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-[13px] leading-5">{m.displayName || m.modelId}</span>
+                              {showId && (
+                                <span className="mono block truncate text-[10.5px] leading-4 text-text-tertiary">
+                                  {m.modelId}
+                                </span>
+                              )}
+                            </span>
+                            {active && <Icon name="check" size={14} className="shrink-0" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </fieldset>
+                ))}
               </div>
             </>
           )}
@@ -889,23 +1007,34 @@ function ModelMenu({
           {view === "levels" && (
             <>
               <MenuHeader title={t("model.thinking")} onBack={() => setView("main")} />
-              {thinkingLevels.map((lv) => {
-                const active = lv === thinkingLevel;
-                return (
-                  <button
-                    type="button"
-                    key={lv}
-                    onClick={() => {
-                      onThinkingChange(lv);
-                      setOpen(false);
-                    }}
-                    className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] hover:bg-bg-hover ${active ? "text-accent" : "text-text-primary"}`}
-                  >
-                    <span className="flex-1">{thinkingLevelLabel(lv)}</span>
-                    {active && <Icon name="check" size={14} className="shrink-0" />}
-                  </button>
-                );
-              })}
+              <div role="listbox" aria-label={t("model.thinking")}>
+                {thinkingLevels.map((lv) => {
+                  const active = lv === thinkingLevel;
+                  return (
+                    <button
+                      ref={active ? selectedOptionRef : undefined}
+                      type="button"
+                      role="option"
+                      aria-selected={active}
+                      data-menu-option
+                      tabIndex={
+                        active || (!thinkingLevels.includes(thinkingLevel) && lv === thinkingLevels[0]) ? 0 : -1
+                      }
+                      key={lv}
+                      onClick={() => {
+                        onThinkingChange(lv);
+                        closeWithTriggerFocus();
+                      }}
+                      className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-[13px] transition-colors ${
+                        active ? "bg-accent-soft text-accent" : "text-text-primary hover:bg-bg-hover"
+                      }`}
+                    >
+                      <span className="flex-1">{thinkingLevelLabel(lv)}</span>
+                      {active && <Icon name="check" size={14} className="shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
             </>
           )}
         </div>
