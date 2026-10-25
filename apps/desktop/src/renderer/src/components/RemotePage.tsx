@@ -44,6 +44,7 @@ export function RemotePage() {
   const refresh = useCallback(async () => {
     try {
       setStatus(await window.spcode.remoteStatus());
+      setLoadFailed(false);
     } catch {
       setLoadFailed(true);
     }
@@ -170,7 +171,25 @@ export function RemotePage() {
         />
       </div>
 
-      {loadFailed && <div className="mt-3 text-[13px] text-danger">{t("remote.loadFailed")}</div>}
+      {loadFailed && (
+        <div
+          role="alert"
+          data-testid="remote-load-error"
+          className="mt-3 flex items-center gap-3 text-[13px] text-danger"
+        >
+          <span>{t("remote.loadFailed")}</span>
+          {!status && (
+            <button
+              type="button"
+              data-testid="remote-retry"
+              onClick={() => void refresh()}
+              className="shrink-0 rounded-lg border border-danger/40 px-3 py-1 text-[12px] hover:bg-danger/10"
+            >
+              {t("retry")}
+            </button>
+          )}
+        </div>
+      )}
 
       {!status?.enabled && !loadFailed && (
         <p className="mt-3 text-[13px] leading-6 text-text-tertiary" data-testid="remote-intro">

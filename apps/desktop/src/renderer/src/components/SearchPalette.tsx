@@ -17,6 +17,7 @@ interface Row {
  */
 export function SearchPalette({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation("chat");
+  const { t: tSettings } = useTranslation("settings");
   const registrySessions = useStore((s) => s.registrySessions);
   const sessions = useStore((s) => s.sessions);
   const setActive = useStore((s) => s.setActive);
@@ -25,29 +26,36 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
   const [query, setQuery] = useState("");
   const [items, setItems] = useState<SessionSearchResultItem[]>([]);
   const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const seq = useRef(0);
 
   useEffect(() => inputRef.current?.focus(), []);
 
-  // 200ms 防抖搜索；乱序返回只认最后一发
+  // 200ms 防抖搜索；每次查询（包括清空）都递增序号，乱序/失效返回不得覆盖新状态
   useEffect(() => {
+    const mySeq = ++seq.current;
     const q = query.trim();
+    setSearchError(null);
     if (!q) {
       setItems([]);
       setSearching(false);
       return;
     }
     setSearching(true);
-    const mySeq = ++seq.current;
     const timer = setTimeout(() => {
       void window.spcode
         .searchSessions(q)
         .then((r) => {
           if (seq.current === mySeq) setItems(r ?? []);
         })
-        .catch(() => {})
+        .catch((e) => {
+          if (seq.current !== mySeq) return;
+          setItems([]);
+          setSearchError(e instanceof Error ? e.message : String(e));
+        })
         .finally(() => {
           if (seq.current === mySeq) setSearching(false);
         });
@@ -67,8 +75,12 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
   // 查询变化后重置选中项（停留在旧下标会越界/高亮错位——评审 R3-C11）
   // biome-ignore lint/correctness/useExhaustiveDependencies: query 是刻意的触发信号，effect 体内不引用
   useEffect(() => setSelected(0), [query]);
-  // 结果集收缩时收拢下标
-  useEffect(() => setSelected((i) => Math.min(i, Math.max(0, rows.length - 1))), [rows.length]);
+  // 结果集收缩时收拢下标；空结果也保持合法的 0，供后续返回结果时收敛选中项
+  useEffect(() => setSelected((i) => clampSelected(i, rows.length)), [rows.length]);
+  useEffect(() => {
+    if (rows.length === 0) return;
+    optionRefs.current[selected]?.scrollIntoView({ block: "nearest" });
+  }, [selected, rows.length]);
 
   const open = (row: Row) => {
     if (sessions[row.entry.id]) setActive(row.entry.id);
@@ -77,9 +89,10 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.key === "Enter" || e.key === "Escape") && e.nativeEvent.isComposing) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setSelected((i) => Math.min(rows.length - 1, i + 1));
+      setSelected((i) => (rows.length === 0 ? 0 : Math.min(rows.length - 1, i + 1)));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setSelected((i) => Math.max(0, i - 1));
@@ -100,7 +113,12 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="flex max-h-[60vh] w-[640px] max-w-[92vw] flex-col overflow-hidden rounded-2xl border border-border-strong bg-bg-main shadow-2xl">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("search.placeholder")}
+        className="flex max-h-[60vh] w-[640px] max-w-[92vw] flex-col overflow-hidden rounded-2xl border border-border-strong bg-bg-main shadow-2xl"
+      >
         <div className="flex items-center gap-2.5 border-b border-border px-4">
           <Icon name="search" size={16} className="shrink-0 text-text-tertiary" />
           <input
@@ -109,6 +127,11 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
             data-testid="session-search-input"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded="true"
+            aria-controls="session-search-results"
+            aria-activedescendant={rows[selected] ? `session-search-option-${selected}` : undefined}
             aria-label={t("search.placeholder")}
             placeholder={t("search.placeholder")}
             className="h-12 min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-text-tertiary"
@@ -116,13 +139,35 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
           {searching && <span className="shrink-0 text-[11px] text-text-tertiary">{t("search.searching")}</span>}
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
-          {query.trim() && !searching && rows.length === 0 && (
-            <div className="px-3 py-8 text-center text-[13px] text-text-tertiary">{t("search.empty")}</div>
+        <div
+          id="session-search-results"
+          role="listbox"
+          aria-busy={searching}
+          className="min-h-0 flex-1 overflow-y-auto p-1.5"
+        >
+          {query.trim() && !searching && searchError && (
+            <div
+              role="alert"
+              data-testid="session-search-error"
+              className="px-3 py-8 text-center text-[13px] text-danger"
+            >
+              {tSettings("quota.error", { error: searchError })}
+            </div>
+          )}
+          {query.trim() && !searching && !searchError && rows.length === 0 && (
+            <div data-testid="session-search-empty" className="px-3 py-8 text-center text-[13px] text-text-tertiary">
+              {t("search.empty")}
+            </div>
           )}
           {rows.map((row, i) => (
             <button
               type="button"
+              role="option"
+              id={`session-search-option-${i}`}
+              aria-selected={i === selected}
+              ref={(node) => {
+                optionRefs.current[i] = node;
+              }}
               key={row.entry.id}
               onClick={() => open(row)}
               onMouseEnter={() => setSelected(i)}
@@ -156,6 +201,11 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
       </div>
     </div>
   );
+}
+
+/** 空列表没有有效选项，但内部下标始终保持非负，避免结果到达后停在 -1。 */
+function clampSelected(index: number, rowCount: number): number {
+  return rowCount === 0 ? 0 : Math.min(Math.max(0, index), rowCount - 1);
 }
 
 /** 大小写不敏感的关键词高亮 */

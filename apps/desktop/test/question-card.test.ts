@@ -70,7 +70,7 @@ for (const platform of ["desktop", "mobile"] as const) {
       );
     }
     function element<T extends HTMLElement = HTMLButtonElement>(id: string): T {
-      const found = container.querySelector<T>(`[data-testid="${id}"]`);
+      const found = document.querySelector<T>(`[data-testid="${id}"]`);
       expect(found).not.toBeNull();
       return found!;
     }
@@ -101,7 +101,7 @@ for (const platform of ["desktop", "mobile"] as const) {
       await click("question-option-0-0");
       await type("approve");
       await act(async () => setLocale("en"));
-      const input = container.querySelector("input")!;
+      const input = document.querySelector("input")!;
       expect(input.value).toBe("approve");
       await click("question-submit");
       expect(state.reply).toHaveBeenLastCalledWith("plan", { "0": { kind: "text", text: "approve" } });
@@ -126,7 +126,7 @@ for (const platform of ["desktop", "mobile"] as const) {
       await click("question-option-0-0");
       await click("question-option-0-1");
       await act(async () => setLocale("en"));
-      expect(container.textContent).toContain("模型提问");
+      expect(document.body.textContent).toContain("模型提问");
       expect(element("question-option-0-0").textContent).toContain("A, B、C");
       await click("question-submit");
       expect(state.reply).toHaveBeenLastCalledWith("multi", {

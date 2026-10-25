@@ -1,7 +1,7 @@
 import type { ScheduleFrequency, ScheduleTarget, ScheduleTask, ScheduleTaskInput } from "@spcode/shared";
 import { baseName, describeSchedule } from "@spcode/shared";
 import { getLocale } from "@spcode/shared/i18n";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { formatRelative } from "../format";
 import { useStore } from "../store";
@@ -18,15 +18,26 @@ export function SchedulePage({ onClose }: { onClose: () => void }) {
   const [tasks, setTasks] = useState<ScheduleTask[] | null>(null);
   const [editing, setEditing] = useState<ScheduleTask | "new" | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-  const [runningId, setRunningId] = useState<string | null>(null);
+  const [runningIds, setRunningIds] = useState<Set<string>>(new Set());
+  const [runErrors, setRunErrors] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const reload = () => {
-    void window.spcode
-      .scheduleList()
-      .then((t) => setTasks(t ?? []))
-      .catch(() => setTasks([]));
-  };
-  useEffect(reload, []);
+  const reload = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const list = await window.spcode.scheduleList();
+      setTasks(list ?? []);
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    void reload();
+  }, [reload]);
 
   const toggle = (t: ScheduleTask) => {
     void window.spcode.scheduleUpdate(t.id, { enabled: !t.enabled }).then(reload);
@@ -38,13 +49,27 @@ export function SchedulePage({ onClose }: { onClose: () => void }) {
     });
   };
   const runNow = (t: ScheduleTask) => {
-    setRunningId(t.id);
+    if (runningIds.has(t.id)) return;
+    setRunningIds((ids) => new Set(ids).add(t.id));
+    setRunErrors((errors) => {
+      if (!(t.id in errors)) return errors;
+      const next = { ...errors };
+      delete next[t.id];
+      return next;
+    });
     void window.spcode
       .scheduleRunNow(t.id)
-      .catch(() => {})
+      .catch((e) => {
+        const message = e instanceof Error ? e.message : String(e);
+        setRunErrors((errors) => ({ ...errors, [t.id]: message }));
+      })
       .finally(() => {
-        setRunningId(null);
-        reload();
+        setRunningIds((ids) => {
+          const next = new Set(ids);
+          next.delete(t.id);
+          return next;
+        });
+        void reload();
       });
   };
 
@@ -85,6 +110,7 @@ export function SchedulePage({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          {editing === null && tasks !== null && loadError && <ScheduleLoadError error={loadError} onRetry={reload} />}
           {editing !== null ? (
             <TaskForm
               task={editing === "new" ? null : editing}
@@ -95,13 +121,27 @@ export function SchedulePage({ onClose }: { onClose: () => void }) {
               }}
             />
           ) : tasks === null ? (
-            <div className="py-10 text-center text-[13px] text-text-tertiary">{t("loading")}</div>
+            loading ? (
+              <div data-testid="schedule-loading" className="py-10 text-center text-[13px] text-text-tertiary">
+                {t("loading")}
+              </div>
+            ) : (
+              <ScheduleLoadError error={loadError ?? t("unknownError")} onRetry={reload} />
+            )
           ) : tasks.length === 0 ? (
-            <div className="py-10 text-center text-[13px] text-text-tertiary">{t("schedule.empty")}</div>
+            loadError ? null : (
+              <div data-testid="schedule-empty" className="py-10 text-center text-[13px] text-text-tertiary">
+                {t("schedule.empty")}
+              </div>
+            )
           ) : (
             <div className="space-y-2">
               {tasks.map((item) => (
-                <div key={item.id} className="rounded-xl border border-border bg-bg-elevated px-4 py-3">
+                <div
+                  key={item.id}
+                  data-testid={`schedule-task-${item.id}`}
+                  className="rounded-xl border border-border bg-bg-elevated px-4 py-3"
+                >
                   <div className="flex items-center gap-3">
                     <Switch
                       on={item.enabled}
@@ -126,11 +166,12 @@ export function SchedulePage({ onClose }: { onClose: () => void }) {
                     <button
                       type="button"
                       onClick={() => runNow(item)}
-                      disabled={runningId === item.id}
+                      data-testid={`schedule-run-${item.id}`}
+                      disabled={runningIds.has(item.id)}
                       title={t("schedule.runOnce")}
                       className="rounded-lg px-2.5 py-1.5 text-[12px] text-accent hover:bg-bg-hover disabled:opacity-40"
                     >
-                      {runningId === item.id ? t("schedule.running") : t("schedule.run")}
+                      {runningIds.has(item.id) ? t("schedule.running") : t("schedule.run")}
                     </button>
                     <button
                       type="button"
@@ -153,6 +194,15 @@ export function SchedulePage({ onClose }: { onClose: () => void }) {
                       {confirmDelete === item.id ? t("schedule.confirmDelete") : <Icon name="x" size={14} />}
                     </button>
                   </div>
+                  {runErrors[item.id] && (
+                    <div
+                      role="alert"
+                      data-testid={`schedule-run-error-${item.id}`}
+                      className="mt-2 rounded-lg bg-danger/10 px-3 py-2 text-[12px] text-danger"
+                    >
+                      {t("schedule.runFailed", { error: runErrors[item.id] ?? t("unknownError") })}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -163,6 +213,27 @@ export function SchedulePage({ onClose }: { onClose: () => void }) {
           {t("schedule.footer")}
         </div>
       </div>
+    </div>
+  );
+}
+
+function ScheduleLoadError({ error, onRetry }: { error: string; onRetry: () => Promise<void> }) {
+  const { t } = useTranslation("settings");
+  return (
+    <div
+      role="alert"
+      data-testid="schedule-load-error"
+      className="mb-3 rounded-xl border border-danger/40 bg-danger/10 px-4 py-3 text-[13px] text-danger"
+    >
+      <div>{t("schedule.loadFailed", { error })}</div>
+      <button
+        type="button"
+        data-testid="schedule-retry"
+        onClick={() => void onRetry()}
+        className="mt-2 rounded-lg border border-danger/40 px-3 py-1.5 text-[12px] hover:bg-danger/10"
+      >
+        {t("retry")}
+      </button>
     </div>
   );
 }

@@ -598,10 +598,10 @@ function AppearancePage() {
   const saveSettings = useStore((s) => s.saveSettings);
   const [themeDesc, setThemeDesc] = useState("");
   const [generating, setGenerating] = useState(false);
-  const [hint, setHint] = useState<string | null>(null);
+  const [hint, setHint] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const flash = (text: string) => {
-    setHint(text);
+  const flash = (ok: boolean, text: string) => {
+    setHint({ ok, text });
     setTimeout(() => setHint(null), 3000);
   };
 
@@ -611,11 +611,11 @@ function AppearancePage() {
     try {
       const { normalizeTheme } = await import("../theme.js");
       const theme = normalizeTheme(JSON.parse(text));
-      if (!theme) return flash(t("appearance.invalidTheme"));
+      if (!theme) return flash(false, t("appearance.invalidTheme"));
       await saveSettings({ customTheme: theme });
-      flash(t("appearance.applied", { name: theme.name }));
+      flash(true, t("appearance.applied", { name: theme.name }));
     } catch {
-      flash(t("appearance.invalidJson"));
+      flash(false, t("appearance.invalidJson"));
     }
   };
 
@@ -631,12 +631,12 @@ function AppearancePage() {
       });
       const { normalizeTheme } = await import("../theme.js");
       const theme = normalizeTheme(raw);
-      if (!theme) return flash(t("appearance.incompleteTheme"));
+      if (!theme) return flash(false, t("appearance.incompleteTheme"));
       await saveSettings({ customTheme: theme });
-      flash(t("appearance.generated", { name: theme.name }));
+      flash(true, t("appearance.generated", { name: theme.name }));
       setThemeDesc("");
     } catch (e) {
-      flash(e instanceof Error ? e.message : t("appearance.generateFailed"));
+      flash(false, e instanceof Error ? e.message : t("appearance.generateFailed"));
     } finally {
       setGenerating(false);
     }
@@ -650,13 +650,21 @@ function AppearancePage() {
         ? { uiFontFamily: picked.family, uiFontFile: picked.file }
         : { monoFontFamily: picked.family, monoFontFile: picked.file },
     );
-    flash(t("appearance.fontImported", { name: picked.family }));
+    flash(true, t("appearance.fontImported", { name: picked.family }));
   };
 
   return (
     <div>
       <PageHeader title={t("nav.appearance")} subtitle={t("appearance.description")} />
-      {hint && <div className="mb-3 rounded-lg bg-accent-soft px-3 py-2 text-[12px] text-accent">{hint}</div>}
+      {hint && (
+        <div
+          className={`mb-3 rounded-lg px-3 py-2 text-[12px] ${
+            hint.ok ? "bg-accent-soft text-accent" : "bg-danger/10 text-danger"
+          }`}
+        >
+          {hint.text}
+        </div>
+      )}
 
       <SectionTitle>{t("appearance.theme")}</SectionTitle>
       <div className="mb-3 flex items-center justify-between gap-4 rounded-xl border border-border bg-bg-elevated px-4 py-3">
@@ -748,27 +756,62 @@ function MemoryPage() {
   const { t } = useTranslation("settings");
   const [files, setFiles] = useState<Record<string, string> | null>(null);
   const [open, setOpen] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const result = await window.spcode.command<Record<string, string>>({ type: "memory.read" });
+      setFiles(result ?? {});
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    void window.spcode
-      .command<Record<string, string>>({ type: "memory.read" })
-      .then((f) => setFiles(f ?? {}))
-      .catch(() => setFiles({}));
-  }, []);
+    void load();
+  }, [load]);
 
   const names = Object.keys(files ?? {});
 
   return (
     <div>
       <PageHeader title={t("nav.memory")} subtitle={t("memory.description")} />
-      {names.length === 0 ? (
-        <div className="text-[13px] text-text-tertiary">{t("loading")}</div>
+      {loading ? (
+        <div role="status" data-testid="memory-loading" className="text-[13px] text-text-tertiary">
+          {t("loading")}
+        </div>
+      ) : loadError ? (
+        <div
+          role="alert"
+          data-testid="memory-load-error"
+          className="rounded-xl border border-danger/40 bg-danger/10 px-4 py-3 text-[13px] text-danger"
+        >
+          <div>{t("memory.loadFailed", { error: loadError })}</div>
+          <button
+            type="button"
+            data-testid="memory-retry"
+            onClick={() => void load()}
+            className="mt-2 rounded-lg border border-danger/40 px-3 py-1.5 text-[12px] hover:bg-danger/10"
+          >
+            {t("retry")}
+          </button>
+        </div>
+      ) : names.length === 0 ? (
+        <div data-testid="memory-empty" className="text-[13px] text-text-tertiary">
+          {t("memory.empty")}
+        </div>
       ) : (
         <div className="space-y-1.5">
           {names.map((name) => (
             <div key={name} className="rounded-xl border border-border bg-bg-elevated">
               <button
                 type="button"
+                data-testid={`memory-file-${name}`}
                 onClick={() => setOpen(open === name ? null : name)}
                 className="flex w-full items-center gap-2 px-4 py-2.5 text-[13px] text-text-secondary"
               >
@@ -776,7 +819,10 @@ function MemoryPage() {
                 <span className="mono">{name}</span>
               </button>
               {open === name && (
-                <pre className="max-h-64 overflow-auto whitespace-pre-wrap border-t border-border px-4 py-3 text-[12px] leading-5 text-text-tertiary">
+                <pre
+                  data-testid="memory-content"
+                  className="max-h-64 overflow-auto whitespace-pre-wrap border-t border-border px-4 py-3 text-[12px] leading-5 text-text-tertiary"
+                >
                   {files?.[name]?.trim() || t("empty")}
                 </pre>
               )}

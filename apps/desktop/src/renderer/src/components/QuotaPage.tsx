@@ -12,14 +12,16 @@ export function QuotaPage() {
   const settings = useStore((s) => s.settings);
   const saveSettings = useStore((s) => s.saveSettings);
   const [quotas, setQuotas] = useState<QuotaInfo[] | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const load = (force = false) => {
     setLoading(true);
+    setLoadError(null);
     void window.spcode
       .quotaQuery(force)
       .then((q) => setQuotas((q ?? []) as QuotaInfo[]))
-      .catch(() => setQuotas([]))
+      .catch((e) => setLoadError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
   };
 
@@ -58,9 +60,33 @@ export function QuotaPage() {
 
       <div className="mb-2 mt-4" />
 
-      {(quotas ?? []).map((q) => (
-        <ProviderSection key={q.provider} info={q} />
-      ))}
+      {quotas === null && loading ? (
+        <div role="status" data-testid="quota-loading" className="py-8 text-center text-[13px] text-text-tertiary">
+          {t("quota.loading")}
+        </div>
+      ) : loadError ? (
+        <div
+          role="alert"
+          data-testid="quota-load-error"
+          className="rounded-xl border border-danger/40 bg-danger/10 px-4 py-3 text-[13px] text-danger"
+        >
+          <div>{t("quota.loadFailed", { error: loadError })}</div>
+          <button
+            type="button"
+            data-testid="quota-retry"
+            onClick={() => load()}
+            className="mt-2 rounded-lg border border-danger/40 px-3 py-1.5 text-[12px] hover:bg-danger/10"
+          >
+            {t("retry")}
+          </button>
+        </div>
+      ) : quotas?.length === 0 ? (
+        <div data-testid="quota-empty" className="py-8 text-center text-[13px] text-text-tertiary">
+          {t("quota.empty")}
+        </div>
+      ) : (
+        (quotas ?? []).map((q) => <ProviderSection key={q.provider} info={q} />)
+      )}
     </div>
   );
 }
