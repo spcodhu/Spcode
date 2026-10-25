@@ -156,7 +156,7 @@ pnpm 装 electron 前要配 onlyBuiltDependencies。
     const memory = readFileSync(join(dir, "MEMORY.md"), "utf-8");
     expect(memory).toContain("Spcode harness");
     // R3-C13：项目记忆文件名带路径哈希（proj-<hash>.md）
-    const projFile = join(dir, "memory", "projects", MemoryStore.projectSlug("/tmp/proj") + ".md");
+    const projFile = join(dir, "memory", "projects", `${MemoryStore.projectSlug("/tmp/proj")}.md`);
     expect(readFileSync(projFile, "utf-8")).toContain("utilityProcess");
     expect(readFileSync(join(dir, "memory", "lessons.md"), "utf-8")).toContain("onlyBuiltDependencies");
     // 日志写到了当天文件

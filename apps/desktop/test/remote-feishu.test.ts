@@ -4,10 +4,9 @@
  */
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import * as Lark from "@larksuiteoapi/node-sdk";
 import type { HostCommand } from "@spcode/shared";
 import { setLocale } from "@spcode/shared/i18n";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cardText, flush, makeChannel, makeEntry, startAndBind } from "./helpers/feishu-harness.js";
 
 const cleanup: string[] = [];

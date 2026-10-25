@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { DEFAULT_SANDBOX_SETTINGS, type SandboxSettings } from "@spcode/shared";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { buildSandboxRuntimeConfig, isPathInside } from "../src/agent-host/sandbox/config-builder.js";
 
 const execFileP = promisify(execFile);
@@ -82,6 +82,10 @@ describe.skipIf(!isMac)("沙盒内核行为（macOS seatbelt 真跑）", () => {
   /** 嵌套沙盒环境（如被另一个 sandboxed harness 包着跑 CI/评审）里 mux 代理的 unix socket 绑定会被外层内核拒绝——
    *  此时本套件不可能成立，整体跳过（窄判定：仅 initialize 阶段的 EPERM bind 才触发跳过） */
   let nestedSandboxBlocked = false;
+
+  beforeEach((context) => {
+    if (nestedSandboxBlocked) context.skip();
+  });
 
   beforeAll(async () => {
     const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");

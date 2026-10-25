@@ -6,15 +6,13 @@ import { createRoot, type Root } from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QuestionCard as MobileQuestionCard } from "../../mobile/src/components/QuestionCard.js";
+import { useAppStore } from "../../mobile/src/state/store.js";
 import { QuestionInline } from "../src/renderer/src/components/QuestionCard.js";
 
 const state = vi.hoisted(() => ({ request: null as QuestionRequest | null, reply: vi.fn() }));
 vi.mock("../src/renderer/src/store", () => ({
   useStore: (select: (s: unknown) => unknown) =>
     select({ pendingQuestions: state.request ? [state.request] : [], replyQuestion: state.reply }),
-}));
-vi.mock("../../mobile/src/state/store", () => ({
-  useAppStore: (select: (s: unknown) => unknown) => select({ sessions: { s1: { title: "User title" } } }),
 }));
 vi.mock("../../mobile/src/state/controller", () => ({ replyQuestion: state.reply }));
 
@@ -41,6 +39,8 @@ let container: HTMLDivElement;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   state.reply.mockReset();
+  useAppStore.getState().reset();
+  useAppStore.setState({ sessions: { s1: { title: "User title" } as any } });
   state.request = planRequest();
   setLocale("zh-CN");
   container = document.createElement("div");

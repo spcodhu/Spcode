@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { DEFAULT_SANDBOX_SETTINGS } from "@spcode/shared";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { getSandboxService, resetSandboxServiceForTest } from "../src/agent-host/sandbox/manager.js";
 
 const execFileP = promisify(execFile);
@@ -21,9 +21,14 @@ const isMac = process.platform === "darwin";
 
 describe.skipIf(!isMac)("SandboxService（macOS 真跑）", () => {
   let workDir: string;
+  let nestedSandboxBlocked = false;
   const askCalls: string[] = [];
 
-  beforeAll(() => {
+  beforeEach((context) => {
+    if (nestedSandboxBlocked) context.skip();
+  });
+
+  beforeAll(async () => {
     workDir = mkdtempSync(join(tmpdir(), "spcode-svc-work-"));
     resetSandboxServiceForTest();
     const svc = getSandboxService();
@@ -32,6 +37,10 @@ describe.skipIf(!isMac)("SandboxService（macOS 真跑）", () => {
       askCalls.push(host);
       return host === "example.com";
     });
+    const state = await svc.ensureReady();
+    if (state.state === "unavailable" && /EPERM|operation not permitted/i.test(state.reason ?? "")) {
+      nestedSandboxBlocked = true;
+    }
   });
 
   afterAll(async () => {

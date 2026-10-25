@@ -63,7 +63,7 @@ describe("composeManagedModelsJson（纯函数）", () => {
       JSON.stringify({ providers: { openai: { baseUrl: "https://proxy.example.com/v1", models: [] } } }),
     );
     const { content } = composeManagedModelsJson(handwritten, null);
-    expect(content.providers["openai"].baseUrl).toBe("https://proxy.example.com/v1");
+    expect(content.providers.openai.baseUrl).toBe("https://proxy.example.com/v1");
   });
 });
 

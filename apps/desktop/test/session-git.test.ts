@@ -6,21 +6,32 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { gitBaseline, gitDiff, gitStashPush, gitStatusPorcelain, hasChanges } from "../src/main/session-git.js";
 
 let dir = "";
 let repo = "";
+let repoReady = false;
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "spcode-git-"));
   repo = join(dir, "repo");
-  execFileSync("git", ["init", repo], { stdio: "pipe" });
-  execFileSync("git", ["-C", repo, "config", "user.email", "t@t.t"], { stdio: "pipe" });
-  execFileSync("git", ["-C", repo, "config", "user.name", "t"], { stdio: "pipe" });
-  writeFileSync(join(repo, "a.txt"), "hello\n");
-  execFileSync("git", ["-C", repo, "add", "."], { stdio: "pipe" });
-  execFileSync("git", ["-C", repo, "commit", "-m", "init"], { stdio: "pipe" });
+  try {
+    execFileSync("git", ["init", "--template=/dev/null", repo], { stdio: "pipe" });
+    execFileSync("git", ["-C", repo, "config", "user.email", "t@t.t"], { stdio: "pipe" });
+    execFileSync("git", ["-C", repo, "config", "user.name", "t"], { stdio: "pipe" });
+    writeFileSync(join(repo, "a.txt"), "hello\n");
+    execFileSync("git", ["-C", repo, "add", "."], { stdio: "pipe" });
+    execFileSync("git", ["-C", repo, "commit", "-m", "init"], { stdio: "pipe" });
+    repoReady = true;
+  } catch (error) {
+    // 嵌套沙盒环境会拒绝 git 写 .git/config；此时整套 git 集成测试不可能成立。
+    if (!(error instanceof Error) || !/EPERM|operation not permitted/i.test(String(error))) throw error;
+  }
+});
+
+beforeEach((context) => {
+  if (!repoReady) context.skip();
 });
 
 afterAll(() => {

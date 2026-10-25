@@ -262,7 +262,7 @@ describe("评审 R3-C14：值域校验", () => {
     );
     const sched = new Scheduler({ file, fire: async () => "s-x" });
     expect(sched.list()).toEqual([]); // 坏条目按空表重建
-    expect(readdirSync(dirname(file)).some((f) => f.startsWith(basename(file) + ".corrupt-"))).toBe(true);
+    expect(readdirSync(dirname(file)).some((f) => f.startsWith(`${basename(file)}.corrupt-`))).toBe(true);
   });
 
   it("合法边界值通过（weekday 0/6、hour 0/23、minute 0/59）", () => {
