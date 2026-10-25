@@ -230,7 +230,7 @@ function ProviderDetail({
           type="button"
           onClick={() => void saveKey()}
           disabled={!key.trim()}
-          className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-[12px] text-white hover:bg-accent-dim disabled:opacity-40"
+          className="shrink-0 rounded-lg bg-accent px-3 py-1.5 text-[12px] text-on-accent hover:bg-accent-dim disabled:opacity-40"
         >
           {saved ? t("saved") : t("save")}
         </button>
@@ -380,7 +380,7 @@ function AddModelForm({ provider, onAdded }: { provider: string; onAdded: () => 
           type="button"
           onClick={() => void submit()}
           disabled={!!validationError || !modelId.trim() || !context.trim() || busy}
-          className="ml-auto rounded-lg bg-accent px-4 py-1.5 text-[12px] text-white hover:bg-accent-dim disabled:opacity-40"
+          className="ml-auto rounded-lg bg-accent px-4 py-1.5 text-[12px] text-on-accent hover:bg-accent-dim disabled:opacity-40"
         >
           {t("models.addModelSubmit")}
         </button>

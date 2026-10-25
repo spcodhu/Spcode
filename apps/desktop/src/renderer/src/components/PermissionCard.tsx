@@ -113,7 +113,7 @@ export function PermissionCard() {
             data-testid="permission-allow"
             onClick={() => reply(request.requestId, true)}
             className={`rounded-md px-4 py-1.5 text-xs font-medium ${
-              severe ? "bg-danger text-white hover:bg-danger/80" : "bg-accent text-bg-root hover:bg-accent-dim"
+              severe ? "bg-danger text-on-danger hover:bg-danger/80" : "bg-accent text-on-accent hover:bg-accent-dim"
             }`}
           >
             {t("permission.allow")}

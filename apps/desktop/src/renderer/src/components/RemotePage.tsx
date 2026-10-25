@@ -231,7 +231,7 @@ export function RemotePage() {
                   type="button"
                   onClick={() => void regenerate()}
                   disabled={busy}
-                  className="rounded-lg bg-accent px-4 py-1.5 text-[13px] text-white hover:bg-accent-dim disabled:opacity-40"
+                  className="rounded-lg bg-accent px-4 py-1.5 text-[13px] text-on-accent hover:bg-accent-dim disabled:opacity-40"
                 >
                   {pairing && expired ? t("remote.regenerate") : t("remote.generate")}
                 </button>
@@ -285,7 +285,7 @@ export function RemotePage() {
                 type="button"
                 onClick={() => void saveRelayUrl()}
                 disabled={busy || !remoteCfg || relayDraft === null}
-                className="shrink-0 rounded-lg bg-accent px-4 py-1.5 text-[13px] text-white hover:bg-accent-dim disabled:opacity-40"
+                className="shrink-0 rounded-lg bg-accent px-4 py-1.5 text-[13px] text-on-accent hover:bg-accent-dim disabled:opacity-40"
               >
                 {t("save")}
               </button>
@@ -400,7 +400,7 @@ export function RemotePage() {
                   type="button"
                   onClick={() => void saveFeishuCredentials()}
                   disabled={busy || (feishuAppIdDraft === null && feishuAppSecretDraft === null)}
-                  className="shrink-0 rounded-lg bg-accent px-4 py-1.5 text-[13px] text-white hover:bg-accent-dim disabled:opacity-40"
+                  className="shrink-0 rounded-lg bg-accent px-4 py-1.5 text-[13px] text-on-accent hover:bg-accent-dim disabled:opacity-40"
                 >
                   {t("save")}
                 </button>

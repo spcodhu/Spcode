@@ -142,7 +142,7 @@ export function McpPage() {
           <button
             type="button"
             onClick={add}
-            className="rounded-lg bg-accent px-4 py-1.5 text-[12px] font-medium text-white hover:bg-accent-dim"
+            className="rounded-lg bg-accent px-4 py-1.5 text-[12px] font-medium text-on-accent hover:bg-accent-dim"
           >
             {t("add")}
           </button>

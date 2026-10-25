@@ -24,6 +24,8 @@ const THEME_KEYS = [
   "textSecondary",
   "textTertiary",
   "accent",
+  "onAccent",
+  "onDanger",
   "accentDim",
   "accentSoft",
   "danger",

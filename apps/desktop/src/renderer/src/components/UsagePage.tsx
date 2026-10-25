@@ -86,7 +86,7 @@ export function UsagePage() {
               key={r.id}
               onClick={() => setRange(r.id)}
               className={`rounded-full px-4 py-1.5 text-[13px] transition-colors ${
-                range === r.id ? "bg-accent text-white" : "text-text-secondary hover:text-text-primary"
+                range === r.id ? "bg-accent text-on-accent" : "text-text-secondary hover:text-text-primary"
               }`}
             >
               {t(r.label)}

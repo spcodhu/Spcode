@@ -192,7 +192,7 @@ export function ForkDialog({ sourceId, onClose }: { sourceId: string; onClose: (
             onClick={() => void confirm()}
             data-testid="fork-confirm"
             disabled={submitting || sourceRunning || !title.trim()}
-            className="rounded-lg bg-accent px-3.5 py-1.5 text-[13px] font-medium text-white transition-colors hover:bg-accent-dim disabled:opacity-40"
+            className="rounded-lg bg-accent px-3.5 py-1.5 text-[13px] font-medium text-on-accent transition-colors hover:bg-accent-dim disabled:opacity-40"
           >
             {t(submitting ? "fork.submitting" : "fork.confirm")}
           </button>

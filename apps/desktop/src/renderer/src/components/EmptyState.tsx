@@ -104,7 +104,7 @@ export function SessionEmptyState({ meta }: { meta: SessionMeta }) {
             style={{ animationDelay: `${170 + i * 55}ms` }}
           >
             <span className="flex items-center gap-2">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent transition-colors group-hover:bg-accent group-hover:text-white">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent transition-colors group-hover:bg-accent group-hover:text-on-accent">
                 <Icon name={s.icon} size={13} strokeWidth={2} />
               </span>
               <span className="text-[13px] font-medium text-text-primary">{t(`suggestion.${s.key}.title`)}</span>

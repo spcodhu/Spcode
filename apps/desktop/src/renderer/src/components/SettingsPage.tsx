@@ -61,7 +61,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                 data-testid={`settings-nav-${item.id}`}
                 onClick={() => setPage(item.id)}
                 className={`mb-0.5 flex h-9 w-full items-center gap-2.5 rounded-lg px-3 text-[13px] transition-colors ${
-                  page === item.id ? "bg-accent text-white" : "text-text-secondary hover:bg-bg-hover"
+                  page === item.id ? "bg-accent text-on-accent" : "text-text-secondary hover:bg-bg-hover"
                 }`}
               >
                 <Icon name={item.icon} size={15} />
@@ -416,7 +416,7 @@ function AdvancedSearchSection() {
         <button
           type="button"
           onClick={() => void save()}
-          className="rounded-lg bg-accent px-4 py-1.5 text-[13px] text-white hover:bg-accent-dim"
+          className="rounded-lg bg-accent px-4 py-1.5 text-[13px] text-on-accent hover:bg-accent-dim"
         >
           {t("save")}
         </button>
@@ -568,7 +568,7 @@ function WebFetchSection() {
         <button
           type="button"
           onClick={() => void save()}
-          className="rounded-lg bg-accent px-4 py-1.5 text-[13px] text-white hover:bg-accent-dim"
+          className="rounded-lg bg-accent px-4 py-1.5 text-[13px] text-on-accent hover:bg-accent-dim"
         >
           {t("save")}
         </button>
@@ -694,7 +694,7 @@ function AppearancePage() {
           type="button"
           onClick={() => void generateTheme()}
           disabled={!themeDesc.trim() || generating}
-          className="shrink-0 rounded-lg bg-accent px-4 py-2 text-[13px] text-white hover:bg-accent-dim disabled:opacity-40"
+          className="shrink-0 rounded-lg bg-accent px-4 py-2 text-[13px] text-on-accent hover:bg-accent-dim disabled:opacity-40"
         >
           {generating ? t("appearance.generating") : t("appearance.generate")}
         </button>

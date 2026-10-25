@@ -67,7 +67,7 @@ export function SchedulePage({ onClose }: { onClose: () => void }) {
               <button
                 type="button"
                 onClick={() => setEditing("new")}
-                className="flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-[12px] text-white hover:bg-accent-dim"
+                className="flex items-center gap-1 rounded-lg bg-accent px-3 py-1.5 text-[12px] text-on-accent hover:bg-accent-dim"
               >
                 <Icon name="plus" size={13} />
                 {t("schedule.new")}
@@ -366,7 +366,7 @@ function TaskForm({
           type="button"
           onClick={() => void save()}
           disabled={saving}
-          className="rounded-lg bg-accent px-4 py-2 text-[13px] text-white hover:bg-accent-dim disabled:opacity-40"
+          className="rounded-lg bg-accent px-4 py-2 text-[13px] text-on-accent hover:bg-accent-dim disabled:opacity-40"
         >
           {saving ? t("saving") : task ? t("schedule.saveChanges") : t("schedule.create")}
         </button>

@@ -231,7 +231,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
                 type="button"
                 onClick={() => void setPlanMode(false)}
                 title={t("composer.planActiveHint")}
-                className="flex items-center gap-1 rounded-full bg-accent px-2.5 py-[3px] text-[11px] font-medium text-white shadow-md transition-colors hover:bg-accent-dim"
+                className="flex items-center gap-1 rounded-full bg-accent px-2.5 py-[3px] text-[11px] font-medium text-on-accent shadow-md transition-colors hover:bg-accent-dim"
               >
                 <Icon name="clipboardCheck" size={11} strokeWidth={2.2} />
                 {t("common.planMode")}
@@ -460,7 +460,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
               title={t(running ? "composer.steer" : "common.send")}
               aria-label={t(running ? "composer.steer" : "common.send")}
               data-testid="composer-send"
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-accent text-white transition-colors hover:bg-accent-dim disabled:opacity-30"
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-accent text-on-accent transition-colors hover:bg-accent-dim disabled:opacity-30"
             >
               <Icon name="arrowUp" size={16} strokeWidth={2.2} />
             </button>
@@ -635,7 +635,7 @@ function PermissionModeConfirm({ onCancel, onConfirm }: { onCancel: () => void; 
             type="button"
             data-testid="permission-mode-confirm-ok"
             onClick={onConfirm}
-            className="rounded-md bg-danger px-4 py-1.5 text-xs font-medium text-white hover:bg-danger/80"
+            className="rounded-md bg-danger px-4 py-1.5 text-xs font-medium text-on-danger hover:bg-danger/80"
           >
             {t("composer.modeNeverConfirmOk")}
           </button>

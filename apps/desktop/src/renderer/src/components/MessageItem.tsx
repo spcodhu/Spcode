@@ -448,7 +448,7 @@ function StepStatusIcon({ status }: { status: "running" | "done" | "error" }) {
   return (
     <span
       aria-hidden
-      className={`flex size-3.5 shrink-0 items-center justify-center rounded-full text-white ${
+      className={`flex size-3.5 shrink-0 items-center justify-center rounded-full text-on-accent ${
         status === "error" ? "bg-danger" : "bg-success"
       }`}
     >

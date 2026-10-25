@@ -27,8 +27,10 @@
   --color-border-strong: #3a3a44;
   --color-text-primary: #ececee;
   --color-text-secondary: #9c9ca5;
-  --color-text-tertiary: #63636d;
+  --color-text-tertiary: #898993;
   --color-accent: #3fa97b;
+  --color-on-accent: #101610;
+  --color-on-danger: #1b1012;
   --color-accent-dim: #2f8560;
   --color-accent-soft: rgba(63, 169, 123, 0.14);
   --color-danger: #e5636f;
@@ -87,6 +89,21 @@ button:not(:disabled) {
 }
 button:disabled {
   cursor: not-allowed;
+}
+
+/* 统一的键盘焦点：鼠标点击不显示焦点环，键盘导航清晰可见。
+   选择器特意高于 .outline-none，避免表单组件把唯一的焦点提示也移除。 */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[role="button"]:focus-visible,
+[role="menuitem"]:focus-visible,
+[role="option"]:focus-visible,
+[contenteditable="true"]:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
 /* 标题栏拖拽区 */
@@ -212,7 +229,7 @@ button:disabled {
   font-weight: 600;
 }
 
-/* 行内代码：禁止与相邻文字叠压 */
+/* 行内代码：允许长命令/路径安全断行，独立代码块仍保留横向滚动。 */
 .md-body code:not(pre code) {
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
@@ -220,7 +237,7 @@ button:disabled {
   padding: 0 4px;
   font-size: 12.5px;
   color: var(--color-accent);
-  white-space: nowrap;
+  overflow-wrap: anywhere;
   vertical-align: baseline;
 }
 
@@ -410,9 +427,22 @@ button:disabled {
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
   .fade-up {
     animation: none;
     opacity: 1;
+  }
+  .thinking-shimmer {
+    animation: none;
+    background: none;
+    color: var(--color-text-secondary);
   }
 }
 

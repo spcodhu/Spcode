@@ -167,7 +167,7 @@ export function UsageTrends({
                   key={r}
                   onClick={() => setDays(r)}
                   className={`rounded-full px-3 py-1 text-[12px] transition-colors ${
-                    days === r ? "bg-accent text-white" : "text-text-secondary hover:text-text-primary"
+                    days === r ? "bg-accent text-on-accent" : "text-text-secondary hover:text-text-primary"
                   }`}
                 >
                   {t("usage.daysRange", { count: r })}

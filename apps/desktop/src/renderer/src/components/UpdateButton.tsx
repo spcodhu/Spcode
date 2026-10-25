@@ -57,7 +57,7 @@ export function UpdateButton() {
           data-testid="update-button"
           onClick={() => setOpen(true)}
           title={t("update.ready", { version: state.version })}
-          className="flex items-center gap-1 rounded-lg bg-accent px-2 py-2 text-[12px] font-medium text-white transition-colors hover:bg-accent-dim"
+          className="flex items-center gap-1 rounded-lg bg-accent px-2 py-2 text-[12px] font-medium text-on-accent transition-colors hover:bg-accent-dim"
         >
           <Icon name="refresh" size={13} />
           {t("update.restart")}
@@ -133,7 +133,7 @@ function UpdateDialog({ state, onClose }: { state: UpdateState; onClose: () => v
                   void window.spcode.updateDownload();
                   onClose();
                 }}
-                className="rounded-lg bg-accent px-4 py-1.5 text-[12.5px] font-medium text-white transition-colors hover:bg-accent-dim"
+                className="rounded-lg bg-accent px-4 py-1.5 text-[12.5px] font-medium text-on-accent transition-colors hover:bg-accent-dim"
               >
                 {t("update.confirm")}
               </button>
@@ -177,7 +177,7 @@ function UpdateDialog({ state, onClose }: { state: UpdateState; onClose: () => v
               <button
                 type="button"
                 onClick={() => void window.spcode.updateInstall()}
-                className="rounded-lg bg-accent px-4 py-1.5 text-[12.5px] font-medium text-white transition-colors hover:bg-accent-dim"
+                className="rounded-lg bg-accent px-4 py-1.5 text-[12.5px] font-medium text-on-accent transition-colors hover:bg-accent-dim"
               >
                 {t("update.restartNow")}
               </button>
@@ -202,7 +202,7 @@ function UpdateDialog({ state, onClose }: { state: UpdateState; onClose: () => v
                   void window.spcode.updateDownload();
                   onClose();
                 }}
-                className="rounded-lg bg-accent px-4 py-1.5 text-[12.5px] font-medium text-white transition-colors hover:bg-accent-dim"
+                className="rounded-lg bg-accent px-4 py-1.5 text-[12.5px] font-medium text-on-accent transition-colors hover:bg-accent-dim"
               >
                 {t("update.retry")}
               </button>
