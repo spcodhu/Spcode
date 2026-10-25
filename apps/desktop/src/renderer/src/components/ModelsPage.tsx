@@ -301,8 +301,13 @@ function AddModelForm({ provider, onAdded }: { provider: string; onAdded: () => 
   const [busy, setBusy] = useState(false);
 
   const ctxNum = Number(context);
-  // 空输入不报错（未填状态），有内容后按通用规则校验
-  const validationError = modelId.trim() || context.trim() ? validateModelInput({ modelId, contextWindow: ctxNum }) : null;
+  // 空输入不报错（未填状态）；有内容后按通用规则校验；上下文为空单独提示必填，
+  // 避免 placeholder 被误认为已填值时报出「范围不符」的误导文案
+  const validationError = modelId.trim()
+    ? !context.trim()
+      ? "models.contextRequired"
+      : validateModelInput({ modelId, contextWindow: ctxNum })
+    : null;
 
   const submit = async () => {
     if (validationError || busy) return;
@@ -363,12 +368,18 @@ function AddModelForm({ provider, onAdded }: { provider: string; onAdded: () => 
         </label>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2">
-        <Switch on={reasoning} onChange={setReasoning} label={t("models.addModelReasoning")} />
-        <Switch on={vision} onChange={setVision} label={t("models.addModelVision")} />
+        <label className="flex items-center gap-2 text-[13px] text-text-secondary">
+          <Switch on={reasoning} onChange={setReasoning} label={t("models.addModelReasoning")} />
+          {t("models.addModelReasoning")}
+        </label>
+        <label className="flex items-center gap-2 text-[13px] text-text-secondary">
+          <Switch on={vision} onChange={setVision} label={t("models.addModelVision")} />
+          {t("models.addModelVision")}
+        </label>
         <button
           type="button"
           onClick={() => void submit()}
-          disabled={!!validationError || !modelId.trim() || busy}
+          disabled={!!validationError || !modelId.trim() || !context.trim() || busy}
           className="ml-auto rounded-lg bg-accent px-4 py-1.5 text-[12px] text-white hover:bg-accent-dim disabled:opacity-40"
         >
           {t("models.addModelSubmit")}
