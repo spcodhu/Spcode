@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "0.0.79",
+    "@earendil-works/pi-agent-core": "0.87.1",
     "@earendil-works/pi-ai": "0.87.1",
     "@earendil-works/pi-coding-agent": "0.87.1",
     "@larksuiteoapi/node-sdk": "^1.74.0",

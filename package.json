@@ -26,7 +26,8 @@
     ],
     "patchedDependencies": {
       "app-builder-lib@26.15.3": "patches/app-builder-lib@26.15.3.patch",
-      "@anthropic-ai/sandbox-runtime@0.0.79": "patches/anthropic-ai-sandbox-runtime@0.0.79.patch"
+      "@anthropic-ai/sandbox-runtime@0.0.79": "patches/anthropic-ai-sandbox-runtime@0.0.79.patch",
+      "@earendil-works/pi-agent-core@0.87.1": "patches/earendil-works-pi-agent-core@0.87.1.patch"
     }
   }
 }
