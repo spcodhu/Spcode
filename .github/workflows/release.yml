@@ -61,6 +61,12 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - name: 检出发布标签（读取中文公告）
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
       - name: 汇总两个平台的产物
         uses: actions/download-artifact@v4
         with:
@@ -76,3 +82,37 @@ jobs:
           # 不按 tag 形态标 Pre-release——beta 与稳定版只通过版本号后缀区分
           prerelease: false
           generate_release_notes: true
+
+      - name: 将中文公告置于自动发布说明之前
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ "$(git cat-file -t "$TAG")" != "tag" ]; then
+            echo "::error::$TAG 不是附注标签，无法读取发布公告"
+            exit 1
+          fi
+          git tag -l --format='%(contents)' "$TAG" > tag-notes.md
+          if [ ! -s tag-notes.md ]; then
+            echo "::error::$TAG 没有发布公告"
+            exit 1
+          fi
+          gh release view "$TAG" --json body --jq '.body // ""' > generated-notes.md
+          python3 - <<'PY'
+          from pathlib import Path
+
+          notes = Path("tag-notes.md").read_text(encoding="utf-8").strip() + "\n"
+          generated = Path("generated-notes.md").read_text(encoding="utf-8")
+          if generated.startswith(notes):
+              print("Release 已包含标签公告，无需重复写入")
+          else:
+              merged = notes
+              if generated.strip():
+                  merged += "\n---\n\n" + generated
+              Path("release-notes.md").write_text(merged, encoding="utf-8")
+              Path("sync-required").touch()
+          PY
+          if [ -f sync-required ]; then
+            gh release edit "$TAG" --notes-file release-notes.md
+          fi
