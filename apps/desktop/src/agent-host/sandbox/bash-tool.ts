@@ -60,6 +60,9 @@ export function formatSandboxViolations(violations: SandboxViolation[]): string 
 const BYPASS_HINT =
   "If this command is fundamentally incompatible with the sandbox (GUI/Electron app, keychain, Mach services), retry with dangerouslyDisableSandbox=true — the user will be asked to approve.";
 
+const PARALLEL_GUIDELINE =
+  "Independent Bash calls should be emitted in the same tool-call batch so they can execute concurrently; keep dependent or shared-state commands sequential.";
+
 /** 逃生舱开放时的扩展 schema（bypass 参数描述即模型的使用契约） */
 const sandboxedBashSchema = Type.Object({
   command: Type.String({ description: "Shell command to execute" }),
@@ -101,9 +104,11 @@ export interface SandboxedBashToolOptions {
 export function createSandboxedBashTool(cwd: string, opts: SandboxedBashToolOptions): ToolDefinition {
   const allowBypass = opts.allowBypass;
   if (opts.sandboxEnabled === false) {
+    const definition = createBashToolDefinition(cwd, { spawnHook: opts.environment?.spawnHook });
     return {
-      ...createBashToolDefinition(cwd, { spawnHook: opts.environment?.spawnHook }),
+      ...definition,
       executionMode: "parallel",
+      promptGuidelines: [...(definition.promptGuidelines ?? []), PARALLEL_GUIDELINE],
     } as unknown as ToolDefinition;
   }
 
@@ -163,6 +168,7 @@ export function createSandboxedBashTool(cwd: string, opts: SandboxedBashToolOpti
     description: sandboxedDef.description + SANDBOX_DESCRIPTION_NOTE + (allowBypass ? BYPASS_DESCRIPTION_NOTE : ""),
     promptGuidelines: [
       ...(sandboxedDef.promptGuidelines ?? []),
+      PARALLEL_GUIDELINE,
       "Commands are sandboxed: filesystem writes outside the working directory and network access to non-allowlisted domains will be blocked by the OS.",
     ],
     parameters: allowBypass ? sandboxedBashSchema : sandboxedDef.parameters,

@@ -75,6 +75,7 @@ describe("createSandboxedBashTool（sandboxEnabled=false）", () => {
     const tool = createSandboxedBashTool(root, { allowBypass: false, sandboxEnabled: false, environment });
     expect(tool.description).not.toContain("OS-enforced sandbox");
     expect(tool.executionMode).toBe("parallel");
+    expect(tool.promptGuidelines?.some((line) => line.includes("same tool-call batch"))).toBe(true);
 
     const result = await tool.execute(
       "t1",
