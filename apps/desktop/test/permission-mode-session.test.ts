@@ -92,9 +92,13 @@ describe("SessionController 权限模式", () => {
     await ctl.dispose();
   }, 60_000);
 
-  it.skipIf(process.platform === "win32")("非 Windows 不注册 PowerShell", async () => {
-    const { ctl } = await createCtl({ sessionId: "pm-platform-tools" });
-    expect(ctl.session.agent.state.tools.some((tool) => tool.name === "powershell")).toBe(false);
-    await ctl.dispose();
-  }, 60_000);
+  it.skipIf(process.platform === "win32")(
+    "非 Windows 不注册 PowerShell",
+    async () => {
+      const { ctl } = await createCtl({ sessionId: "pm-platform-tools" });
+      expect(ctl.session.agent.state.tools.some((tool) => tool.name === "powershell")).toBe(false);
+      await ctl.dispose();
+    },
+    60_000,
+  );
 });

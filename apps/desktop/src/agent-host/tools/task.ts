@@ -13,14 +13,14 @@ import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-ag
 import type { PermissionMode, PermissionRequest, SandboxSettings } from "@spcode/shared";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 import { type Static, Type } from "typebox";
-import type { SessionToolEnvironment } from "../tool-environment.js";
-import { createSessionToolEnvironment } from "../tool-environment.js";
 import { installLanguagePolicy } from "../language-policy.js";
 import { createBeforeToolCallGate } from "../permission-gate.js";
-import { createFindToolWithFallback } from "./find-fallback.js";
 import { createSandboxedBashTool } from "../sandbox/bash-tool.js";
 import { createGuardedFsTools, type FsGuardPolicy } from "../sandbox/fs-guard.js";
 import { getSandboxService } from "../sandbox/manager.js";
+import type { SessionToolEnvironment } from "../tool-environment.js";
+import { createSessionToolEnvironment } from "../tool-environment.js";
+import { createFindToolWithFallback } from "./find-fallback.js";
 
 /** 可获得 Task 工具的会话深度上限：0=主会话、1=子代理可嵌套，2 起不再提供 */
 const MAX_TASK_DEPTH = 2;

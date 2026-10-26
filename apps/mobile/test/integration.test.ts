@@ -82,7 +82,15 @@ beforeAll(async () => {
   };
   const settings = { get: () => ({ ...DEFAULT_SETTINGS, remote: { enabled: true, port: 0 } }) };
 
-  server = new RemoteServer({ settings, bridge, scheduler, registry, pairing, transport, push: new PushService({ baseDir: dir }) });
+  server = new RemoteServer({
+    settings,
+    bridge,
+    scheduler,
+    registry,
+    pairing,
+    transport,
+    push: new PushService({ baseDir: dir }),
+  });
   await server.start();
   port = transport.getPort();
   expect(port).toBeGreaterThan(0);

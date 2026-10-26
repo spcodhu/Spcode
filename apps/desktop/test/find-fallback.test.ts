@@ -32,7 +32,13 @@ afterEach(() => {
 
 async function find(pattern: string, limit = 100): Promise<string> {
   const tool = createFindToolWithFallback(root, "/nonexistent/fd/path");
-  const result = await tool.execute("t1", { pattern, path: root, limit }, undefined, undefined as never, undefined as never);
+  const result = await tool.execute(
+    "t1",
+    { pattern, path: root, limit },
+    undefined,
+    undefined as never,
+    undefined as never,
+  );
   expect(result.isError).toBeFalsy();
   return result.content?.[0]?.text ?? "";
 }

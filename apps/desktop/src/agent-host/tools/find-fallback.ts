@@ -3,8 +3,9 @@
  * 保留 basename/full-path glob、隐藏文件、.gitignore、绝对路径与结果上限。
  */
 import { spawnSync } from "node:child_process";
+import type { Dirent } from "node:fs";
 import { access, readdir, readFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { createFindToolDefinition, type FindOperations, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import ignore from "ignore";
 import { minimatch } from "minimatch";
@@ -74,7 +75,11 @@ function matches(candidate: string, name: string, pattern: string, searchPath: s
   return minimatch(name, pattern, options);
 }
 
-async function globWithNode(pattern: string, searchPath: string, options: { ignore: string[]; limit: number }): Promise<string[]> {
+async function globWithNode(
+  pattern: string,
+  searchPath: string,
+  options: { ignore: string[]; limit: number },
+): Promise<string[]> {
   const root = resolve(searchPath);
   const results: string[] = [];
   const parentRules = await parentIgnoreRules(root);
@@ -83,7 +88,7 @@ async function globWithNode(pattern: string, searchPath: string, options: { igno
     if (results.length >= options.limit) return;
     const rules = [...inherited];
     await appendIgnoreFile(dir, rules);
-    let entries;
+    let entries: Dirent[];
     try {
       entries = await readdir(dir, { withFileTypes: true });
     } catch {

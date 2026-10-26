@@ -50,8 +50,14 @@ export function formatSandboxViolations(violations: SandboxViolation[]): string 
   const relevant = violations.filter((v) => !BENIGN_SYSTEM_PROBES.some((pattern) => pattern.test(v.line)));
   if (relevant.length === 0) return "";
   const suppressed = violations.length - relevant.length;
-  const lines = relevant.slice(0, MAX_VISIBLE_VIOLATIONS).map((v) => `  ${v.line}`).join("\n");
-  const more = relevant.length > MAX_VISIBLE_VIOLATIONS ? `\n  ... ${relevant.length - MAX_VISIBLE_VIOLATIONS} more restrictions in diagnostic log` : "";
+  const lines = relevant
+    .slice(0, MAX_VISIBLE_VIOLATIONS)
+    .map((v) => `  ${v.line}`)
+    .join("\n");
+  const more =
+    relevant.length > MAX_VISIBLE_VIOLATIONS
+      ? `\n  ... ${relevant.length - MAX_VISIBLE_VIOLATIONS} more restrictions in diagnostic log`
+      : "";
   const benign = suppressed > 0 ? `\n  (${suppressed} environment-only records omitted)` : "";
   return `\n${SANDBOX_VIOLATION_NOTE_HEADER}\n${lines}${more}${benign}\n`;
 }
@@ -140,23 +146,26 @@ export function createSandboxedBashTool(cwd: string, opts: SandboxedBashToolOpti
       }
       try {
         const result = await local.exec(wrapped, execCwd, options);
-      // 违规归因：原始事件进宿主诊断日志；模型只接收相关且截断后的摘要
-      const violations = sandbox.violations(commandId);
-      if (violations.length > 0) console.debug(`[sandbox] ${commandId} violations:`, violations);
-      const output = formatSandboxViolations(violations);
-      if (output) {
-        const hint = allowBypass && getSettings().allowUnsandboxedCommands ? `\n${BYPASS_HINT}` : "";
-        options.onData(Buffer.from(`${output}${hint}\n`));
+        // 违规归因：原始事件进宿主诊断日志；模型只接收相关且截断后的摘要
+        const violations = sandbox.violations(commandId);
+        if (violations.length > 0) console.debug(`[sandbox] ${commandId} violations:`, violations);
+        const output = formatSandboxViolations(violations);
+        if (output) {
+          const hint = allowBypass && getSettings().allowUnsandboxedCommands ? `\n${BYPASS_HINT}` : "";
+          options.onData(Buffer.from(`${output}${hint}\n`));
+        }
+        return result;
+      } finally {
+        // 无论正常退出还是执行异常，都不能让会话归属泄漏到后续网络审批
+        sandbox.commandFinished(commandId);
       }
-      return result;
-    } finally {
-      // 无论正常退出还是执行异常，都不能让会话归属泄漏到后续网络审批
-      sandbox.commandFinished(commandId);
-    }
     },
   };
 
-  const sandboxedDef = createBashToolDefinition(cwd, { operations: sandboxedOps, spawnHook: opts.environment?.spawnHook });
+  const sandboxedDef = createBashToolDefinition(cwd, {
+    operations: sandboxedOps,
+    spawnHook: opts.environment?.spawnHook,
+  });
   // 逃生舱执行路径：独立的纯本地定义（默认 local ops），与沙盒路径零共享状态
   const unsandboxedDef = allowBypass ? createBashToolDefinition(cwd, { spawnHook: opts.environment?.spawnHook }) : null;
 

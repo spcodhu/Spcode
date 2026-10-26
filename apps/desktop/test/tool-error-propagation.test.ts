@@ -1,9 +1,9 @@
 import { Agent, type AgentMessage } from "@earendil-works/pi-agent-core";
-import { AssistantMessageEventStream, type AssistantMessage } from "@earendil-works/pi-ai";
-import { createSandboxedBashTool } from "../src/agent-host/sandbox/bash-tool.js";
+import { type AssistantMessage, AssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { createBashToolDefinition, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
+import { createSandboxedBashTool } from "../src/agent-host/sandbox/bash-tool.js";
 
 function usage() {
   return {

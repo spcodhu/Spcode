@@ -58,7 +58,9 @@ describe("config-builder（平台无关）", () => {
   });
 
   it("macOS profile：依赖元数据豁免不生成非法规则，根目录保护仍保留", async () => {
-    const { wrapCommandWithSandboxMacOS } = await import("@anthropic-ai/sandbox-runtime/dist/sandbox/macos-sandbox-utils.js");
+    const { wrapCommandWithSandboxMacOS } = await import(
+      "@anthropic-ai/sandbox-runtime/dist/sandbox/macos-sandbox-utils.js"
+    );
     const profile = wrapCommandWithSandboxMacOS({
       command: "true",
       needsNetworkRestriction: false,

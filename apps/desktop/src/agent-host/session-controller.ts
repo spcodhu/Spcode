@@ -41,7 +41,6 @@ import type { MemoryStore } from "./memory-store.js";
 import { maybeMicrocompact } from "./microcompact.js";
 import { createBeforeToolCallGate } from "./permission-gate.js";
 import { PERMISSION_MODE_CUSTOM_TYPE, permissionModeNote } from "./permission-mode.js";
-import { createSessionToolEnvironment } from "./tool-environment.js";
 import {
   NORMAL_MODE_TOOLS,
   PLAN_MODE_CUSTOM_TYPE,
@@ -52,10 +51,11 @@ import {
 import { createSandboxedBashTool } from "./sandbox/bash-tool.js";
 import { createGuardedFsTools, type FsGuardPolicy } from "./sandbox/fs-guard.js";
 import { getSandboxService } from "./sandbox/manager.js";
+import { createSessionToolEnvironment } from "./tool-environment.js";
 import { createAdvancedSearchTool } from "./tools/advanced-search.js";
 import { createAskUserQuestionTool } from "./tools/ask-user.js";
-import { createFindToolWithFallback } from "./tools/find-fallback.js";
 import { createExitPlanModeTool } from "./tools/exit-plan-mode.js";
+import { createFindToolWithFallback } from "./tools/find-fallback.js";
 import { createRenameSessionTool } from "./tools/rename.js";
 import { createTaskTool } from "./tools/task.js";
 import { createTodoWriteTool } from "./tools/todowrite.js";
