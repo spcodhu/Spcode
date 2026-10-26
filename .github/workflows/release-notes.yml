@@ -1,0 +1,57 @@
+# Release 成功后，把附注标签中的中文公告 prepend 到自动生成的 What's Changed 前。
+# 独立为 workflow_run：工作流始终取默认分支版本，且可用流水线 GITHUB_TOKEN 更新 Release，
+# 发布时无需在本机额外配置 gh / GH_TOKEN。
+name: Release Notes
+
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+
+permissions:
+  contents: write
+
+jobs:
+  sync-tag-notes:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.head_branch, 'v') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出触发发布的附注标签
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_branch }}
+          fetch-depth: 0
+
+      - name: 合并标签公告与自动发布说明
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          if [ "$(git cat-file -t "$TAG")" != "tag" ]; then
+            echo "::error::$TAG 不是附注标签，无法读取发布公告"
+            exit 1
+          fi
+          git tag -l --format='%(contents)' "$TAG" > tag-notes.md
+          if [ ! -s tag-notes.md ]; then
+            echo "::error::$TAG 没有发布公告"
+            exit 1
+          fi
+          gh release view "$TAG" --json body --jq '.body // ""' > generated-notes.md
+          python3 - <<'PY'
+          from pathlib import Path
+
+          notes = Path("tag-notes.md").read_text(encoding="utf-8").strip() + "\n"
+          generated = Path("generated-notes.md").read_text(encoding="utf-8")
+          if generated.startswith(notes):
+              print("Release 已包含标签公告，无需重复写入")
+          else:
+              merged = notes
+              if generated.strip():
+                  merged += "\n---\n\n" + generated
+              Path("release-notes.md").write_text(merged, encoding="utf-8")
+              Path("sync-required").touch()
+          PY
+          if [ -f sync-required ]; then
+            gh release edit "$TAG" --notes-file release-notes.md
+          fi
