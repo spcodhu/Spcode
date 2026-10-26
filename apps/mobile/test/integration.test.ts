@@ -15,6 +15,7 @@ import { getLocale, resolveLocale, setLocale } from "@spcode/shared/i18n";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { RemoteServer } from "../../desktop/src/main/remote/index.js";
 import { PairingManager } from "../../desktop/src/main/remote/pairing.js";
+import { PushService } from "../../desktop/src/main/remote/push.js";
 import { LanTransport } from "../../desktop/src/main/remote/transport/lan.js";
 import type { RegistryLike } from "../../desktop/src/main/session-helpers.js";
 import type { SessionRegistryEntry } from "../../desktop/src/main/session-registry.js";
@@ -81,7 +82,7 @@ beforeAll(async () => {
   };
   const settings = { get: () => ({ ...DEFAULT_SETTINGS, remote: { enabled: true, port: 0 } }) };
 
-  server = new RemoteServer({ settings, bridge, scheduler, registry, pairing, transport });
+  server = new RemoteServer({ settings, bridge, scheduler, registry, pairing, transport, push: new PushService({ baseDir: dir }) });
   await server.start();
   port = transport.getPort();
   expect(port).toBeGreaterThan(0);
@@ -445,7 +446,15 @@ describe("PWA ↔ 桌面 RemoteServer 经 relay 全链路", () => {
     const settings = {
       get: () => ({ ...DEFAULT_SETTINGS, remote: { enabled: true, port: 0, relayUrl: `ws://127.0.0.1:${relayPort}` } }),
     };
-    server2 = new RemoteServer({ settings, bridge, scheduler, registry, pairing: pairing2, transport: transport2 });
+    server2 = new RemoteServer({
+      settings,
+      bridge,
+      scheduler,
+      registry,
+      pairing: pairing2,
+      transport: transport2,
+      push: new PushService({ baseDir: dir2 }),
+    });
     await server2.start();
   });
 
