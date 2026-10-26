@@ -9,7 +9,7 @@
  * 注意：测试会临时用真实 SandboxManager 初始化网络代理（进程内），结束后 reset。
  */
 import { execFile } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -55,6 +55,23 @@ describe("config-builder（平台无关）", () => {
     expect(denyWrite).toContain(join(fakeSpcodeHome, "agent"));
     // 聊天模式形态（cwd 在 SPCODE_HOME 内）同样成立：精确枚举不会锁死 scratch
     expect(denyWrite).not.toContain(fakeSpcodeHome);
+  });
+
+  it("macOS profile：依赖元数据豁免不生成非法规则，根目录保护仍保留", async () => {
+    const { wrapCommandWithSandboxMacOS } = await import("@anthropic-ai/sandbox-runtime/dist/sandbox/macos-sandbox-utils.js");
+    const profile = wrapCommandWithSandboxMacOS({
+      command: "true",
+      needsNetworkRestriction: false,
+      readConfig: undefined,
+      writeConfig: { allowOnly: [workDir], denyWithinAllow: [] },
+      logTag: "test",
+    });
+    expect(profile).not.toContain("subpath undefined");
+    expect(profile).toContain("node_modules/");
+    expect(profile).toContain("(allow file-write-unlink file-write-create");
+    expect(profile).toContain(`(subpath "${process.cwd()}/.idea")`);
+    expect(profile).toContain(`(subpath "${process.cwd()}/.gitmodules")`);
+    expect(profile).toContain("(deny file-write*");
   });
 
   it("isPathInside：父子/相等/无关路径", () => {
@@ -143,12 +160,45 @@ describe.skipIf(!isMac)("沙盒内核行为（macOS seatbelt 真跑）", () => {
     expect(allowed.stdout).not.toMatch(/CONNECT tunnel failed|403|denied/i);
   }, 40_000);
 
+  it("node_modules 内依赖元数据可覆盖、创建与删除", async () => {
+    const packageDir = join(workDir, "node_modules", "some-pkg");
+    const ideaDir = join(packageDir, ".idea");
+    const gitmodules = join(packageDir, ".gitmodules");
+    const ideaSettings = join(ideaDir, "settings.xml");
+    mkdirSync(ideaDir, { recursive: true });
+    writeFileSync(gitmodules, "original", "utf-8");
+
+    const r = await runSandboxed(
+      `printf updated > "${gitmodules}" && printf new > "${ideaSettings}" && rm "${gitmodules}" && echo success`,
+    );
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("success");
+    expect(existsSync(gitmodules)).toBe(false);
+    expect(readFileSync(ideaSettings, "utf-8")).toBe("new");
+  });
+
+  it("工作区根目录的 .idea 与 .gitmodules 仍禁写", async () => {
+    const ideaDir = join(workDir, ".idea");
+    const ideaSettings = join(ideaDir, "settings.xml");
+    const gitmodules = join(workDir, ".gitmodules");
+    mkdirSync(ideaDir, { recursive: true });
+    writeFileSync(ideaSettings, "idea-original", "utf-8");
+    writeFileSync(gitmodules, "gitmodules-original", "utf-8");
+
+    const r = await runSandboxed(
+      `echo poisoned > "${ideaSettings}" 2>&1; echo idea-exit=$?; echo poisoned > "${gitmodules}" 2>&1; echo gitmodules-exit=$?`,
+    );
+    expect(r.stdout).toContain("idea-exit=1");
+    expect(r.stdout).toContain("gitmodules-exit=1");
+    expect(readFileSync(ideaSettings, "utf-8")).toBe("idea-original");
+    expect(readFileSync(gitmodules, "utf-8")).toBe("gitmodules-original");
+  });
+
   it("SPCODE_HOME 敏感文件禁写（记忆投毒防线）", async () => {
     const soul = join(fakeSpcodeHome, "SOUL.md");
     writeFileSync(soul, "original", "utf-8");
     const r = await runSandboxed(`echo poisoned > "${soul}" 2>&1; echo exit=$?`);
     expect(r.stdout).toContain("exit=1");
-    const { readFileSync } = await import("node:fs");
     expect(readFileSync(soul, "utf-8")).toBe("original");
   });
 });

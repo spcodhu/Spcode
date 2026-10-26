@@ -1,0 +1,37 @@
+diff --git a/dist/sandbox/macos-sandbox-utils.js b/dist/sandbox/macos-sandbox-utils.js
+index 9d5dc7e3dd0a9d80f10e8855edf4251161fa14b0..98630c9e3524a503eedeafdfb8eb7b751f1e670f 100644
+--- a/dist/sandbox/macos-sandbox-utils.js
++++ b/dist/sandbox/macos-sandbox-utils.js
+@@ -641,6 +641,23 @@
+     return rules;
+ }
+ /**
++ * Re-allow dependency-owned metadata under node_modules. Linux already excludes
++ * node_modules from its mandatory-deny scan; macOS must exempt it explicitly.
++ * Both wildcard and create/unlink allows are required because Seatbelt resolves
++ * conflicting rules by operation specificity, not declaration order alone.
++ */
++function generateNodeModulesDenyExemptionRules(logTag) {
++    const globs = [
++        ...DANGEROUS_FILES.map(fileName => `**/node_modules/**/${fileName}`),
++        ...getDangerousDirectories().map(dirName => `**/node_modules/**/${dirName}/**`),
++    ];
++    const filters = new Set(globs.map(glob => pathFilter(toPathEntry(glob))));
++    return [
++        ...renderRule('allow', ['file-write*'], filters, logTag),
++        ...renderRule('allow', ['file-write-unlink', 'file-write-create'], filters, logTag),
++    ];
++}
++/**
+  * What a write config allows, as entries. Decided once per profile and
+  * handed to the read and the write section, so the two see the same answer.
+  */
+@@ -695,6 +712,8 @@
+         }
+     }
+     rules.push(...renderRule('deny', ['file-write-unlink', 'file-write-create'], moveFilters, logTag));
++    // Dependency-owned dotfiles are not attacker-controlled workspace configuration.
++    rules.push(...generateNodeModulesDenyExemptionRules(logTag));
+     return rules;
+ }
+ /**
