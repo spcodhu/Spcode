@@ -1,0 +1,15 @@
+diff --git a/out/vm/WineVm.js b/out/vm/WineVm.js
+index dd689aa81147f8378c5fbc093797ad235ca6170a..3906784cbce2d9f472e43461a33bd886dda6120a 100644
+--- a/out/vm/WineVm.js
++++ b/out/vm/WineVm.js
+@@ -26,7 +26,9 @@ class WineVmManager extends vm_1.VmManager {
+             options.timeout = 120 * 1000;
+         }
+         if (process.platform === "win32") {
+-            return (0, builder_util_1.exec)(target, appArgs, options);
++            // The NSIS bootstrap installer also needs PATH/SystemRoot/TEMP. Keep the host
++            // environment without credentials; explicit options (RunAsInvoker) win last.
++            return (0, builder_util_1.exec)(target, appArgs, { ...options, env: { ...(0, builder_util_1.stripSensitiveEnvVars)(process.env), ...options.env } });
+         }
+         const { execPath: wineExe, env: wineEnv } = await (0, wine_1.getWineToolset)(toolset);
+         // Preserve the base process environment (PATH, HOME, TMPDIR, etc.) so Wine and child
