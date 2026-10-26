@@ -17,6 +17,7 @@ import type { SessionToolEnvironment } from "../tool-environment.js";
 import { createSessionToolEnvironment } from "../tool-environment.js";
 import { installLanguagePolicy } from "../language-policy.js";
 import { createBeforeToolCallGate } from "../permission-gate.js";
+import { createFindToolWithFallback } from "./find-fallback.js";
 import { createSandboxedBashTool } from "../sandbox/bash-tool.js";
 import { createGuardedFsTools, type FsGuardPolicy } from "../sandbox/fs-guard.js";
 import { getSandboxService } from "../sandbox/manager.js";
@@ -77,15 +78,17 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
           extraAllowWrite: sb?.filesystem.extraAllowWrite ?? [],
         };
       };
+      const toolEnvironment = ctx.toolEnvironment ?? createSessionToolEnvironment();
       const customTools: ToolDefinition[] = [
         // 子会话与主会话复用同一环境；沙盒状态只决定执行路径
         createSandboxedBashTool(ctx.cwd, {
           sandboxEnabled: sandboxState.state === "active",
           allowBypass: false,
           sessionId: ctx.sessionId,
-          environment: ctx.toolEnvironment ?? createSessionToolEnvironment(),
+          environment: toolEnvironment,
         }),
         ...createGuardedFsTools(ctx.cwd, getFsPolicy),
+        createFindToolWithFallback(ctx.cwd, toolEnvironment.path),
         // 子会话深度 +1；达到上限后子会话不再拿到 Task（评审 P2-5：让条件与头注释同口径）
         ...(ctx.depth + 1 < MAX_TASK_DEPTH ? [createTaskTool({ ...ctx, depth: ctx.depth + 1 })] : []),
       ];
@@ -97,6 +100,7 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         thinkingLevel: ctx.thinkingLevel as any,
         sessionManager: SessionManager.inMemory(),
+        excludeTools: process.platform === "win32" ? [] : ["powershell"],
         customTools: customTools.length > 0 ? customTools : undefined,
       });
       installLanguagePolicy(session.agent);

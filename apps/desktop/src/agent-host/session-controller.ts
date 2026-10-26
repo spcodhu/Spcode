@@ -54,6 +54,7 @@ import { createGuardedFsTools, type FsGuardPolicy } from "./sandbox/fs-guard.js"
 import { getSandboxService } from "./sandbox/manager.js";
 import { createAdvancedSearchTool } from "./tools/advanced-search.js";
 import { createAskUserQuestionTool } from "./tools/ask-user.js";
+import { createFindToolWithFallback } from "./tools/find-fallback.js";
 import { createExitPlanModeTool } from "./tools/exit-plan-mode.js";
 import { createRenameSessionTool } from "./tools/rename.js";
 import { createTaskTool } from "./tools/task.js";
@@ -298,6 +299,7 @@ export class SessionController {
       resourceLoader,
       settingsManager: opts.piSettings,
       sessionManager: opts.sessionManager ?? (opts.sessionFile ? SessionManager.open(opts.sessionFile) : undefined),
+      excludeTools: process.platform === "win32" ? [] : ["powershell"],
       customTools: [
         // 所有会话统一注册 Bash：沙盒状态只决定执行路径，PATH/TMPDIR 等会话环境始终一致
         createSandboxedBashTool(cwd, {
@@ -309,6 +311,7 @@ export class SessionController {
         }),
         // 路径守卫版 read/write/edit：同名覆盖内置（进程内 fs 不受 OS 沙盒约束，这里是边界）
         ...createGuardedFsTools(cwd, getFsPolicy),
+        createFindToolWithFallback(cwd, toolEnvironment.path),
         // MCP 工具（R3-F3）：配置下发后新会话生效；mcp__server__tool 经权限网关（默认 write 风险）
         ...(opts.getMcpTools?.() ?? []),
         createWebSearchTool(),
