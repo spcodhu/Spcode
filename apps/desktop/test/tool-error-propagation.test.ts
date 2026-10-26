@@ -1,5 +1,6 @@
 import { Agent, type AgentMessage } from "@earendil-works/pi-agent-core";
 import { AssistantMessageEventStream, type AssistantMessage } from "@earendil-works/pi-ai";
+import { createSandboxedBashTool } from "../src/agent-host/sandbox/bash-tool.js";
 import { createBashToolDefinition, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
@@ -65,5 +66,55 @@ describe("Agent tool error propagation", () => {
     expect(result.content[0]).toMatchObject({ type: "text", text: "expected tool error" });
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ isError: true });
+  });
+
+  it("同一批次的独立 Bash 调用真实并行", async () => {
+    const makeTool = (name: string) => ({
+      ...createSandboxedBashTool(process.cwd(), { allowBypass: false, sandboxEnabled: false }),
+      name,
+      label: name,
+    });
+    const starts: Record<string, number> = {};
+    const ends: Record<string, number> = {};
+    const timed = (tool: ReturnType<typeof makeTool>, key: string): ToolDefinition => ({
+      ...tool,
+      execute: async (id, args, signal, onUpdate, ctx) => {
+        starts[key] = Date.now();
+        try {
+          return await tool.execute(id, args, signal, onUpdate, ctx);
+        } finally {
+          ends[key] = Date.now();
+        }
+      },
+    });
+    const a = timed(makeTool("slow-a"), "a");
+    const b = timed(makeTool("slow-b"), "b");
+    const batch: AssistantMessage = {
+      role: "assistant",
+      content: [
+        { type: "toolCall", id: "call-a", name: "slow-a", arguments: { command: "sleep 0.4; echo A" } },
+        { type: "toolCall", id: "call-b", name: "slow-b", arguments: { command: "sleep 0.4; echo B" } },
+      ],
+      api: "anthropic-messages",
+      provider: "test",
+      model: "test",
+      usage: usage(),
+      stopReason: "toolUse",
+      timestamp: Date.now(),
+    };
+    const done: AssistantMessage = {
+      ...batch,
+      content: [{ type: "text", text: "done" }],
+      stopReason: "stop",
+      timestamp: Date.now(),
+    };
+    let turn = 0;
+    const agent = new Agent({ streamFn: async () => streamOf(++turn === 1 ? batch : done) });
+    agent.state.tools = [a, b];
+
+    await agent.prompt("run");
+
+    const overlap = Math.min(ends.a ?? 0, ends.b ?? 0) - Math.max(starts.a ?? 0, starts.b ?? 0);
+    expect(overlap).toBeGreaterThan(200);
   });
 });

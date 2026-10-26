@@ -101,7 +101,10 @@ export interface SandboxedBashToolOptions {
 export function createSandboxedBashTool(cwd: string, opts: SandboxedBashToolOptions): ToolDefinition {
   const allowBypass = opts.allowBypass;
   if (opts.sandboxEnabled === false) {
-    return createBashToolDefinition(cwd, { spawnHook: opts.environment?.spawnHook }) as unknown as ToolDefinition;
+    return {
+      ...createBashToolDefinition(cwd, { spawnHook: opts.environment?.spawnHook }),
+      executionMode: "parallel",
+    } as unknown as ToolDefinition;
   }
 
   const sandbox = getSandboxService();
@@ -156,6 +159,7 @@ export function createSandboxedBashTool(cwd: string, opts: SandboxedBashToolOpti
   // 与注册表要求的通用 ToolDefinition 不直接相容，这里断言收窄（运行时结构一致）
   return {
     ...sandboxedDef,
+    executionMode: "parallel",
     description: sandboxedDef.description + SANDBOX_DESCRIPTION_NOTE + (allowBypass ? BYPASS_DESCRIPTION_NOTE : ""),
     promptGuidelines: [
       ...(sandboxedDef.promptGuidelines ?? []),

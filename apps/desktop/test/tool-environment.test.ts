@@ -74,6 +74,7 @@ describe("createSandboxedBashTool（sandboxEnabled=false）", () => {
     const environment = createSessionToolEnvironment({ env: { PATH: "/usr/bin" }, homeDir: home, tmpdir: temp });
     const tool = createSandboxedBashTool(root, { allowBypass: false, sandboxEnabled: false, environment });
     expect(tool.description).not.toContain("OS-enforced sandbox");
+    expect(tool.executionMode).toBe("parallel");
 
     const result = await tool.execute(
       "t1",
