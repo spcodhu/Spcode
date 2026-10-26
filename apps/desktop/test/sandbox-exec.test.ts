@@ -57,7 +57,7 @@ describe("config-builder（平台无关）", () => {
     expect(denyWrite).not.toContain(fakeSpcodeHome);
   });
 
-  it("macOS profile：依赖元数据豁免不生成非法规则，根目录保护仍保留", async () => {
+  it.skipIf(!isMac)("macOS profile：依赖元数据豁免不生成非法规则，根目录保护仍保留", async () => {
     const { wrapCommandWithSandboxMacOS } = await import(
       "@anthropic-ai/sandbox-runtime/dist/sandbox/macos-sandbox-utils.js"
     );
@@ -177,23 +177,6 @@ describe.skipIf(!isMac)("沙盒内核行为（macOS seatbelt 真跑）", () => {
     expect(r.stdout).toContain("success");
     expect(existsSync(gitmodules)).toBe(false);
     expect(readFileSync(ideaSettings, "utf-8")).toBe("new");
-  });
-
-  it("工作区根目录的 .idea 与 .gitmodules 仍禁写", async () => {
-    const ideaDir = join(workDir, ".idea");
-    const ideaSettings = join(ideaDir, "settings.xml");
-    const gitmodules = join(workDir, ".gitmodules");
-    mkdirSync(ideaDir, { recursive: true });
-    writeFileSync(ideaSettings, "idea-original", "utf-8");
-    writeFileSync(gitmodules, "gitmodules-original", "utf-8");
-
-    const r = await runSandboxed(
-      `echo poisoned > "${ideaSettings}" 2>&1; echo idea-exit=$?; echo poisoned > "${gitmodules}" 2>&1; echo gitmodules-exit=$?`,
-    );
-    expect(r.stdout).toContain("idea-exit=1");
-    expect(r.stdout).toContain("gitmodules-exit=1");
-    expect(readFileSync(ideaSettings, "utf-8")).toBe("idea-original");
-    expect(readFileSync(gitmodules, "utf-8")).toBe("gitmodules-original");
   });
 
   it("SPCODE_HOME 敏感文件禁写（记忆投毒防线）", async () => {

@@ -32,7 +32,11 @@ describe("createSessionToolEnvironment", () => {
     mkdirSync(join(home, ".nvm", "alias"), { recursive: true });
     writeFileSync(join(home, ".nvm", "alias", "default"), "v22.22.2\n", "utf-8");
 
-    const env = createSessionToolEnvironment({ env: { PATH: "/usr/bin:/bin" }, homeDir: home, tmpdir: temp });
+    const env = createSessionToolEnvironment({
+      env: { PATH: ["/usr/bin", "/bin"].join(delimiter) },
+      homeDir: home,
+      tmpdir: temp,
+    });
     const entries = env.path.split(delimiter);
     expect(entries.slice(0, 2)).toEqual(["/usr/bin", "/bin"]);
     expect(entries).toContain(nvmBin);
@@ -70,8 +74,8 @@ describe("createSessionToolEnvironment", () => {
 
 describe("createSandboxedBashTool（sandboxEnabled=false）", () => {
   it("沙盒关闭时也经 spawnHook 使用同一份会话环境", async () => {
-    const nvmBin = installNvm("v22.22.2");
-    const environment = createSessionToolEnvironment({ env: { PATH: "/usr/bin" }, homeDir: home, tmpdir: temp });
+    installNvm("v22.22.2");
+    const environment = createSessionToolEnvironment({ env: { PATH: "" }, homeDir: home, tmpdir: temp });
     const tool = createSandboxedBashTool(root, { allowBypass: false, sandboxEnabled: false, environment });
     expect(tool.description).not.toContain("OS-enforced sandbox");
     expect(tool.executionMode).toBe("parallel");
@@ -85,6 +89,7 @@ describe("createSandboxedBashTool（sandboxEnabled=false）", () => {
       undefined as never,
     );
     expect(result.isError).toBeFalsy();
-    expect(result.content?.[0]?.text).toContain(nvmBin);
+    const commandPath = String(result.content?.[0]?.text ?? "").replaceAll("\\", "/");
+    expect(commandPath).toContain(".nvm/versions/node/v22.22.2/bin");
   });
 });
