@@ -28,7 +28,7 @@ import {
 import type { SandboxSettings } from "@spcode/shared";
 import { Type } from "typebox";
 import type { SessionToolEnvironment } from "../tool-environment.js";
-import { getSandboxService } from "./manager.js";
+import { getSandboxService, type SandboxViolation } from "./manager.js";
 
 const SANDBOX_DESCRIPTION_NOTE =
   " Commands run inside an OS-enforced sandbox: writes are restricted to the working directory and system temp dirs, sensitive paths (~/.ssh, app credentials) are unreadable, and network access is limited to an allowlist of domains. If a command fails with EPERM / 'Operation not permitted' / 'Could not resolve host', it was blocked by the sandbox — do not retry blindly; report the restriction to the user.";
@@ -38,6 +38,23 @@ const BYPASS_DESCRIPTION_NOTE =
 
 /** 违规注解尾部标记，渲染层/测试可据此识别 */
 export const SANDBOX_VIOLATION_NOTE_HEADER = "[sandbox] restrictions hit during this command:";
+
+const MAX_VISIBLE_VIOLATIONS = 5;
+const BENIGN_SYSTEM_PROBES = [/\bsysctl-read\b/, /\bsystem-info\b/, /\bmach-lookup com\.apple\.SystemConfiguration\b/];
+
+/**
+ * 将内核违规分为用户操作相关与运行环境噪音。原始事件仍由宿主日志保留，
+ * 但模型只看到文件/网络等真实边界拒绝，避免成功命令被数百行系统探测淹没。
+ */
+export function formatSandboxViolations(violations: SandboxViolation[]): string {
+  const relevant = violations.filter((v) => !BENIGN_SYSTEM_PROBES.some((pattern) => pattern.test(v.line)));
+  if (relevant.length === 0) return "";
+  const suppressed = violations.length - relevant.length;
+  const lines = relevant.slice(0, MAX_VISIBLE_VIOLATIONS).map((v) => `  ${v.line}`).join("\n");
+  const more = relevant.length > MAX_VISIBLE_VIOLATIONS ? `\n  ... ${relevant.length - MAX_VISIBLE_VIOLATIONS} more restrictions in diagnostic log` : "";
+  const benign = suppressed > 0 ? `\n  (${suppressed} environment-only records omitted)` : "";
+  return `\n${SANDBOX_VIOLATION_NOTE_HEADER}\n${lines}${more}${benign}\n`;
+}
 
 /** 违规归因后的逃生舱引导（仅在逃生舱开放时追加） */
 const BYPASS_HINT =
@@ -113,17 +130,21 @@ export function createSandboxedBashTool(cwd: string, opts: SandboxedBashToolOpti
         );
         return { exitCode: 126 };
       }
-      const result = await local.exec(wrapped, execCwd, options);
-      // 违规归因：把内核/代理拦截记录附到输出尾部，模型据此理解并回应
+      try {
+        const result = await local.exec(wrapped, execCwd, options);
+      // 违规归因：原始事件进宿主诊断日志；模型只接收相关且截断后的摘要
       const violations = sandbox.violations(commandId);
-      // 命令结束：清掉会话归属（网络域名询问的归因表）
-      sandbox.commandFinished(commandId);
-      if (violations.length > 0) {
-        const lines = violations.map((v) => `  ${v.line}`).join("\n");
+      if (violations.length > 0) console.debug(`[sandbox] ${commandId} violations:`, violations);
+      const output = formatSandboxViolations(violations);
+      if (output) {
         const hint = allowBypass && getSettings().allowUnsandboxedCommands ? `\n${BYPASS_HINT}` : "";
-        options.onData(Buffer.from(`\n${SANDBOX_VIOLATION_NOTE_HEADER}\n${lines}${hint}\n`));
+        options.onData(Buffer.from(`${output}${hint}\n`));
       }
       return result;
+    } finally {
+      // 无论正常退出还是执行异常，都不能让会话归属泄漏到后续网络审批
+      sandbox.commandFinished(commandId);
+    }
     },
   };
 

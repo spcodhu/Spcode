@@ -15,6 +15,7 @@ import { promisify } from "node:util";
 import { DEFAULT_SANDBOX_SETTINGS } from "@spcode/shared";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { getSandboxService, resetSandboxServiceForTest } from "../src/agent-host/sandbox/manager.js";
+import { createSandboxedBashTool } from "../src/agent-host/sandbox/bash-tool.js";
 
 const execFileP = promisify(execFile);
 const isMac = process.platform === "darwin";
@@ -129,6 +130,15 @@ describe.skipIf(!isMac)("SandboxService（macOS 真跑）", () => {
     expect(askCalls).toContain("denied-by-callback-xyz.com");
     expect(out).toMatch(/403|denied|Could not|failed/i);
   }, 40_000);
+
+  it("Bash 执行异常也清理 commandId，不残留会话归属", async () => {
+    const svc = getSandboxService();
+    const tool = createSandboxedBashTool(join(workDir, "missing-cwd"), { allowBypass: false, sessionId: "s-exec-error" });
+    await expect(
+      tool.execute("t-exec-error", { command: "true" }, undefined, undefined as never, undefined as never),
+    ).rejects.toThrow(/Working directory does not exist/);
+    expect(svc.inflightSessionSnapshot()).toEqual({});
+  }, 30_000);
 
   it("allowLocalBinding 默认开：沙盒内可监听本地端口（dev server 场景）", async () => {
     const svc = getSandboxService();
