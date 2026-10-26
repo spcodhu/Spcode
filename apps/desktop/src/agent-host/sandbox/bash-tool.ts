@@ -27,6 +27,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { SandboxSettings } from "@spcode/shared";
 import { Type } from "typebox";
+import type { SessionToolEnvironment } from "../tool-environment.js";
 import { getSandboxService } from "./manager.js";
 
 const SANDBOX_DESCRIPTION_NOTE =
@@ -68,6 +69,10 @@ export function matchesExcludedCommand(command: string, rule: string): boolean {
 }
 
 export interface SandboxedBashToolOptions {
+  /** 是否实际经过 OS 沙盒；false 时走普通本地 Bash，但仍复用同一份会话环境 */
+  sandboxEnabled?: boolean;
+  /** 每次新建会话/Task 时生成的统一环境 */
+  environment?: SessionToolEnvironment;
   /** 是否暴露 dangerouslyDisableSandbox 逃生舱参数（子代理必须 false） */
   allowBypass: boolean;
   /** 命令归属的会话 id（网络域名询问按该会话的权限模式决定要不要打扰用户） */
@@ -77,9 +82,13 @@ export interface SandboxedBashToolOptions {
 }
 
 export function createSandboxedBashTool(cwd: string, opts: SandboxedBashToolOptions): ToolDefinition {
+  const allowBypass = opts.allowBypass;
+  if (opts.sandboxEnabled === false) {
+    return createBashToolDefinition(cwd, { spawnHook: opts.environment?.spawnHook }) as unknown as ToolDefinition;
+  }
+
   const sandbox = getSandboxService();
   const local = createLocalBashOperations();
-  const allowBypass = opts.allowBypass;
   const getSettings = () => opts.getSettings?.() ?? sandbox.settingsSnapshot();
 
   const sandboxedOps: BashOperations = {
@@ -118,9 +127,9 @@ export function createSandboxedBashTool(cwd: string, opts: SandboxedBashToolOpti
     },
   };
 
-  const sandboxedDef = createBashToolDefinition(cwd, { operations: sandboxedOps });
+  const sandboxedDef = createBashToolDefinition(cwd, { operations: sandboxedOps, spawnHook: opts.environment?.spawnHook });
   // 逃生舱执行路径：独立的纯本地定义（默认 local ops），与沙盒路径零共享状态
-  const unsandboxedDef = allowBypass ? createBashToolDefinition(cwd, {}) : null;
+  const unsandboxedDef = allowBypass ? createBashToolDefinition(cwd, { spawnHook: opts.environment?.spawnHook }) : null;
 
   // 泛型方差：createBashToolDefinition 返回的是参数特化的 ToolDefinition，
   // 与注册表要求的通用 ToolDefinition 不直接相容，这里断言收窄（运行时结构一致）

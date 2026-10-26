@@ -41,6 +41,7 @@ import type { MemoryStore } from "./memory-store.js";
 import { maybeMicrocompact } from "./microcompact.js";
 import { createBeforeToolCallGate } from "./permission-gate.js";
 import { PERMISSION_MODE_CUSTOM_TYPE, permissionModeNote } from "./permission-mode.js";
+import { createSessionToolEnvironment } from "./tool-environment.js";
 import {
   NORMAL_MODE_TOOLS,
   PLAN_MODE_CUSTOM_TYPE,
@@ -242,6 +243,7 @@ export class SessionController {
     // 聊天模式不传 cwd 时用全局 scratch 目录
     const cwd = opts.cwd?.trim() ? opts.cwd : join(opts.agentDir, "..", "scratch");
     mkdirSync(cwd, { recursive: true });
+    const toolEnvironment = createSessionToolEnvironment();
 
     const model = opts.modelRef ? opts.modelRuntime.getModel(opts.modelRef.provider, opts.modelRef.modelId) : undefined;
 
@@ -297,16 +299,14 @@ export class SessionController {
       settingsManager: opts.piSettings,
       sessionManager: opts.sessionManager ?? (opts.sessionFile ? SessionManager.open(opts.sessionFile) : undefined),
       customTools: [
-        // 沙盒化 bash：active 时同名覆盖内置 bash；不可用/关闭时不注册，pi 用内置实现
-        ...(sandboxState.state === "active"
-          ? [
-              createSandboxedBashTool(cwd, {
-                allowBypass: true,
-                sessionId: opts.sessionId,
-                getSettings: opts.getSandboxSettings,
-              }),
-            ]
-          : []),
+        // 所有会话统一注册 Bash：沙盒状态只决定执行路径，PATH/TMPDIR 等会话环境始终一致
+        createSandboxedBashTool(cwd, {
+          sandboxEnabled: sandboxState.state === "active",
+          allowBypass: true,
+          sessionId: opts.sessionId,
+          environment: toolEnvironment,
+          getSettings: opts.getSandboxSettings,
+        }),
         // 路径守卫版 read/write/edit：同名覆盖内置（进程内 fs 不受 OS 沙盒约束，这里是边界）
         ...createGuardedFsTools(cwd, getFsPolicy),
         // MCP 工具（R3-F3）：配置下发后新会话生效；mcp__server__tool 经权限网关（默认 write 风险）
@@ -346,6 +346,7 @@ export class SessionController {
           getSandboxSettings: opts.getSandboxSettings,
           getPermissionMode: () => permissionModeRef.current,
           requestPermission: opts.requestPermission,
+          toolEnvironment,
         }),
       ],
     });

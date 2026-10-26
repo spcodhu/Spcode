@@ -13,6 +13,8 @@ import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-ag
 import type { PermissionMode, PermissionRequest, SandboxSettings } from "@spcode/shared";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 import { type Static, Type } from "typebox";
+import type { SessionToolEnvironment } from "../tool-environment.js";
+import { createSessionToolEnvironment } from "../tool-environment.js";
 import { installLanguagePolicy } from "../language-policy.js";
 import { createBeforeToolCallGate } from "../permission-gate.js";
 import { createSandboxedBashTool } from "../sandbox/bash-tool.js";
@@ -47,6 +49,8 @@ export interface TaskToolContext {
   getPermissionMode?: () => PermissionMode;
   /** 权限网关通道（主会话透传，评审 R3-C4：子代理的写/危险操作同样弹窗裁决） */
   requestPermission: (req: PermissionRequest) => Promise<boolean>;
+  /** 父会话已初始化的统一 Bash 环境；缺省时由子会话自行生成 */
+  toolEnvironment?: SessionToolEnvironment;
 }
 
 export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
@@ -74,11 +78,13 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
         };
       };
       const customTools: ToolDefinition[] = [
-        // 子会话沙盒 bash：不开放 dangerouslyDisableSandbox 逃生舱参数
-        // （逃生舱批准权属用户与主会话，子代理不得自行申请）
-        ...(sandboxState.state === "active"
-          ? [createSandboxedBashTool(ctx.cwd, { allowBypass: false, sessionId: ctx.sessionId })]
-          : []),
+        // 子会话与主会话复用同一环境；沙盒状态只决定执行路径
+        createSandboxedBashTool(ctx.cwd, {
+          sandboxEnabled: sandboxState.state === "active",
+          allowBypass: false,
+          sessionId: ctx.sessionId,
+          environment: ctx.toolEnvironment ?? createSessionToolEnvironment(),
+        }),
         ...createGuardedFsTools(ctx.cwd, getFsPolicy),
         // 子会话深度 +1；达到上限后子会话不再拿到 Task（评审 P2-5：让条件与头注释同口径）
         ...(ctx.depth + 1 < MAX_TASK_DEPTH ? [createTaskTool({ ...ctx, depth: ctx.depth + 1 })] : []),
