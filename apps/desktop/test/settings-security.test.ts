@@ -58,6 +58,28 @@ describe("sanitizeAppSettings（fail-safe）", () => {
     expect(out.disabledProviders).toBeUndefined();
   });
 
+  it("项目权限规则逐字段清洗并规范化 cwd", () => {
+    const out = sanitizeAppSettings({
+      projectPermissionRules: {
+        "/tmp/project/": [
+          { command: " git push ", match: "prefix" },
+          { command: "rm -rf /tmp/x", match: "exact" },
+          { command: "bad", match: "wildcard" },
+          null,
+        ],
+        "": [{ command: "git status", match: "prefix" }],
+        "/tmp/not-array": "git status",
+      },
+    } as never);
+    expect(out.projectPermissionRules).toEqual({
+      "/tmp/project": [
+        { command: "git push", match: "prefix" },
+        { command: "rm -rf /tmp/x", match: "exact" },
+      ],
+    });
+    expect(sanitizeAppSettings({ projectPermissionRules: [] as never }).projectPermissionRules).toBeUndefined();
+  });
+
   it("嵌套对象是数组/标量时剔除（交给默认归一化）", () => {
     const out = sanitizeAppSettings({ sandbox: [] as never, remote: "x" as never });
     expect(out.sandbox).toBeUndefined();

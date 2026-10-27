@@ -133,9 +133,14 @@ export const zhCN = {
   "compaction.keepDescription":
     "压缩时保留最近原文不折叠的量。调大可减少「上一轮改动被折叠进摘要」；过大则压缩收益变小。默认 40,000",
   "compaction.invalid": "请输入 ≥ {{min, number}} 的整数",
-  "permissions.rules": "免审批规则",
-  "permissions.description": "权限卡点「总允许」后，以这些前缀开头的命令不再询问；危险命令（rm -rf 等）永远会询问",
-  "permissions.empty": "暂无规则",
+  "permissions.rules": "全局免审批规则（旧版兼容）",
+  "permissions.description": "旧版本沉淀的全局命令前缀；仅普通写入/对外命令可命中，危险命令仍会询问",
+  "permissions.empty": "暂无全局规则",
+  "permissions.projectRules": "项目免审批规则",
+  "permissions.projectDescription": "权限卡点「总允许」后仅记住当前项目；危险与复合命令按完整命令精确匹配",
+  "permissions.emptyProject": "暂无项目规则",
+  "permissions.exact": "完全相同",
+  "permissions.prefix": "同类前缀",
   "sandbox.newSessions": "仅对新会话生效：",
   "sandbox.newSessionsDescription":
     "bash 工具在会话创建时就确定了（沙盒版或内置版），已打开的会话沿用创建时的工具集；改动后请新建或重新打开会话。",
@@ -565,10 +570,16 @@ export const en = {
   "compaction.keepDescription":
     "Keep this much recent text unchanged during compaction. Larger values preserve more recent edits but reduce compaction gains. Default: 40,000.",
   "compaction.invalid": "Enter an integer ≥ {{min, number}}",
-  "permissions.rules": "Approval exemptions",
+  "permissions.rules": "Global approval exemptions (legacy)",
   "permissions.description":
-    "“Always allow” saves command prefixes here. Matching commands skip approval; dangerous commands (such as rm -rf) always require confirmation.",
-  "permissions.empty": "No rules yet",
+    "Legacy global command prefixes. Only ordinary write/outward commands match; dangerous commands still require confirmation.",
+  "permissions.empty": "No global rules yet",
+  "permissions.projectRules": "Project approval exemptions",
+  "permissions.projectDescription":
+    "“Always allow” applies only to this project. Dangerous and compound commands are matched exactly.",
+  "permissions.emptyProject": "No project rules yet",
+  "permissions.exact": "Exact command",
+  "permissions.prefix": "Command prefix",
   "sandbox.newSessions": "Applies to new sessions only: ",
   "sandbox.newSessionsDescription":
     "The bash tool (sandboxed or built-in) is fixed when a session is created. Existing sessions keep their original tools; create or reopen a session after changing this setting.",

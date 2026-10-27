@@ -11,6 +11,7 @@ import {
   type AppSettings,
   DEFAULT_SETTINGS,
   normalizePermissionMode,
+  normalizeProjectCwd,
   SECRET_MASK,
   sanitizeCompactionSettings,
 } from "@spcode/shared";
@@ -61,6 +62,32 @@ export function sanitizeAppSettings(input: Partial<AppSettings>): Partial<AppSet
       continue;
     }
     out[k] = v.filter((x): x is string => typeof x === "string") as never;
+  }
+  // 项目权限规则：逐项目/逐规则校验，非法项剔除而不是带病参与自动放行
+  if (out.projectPermissionRules !== undefined) {
+    const value = out.projectPermissionRules;
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      delete out.projectPermissionRules;
+    } else {
+      const projects: AppSettings["projectPermissionRules"] = Object.create(
+        null,
+      ) as AppSettings["projectPermissionRules"];
+      for (const [rawCwd, rawRules] of Object.entries(value)) {
+        const cwd = normalizeProjectCwd(rawCwd);
+        if (!cwd || !Array.isArray(rawRules)) continue;
+        const rules = rawRules.flatMap((rule) => {
+          if (!rule || typeof rule !== "object" || Array.isArray(rule)) return [];
+          const candidate = rule as { command?: unknown; match?: unknown };
+          if (typeof candidate.command !== "string" || !candidate.command.trim()) return [];
+          const match = candidate.match;
+          if (match !== "prefix" && match !== "exact") return [];
+          const normalizedMatch: "prefix" | "exact" = match;
+          return [{ command: candidate.command.trim(), match: normalizedMatch }];
+        });
+        if (rules.length) projects[cwd] = [...(projects[cwd] ?? []), ...rules];
+      }
+      out.projectPermissionRules = projects;
+    }
   }
   // 嵌套对象字段必须是普通对象（数组/标量剔除，交给 get() 的归一化补默认）
   for (const k of ["remote", "sandbox", "advancedSearch", "defaultModel", "customTheme", "compaction"] as const) {

@@ -1,3 +1,4 @@
+import { deriveProjectPermissionRule } from "@spcode/shared";
 import { Trans, useTranslation } from "react-i18next";
 import { useStore } from "../store";
 import { DiffReplace } from "./DiffBlock";
@@ -5,27 +6,22 @@ import { DiffReplace } from "./DiffBlock";
 /**
  * 权限批准卡：拒绝 / 允许 / 总允许（Finch 式规则沉淀）。
  *
- * - 「总允许」：把命令前缀（前两个 token）写入 permissionRules，
- *   以后同类命令免弹窗；复合命令不推导规则（评审 R3-C5）；逃生舱请求（bypass）额外双写 sandbox.excludedCommands——
- *   以后该命令直接沙盒外执行。danger 级不提供「总允许」（不可逆操作没有免问）。
- * - bypass 请求强警示：命令将以完整权限在沙盒外执行，不受文件/网络边界约束。
- * - 仅 bash/powershell 显示「总允许」（规则只匹配 shell 命令；network 域名询问等不适用）。
+ * - 「总允许」由主进程按当前项目沉淀：普通命令记前缀，危险/复合命令只记完整命令。
+ * - bypass 沙盒外执行不生成免审批规则，仍然逐次确认。
+ * - 仅 bash/powershell 支持「总允许」；edit/write/network 只支持单次批准。
  */
 export function PermissionInline({ sessionId }: { sessionId: string }) {
   const { t } = useTranslation("chat");
   const pending = useStore((s) => s.pendingPermissions);
   const queue = pending.filter((p) => p.sessionId === sessionId);
   const reply = useStore((s) => s.replyPermission);
-  const settings = useStore((s) => s.settings);
-  const saveSettings = useStore((s) => s.saveSettings);
   const request = queue[0];
   if (!request) return null;
 
   const danger = request.risk === "danger";
   const outward = request.risk === "outward";
   const bypass = request.bypass === true;
-  const isShell = request.toolName === "bash" || request.toolName === "powershell";
-  const rule = isShell ? deriveRule(request.args) : null;
+  const rule = deriveProjectPermissionRule(request);
 
   const title = t(
     bypass
@@ -38,23 +34,7 @@ export function PermissionInline({ sessionId }: { sessionId: string }) {
   );
   const severe = danger || outward || bypass;
 
-  const allowAlways = () => {
-    if (rule && settings) {
-      const rules = settings.permissionRules ?? [];
-      const patch: Parameters<typeof saveSettings>[0] = {
-        permissionRules: rules.includes(rule) ? rules : [...rules, rule],
-      };
-      if (bypass) {
-        const excluded = settings.sandbox.excludedCommands ?? [];
-        patch.sandbox = {
-          ...settings.sandbox,
-          excludedCommands: excluded.includes(rule) ? excluded : [...excluded, rule],
-        };
-      }
-      void saveSettings(patch);
-    }
-    reply(request.requestId, true);
-  };
+  const allowAlways = () => reply(request.requestId, true, true);
 
   return (
     <div className="shrink-0 px-6 pb-2" data-testid="permission-inline" data-session-id={sessionId}>
@@ -103,12 +83,14 @@ export function PermissionInline({ sessionId }: { sessionId: string }) {
             >
               {t("permission.deny")}
             </button>
-            {!danger && rule && (
+            {rule && (
               <button
                 type="button"
                 data-testid="permission-allow-always"
                 onClick={allowAlways}
-                title={t(bypass ? "permission.alwaysBypassHint" : "permission.alwaysHint", { rule })}
+                title={t(rule.match === "exact" ? "permission.alwaysExactHint" : "permission.alwaysHint", {
+                  rule: rule.command,
+                })}
                 className="rounded-md border border-border px-4 py-1.5 text-xs text-text-secondary hover:bg-bg-hover"
               >
                 {t("permission.always")}
@@ -129,18 +111,6 @@ export function PermissionInline({ sessionId }: { sessionId: string }) {
       </div>
     </div>
   );
-}
-
-/** 从 shell 命令推导规则前缀：前两个 token（如 "git push origin master" → "git push"）；
- *  评审 R3-C5：复合命令（含元字符）不可沉淀规则——规则匹配已不支持复合，推导同步拒绝 */
-function deriveRule(args: unknown): string | null {
-  if (!args || typeof args !== "object" || !("command" in args)) return null;
-  const cmd = String((args as { command: unknown }).command);
-  if (/[;|&<>\n`$]/.test(cmd)) return null;
-  const first = cmd.trim().replace(/\s+/g, " ");
-  if (!first) return null;
-  const tokens = first.split(" ");
-  return tokens.length >= 2 ? tokens.slice(0, 2).join(" ") : tokens[0]!;
 }
 
 function formatArgs(args: unknown): string {

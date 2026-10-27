@@ -178,7 +178,7 @@ export interface UsageAggregate extends UsageSample {
 // 权限
 // ---------------------------------------------------------------------------
 
-import type { PermissionMode, PermissionRequest } from "./permission.js";
+import type { PermissionMode, PermissionRequest, ProjectPermissionRule } from "./permission.js";
 import { DEFAULT_PERMISSION_MODE } from "./permission.js";
 
 /**
@@ -190,12 +190,16 @@ export type {
   PermissionMode,
   PermissionRequest,
   PermissionVerdict,
+  ProjectPermissionRule,
   ToolRisk,
 } from "./permission.js";
 export {
   BYPASS_DISABLED_REASON,
   DEFAULT_PERMISSION_MODE,
   decidePermissionMatrix,
+  deriveProjectPermissionRule,
+  matchesProjectPermissionRule,
+  normalizeProjectCwd,
   normalizePermissionMode,
   PERMISSION_MODES,
   permissionModeLabel,
@@ -767,6 +771,8 @@ export interface AppSettings {
    * 命中且 risk 为 write/outward 时免弹窗；danger 级永远不免。主进程裁决时读取。
    */
   permissionRules: string[];
+  /** 项目级免审批规则：key 为 normalizeProjectCwd(cwd)，只对该项目的所有会话生效。 */
+  projectPermissionRules: Record<string, ProjectPermissionRule[]>;
 }
 
 /**
@@ -927,6 +933,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   compaction: DEFAULT_COMPACTION_SETTINGS,
   mcpServers: {},
   permissionRules: [],
+  projectPermissionRules: {},
   remote: {
     enabled: false,
     port: null,

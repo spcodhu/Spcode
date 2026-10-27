@@ -142,6 +142,7 @@ describe("权限模式矩阵（宿主侧）", () => {
 
     await gate({ toolCall: { name: "bash", arguments: { command: "git push origin main" } } });
     expect(requests.at(-1)?.risk).toBe("outward");
+    expect(requests.at(-1)?.cwd).toBe(cwd);
     await gate({ toolCall: { name: "bash", arguments: { command: "rm -rf /tmp/x" } } });
     expect(requests.at(-1)?.risk).toBe("danger");
   });

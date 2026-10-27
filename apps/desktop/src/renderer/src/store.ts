@@ -266,7 +266,7 @@ interface StoreState {
   setPlanMode(enabled: boolean): Promise<void>;
   /** 切换当前会话的权限模式（三档，立即生效并持久化到注册表） */
   setPermissionMode(mode: PermissionMode): Promise<void>;
-  replyPermission(requestId: string, approved: boolean): void;
+  replyPermission(requestId: string, approved: boolean, rememberProject?: boolean): void;
   replyQuestion(requestId: string, answers: import("@spcode/shared").QuestionAnswers): void;
   applyHostEvent(event: HostEvent): void;
   refreshModels(): Promise<void>;
@@ -1461,8 +1461,8 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
 
-  replyPermission(requestId, approved) {
-    window.spcode.replyPermission(requestId, approved);
+  replyPermission(requestId, approved, rememberProject) {
+    window.spcode.replyPermission(requestId, approved, rememberProject);
     set((s) => ({
       pendingPermissions: s.pendingPermissions.filter((p) => p.requestId !== requestId),
     }));

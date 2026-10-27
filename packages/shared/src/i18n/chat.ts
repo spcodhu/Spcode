@@ -184,7 +184,8 @@ export const zhCN = {
   "permission.deny": "拒绝",
   "permission.always": "总允许",
   "permission.allow": "允许执行",
-  "permission.alwaysHint": "以后「{{rule}} …」开头的命令不再询问（可在设置里移除）",
+  "permission.alwaysHint": "当前项目中，以后「{{rule}} …」开头的同类命令不再询问（可在设置里移除）",
+  "permission.alwaysExactHint": "当前项目中，以后完全相同的命令不再询问；改任何参数都会重新确认（可在设置里移除）",
   "permission.alwaysBypassHint": "以后「{{rule}} …」开头的命令不再询问，并加入沙盒外白名单（可在设置里移除）",
   "permission.moreEdits": "…还有 {{count}} 处修改",
   "permission.overwrite": "{{path}}（{{count}} 字符，整文件覆写）",
@@ -511,7 +512,10 @@ export const en = {
   "permission.deny": "Deny",
   "permission.always": "Always allow",
   "permission.allow": "Allow execution",
-  "permission.alwaysHint": "Stop asking for commands starting with “{{rule}} …” (remove this rule in Settings)",
+  "permission.alwaysHint":
+    "In this project, stop asking for commands starting with “{{rule}} …” (removable in Settings)",
+  "permission.alwaysExactHint":
+    "In this project, stop asking only for the exact same command; any changed argument asks again (removable in Settings)",
   "permission.alwaysBypassHint":
     "Stop asking for commands starting with “{{rule}} …” and allow them outside the sandbox (remove this rule in Settings)",
   "permission.moreEdits": "…{{count}} more edits",

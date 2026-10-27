@@ -5,6 +5,7 @@ import type {
   SandboxStatusReport,
   WebFetchConfig,
 } from "@spcode/shared";
+import { baseName } from "@spcode/shared";
 import { inferMapping, isAdvancedSearchReady, PRESET_ENDPOINTS } from "@spcode/shared/advanced-search";
 import { getLocale, localeProfile, resolveLocale } from "@spcode/shared/i18n";
 import { DEEPSEEK_FETCH_ENDPOINT, isWebFetchReady } from "@spcode/shared/web-fetch";
@@ -161,6 +162,7 @@ function GeneralPage() {
       <div className="text-[12px] text-text-tertiary">{t("general.permissionModeHint")}</div>
 
       <PermissionRulesSection />
+      <ProjectPermissionRulesSection />
 
       <SectionTitle>{t("general.thinking")}</SectionTitle>
       <Select
@@ -981,7 +983,7 @@ function TokenField({
 }
 
 /**
- * 免审批规则管理：权限卡「总允许」沉淀的命令前缀列表。
+ * 旧版全局免审批规则管理：保留兼容；新的「总允许」写入下方项目级规则。
  * 命中规则的 bash/powershell 命令（write/outward 级）不再弹窗；danger 级永远不免。
  */
 function PermissionRulesSection() {
@@ -1009,6 +1011,67 @@ function PermissionRulesSection() {
                 {t("remove")}
               </button>
             </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 项目级免审批规则：按 cwd 分组，只影响对应项目的当前与后续会话。 */
+function ProjectPermissionRulesSection() {
+  const { t } = useTranslation("settings");
+  const settings = useStore((s) => s.settings);
+  const saveSettings = useStore((s) => s.saveSettings);
+  const projects = settings?.projectPermissionRules ?? {};
+  const entries = Object.entries(projects);
+  if (!settings) return null;
+  return (
+    <div
+      className="mt-3 rounded-xl border border-border bg-bg-elevated px-4 py-3"
+      data-testid="project-permission-rules"
+    >
+      <div className="text-[14px] text-text-primary">{t("permissions.projectRules")}</div>
+      <div className="mt-0.5 text-[12px] text-text-tertiary">{t("permissions.projectDescription")}</div>
+      {entries.length === 0 ? (
+        <div className="mt-2 text-[12px] text-text-tertiary">{t("permissions.emptyProject")}</div>
+      ) : (
+        <div className="mt-3 space-y-3">
+          {entries.map(([cwd, rules]) => (
+            <section key={cwd} aria-label={cwd}>
+              <div className="mb-1 text-[12px] font-medium text-text-secondary" title={cwd}>
+                {baseName(cwd) || cwd}
+              </div>
+              <div className="space-y-1">
+                {rules.map((rule) => (
+                  <div
+                    key={`${rule.match}:${rule.command}`}
+                    className="flex items-center gap-3 rounded-lg bg-bg-main px-3 py-1.5"
+                  >
+                    <code className="mono min-w-0 flex-1 whitespace-pre-wrap break-words text-[12px] text-text-secondary">
+                      {rule.command}
+                      {rule.match === "prefix" ? " …" : ""}
+                    </code>
+                    <span className="shrink-0 text-[11px] text-text-tertiary">
+                      {t(rule.match === "exact" ? "permissions.exact" : "permissions.prefix")}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextRules = rules.filter((r) => r !== rule);
+                        const next = { ...projects };
+                        if (nextRules.length) next[cwd] = nextRules;
+                        else delete next[cwd];
+                        void saveSettings({ projectPermissionRules: next });
+                      }}
+                      className="shrink-0 text-[12px] text-text-tertiary hover:text-danger"
+                    >
+                      {t("remove")}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
           ))}
         </div>
       )}

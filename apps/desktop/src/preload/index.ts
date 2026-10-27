@@ -31,8 +31,8 @@ export interface SpcodeApi {
   command<T = unknown>(cmd: HostCommandInput): Promise<T>;
   /** 订阅宿主事件流 */
   onEvent(cb: (event: HostEvent) => void): () => void;
-  /** 权限确认回复 */
-  replyPermission(requestId: string, approved: boolean): void;
+  /** 权限确认回复；rememberProject=true 时由主进程把真实请求沉淀为当前项目规则 */
+  replyPermission(requestId: string, approved: boolean, rememberProject?: boolean): void;
   /** 结构化提问回复（AskUserQuestion 工具） */
   replyQuestion(requestId: string, answers: import("@spcode/shared").QuestionAnswers): void;
   /** 会话注册表（跨重启持久化） */
@@ -112,8 +112,8 @@ const api: SpcodeApi = {
     ipcRenderer.on(IPC.hostEvent, listener);
     return () => ipcRenderer.removeListener(IPC.hostEvent, listener);
   },
-  replyPermission(requestId, approved) {
-    ipcRenderer.send(IPC.permissionReply, { requestId, approved });
+  replyPermission(requestId, approved, rememberProject) {
+    ipcRenderer.send(IPC.permissionReply, { requestId, approved, rememberProject });
   },
   replyQuestion(requestId, answers) {
     ipcRenderer.send(IPC.questionReply, { requestId, answers });

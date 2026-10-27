@@ -12,10 +12,12 @@ import {
   baseName,
   type ComposerDraft,
   cleanSessionTitle,
+  deriveProjectPermissionRule,
   type HostCommand,
   type HostCommandInput,
   type HostEvent,
   IPC,
+  normalizeProjectCwd,
   type PickedFile,
   type SandboxStatusReport,
   type ScheduleTask,
@@ -122,6 +124,8 @@ const gitBaselines = new Map<string, GitBaseline>();
 const quota = new QuotaService(undefined, (providerId) => ledger.providerUsage(providerId));
 const bridge = new AgentBridge({
   getPermissionRules: () => settings.get().permissionRules,
+  getProjectPermissionRules: (request) =>
+    settings.get().projectPermissionRules[normalizeProjectCwd(request.cwd ?? "")] ?? [],
 });
 /** 桌面通知（R3-F4）：窗口未聚焦时的审批/提问/长任务完成提醒 + Dock 徽标 */
 const notifier = new Notifier({
@@ -409,9 +413,26 @@ function registerIpc(): void {
     });
   });
 
-  ipcMain.on(IPC.permissionReply, (_e, payload: { requestId: string; approved: boolean }) => {
-    bridge.replyPermission(payload.requestId, payload.approved);
-  });
+  ipcMain.on(
+    IPC.permissionReply,
+    (_e, payload: { requestId: string; approved: boolean; rememberProject?: boolean }) => {
+      if (payload.approved && payload.rememberProject) {
+        const request = bridge.getPendingPermission(payload.requestId);
+        const rule = request ? deriveProjectPermissionRule(request) : null;
+        const cwd = normalizeProjectCwd(request?.cwd ?? "");
+        if (rule && cwd) {
+          const current = settings.get().projectPermissionRules;
+          const rules = current[cwd] ?? [];
+          const exists = rules.some((r) => r.command === rule.command && r.match === rule.match);
+          if (!exists) {
+            // 主进程同步落盘后再批准：当前与后续会话共用同一项目规则，且无渲染层保存竞态。
+            settings.set({ projectPermissionRules: { ...current, [cwd]: [...rules, rule] } });
+          }
+        }
+      }
+      bridge.replyPermission(payload.requestId, payload.approved);
+    },
+  );
 
   ipcMain.on(
     IPC.questionReply,

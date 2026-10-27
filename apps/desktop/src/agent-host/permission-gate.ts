@@ -76,7 +76,8 @@ export function createBeforeToolCallGate(deps: PermissionGateDeps) {
 
     // 文件路径守卫（R3-C3）：deny 硬拦（三档都不放开，凭据区是底线）；
     // prompt 按 danger 级风险参与矩阵——「总不询问」档自动放行，「总是/必要时」弹窗。
-    const fsVerdict = judgeFsToolCall(ctx.toolCall.name, ctx.toolCall.arguments, deps.getFsPolicy());
+    const fsPolicy = deps.getFsPolicy();
+    const fsVerdict = judgeFsToolCall(ctx.toolCall.name, ctx.toolCall.arguments, fsPolicy);
     if (fsVerdict?.action === "deny") {
       return { block: true, reason: `Spcode path policy: ${fsVerdict.reason}`, reasonMessage: fsVerdict.reasonMessage };
     }
@@ -88,6 +89,7 @@ export function createBeforeToolCallGate(deps: PermissionGateDeps) {
         toolName: ctx.toolCall.name,
         args: ctx.toolCall.arguments,
         risk: "danger",
+        cwd: fsPolicy.cwd,
         sandboxed: false,
       });
       return approved ? undefined : { block: true, reason: DENIED_BY_USER, reasonMessage: DENIED_MESSAGE };
@@ -129,6 +131,7 @@ export function createBeforeToolCallGate(deps: PermissionGateDeps) {
       toolName: ctx.toolCall.name,
       args: ctx.toolCall.arguments,
       risk,
+      cwd: fsPolicy.cwd,
       // 逃生舱请求最终会在沙盒外执行，卡片不能标「沙盒内」
       sandboxed: effectiveSandboxed && !bypassRequested,
       bypass: bypassRequested || undefined,

@@ -23,7 +23,7 @@ vi.mock("../src/renderer/src/store", () => ({
 }));
 
 function request(id: string, sessionId: string, command: string): PermissionRequest {
-  return { requestId: id, sessionId, toolName: "bash", args: { command }, risk: "write" };
+  return { requestId: id, sessionId, toolName: "bash", args: { command }, risk: "write", cwd: `/project/${sessionId}` };
 }
 
 let root: Root;
@@ -70,6 +70,25 @@ describe("会话内嵌权限卡", () => {
     expect(container.textContent).toContain("pnpm test");
     expect(container.textContent).not.toContain("git push origin main");
     expect(container.textContent).not.toContain("还有");
+  });
+
+  it("普通、危险和复合命令都能请求项目级总允许，bypass 不提供", async () => {
+    state.pending = [
+      { ...request("danger", "s1", "rm -rf /tmp/x"), risk: "danger" },
+      request("compound", "s1", "pnpm build && pnpm test"),
+      { ...request("bypass", "s1", "open ."), bypass: true },
+    ];
+    await render("s1");
+    container.querySelector<HTMLButtonElement>('[data-testid="permission-allow-always"]')!.click();
+    expect(state.reply).toHaveBeenLastCalledWith("danger", true, true);
+
+    state.pending = [request("compound", "s1", "pnpm build && pnpm test")];
+    await render("s1");
+    expect(container.querySelector('[data-testid="permission-allow-always"]')).not.toBeNull();
+
+    state.pending = [{ ...request("bypass", "s1", "open ."), bypass: true }];
+    await render("s1");
+    expect(container.querySelector('[data-testid="permission-allow-always"]')).toBeNull();
   });
 
   it("批准或拒绝只回复当前显示的 requestId", async () => {

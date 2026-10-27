@@ -43,10 +43,59 @@ export interface PermissionRequest {
   toolName: string;
   args: unknown;
   risk: ToolRisk;
+  /** 项目工作目录（项目级权限白名单按此隔离；网络等无项目上下文的请求可缺省） */
+  cwd?: string;
   /** 该命令是否将在 OS 沙盒内执行（渲染层据此标注「沙盒内」；false/缺省 = 无沙盒兜底） */
   sandboxed?: boolean;
   /** 逃生舱请求：模型申请在沙盒外执行（dangerouslyDisableSandbox）。渲染层据此强警示——不受文件/网络边界约束 */
   bypass?: boolean;
+}
+
+/** 项目级免审批规则：普通命令可记同类前缀，危险/复合命令只能记完整命令。 */
+export interface ProjectPermissionRule {
+  command: string;
+  match: "prefix" | "exact";
+}
+
+/** 项目键归一：统一分隔符并去尾部斜线；Windows 根路径也稳定映射到同一键。 */
+export function normalizeProjectCwd(cwd: string): string {
+  const slashed = cwd.trim().replace(/\\/g, "/").replace(/\/+/g, "/");
+  if (!slashed) return "";
+  return slashed.replace(/\/+$/, "") || "/";
+}
+
+const SHELL_METACHARS = /[;|&<>\n`$]/;
+
+function shellCommand(args: unknown): string | null {
+  if (!args || typeof args !== "object" || !("command" in args)) return null;
+  const command = (args as { command?: unknown }).command;
+  return typeof command === "string" ? command : null;
+}
+
+/** 从真实待决请求生成项目规则；bypass 永不生成免审批规则。 */
+export function deriveProjectPermissionRule(
+  request: Pick<PermissionRequest, "toolName" | "args" | "risk" | "bypass" | "cwd">,
+): ProjectPermissionRule | null {
+  if (request.bypass || !normalizeProjectCwd(request.cwd ?? "")) return null;
+  const tool = request.toolName.toLowerCase();
+  if (tool !== "bash" && tool !== "powershell") return null;
+  const raw = shellCommand(request.args)?.trim();
+  if (!raw) return null;
+  if (request.risk === "danger" || SHELL_METACHARS.test(raw)) return { command: raw, match: "exact" };
+  const normalized = raw.replace(/\s+/g, " ");
+  const tokens = normalized.split(" ");
+  return { command: tokens.length >= 2 ? tokens.slice(0, 2).join(" ") : normalized, match: "prefix" };
+}
+
+/** 项目规则匹配：exact 要求 trim 后逐字相同；prefix 要求 token 边界且拒绝复合命令。 */
+export function matchesProjectPermissionRule(command: string, rule: ProjectPermissionRule): boolean {
+  const cmd = command.trim();
+  if (!cmd || !rule.command.trim()) return false;
+  if (rule.match === "exact") return cmd === rule.command;
+  if (SHELL_METACHARS.test(command)) return false;
+  const normalized = cmd.replace(/\s+/g, " ");
+  const prefix = rule.command.trim().replace(/\s+/g, " ");
+  return normalized === prefix || (normalized.startsWith(prefix) && normalized[prefix.length] === " ");
 }
 
 /** 逃生舱被设置关闭（sandbox.allowUnsandboxedCommands=false）时的规范拒绝原因 */
