@@ -97,6 +97,69 @@ test.describe("Composer 输入区", () => {
     await app.close();
   });
 
+  test("输入区无内层焦点框，手动列表与 Markdown 列表正文对齐", async () => {
+    const app = await launchApp();
+    const window = await app.firstWindow();
+    await window.getByRole("button", { name: /新建聊天/ }).click();
+
+    const plain = window.getByTestId("composer-input");
+    await plain.focus();
+    await expect(plain).toHaveCSS("outline-style", "none");
+
+    await window.getByTestId("md-mode-toggle").click();
+    const editor = window.getByTestId("md-editor");
+    await editor.focus();
+    await expect(editor).toHaveCSS("outline-style", "none");
+    const setEditorText = async (text: string) => {
+      await editor.evaluate((el, value) => {
+        el.innerHTML = value.replace(/\n/g, "<br>");
+        el.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }));
+      }, text);
+    };
+    await setEditorText("1、第一条\n2、第二条");
+
+    const manualXs = await editor.evaluate((el) => {
+      const xs: number[] = [];
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        for (const marker of ["第一条", "第二条"]) {
+          const offset = (node.textContent ?? "").indexOf(marker);
+          if (offset < 0) continue;
+          const range = document.createRange();
+          range.setStart(node, offset);
+          range.setEnd(node, offset + marker.length);
+          xs.push(range.getBoundingClientRect().x);
+        }
+      }
+      return xs;
+    });
+    expect(manualXs).toHaveLength(2);
+    expect(Math.abs(manualXs[0]! - manualXs[1]!)).toBeLessThanOrEqual(1);
+
+    await setEditorText(
+      "1. 第一条内容\n2. 第二条内容\n10. 第十条是一条用来验证长条目折行后仍然与正文起点保持一致的列表内容，继续补充足够多的文字以确保它一定超过预览区域的一行宽度",
+    );
+    await window.getByTestId("md-view-preview").click();
+    const items = window.locator(".md-body ol > li");
+    await expect(items).toHaveCount(3);
+    const listMetrics = await items.evaluateAll((lis) =>
+      lis.map((li) => {
+        const range = document.createRange();
+        range.selectNodeContents(li);
+        return {
+          x: li.getBoundingClientRect().x,
+          lineXs: [...range.getClientRects()].map((r) => Math.round(r.x)),
+        };
+      }),
+    );
+    expect(Math.abs(listMetrics[0]!.x - listMetrics[1]!.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(listMetrics[1]!.x - listMetrics[2]!.x)).toBeLessThanOrEqual(1);
+    expect(listMetrics[2]!.lineXs.length).toBeGreaterThan(1);
+    expect(Math.max(...listMetrics[2]!.lineXs) - Math.min(...listMetrics[2]!.lineXs)).toBeLessThanOrEqual(1);
+
+    await app.close();
+  });
+
   test("流程图块：mermaid 插件按需加载后渲染出 SVG", async () => {
     const app = await launchApp();
     const window = await app.firstWindow();

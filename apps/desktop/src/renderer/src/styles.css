@@ -161,33 +161,37 @@ select:focus-visible,
   font-size: 14px;
 }
 
-/* 列表：紧凑、marker 弱化（注意：Tailwind preflight 把 list-style 重置为 none，必须显式补回） */
+/* 列表：固定外置 marker 栏，保证每条正文与折行使用同一起点。
+   注意：Tailwind preflight 把 list-style 重置为 none，必须显式补回。 */
 .md-body ul,
 .md-body ol {
-  padding-left: 20px;
+  list-style-position: outside;
+  padding-left: 2em;
   margin: 6px 0;
 }
 .md-body ul {
-  list-style: disc;
+  list-style-type: disc;
 }
 .md-body ol {
-  list-style: decimal;
+  list-style-type: decimal;
 }
 /* 嵌套层级换 marker 样式，层次可辨 */
 .md-body ul ul {
-  list-style: circle;
+  list-style-type: circle;
 }
 .md-body ul ul ul {
-  list-style: square;
+  list-style-type: square;
 }
 .md-body ol ol {
-  list-style: lower-alpha;
+  list-style-type: lower-alpha;
 }
 .md-body li {
   margin: 2px 0;
+  padding-left: 0;
 }
 .md-body li::marker {
   color: var(--color-text-tertiary);
+  font-variant-numeric: tabular-nums;
 }
 
 /* 任务列表复选框（- [ ]）：自绘，避免原生控件样式 */
@@ -452,6 +456,15 @@ select:focus-visible,
   outline: none;
   white-space: pre-wrap;
   word-break: break-word;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* 输入区不使用内部焦点框：恢复上一版的纯净编辑面。
+   选择器必须覆盖全局 :focus-visible，而不是依赖低优先级 outline-none。 */
+.composer-textarea,
+.composer-textarea:focus-visible,
+.md-editor:focus-visible {
+  outline: none;
 }
 
 /* 普通输入框：高度随内容自适应，滚动交给 textarea 自身——
@@ -461,6 +474,7 @@ select:focus-visible,
 .composer-textarea {
   field-sizing: content;
   min-height: 44px;
+  font-variant-numeric: tabular-nums lining-nums;
 }
 .md-editor:empty::before {
   content: attr(data-placeholder);
