@@ -436,6 +436,17 @@ describe("permission.resolved 双端撤卡", () => {
   });
 });
 
+describe("session.focus 通知定位", () => {
+  it("点击系统通知后仅打开对应会话", () => {
+    const original = useStore.getState().openSessionById;
+    const openSessionById = vi.fn(async () => {});
+    useStore.setState({ openSessionById });
+    useStore.getState().applyHostEvent({ type: "session.focus", sessionId: "s-from-notification" });
+    expect(openSessionById).toHaveBeenCalledWith("s-from-notification");
+    useStore.setState({ openSessionById: original });
+  });
+});
+
 describe("compaction 事件流", () => {
   it("compaction_start 置压缩中标志，compaction_end 清标志并插入分隔线消息", () => {
     stubSpcodeApi();

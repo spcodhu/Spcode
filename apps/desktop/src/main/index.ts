@@ -127,6 +127,7 @@ const bridge = new AgentBridge({
 const notifier = new Notifier({
   isEnabled: () => settings.get().desktopNotifications !== false,
   getWindow: () => mainWindow,
+  openSession: (sessionId) => bridge.emitLocal({ type: "session.focus", sessionId }),
 });
 
 let mainWindow: BrowserWindow | null = null;
@@ -199,7 +200,11 @@ function watchSessionLifecycle(): void {
       notifier.notifyApprovalNeeded(
         "permission",
         event.request.requestId,
-        i18n.t("integration:notifications.approval", { tool: event.request.toolName }),
+        i18n.t("integration:notifications.approvalForSession", {
+          tool: event.request.toolName,
+          title: registry.get(event.request.sessionId)?.title ?? event.request.sessionId,
+        }),
+        event.request.sessionId,
       );
       return;
     }
@@ -208,7 +213,14 @@ function watchSessionLifecycle(): void {
       return;
     }
     if (event.type === "question.request") {
-      notifier.notifyApprovalNeeded("question", event.request.requestId, i18n.t("integration:notifications.question"));
+      notifier.notifyApprovalNeeded(
+        "question",
+        event.request.requestId,
+        i18n.t("integration:notifications.questionForSession", {
+          title: registry.get(event.request.sessionId)?.title ?? event.request.sessionId,
+        }),
+        event.request.sessionId,
+      );
       return;
     }
     if (event.type === "question.resolved") {

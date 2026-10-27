@@ -263,16 +263,23 @@ function settlePendingForSession(sessionId: string): void {
 // 非活动会话休眠
 // ---------------------------------------------------------------------------
 
-// 沙盒网络域名审批：代理回调无法归因到具体会话，走应用级权限弹窗；
-// 同意后仅本次运行生效（永久放行需用户在设置页加白名单），文案里说清这点
-//
-// 会话归因：代理是进程级单例，只能按"当前有在跑命令的会话"判断——这些会话全部处于
-// 「总不询问」档时静默放行（与模式语义一致），否则才弹窗。归因失败一律当"需要问"。
+// 沙盒网络域名审批：同意后仅本次运行生效（永久放行需用户在设置页加白名单）。
+// 代理是进程级单例，只能按当前在跑命令归因；全部候选都处于「总不询问」档时静默放行。
+// 需要人工确认时只在候选唯一时发会话内权限卡，无法唯一归因则保守拒绝，绝不错挂会话。
 getSandboxService().setModeResolver((sessionId) => sessions.get(sessionId)?.currentPermissionMode ?? null);
-getSandboxService().setNetworkAskHandler((host, port) =>
-  requestPermission({
+getSandboxService().setNetworkAskHandler((host, port, inflightSessionIds) => {
+  const candidates = [...new Set(inflightSessionIds)].filter((id) => sessions.has(id));
+  const sessionId = candidates.length === 1 ? candidates[0]! : null;
+  // 权限卡已内嵌到会话：无法唯一归因时绝不挂到“当前打开”的会话上误导用户。
+  if (!sessionId) {
+    console.warn(
+      `[sandbox] network approval denied: cannot attribute ${host}${typeof port === "number" ? `:${port}` : ""} to one session (${candidates.length} candidates)`,
+    );
+    return Promise.resolve(false);
+  }
+  return requestPermission({
     requestId: randomUUID(),
-    sessionId: "",
+    sessionId,
     toolName: "network",
     args: {
       command: i18n.t("integration:sandbox.networkApproval", {
@@ -283,8 +290,8 @@ getSandboxService().setNetworkAskHandler((host, port) =>
     },
     risk: "outward",
     sandboxed: true,
-  }),
-);
+  });
+});
 
 /** 休眠宽限期：切走后 30s 内切回不重建引擎实例（重读会话文件很贵） */
 const HIBERNATE_GRACE_MS = 30_000;

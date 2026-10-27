@@ -106,7 +106,7 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
       installLanguagePolicy(session.agent);
       // 权限网关（R3-C4）：子代理与主会话同一裁决链（计划模式例外——计划模式下 Task 不挂载）
       session.agent.beforeToolCall = createBeforeToolCallGate({
-        sessionId: `task-subagent@${ctx.cwd}`,
+        sessionId: ctx.sessionId,
         isPlanMode: () => false,
         getPermissionMode: ctx.getPermissionMode,
         getFsPolicy,

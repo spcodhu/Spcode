@@ -53,9 +53,14 @@ export function Sidebar({
   const setForkDialogFor = useStore((s) => s.setForkDialogFor);
   const exportSessionContext = useStore((s) => s.exportSessionContext);
   const pendingQuestions = useStore((s) => s.pendingQuestions);
+  const pendingPermissions = useStore((s) => s.pendingPermissions);
 
-  /** 有待回答提问的会话集合（侧栏「?」标记用） */
+  /** 有待回答提问 / 待批准权限的会话集合（侧栏状态标记用） */
   const waitingSessionIds = useMemo(() => new Set(pendingQuestions.map((q) => q.sessionId)), [pendingQuestions]);
+  const permissionWaitingSessionIds = useMemo(
+    () => new Set(pendingPermissions.map((p) => p.sessionId)),
+    [pendingPermissions],
+  );
 
   /** 分区折叠状态（空间 / 聊天） */
   const [sectionCollapsed, setSectionCollapsed] = usePersistentState("sections", {
@@ -306,6 +311,7 @@ export function Sidebar({
                           active={activeSessionId === r.id}
                           running={sessions[r.id]?.running ?? false}
                           waiting={waitingSessionIds.has(r.id)}
+                          permissionWaiting={permissionWaitingSessionIds.has(r.id)}
                           menuItems={[
                             forkMenuItem(r),
                             exportMenuItem(r),
@@ -390,6 +396,7 @@ export function Sidebar({
                   active={activeSessionId === r.id}
                   running={sessions[r.id]?.running ?? false}
                   waiting={waitingSessionIds.has(r.id)}
+                  permissionWaiting={permissionWaitingSessionIds.has(r.id)}
                   menuItems={[
                     forkMenuItem(r),
                     exportMenuItem(r),
@@ -500,6 +507,7 @@ export function SessionRow({
   active,
   running,
   waiting,
+  permissionWaiting = false,
   nested,
   menuItems,
   forkedFromTitle,
@@ -511,6 +519,8 @@ export function SessionRow({
   running: boolean;
   /** Agent 在该会话有等待回答的提问 */
   waiting: boolean;
+  /** 该会话有待批准的权限请求 */
+  permissionWaiting?: boolean;
   /** 嵌套在空间下的紧凑行 */
   nested?: boolean;
   /** hover 时「…」菜单项（删除之外的操作，如在 Finder 中显示） */
@@ -545,6 +555,16 @@ export function SessionRow({
       <span className={`min-w-0 flex-1 truncate text-[13px] ${active ? "text-accent" : "text-text-secondary"}`}>
         {r.title}
       </span>
+      {permissionWaiting && (
+        <span
+          title={t("sidebar.permissionWaiting")}
+          aria-label={t("sidebar.permissionWaiting")}
+          data-testid="sidebar-permission-waiting"
+          className="flex h-4 w-4 shrink-0 animate-pulse items-center justify-center rounded-full bg-warning/15 text-warning"
+        >
+          <Icon name="shield" size={11} />
+        </span>
+      )}
       {waiting && (
         <span
           title={t("sidebar.waiting")}

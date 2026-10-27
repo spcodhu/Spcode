@@ -4,6 +4,7 @@ import { Composer } from "./Composer";
 import { SessionEmptyState } from "./EmptyState";
 import { GitChangesBar } from "./GitChangesBar";
 import { AssistantRunItem, MessageItem, NoticeItem } from "./MessageItem";
+import { PermissionInline } from "./PermissionCard";
 import { QuestionInline } from "./QuestionCard";
 import { RunStatusBar } from "./RunStatusBar";
 import { WorkDrawer } from "./WorkDrawer";
@@ -74,7 +75,8 @@ export function ChatView({ sessionId }: { sessionId: string }) {
           </div>
         </div>
       )}
-      {/* 当前会话的待回答提问：内嵌在输入框上方，不全局弹窗 */}
+      {/* 当前会话的待批权限/待答提问：均内嵌在输入框上方，不全局弹窗 */}
+      <PermissionInline sessionId={sessionId} />
       <QuestionInline sessionId={sessionId} />
       {/* 会话改动条（R3-F2）：git 仓库里跑过的会话，改动可见/可还原 */}
       <GitChangesBar sessionId={sessionId} />

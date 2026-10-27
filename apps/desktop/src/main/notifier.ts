@@ -19,6 +19,8 @@ const LONG_RUN_MS = 15_000;
 export interface NotifierDeps {
   isEnabled: () => boolean;
   getWindow: () => BrowserWindow | null;
+  /** 点击审批/提问通知后定位到来源会话 */
+  openSession?: (sessionId: string) => void;
 }
 
 export class Notifier {
@@ -31,13 +33,17 @@ export class Notifier {
   constructor(private readonly deps: NotifierDeps) {}
 
   /** 权限/提问请求到达：窗口未聚焦时通知 + 徽标计数 */
-  notifyApprovalNeeded(kind: "permission" | "question", requestId: string, title: string): void {
+  notifyApprovalNeeded(kind: "permission" | "question", requestId: string, title: string, sessionId?: string): void {
     this.pendingApprovals.add(requestId);
     this.syncBadge();
     if (!this.deps.isEnabled()) return;
     const win = this.deps.getWindow();
     if (win?.isFocused()) return;
-    this.show(i18n.t(kind === "permission" ? "main:notifications.approval" : "main:notifications.question"), title);
+    this.show(
+      i18n.t(kind === "permission" ? "main:notifications.approval" : "main:notifications.question"),
+      title,
+      sessionId,
+    );
   }
 
   /** 审批/提问被结清（任一端裁决/超时） */
@@ -79,7 +85,7 @@ export class Notifier {
     this.show(i18n.t("main:notifications.completed"), i18n.t("main:notifications.completedBody"));
   }
 
-  private show(title: string, body: string): void {
+  private show(title: string, body: string, sessionId?: string): void {
     try {
       if (!Notification.isSupported()) return;
       const n = new Notification({ title, body });
@@ -89,6 +95,7 @@ export class Notifier {
           if (win.isMinimized()) win.restore();
           win.focus();
         }
+        if (sessionId) this.deps.openSession?.(sessionId);
       });
       n.show();
     } catch {

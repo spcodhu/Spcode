@@ -1,7 +1,6 @@
 import { Trans, useTranslation } from "react-i18next";
 import { useStore } from "../store";
 import { DiffReplace } from "./DiffBlock";
-import { Modal } from "./ui/Modal";
 
 /**
  * 权限批准卡：拒绝 / 允许 / 总允许（Finch 式规则沉淀）。
@@ -12,13 +11,14 @@ import { Modal } from "./ui/Modal";
  * - bypass 请求强警示：命令将以完整权限在沙盒外执行，不受文件/网络边界约束。
  * - 仅 bash/powershell 显示「总允许」（规则只匹配 shell 命令；network 域名询问等不适用）。
  */
-export function PermissionCard() {
+export function PermissionInline({ sessionId }: { sessionId: string }) {
   const { t } = useTranslation("chat");
   const pending = useStore((s) => s.pendingPermissions);
+  const queue = pending.filter((p) => p.sessionId === sessionId);
   const reply = useStore((s) => s.replyPermission);
   const settings = useStore((s) => s.settings);
   const saveSettings = useStore((s) => s.saveSettings);
-  const request = pending[0];
+  const request = queue[0];
   if (!request) return null;
 
   const danger = request.risk === "danger";
@@ -57,71 +57,77 @@ export function PermissionCard() {
   };
 
   return (
-    <Modal
-      title={title}
-      role="alertdialog"
-      layerClassName="items-center justify-center"
-      panelClassName="w-[480px] max-w-[92vw] rounded-xl border border-border bg-bg-elevated shadow-2xl"
-    >
-      <div className={`rounded-t-xl px-4 py-3 ${severe ? "bg-danger/10" : "bg-warning/10"}`}>
-        <div className={`text-sm font-semibold ${severe ? "text-danger" : "text-warning"}`}>{title}</div>
-        <div className="mt-0.5 text-xs text-text-tertiary">
-          <Trans
-            t={t}
-            i18nKey="permission.tool"
-            values={{ name: request.toolName }}
-            components={{ code: <code className="mono text-text-secondary" /> }}
-          />
-          {request.sandboxed ? (
-            <span
-              data-testid="permission-sandboxed-badge"
-              className="ml-2 rounded bg-accent/15 px-1.5 py-0.5 text-accent"
+    <div className="shrink-0 px-6 pb-2" data-testid="permission-inline" data-session-id={sessionId}>
+      <div className="mx-auto max-w-3xl">
+        <div
+          role="region"
+          aria-label={title}
+          className="overflow-hidden rounded-2xl border border-warning/35 bg-bg-elevated shadow-lg"
+        >
+          <div className={`rounded-t-xl px-4 py-3 ${severe ? "bg-danger/10" : "bg-warning/10"}`}>
+            <div className={`text-sm font-semibold ${severe ? "text-danger" : "text-warning"}`}>{title}</div>
+            <div className="mt-0.5 text-xs text-text-tertiary">
+              <Trans
+                t={t}
+                i18nKey="permission.tool"
+                values={{ name: request.toolName }}
+                components={{ code: <code className="mono text-text-secondary" /> }}
+              />
+              {request.sandboxed ? (
+                <span
+                  data-testid="permission-sandboxed-badge"
+                  className="ml-2 rounded bg-accent/15 px-1.5 py-0.5 text-accent"
+                >
+                  {t("permission.sandboxed")}
+                </span>
+              ) : null}
+              {bypass ? (
+                <span
+                  data-testid="permission-bypass-badge"
+                  className="ml-2 rounded bg-danger/15 px-1.5 py-0.5 text-danger"
+                >
+                  {t("permission.outside")}
+                </span>
+              ) : null}
+              {queue.length > 1 ? t("permission.pending", { count: queue.length - 1 }) : ""}
+            </div>
+          </div>
+          {/* 评审 R3-F1：edit/write 审批展示 diff/文件预览（批准前看得见改了什么），其余展示参数 */}
+          <ArgsPreview toolName={request.toolName} args={request.args} />
+          <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
+            <button
+              type="button"
+              data-testid="permission-deny"
+              onClick={() => reply(request.requestId, false)}
+              className="rounded-md border border-border px-4 py-1.5 text-xs text-text-secondary hover:bg-bg-hover"
             >
-              {t("permission.sandboxed")}
-            </span>
-          ) : null}
-          {bypass ? (
-            <span data-testid="permission-bypass-badge" className="ml-2 rounded bg-danger/15 px-1.5 py-0.5 text-danger">
-              {t("permission.outside")}
-            </span>
-          ) : null}
-          {pending.length > 1 ? t("permission.pending", { count: pending.length - 1 }) : ""}
+              {t("permission.deny")}
+            </button>
+            {!danger && rule && (
+              <button
+                type="button"
+                data-testid="permission-allow-always"
+                onClick={allowAlways}
+                title={t(bypass ? "permission.alwaysBypassHint" : "permission.alwaysHint", { rule })}
+                className="rounded-md border border-border px-4 py-1.5 text-xs text-text-secondary hover:bg-bg-hover"
+              >
+                {t("permission.always")}
+              </button>
+            )}
+            <button
+              type="button"
+              data-testid="permission-allow"
+              onClick={() => reply(request.requestId, true)}
+              className={`rounded-md px-4 py-1.5 text-xs font-medium ${
+                severe ? "bg-danger text-on-danger hover:bg-danger/80" : "bg-accent text-on-accent hover:bg-accent-dim"
+              }`}
+            >
+              {t("permission.allow")}
+            </button>
+          </div>
         </div>
       </div>
-      {/* 评审 R3-F1：edit/write 审批展示 diff/文件预览（批准前看得见改了什么），其余展示参数 */}
-      <ArgsPreview toolName={request.toolName} args={request.args} />
-      <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
-        <button
-          type="button"
-          data-testid="permission-deny"
-          onClick={() => reply(request.requestId, false)}
-          className="rounded-md border border-border px-4 py-1.5 text-xs text-text-secondary hover:bg-bg-hover"
-        >
-          {t("permission.deny")}
-        </button>
-        {!danger && rule && (
-          <button
-            type="button"
-            data-testid="permission-allow-always"
-            onClick={allowAlways}
-            title={t(bypass ? "permission.alwaysBypassHint" : "permission.alwaysHint", { rule })}
-            className="rounded-md border border-border px-4 py-1.5 text-xs text-text-secondary hover:bg-bg-hover"
-          >
-            {t("permission.always")}
-          </button>
-        )}
-        <button
-          type="button"
-          data-testid="permission-allow"
-          onClick={() => reply(request.requestId, true)}
-          className={`rounded-md px-4 py-1.5 text-xs font-medium ${
-            severe ? "bg-danger text-on-danger hover:bg-danger/80" : "bg-accent text-on-accent hover:bg-accent-dim"
-          }`}
-        >
-          {t("permission.allow")}
-        </button>
-      </div>
-    </Modal>
+    </div>
   );
 }
 

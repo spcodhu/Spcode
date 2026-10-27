@@ -6,6 +6,7 @@ import { setLocale } from "@spcode/shared/i18n";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const shown: { title: string; body: string }[] = [];
+const clickHandlers: Array<() => void> = [];
 const badgeValues: string[] = [];
 
 vi.mock("electron", () => ({
@@ -16,7 +17,9 @@ vi.mock("electron", () => ({
     constructor(opts: { title: string; body: string }) {
       shown.push(opts);
     }
-    on(): void {}
+    on(event: string, cb: () => void): void {
+      if (event === "click") clickHandlers.push(cb);
+    }
     show(): void {}
   },
   app: { dock: { setBadge: (v: string) => badgeValues.push(v) } },
@@ -38,6 +41,7 @@ describe("Notifier", () => {
   beforeEach(() => {
     setLocale("zh-CN");
     shown.length = 0;
+    clickHandlers.length = 0;
     badgeValues.length = 0;
   });
   afterEach(() => setLocale("zh-CN"));
@@ -79,6 +83,26 @@ describe("Notifier", () => {
     n.resolveApproval("r1");
     n.resolveApproval("r2");
     expectBadge("");
+  });
+
+  it("点击权限通知聚焦窗口并打开来源会话", () => {
+    const openSession = vi.fn();
+    const focus = vi.fn();
+    const n = new Notifier({
+      isEnabled: () => true,
+      getWindow: () =>
+        ({
+          isFocused: () => false,
+          isDestroyed: () => false,
+          isMinimized: () => false,
+          focus,
+        }) as never,
+      openSession,
+    });
+    n.notifyApprovalNeeded("permission", "r-session", "bash 等待批准 · 会话甲", "s-session");
+    clickHandlers.at(-1)?.();
+    expect(focus).toHaveBeenCalledTimes(1);
+    expect(openSession).toHaveBeenCalledWith("s-session");
   });
 
   it("通知开关关闭时：不发通知但徽标仍计数", () => {

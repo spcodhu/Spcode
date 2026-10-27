@@ -1517,6 +1517,10 @@ export const useStore = create<StoreState>((set, get) => ({
       void get().refreshSessions();
       return;
     }
+    if (event.type === "session.focus") {
+      void get().openSessionById(event.sessionId);
+      return;
+    }
     set((s) => {
       switch (event.type) {
         case "ready":

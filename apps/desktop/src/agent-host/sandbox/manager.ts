@@ -59,8 +59,10 @@ class SandboxService {
   private initFailedReason: string | null = null;
   private initFailedMessage: LocalizedText | null = null;
   private initPromise: Promise<void> | null = null;
-  /** 网络域名交互审批（agent-host 注入；未注入时未知域名一律拒） */
-  private networkAskHandler: ((host: string, port: number | undefined) => Promise<boolean>) | null = null;
+  /** 网络域名交互审批（agent-host 注入；未注入时未知域名一律拒）。附当前在跑命令的会话候选，供唯一归因 */
+  private networkAskHandler:
+    | ((host: string, port: number | undefined, sessionIds: string[]) => Promise<boolean>)
+    | null = null;
   /** 本次运行内用户已放行的域名（应用级；永久放行需用户写进设置白名单） */
   private sessionAllowedHosts = new Set<string>();
   /** 「总不询问」档下静默放行的域名（审计用；这些没有经过用户确认） */
@@ -71,7 +73,9 @@ class SandboxService {
   private modeResolver: ((sessionId: string) => PermissionMode | null) | null = null;
 
   /** 注入网络域名审批回调（弹窗通道）。须在 initialize 之前调用才生效 */
-  setNetworkAskHandler(handler: (host: string, port: number | undefined) => Promise<boolean>): void {
+  setNetworkAskHandler(
+    handler: (host: string, port: number | undefined, sessionIds: string[]) => Promise<boolean>,
+  ): void {
     this.networkAskHandler = handler;
   }
 
@@ -196,7 +200,7 @@ class SandboxService {
             return true;
           }
           if (!this.networkAskHandler) return false;
-          const approved = await this.networkAskHandler(host, port);
+          const approved = await this.networkAskHandler(host, port, [...new Set(this.inflight.values())]);
           if (approved) this.sessionAllowedHosts.add(host);
           return approved;
         },

@@ -377,6 +377,8 @@ export type HostEvent =
   | { type: "session.todo"; sessionId: string; todos: TodoItem[] }
   /** AI 通过 RenameSession 工具主动起的会话标题 */
   | { type: "session.renamed"; sessionId: string; title: string }
+  /** 用户点击系统通知：渲染层定位到对应会话（不弹全局审批框） */
+  | { type: "session.focus"; sessionId: string }
   /** 计划模式开关变化（用户在 Composer 切换 / ExitPlanMode 批准后关闭） */
   | { type: "session.planmode"; sessionId: string; enabled: boolean }
   /** 权限模式变化（主进程据此持久化到注册表，重开会话据此恢复档位） */

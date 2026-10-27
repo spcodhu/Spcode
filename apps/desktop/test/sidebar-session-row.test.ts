@@ -38,7 +38,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-async function render(active = true) {
+async function render(active = true, permissionWaiting = false) {
   await act(async () =>
     root.render(
       createElement(
@@ -49,6 +49,7 @@ async function render(active = true) {
           active,
           running: false,
           waiting: false,
+          permissionWaiting,
           nested: true,
           menuItems: [],
           onOpen,
@@ -76,6 +77,12 @@ describe("侧栏会话行", () => {
       row.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     });
     expect(onOpen).toHaveBeenCalledTimes(1);
+  });
+
+  it("权限等待标记在会话标题 trailing 区可见", async () => {
+    await render(false, true);
+    const badge = container.querySelector('[data-testid="sidebar-permission-waiting"]')!;
+    expect(badge.getAttribute("aria-label")).toBe("有权限请求等待批准");
   });
 
   it("删除只执行删除，不冒泡成打开会话", async () => {
