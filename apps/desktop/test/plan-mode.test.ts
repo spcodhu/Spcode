@@ -12,7 +12,7 @@ import type { QuestionAnswer, QuestionAnswers, QuestionRequest } from "@spcode/s
 import { renderMessage, setLocale } from "@spcode/shared/i18n";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryStore } from "../src/agent-host/memory-store.js";
-import { isPlanModeSafeCommand } from "../src/agent-host/plan-mode.js";
+import { isPlanModeSafeCommand, PLAN_MODE_ON_MESSAGE } from "../src/agent-host/plan-mode.js";
 import { classifyToolRisk, SessionController } from "../src/agent-host/session-controller.js";
 import { createExitPlanModeTool, EXIT_PLAN_QUESTION } from "../src/agent-host/tools/exit-plan-mode.js";
 import { createWritePlanTool } from "../src/agent-host/tools/write-plan.js";
@@ -119,6 +119,15 @@ describe("isPlanModeSafeCommand:bash 只读白名单", () => {
   });
 });
 
+describe("计划态工作约定", () => {
+  it("WritePlan 后简短收尾并给文件链接，不要求全文复述或执行审批", () => {
+    expect(PLAN_MODE_ON_MESSAGE).toContain("[PLAN.md](plan:<absolute-file-path>)");
+    expect(PLAN_MODE_ON_MESSAGE).toContain("End the current turn immediately");
+    expect(PLAN_MODE_ON_MESSAGE).not.toContain("present the full plan");
+    expect(PLAN_MODE_ON_MESSAGE).not.toContain("call ExitPlanMode once");
+  });
+});
+
 describe("classifyToolRisk:计划工具分级", () => {
   it("WritePlan / ExitPlanMode 归只读(不弹权限卡)", () => {
     expect(classifyToolRisk("WritePlan", { content: "x" })).toBe("readonly");
@@ -142,7 +151,7 @@ describe("WritePlan 工具", () => {
     expect(readFileSync(file, "utf-8")).toContain("# 计划 v1");
     expect(saved).toEqual([file]);
     expect(r1.content[0]).toMatchObject({
-      text: `Plan saved: ${file}. Now present the complete plan in your response.`,
+      text: `Plan saved: ${file}. End this turn now with a brief summary and [PLAN.md](plan:${file}). Do not repeat the plan content and do not ask whether to execute.`,
     });
     expect(r1.details).toEqual({ path: file, presentation: { key: "agent:tool.planSaved", params: { path: file } } });
 
@@ -321,9 +330,10 @@ describe("SessionController 计划模式集成", () => {
   it("planMode:true 创建 → 计划工具集;门禁拦写放行只读;setPlanMode 往返恢复", async () => {
     const ctl = await createCtl(true);
     const tools = ctl.session.getActiveToolNames();
-    for (const expected of ["read", "bash", "grep", "find", "ls", "AskUserQuestion", "WritePlan", "ExitPlanMode"]) {
+    for (const expected of ["read", "bash", "grep", "find", "ls", "AskUserQuestion", "WritePlan"]) {
       expect(tools, `计划态缺少 ${expected}`).toContain(expected);
     }
+    expect(tools).not.toContain("ExitPlanMode");
     for (const removed of ["edit", "write", "Task", "TodoWrite"]) {
       expect(tools, `计划态应摘掉 ${removed}`).not.toContain(removed);
     }
@@ -331,7 +341,7 @@ describe("SessionController 计划模式集成", () => {
 
     // 门禁:写工具兜底拦截(带引导文案),bash 白名单放行/拦截,WritePlan 放行
     expect((await gate(ctl, "edit", { path: "a" }))?.block).toBe(true);
-    expect((await gate(ctl, "edit", { path: "a" }))?.reason).toContain("ExitPlanMode");
+    expect((await gate(ctl, "edit", { path: "a" }))?.reason).toContain("WritePlan");
     expect(await gate(ctl, "bash", { command: "ls -la" })).toBeUndefined();
     expect((await gate(ctl, "bash", { command: "npm install" }))?.block).toBe(true);
     expect((await gate(ctl, "bash", { command: "rm -rf /" }))?.block).toBe(true);

@@ -3,7 +3,8 @@
  *
  * 设计要点(见 docs/plan-mode-design.md):
  * - 计划态 = 只读调研:edit/write/Task/TodoWrite 从工具列表摘除,bash 走白名单;
- * - 退出无独立按钮:模型调 ExitPlanMode 弹批准卡,批准后 harness 当场恢复全量工具;
+ * - WritePlan 落盘即结束本轮：回复只带摘要与文件链接，不再弹执行批准卡;
+ * - 用户在右侧阅读面板显式开始执行后，harness 关闭计划态并恢复全量工具;
  * - 注入消息走 session.sendCustomMessage(display:false),模型可见、UI 不显示。
  */
 
@@ -23,7 +24,7 @@ export const NORMAL_MODE_TOOLS = [
   "Task",
 ];
 
-/** 计划态工具集:只读 + 提问 + 计划文件 + 退出申请(未知名字 pi 会自动忽略) */
+/** 计划态工具集:只读 + 提问 + 计划文件（落盘后由用户决定是否执行） */
 export const PLAN_MODE_TOOLS = [
   "read",
   "bash",
@@ -37,7 +38,6 @@ export const PLAN_MODE_TOOLS = [
   "AskUserQuestion",
   "RenameSession",
   "WritePlan",
-  "ExitPlanMode",
 ];
 
 /** sendCustomMessage 的 customType(注入消息与历史回放的识别标记) */
@@ -50,10 +50,10 @@ You are in plan mode: read-only research, no modifications. Write tools such as 
 Workflow:
 1. Research thoroughly with read-only tools (file reading, search, read-only bash commands).
 2. Batch questions requiring user decisions into one AskUserQuestion call (2-4 options per question), rather than asking piecemeal. Use the current UI language for questions and options.
-3. Once research is sufficient, call WritePlan to save the complete plan in the current UI language. Then present the full plan in your response, without truncation or omissions.
-4. After presenting the plan, proactively call ExitPlanMode once to ask whether to execute. Even if the user expresses a desire to proceed, you must call ExitPlanMode before making changes.
+3. Once research is sufficient, call WritePlan to save the complete plan in the current UI language. End the current turn immediately after a brief summary; do not repeat the full plan in the response.
+4. Include a Markdown link to the saved file using this exact form: [PLAN.md](plan:<absolute-file-path>). Do not ask the user whether to start executing and do not call ExitPlanMode.
 
-Do not modify anything until the user approves through ExitPlanMode. Honor explicit user requests for a different language.`;
+The user will review PLAN.md in the right-hand panel and explicitly start execution from there. Until the user closes plan mode through that action, make no modifications. Honor explicit user requests for a different language.`;
 
 /** 用户在 Composer 手动关闭计划态时注入(中性,不代表批准计划) */
 export const PLAN_MODE_OFF_MESSAGE = `[Plan mode disabled]
@@ -61,11 +61,11 @@ The user manually disabled plan mode. All tools have been restored.`;
 
 /** 计划态下 bash 被拒绝时的提示 */
 export const PLAN_MODE_BASH_BLOCK_REASON =
-  "Plan mode is read-only: this command is not on the read-only allowlist. Continue research with read-only commands (cat/grep/find/ls/git status, etc.); when the plan is ready, call ExitPlanMode to request user approval.";
+  "Plan mode is read-only: this command is not on the read-only allowlist. Continue research with read-only commands (cat/grep/find/ls/git status, etc.); when the plan is ready, save it with WritePlan and end the turn with a file link. The user will start execution from the plan panel.";
 
 /** 计划态下漏网写调用被拒绝时的提示 */
 export const PLAN_MODE_WRITE_BLOCK_REASON =
-  "Modifications are forbidden in plan mode. Finish the plan and call ExitPlanMode for user approval first; write tools are automatically restored after approval.";
+  "Modifications are forbidden in plan mode. Finish the plan and save it with WritePlan; the user will review it in the right-hand panel and explicitly start execution there.";
 
 // ---------------------------------------------------------------------------
 // bash 只读白名单

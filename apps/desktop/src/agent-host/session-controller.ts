@@ -54,7 +54,6 @@ import { getSandboxService } from "./sandbox/manager.js";
 import { createSessionToolEnvironment } from "./tool-environment.js";
 import { createAdvancedSearchTool } from "./tools/advanced-search.js";
 import { createAskUserQuestionTool } from "./tools/ask-user.js";
-import { createExitPlanModeTool } from "./tools/exit-plan-mode.js";
 import { createFindToolWithFallback } from "./tools/find-fallback.js";
 import { createRenameSessionTool } from "./tools/rename.js";
 import { createTaskTool } from "./tools/task.js";
@@ -293,12 +292,6 @@ export class SessionController {
       };
     };
 
-    // ExitPlanMode 的批准回调晚绑定：工具注册早于 controller 构造（同 renameProbe 模式）
-    const exitPlanCtx: { isOn: () => boolean; onApproved: () => Promise<void> } = {
-      isOn: () => false,
-      onApproved: async () => {},
-    };
-
     const { session } = await createAgentSession({
       cwd,
       agentDir: opts.agentDir,
@@ -337,12 +330,6 @@ export class SessionController {
           plansDir: join(opts.agentDir, "..", "plans"),
           sessionId: opts.sessionId,
           onSaved: opts.emitPlan,
-        }),
-        createExitPlanModeTool({
-          sessionId: opts.sessionId,
-          ask: opts.askQuestion,
-          isPlanMode: () => exitPlanCtx.isOn(),
-          onApproved: () => exitPlanCtx.onApproved(),
         }),
         createRenameSessionTool((title) => {
           renameProbe.fired = true;
@@ -386,14 +373,7 @@ export class SessionController {
       opts.emitUsage,
     );
 
-    // ExitPlanMode 晚绑定回调接到 controller 上
-    exitPlanCtx.isOn = () => ctl.planMode;
-    // 批准路径不注入"手动关闭"消息:ExitPlanMode 的工具结果已带执行约束,
-    // 再写一条"用户手动关闭"会自相矛盾
-    exitPlanCtx.onApproved = () => ctl.applyPlanMode(false, false);
-
-    // 初始工具集:正常态摘掉 WritePlan/ExitPlanMode;带 planMode 恢复的会话直接进计划工具集,
-    // 并重注一次计划态约定(上次注入的消息可能已被压缩/截断出上下文)
+    // 初始工具集：正常态摘除 WritePlan；恢复的计划态会话重注一次落盘即结束约定。
     const initialPlanMode = opts.planMode === true;
     ctl.planMode = initialPlanMode;
     session.setActiveToolsByName(initialPlanMode ? PLAN_MODE_TOOLS : NORMAL_MODE_TOOLS);
@@ -474,24 +454,19 @@ export class SessionController {
    * 运行中切换也安全：工具集对下一个模型请求生效，beforeToolCall 门禁实时读取状态。
    */
   async setPlanMode(enabled: boolean): Promise<void> {
-    await this.applyPlanMode(enabled, true);
+    await this.applyPlanMode(enabled);
   }
 
-  /**
-   * 计划态切换的实现。injectMessage=false 用于 ExitPlanMode 批准路径:
-   * 工具结果本身已宣告"计划模式已关闭、工具已恢复",无需再注入消息。
-   */
-  private async applyPlanMode(enabled: boolean, injectMessage: boolean): Promise<void> {
+  /** 切换计划工具集并注入状态说明；执行只能由用户在阅读面板显式发起。 */
+  private async applyPlanMode(enabled: boolean): Promise<void> {
     if (this.planMode === enabled) return;
     this.planMode = enabled;
     this.session.setActiveToolsByName(enabled ? PLAN_MODE_TOOLS : NORMAL_MODE_TOOLS);
-    if (injectMessage) {
-      await this.session.sendCustomMessage({
-        customType: PLAN_MODE_CUSTOM_TYPE,
-        content: enabled ? PLAN_MODE_ON_MESSAGE : PLAN_MODE_OFF_MESSAGE,
-        display: false,
-      });
-    }
+    await this.session.sendCustomMessage({
+      customType: PLAN_MODE_CUSTOM_TYPE,
+      content: enabled ? PLAN_MODE_ON_MESSAGE : PLAN_MODE_OFF_MESSAGE,
+      display: false,
+    });
     this.emitPlanMode(enabled);
   }
 

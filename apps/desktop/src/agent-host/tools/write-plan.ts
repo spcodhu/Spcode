@@ -29,8 +29,8 @@ export function createWritePlanTool(opts: {
     name: "WritePlan",
     label: "Write Plan",
     description:
-      "Save the complete plan to this session's plan file (PLAN.md). Call this BEFORE presenting the plan in your reply: write the file first, then show the full plan text to the user. Overwrites any previous version of the plan.",
-    promptSnippet: "Save the plan to the session's plan file before presenting it",
+      "Save the complete plan to this session's PLAN.md. Call this once the plan is ready, then end the turn with only a brief summary and the returned plan: link. Do not repeat the plan text and do not ask for execution approval.",
+    promptSnippet: "Save the plan and finish with a summary plus a plan: file link",
     parameters: writePlanSchema,
     execute: async (_id, args: Params) => {
       const content = args.content.trim();
@@ -46,7 +46,12 @@ export function createWritePlanTool(opts: {
       writeFileAtomic(file, `${content}\n`);
       opts.onSaved(file);
       return {
-        content: [{ type: "text", text: `Plan saved: ${file}. Now present the complete plan in your response.` }],
+        content: [
+          {
+            type: "text",
+            text: `Plan saved: ${file}. End this turn now with a brief summary and [PLAN.md](plan:${file}). Do not repeat the plan content and do not ask whether to execute.`,
+          },
+        ],
         details: { path: file, presentation: { key: "agent:tool.planSaved", params: { path: file } } },
       };
     },

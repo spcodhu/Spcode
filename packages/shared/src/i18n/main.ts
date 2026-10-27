@@ -11,8 +11,9 @@ export const zhCN = {
   "scheduler.notFound": "任务不存在：{{id}}",
   "pairing.unnamedDevice": "未命名设备",
   "permission.planBash":
-    "计划模式为只读：此命令不在只读白名单中。请继续使用只读命令（cat/grep/find/ls/git status 等）调研；计划就绪后调用 ExitPlanMode 请求用户批准。",
-  "permission.planWrite": "计划模式禁止修改。请先完成计划并调用 ExitPlanMode 请求用户批准；批准后自动恢复写入工具。",
+    "计划模式为只读：此命令不在只读白名单中。请继续使用只读命令（cat/grep/find/ls/git status 等）调研；计划就绪后调用 WritePlan 落盘并以文件链接结束，用户会在右侧阅读面板决定是否执行。",
+  "permission.planWrite":
+    "计划模式禁止修改。请完成计划并调用 WritePlan 落盘；用户在右侧阅读面板显式开始执行后才会恢复写入工具。",
   "lan.title": "Spcod 远程控制",
   "lan.started": "远程控制服务已启动",
   "lan.notBuilt": "手机端 PWA 尚未构建（{{path}} 不存在）。",
@@ -78,9 +79,9 @@ export const en = {
   "scheduler.notFound": "Task not found: {{id}}",
   "pairing.unnamedDevice": "Unnamed device",
   "permission.planBash":
-    "Plan mode is read-only: this command is not on the read-only allowlist. Continue research with read-only commands (cat/grep/find/ls/git status, etc.); when the plan is ready, call ExitPlanMode to request user approval.",
+    "Plan mode is read-only: this command is not on the read-only allowlist. Continue with read-only commands (cat/grep/find/ls/git status, etc.); when ready, save via WritePlan and finish with a file link. The user decides whether to execute from the plan panel.",
   "permission.planWrite":
-    "Modifications are forbidden in plan mode. Finish the plan and call ExitPlanMode for user approval first; write tools are automatically restored after approval.",
+    "Modifications are forbidden in plan mode. Save the plan with WritePlan; write tools are restored only after the user explicitly starts execution from the plan panel.",
   "lan.title": "Spcod Remote Control",
   "lan.started": "Remote control service is running",
   "lan.notBuilt": "The mobile PWA has not been built ({{path}} does not exist).",
