@@ -47,7 +47,7 @@ function PlanPanelContent({ sessionId, path }: { sessionId: string; path: string
         <div className="min-w-0 flex-1">
           <div className="text-[13px] font-medium text-text-primary">{t("plan.panelTitle")}</div>
           <div className="mono truncate text-[11px] text-text-tertiary" title={path}>
-            PLAN.md
+            {t("plan.fileName")}
           </div>
         </div>
         <button
