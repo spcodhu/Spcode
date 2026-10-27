@@ -35,6 +35,7 @@ import { AgentBridge } from "./agent-bridge.js";
 import { DraftsStore } from "./drafts-store.js";
 import { showImageContextMenu } from "./image-actions.js";
 import { Notifier } from "./notifier.js";
+import { readSessionPlan } from "./plan-file.js";
 import { QuotaService } from "./quota-service.js";
 import { RemoteServer } from "./remote/index.js";
 import { Scheduler } from "./scheduler.js";
@@ -598,6 +599,7 @@ function registerIpc(): void {
   });
 
   ipcMain.handle(IPC.getSettings, () => redactSettingsForRenderer(settings.get()));
+  ipcMain.handle(IPC.planRead, (_e, path: string) => readSessionPlan(String(path)));
   ipcMain.handle(IPC.getAppVersion, () => app.getVersion());
 
   // 更新：状态查询 / 手动下载 / 重启安装 / 忽略版本（状态推送见 setupAutoUpdater 的 onState）

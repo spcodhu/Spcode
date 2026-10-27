@@ -73,6 +73,7 @@ export interface SpcodeApi {
   getFontData(fileName: string): Promise<Uint8Array | null>;
   pickThemeFile(): Promise<string | null>;
   getSettings(): Promise<AppSettings>;
+  readPlanFile(path: string): Promise<string>;
   setSettings(patch: Partial<AppSettings>): Promise<AppSettings>;
   /** 应用版本号（设置页更新通道开关展示默认值用） */
   getAppVersion(): Promise<string>;
@@ -186,6 +187,9 @@ const api: SpcodeApi = {
   },
   getSettings() {
     return ipcRenderer.invoke(IPC.getSettings);
+  },
+  readPlanFile(path) {
+    return ipcRenderer.invoke(IPC.planRead, path);
   },
   getAppVersion() {
     return ipcRenderer.invoke(IPC.getAppVersion);

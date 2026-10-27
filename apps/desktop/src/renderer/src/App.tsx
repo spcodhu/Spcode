@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { ChatView } from "./components/ChatView";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ForkDialog } from "./components/ForkDialog";
+import { PlanPanel } from "./components/PlanPanel";
 import { SchedulePage } from "./components/SchedulePage";
 import { SearchPalette } from "./components/SearchPalette";
 import { SettingsPage } from "./components/SettingsPage";
@@ -82,6 +83,9 @@ export default function App() {
             )}
           </div>
         </div>
+        <ErrorBoundary label={t("plan.panelTitle")}>
+          <PlanPanel />
+        </ErrorBoundary>
         {forkDialogFor && <ForkDialog sourceId={forkDialogFor} onClose={() => setForkDialogFor(null)} />}
         {settingsOpen && <SettingsPage onClose={() => setSettingsOpen(false)} />}
         {searchOpen && <SearchPalette onClose={() => setSearchOpen(false)} />}

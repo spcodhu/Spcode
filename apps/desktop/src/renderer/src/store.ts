@@ -229,6 +229,8 @@ interface StoreState {
   composerDrafts: Record<string, ComposerDraft>;
   pendingQuestions: QuestionRequest[];
   pendingPermissions: PermissionRequest[];
+  /** 右侧第三栏：当前打开的 Plan 文件及所属会话 */
+  planPanel: { sessionId: string; path: string } | null;
   lastError: string | null;
   /** 轻量通知（定时任务触发等）：自动消失，点击可跳到对应会话 */
   notice: { text: string; presentation?: LocalizedText; sessionId?: string; tone?: "success" } | null;
@@ -268,6 +270,10 @@ interface StoreState {
   setPermissionMode(mode: PermissionMode): Promise<void>;
   replyPermission(requestId: string, approved: boolean, rememberProject?: boolean): void;
   replyQuestion(requestId: string, answers: import("@spcode/shared").QuestionAnswers): void;
+  openPlanFile(path: string): void;
+  closePlanFile(): void;
+  /** 用户明确开始：先关闭计划模式，确认工具恢复后再发送执行指令 */
+  startPlanExecution(): Promise<boolean>;
   applyHostEvent(event: HostEvent): void;
   refreshModels(): Promise<void>;
   /** 重新拉取会话注册表（定时任务新建会话 / sessions.changed 事件后调用） */
@@ -887,6 +893,7 @@ export const useStore = create<StoreState>((set, get) => ({
   composerDrafts: {},
   pendingQuestions: [],
   pendingPermissions: [],
+  planPanel: null,
   lastError: null,
   notice: null,
   updateState: { status: "idle" },
@@ -1473,6 +1480,26 @@ export const useStore = create<StoreState>((set, get) => ({
     set((s) => ({
       pendingQuestions: s.pendingQuestions.filter((q) => q.requestId !== requestId),
     }));
+  },
+
+  openPlanFile(path) {
+    const sessionId = get().activeSessionId;
+    if (!sessionId) return;
+    set({ planPanel: { sessionId, path } });
+  },
+
+  closePlanFile() {
+    set({ planPanel: null });
+  },
+
+  async startPlanExecution() {
+    const sessionId = get().activeSessionId;
+    const path = get().planPanel?.path;
+    if (!sessionId || !path || !get().sessions[sessionId]?.planMode) return false;
+    await get().setPlanMode(false);
+    // setPlanMode 失败会回滚；未真正退出就绝不发送执行指令。
+    if (get().sessions[sessionId]?.planMode) return false;
+    return get().sendPrompt(i18n.t("chat:plan.executePrompt", { path }));
   },
 
   async saveSettings(patch) {

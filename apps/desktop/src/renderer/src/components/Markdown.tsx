@@ -21,7 +21,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type PluginConfig, Streamdown, type StreamdownTranslations } from "streamdown";
 import { hasMathSyntax, hasMermaidSyntax } from "../md-detect";
+import { splitPlanLinks } from "../plan-links";
 import { useStore } from "../store";
+import { PlanFileLink } from "./PlanFileLink";
 
 type ThemeBase = "dark" | "light";
 const SHIKI_THEMES = { dark: "github-dark", light: "github-light" } as const;
@@ -140,21 +142,30 @@ export function Markdown({ text }: { text: string }) {
     [mathPlugin, mermaidPlugin, themeBase],
   );
 
+  const contentParts = useMemo(() => splitPlanLinks(text), [text]);
+
   return (
     <div className="md-body mb-2 text-sm leading-6">
-      <Streamdown
-        translations={translations}
-        controls={{
-          table: false,
-          mermaid: { download: false, copy: false, fullscreen: false, panZoom: false },
-          code: { copy: true, download: false },
-        }}
-        tableMaxHeight={0}
-        shikiTheme={[SHIKI_THEMES[themeBase], SHIKI_THEMES[themeBase]]}
-        plugins={plugins}
-      >
-        {text}
-      </Streamdown>
+      {contentParts.map((part) =>
+        part.kind === "plan" ? (
+          <PlanFileLink key={part.key} path={part.path} label={part.label} />
+        ) : (
+          <Streamdown
+            key={part.key}
+            translations={translations}
+            controls={{
+              table: false,
+              mermaid: { download: false, copy: false, fullscreen: false, panZoom: false },
+              code: { copy: true, download: false },
+            }}
+            tableMaxHeight={0}
+            shikiTheme={[SHIKI_THEMES[themeBase], SHIKI_THEMES[themeBase]]}
+            plugins={plugins}
+          >
+            {part.text}
+          </Streamdown>
+        ),
+      )}
     </div>
   );
 }
