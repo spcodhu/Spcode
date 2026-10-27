@@ -199,8 +199,8 @@ export {
   decidePermissionMatrix,
   deriveProjectPermissionRule,
   matchesProjectPermissionRule,
-  normalizeProjectCwd,
   normalizePermissionMode,
+  normalizeProjectCwd,
   PERMISSION_MODES,
   permissionModeLabel,
 } from "./permission.js";

@@ -1,4 +1,4 @@
-import { expect, test, type ElectronApplication, type Page } from "@playwright/test";
+import { type ElectronApplication, expect, type Page, test } from "@playwright/test";
 import { launchApp } from "./helpers";
 
 async function createChat(window: Page, text: string): Promise<string> {

@@ -31,8 +31,7 @@ export function PermissionInline({ sessionId }: { sessionId: string }) {
   return (
     <div className="shrink-0 px-6 pb-2" data-testid="permission-inline" data-session-id={sessionId}>
       <div className="mx-auto max-w-3xl">
-        <div
-          role="region"
+        <section
           aria-label={title}
           className="overflow-hidden rounded-2xl border border-warning/35 bg-bg-elevated shadow-lg"
         >
@@ -105,7 +104,7 @@ export function PermissionInline({ sessionId }: { sessionId: string }) {
               {t("permission.allow")}
             </button>
           </div>
-        </div>
+        </section>
       </div>
     </div>
   );

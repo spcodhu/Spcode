@@ -557,6 +557,7 @@ export function SessionRow({
       </span>
       {permissionWaiting && (
         <span
+          role="img"
           title={t("sidebar.permissionWaiting")}
           aria-label={t("sidebar.permissionWaiting")}
           data-testid="sidebar-permission-waiting"
