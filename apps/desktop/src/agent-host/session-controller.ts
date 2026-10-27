@@ -146,6 +146,16 @@ export function classifyToolRisk(toolName: string, args: unknown): ToolRisk {
   return "write";
 }
 
+const RISK_SEVERITY: Record<ToolRisk, number> = { readonly: 0, write: 1, outward: 2, danger: 3 };
+
+/** 合并当前模型随 Bash 调用给出的风险自评：只允许上调，不允许绕过本地规则。 */
+export function applyModelRiskHint(localRisk: ToolRisk, args: unknown): ToolRisk {
+  if (!args || typeof args !== "object" || !("risk" in args)) return localRisk;
+  const hint = (args as { risk?: unknown }).risk;
+  if (hint !== "write" && hint !== "outward" && hint !== "danger") return localRisk;
+  return RISK_SEVERITY[hint] > RISK_SEVERITY[localRisk] ? hint : localRisk;
+}
+
 export function extractCommand(args: unknown): string | null {
   if (args && typeof args === "object" && "command" in args) {
     const c = (args as { command?: unknown }).command;

@@ -41,7 +41,7 @@ function makeTool(opts: { allowBypass: boolean; settings?: SandboxSettings }) {
 
 async function run(
   tool: ReturnType<typeof makeTool>,
-  params: { command: string; dangerouslyDisableSandbox?: boolean },
+  params: { command: string; dangerouslyDisableSandbox?: boolean; risk?: "write" | "outward" | "danger" },
 ): Promise<{ exitCode: number | null; text: string }> {
   try {
     const r = (await tool.execute("t1", params as never, undefined, undefined, undefined as never)) as ToolResultLike;
@@ -65,6 +65,7 @@ describe("逃生舱参数暴露", () => {
   it("allowBypass=true 的工具有 dangerouslyDisableSandbox 参数", () => {
     const tool = makeTool({ allowBypass: true });
     expect(tool.parameters).toHaveProperty("properties.dangerouslyDisableSandbox");
+    expect(tool.parameters).toHaveProperty("properties.risk");
   });
 
   it("allowBypass=false（子代理）的工具没有逃生舱参数", () => {
@@ -76,7 +77,7 @@ describe("逃生舱参数暴露", () => {
 describe("执行路径", () => {
   it("bypass=true → 不经沙盒直接执行（沙盒不可用也能跑通）", async () => {
     const tool = makeTool({ allowBypass: true });
-    const r = await run(tool, { command: "echo bypass-ok", dangerouslyDisableSandbox: true });
+    const r = await run(tool, { command: "echo bypass-ok", dangerouslyDisableSandbox: true, risk: "write" });
     expect(r.text).toContain("bypass-ok");
     expect(r.text).not.toContain("sandbox wrapping failed");
   });

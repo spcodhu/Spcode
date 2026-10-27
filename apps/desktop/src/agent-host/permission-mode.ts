@@ -20,6 +20,7 @@ const NOTES: Record<PermissionMode, string> = {
     "Permission mode: ASK WHEN NECESSARY.",
     "Write operations (file edits and shell commands) run without asking.",
     "Outward-facing actions (git push, publishing, ssh/scp, deployment) and irreversible or dangerous commands (rm -rf, sudo, force push) still require approval, as does any request to run outside the sandbox.",
+    "For every Bash call, include the risk self-assessment: write for ordinary local reversible changes, outward for effects outside this machine, danger for destructive or irreversible actions. It can only escalate review, never bypass local policy.",
   ].join(" "),
   never: [
     "Permission mode: NEVER ASK.",

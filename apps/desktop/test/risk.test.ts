@@ -1,5 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { classifyToolRisk } from "../src/agent-host/session-controller.js";
+import { applyModelRiskHint, classifyToolRisk } from "../src/agent-host/session-controller.js";
+
+describe("模型风险自评合并", () => {
+  it("只允许上调普通 write，覆盖本地规则未识别的对外/危险语义", () => {
+    expect(applyModelRiskHint("write", { command: "docker push repo/image", risk: "outward" })).toBe("outward");
+    expect(applyModelRiskHint("write", { command: "terraform destroy", risk: "danger" })).toBe("danger");
+  });
+
+  it("模型不能降低本地危险/对外判定", () => {
+    expect(applyModelRiskHint("danger", { command: "rm -rf /tmp/x", risk: "write" })).toBe("danger");
+    expect(applyModelRiskHint("outward", { command: "git push", risk: "write" })).toBe("outward");
+  });
+
+  it("缺省或非法自评回退本地判定", () => {
+    expect(applyModelRiskHint("write", { command: "pnpm test" })).toBe("write");
+    expect(applyModelRiskHint("write", { command: "pnpm test", risk: "readonly" })).toBe("write");
+    expect(applyModelRiskHint("write", { command: "pnpm test", risk: 42 })).toBe("write");
+  });
+});
 
 describe("classifyToolRisk", () => {
   it("只读工具放行", () => {

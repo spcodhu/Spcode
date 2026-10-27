@@ -147,6 +147,17 @@ describe("权限模式矩阵（宿主侧）", () => {
     expect(requests.at(-1)?.risk).toBe("danger");
   });
 
+  it("必要时询问：模型自评可升级风险，但不能降级本地危险判定", async () => {
+    const { gate, requests } = makeGate({ permissionMode: "auto" });
+    await gate({
+      toolCall: { name: "bash", arguments: { command: "docker push repo/image", risk: "outward" } },
+    });
+    expect(requests.at(-1)?.risk).toBe("outward");
+
+    await gate({ toolCall: { name: "bash", arguments: { command: "rm -rf /tmp/x", risk: "write" } } });
+    expect(requests.at(-1)?.risk).toBe("danger");
+  });
+
   it("必要时询问 + 沙盒关闭：写类仍免问（沿用 act 语义，界面另有警示）", async () => {
     const { gate, requests } = makeGate({ permissionMode: "auto", sandboxState: "disabled" });
     expect(await gate({ toolCall: { name: "bash", arguments: { command: "mkdir out" } } })).toBeUndefined();

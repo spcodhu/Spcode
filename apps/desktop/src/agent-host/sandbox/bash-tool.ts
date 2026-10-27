@@ -69,6 +69,23 @@ const BYPASS_HINT =
 const PARALLEL_GUIDELINE =
   "Independent Bash calls should be emitted in the same tool-call batch so they can execute concurrently; keep dependent or shared-state commands sequential.";
 
+const RISK_FIELD_DESCRIPTION =
+  "Classify this command's semantic effect: 'write' for ordinary local/reversible changes, 'outward' for effects outside this machine (push, publish, deployment, ssh/scp), or 'danger' for destructive/irreversible actions. Used only to escalate approval; local policy always takes the stricter result.";
+
+const riskProperty = {
+  risk: Type.Optional(
+    Type.Union([Type.Literal("write"), Type.Literal("outward"), Type.Literal("danger")], {
+      description: RISK_FIELD_DESCRIPTION,
+    }),
+  ),
+};
+
+const plainBashSchema = Type.Object({
+  command: Type.String({ description: "Shell command to execute" }),
+  timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (optional, no default timeout)" })),
+  ...riskProperty,
+});
+
 /** 逃生舱开放时的扩展 schema（bypass 参数描述即模型的使用契约） */
 const sandboxedBashSchema = Type.Object({
   command: Type.String({ description: "Shell command to execute" }),
@@ -79,6 +96,7 @@ const sandboxedBashSchema = Type.Object({
         "Set true ONLY if the command fundamentally cannot work inside the OS sandbox (e.g. launching GUI/Electron apps, keychain/Mach access). The command will run outside the sandbox with full user permissions after explicit user approval.",
     }),
   ),
+  ...riskProperty,
 });
 
 /** 含 shell 元字符的复合命令一律不匹配（与主进程 matchesPermissionRule 同语义，评审 R3-C5） */
@@ -113,8 +131,13 @@ export function createSandboxedBashTool(cwd: string, opts: SandboxedBashToolOpti
     const definition = createBashToolDefinition(cwd, { spawnHook: opts.environment?.spawnHook });
     return {
       ...definition,
+      parameters: plainBashSchema,
       executionMode: "parallel",
       promptGuidelines: [...(definition.promptGuidelines ?? []), PARALLEL_GUIDELINE],
+      execute: (toolCallId: string, params: unknown, signal: AbortSignal | undefined, onUpdate: never, ctx: never) => {
+        const p = params as { command: string; timeout?: number };
+        return definition.execute(toolCallId, { command: p.command, timeout: p.timeout }, signal, onUpdate, ctx);
+      },
     } as unknown as ToolDefinition;
   }
 
@@ -180,7 +203,7 @@ export function createSandboxedBashTool(cwd: string, opts: SandboxedBashToolOpti
       PARALLEL_GUIDELINE,
       "Commands are sandboxed: filesystem writes outside the working directory and network access to non-allowlisted domains will be blocked by the OS.",
     ],
-    parameters: allowBypass ? sandboxedBashSchema : sandboxedDef.parameters,
+    parameters: allowBypass ? sandboxedBashSchema : plainBashSchema,
     execute: (toolCallId: string, params: unknown, signal: AbortSignal | undefined, onUpdate: never, ctx: never) => {
       const p = params as { command: string; timeout?: number; dangerouslyDisableSandbox?: boolean };
       if (p.dangerouslyDisableSandbox === true && unsandboxedDef) {

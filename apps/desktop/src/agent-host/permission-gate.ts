@@ -23,7 +23,7 @@ import { isPlanModeSafeCommand, PLAN_MODE_BASH_BLOCK_REASON, PLAN_MODE_WRITE_BLO
 import { matchesExcludedCommand } from "./sandbox/bash-tool.js";
 import { type FsGuardPolicy, judgeFsToolCall } from "./sandbox/fs-guard.js";
 import type { SandboxState } from "./sandbox/manager.js";
-import { classifyToolRisk, extractCommand, READONLY_TOOLS } from "./session-controller.js";
+import { applyModelRiskHint, classifyToolRisk, extractCommand, READONLY_TOOLS } from "./session-controller.js";
 
 /** pi beforeToolCall 钩子的上下文结构（只用到 toolCall 的 name/arguments） */
 export interface BeforeToolCallCtx {
@@ -114,7 +114,8 @@ export function createBeforeToolCallGate(deps: PermissionGateDeps) {
       (sandboxSettings?.excludedCommands ?? []).some((r) => matchesExcludedCommand(cmd, r));
     const effectiveSandboxed = sandboxed && isShellTool && !excludedHit;
 
-    const risk = classifyToolRisk(ctx.toolCall.name, ctx.toolCall.arguments);
+    const localRisk = classifyToolRisk(ctx.toolCall.name, ctx.toolCall.arguments);
+    const risk = isShellTool ? applyModelRiskHint(localRisk, ctx.toolCall.arguments) : localRisk;
     const verdict = decidePermissionMatrix({
       risk,
       mode,
