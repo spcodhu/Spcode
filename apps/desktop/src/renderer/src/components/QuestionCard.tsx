@@ -42,6 +42,8 @@ function QuestionCard({ request, queueSize }: { request: QuestionRequest; queueS
       const cur = m[idx] ?? [];
       return { ...m, [idx]: cur.includes(value) ? cur.filter((x) => x !== value) : [...cur, value] };
     });
+    // 单选已经给出确定答案，直接推进；多选与自由输入必须由用户显式点「下一题」。
+    if (!q.multiSelect && idx < total - 1) setPage(idx + 1);
   };
 
   const isSelected = (value: string) => (answers[idx] ?? []).includes(value);
@@ -73,6 +75,7 @@ function QuestionCard({ request, queueSize }: { request: QuestionRequest; queueS
               disabled={idx === 0}
               onClick={() => setPage(idx - 1)}
               title={t("card.previous")}
+              data-testid="question-previous"
               className="rounded p-1 hover:bg-bg-hover hover:text-text-secondary disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-text-tertiary"
             >
               <Icon name="chevronRight" size={12} className="rotate-180" />
@@ -132,13 +135,13 @@ function QuestionCard({ request, queueSize }: { request: QuestionRequest; queueS
         </div>
       )}
 
-      {/* 自由输入：任何题都可以直接打字回答，回车提交 */}
+      {/* 自由输入：任何题都可以直接打字回答；翻页由用户点击，最后一题回车可提交 */}
       <div className="px-4 pt-2.5">
         <input
           value={freeText[idx] ?? ""}
           onChange={(e) => setFreeText((m) => ({ ...m, [idx]: e.target.value }))}
           onKeyDown={(e) => {
-            if (e.key === "Enter") submit();
+            if (e.key === "Enter" && idx === total - 1) submit();
           }}
           placeholder={t("card.otherAnswer")}
           data-testid="question-free-text"
@@ -146,8 +149,8 @@ function QuestionCard({ request, queueSize }: { request: QuestionRequest; queueS
         />
       </div>
 
-      {/* 底部：取消 + 发送 */}
-      <div className="flex items-center justify-end gap-3 px-4 py-3">
+      {/* 底部：取消 + 手动翻页 + 发送 */}
+      <div className="flex items-center gap-3 px-4 py-3">
         <button
           type="button"
           onClick={() => reply(request.requestId, dismissQuestionAnswers(request))}
@@ -156,6 +159,18 @@ function QuestionCard({ request, queueSize }: { request: QuestionRequest; queueS
         >
           {t("card.cancel")}
         </button>
+        <div className="flex-1" />
+        {idx < total - 1 && (
+          <button
+            type="button"
+            onClick={() => setPage(idx + 1)}
+            data-testid="question-next"
+            className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-[13px] text-accent transition-colors hover:bg-accent-soft"
+          >
+            {t("card.next")}
+            <Icon name="chevronRight" size={12} />
+          </button>
+        )}
         <button
           type="button"
           onClick={submit}

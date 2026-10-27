@@ -137,6 +137,67 @@ for (const platform of ["desktop", "mobile"] as const) {
       expect(state.reply).toHaveBeenLastCalledWith("multi", { "0": { kind: "text", text: " custom, answer " } });
     });
 
+    it("单选题自动进入下一题，返回保留答案且最后一题不自动提交", async () => {
+      if (platform !== "desktop") return;
+      state.request = {
+        requestId: "paging-single",
+        sessionId: "s1",
+        questions: [
+          { question: "第一题", options: [{ value: "a", label: "A" }] },
+          { question: "第二题", options: [{ value: "b", label: "B" }] },
+        ],
+      };
+      await render();
+      await click("question-option-0-0");
+      expect(element("question-option-1-0").getAttribute("aria-pressed")).toBe("false");
+      expect(state.reply).not.toHaveBeenCalled();
+
+      await click("question-previous");
+      expect(element("question-option-0-0").getAttribute("aria-pressed")).toBe("true");
+      await click("question-next");
+      await click("question-option-1-0");
+      expect(state.reply).not.toHaveBeenCalled();
+      await click("question-submit");
+      expect(state.reply).toHaveBeenLastCalledWith("paging-single", {
+        "0": { kind: "options", values: ["a"] },
+        "1": { kind: "options", values: ["b"] },
+      });
+    });
+
+    it("多选与自由输入只保存答案，必须显式点击下一题", async () => {
+      if (platform !== "desktop") return;
+      state.request = {
+        requestId: "paging-manual",
+        sessionId: "s1",
+        questions: [
+          {
+            question: "多选题",
+            multiSelect: true,
+            options: [
+              { value: "a", label: "A" },
+              { value: "b", label: "B" },
+            ],
+          },
+          { question: "文本题" },
+        ],
+      };
+      await render();
+      await click("question-option-0-0");
+      await click("question-option-0-1");
+      expect(container.querySelector('[data-testid="question-option-1-0"]')).toBeNull();
+      expect(state.reply).not.toHaveBeenCalled();
+
+      await click("question-next");
+      expect(container.textContent).toContain("文本题");
+      await type("手动填写");
+      expect(state.reply).not.toHaveBeenCalled();
+      await click("question-submit");
+      expect(state.reply).toHaveBeenLastCalledWith("paging-manual", {
+        "0": { kind: "options", values: ["a", "b"] },
+        "1": { kind: "text", text: "手动填写" },
+      });
+    });
+
     it("dismisses explicitly and resets state only when request identity changes", async () => {
       await render();
       await click("question-option-0-0");
