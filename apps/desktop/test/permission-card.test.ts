@@ -91,6 +91,18 @@ describe("会话内嵌权限卡", () => {
     expect(container.querySelector('[data-testid="permission-allow-always"]')).toBeNull();
   });
 
+  it("Shell 卡直接展示未经截断的完整命令并启用换行而非横滚", async () => {
+    const command = `pnpm test --flag=${"x".repeat(1800)}\n&& pnpm build`;
+    state.pending = [request("long-command", "s1", command)];
+    await render("s1");
+    const pre = container.querySelector<HTMLElement>('[data-testid="permission-command"]')!;
+    expect(pre.textContent).toBe(command);
+    expect(pre.className).toContain("whitespace-pre-wrap");
+    expect(pre.className).toContain("overflow-x-hidden");
+    expect(container.textContent).not.toContain("工具：");
+    expect(container.textContent).toContain("权限确认");
+  });
+
   it("批准或拒绝只回复当前显示的 requestId", async () => {
     await render("s1");
     container.querySelector<HTMLButtonElement>('[data-testid="permission-allow"]')!.click();

@@ -1,5 +1,5 @@
 import { deriveProjectPermissionRule } from "@spcode/shared";
-import { Trans, useTranslation } from "react-i18next";
+import { useTranslation } from "react-i18next";
 import { useStore } from "../store";
 import { DiffReplace } from "./DiffBlock";
 
@@ -23,15 +23,7 @@ export function PermissionInline({ sessionId }: { sessionId: string }) {
   const bypass = request.bypass === true;
   const rule = deriveProjectPermissionRule(request);
 
-  const title = t(
-    bypass
-      ? "permission.bypassTitle"
-      : danger
-        ? "permission.dangerTitle"
-        : outward
-          ? "permission.outwardTitle"
-          : "permission.title",
-  );
+  const title = t("permission.shortTitle");
   const severe = danger || outward || bypass;
 
   const allowAlways = () => reply(request.requestId, true, true);
@@ -44,37 +36,43 @@ export function PermissionInline({ sessionId }: { sessionId: string }) {
           aria-label={title}
           className="overflow-hidden rounded-2xl border border-warning/35 bg-bg-elevated shadow-lg"
         >
-          <div className={`rounded-t-xl px-4 py-3 ${severe ? "bg-danger/10" : "bg-warning/10"}`}>
-            <div className={`text-sm font-semibold ${severe ? "text-danger" : "text-warning"}`}>{title}</div>
-            <div className="mt-0.5 text-xs text-text-tertiary">
-              <Trans
-                t={t}
-                i18nKey="permission.tool"
-                values={{ name: request.toolName }}
-                components={{ code: <code className="mono text-text-secondary" /> }}
-              />
-              {request.sandboxed ? (
-                <span
-                  data-testid="permission-sandboxed-badge"
-                  className="ml-2 rounded bg-accent/15 px-1.5 py-0.5 text-accent"
-                >
-                  {t("permission.sandboxed")}
-                </span>
-              ) : null}
-              {bypass ? (
-                <span
-                  data-testid="permission-bypass-badge"
-                  className="ml-2 rounded bg-danger/15 px-1.5 py-0.5 text-danger"
-                >
-                  {t("permission.outside")}
-                </span>
-              ) : null}
-              {queue.length > 1 ? t("permission.pending", { count: queue.length - 1 }) : ""}
-            </div>
+          <div className="flex flex-wrap items-center gap-2 px-4 pt-3.5">
+            <div className="text-sm font-semibold text-text-primary">{title}</div>
+            {danger && (
+              <span className="rounded bg-danger/15 px-1.5 py-0.5 text-[11px] text-danger">
+                {t("permission.dangerBadge")}
+              </span>
+            )}
+            {outward && !danger && (
+              <span className="rounded bg-warning/15 px-1.5 py-0.5 text-[11px] text-warning">
+                {t("permission.outwardBadge")}
+              </span>
+            )}
+            {request.sandboxed ? (
+              <span
+                data-testid="permission-sandboxed-badge"
+                className="rounded bg-accent/15 px-1.5 py-0.5 text-[11px] text-accent"
+              >
+                {t("permission.sandboxed")}
+              </span>
+            ) : null}
+            {bypass ? (
+              <span
+                data-testid="permission-bypass-badge"
+                className="rounded bg-danger/15 px-1.5 py-0.5 text-[11px] text-danger"
+              >
+                {t("permission.outside")}
+              </span>
+            ) : null}
+            {queue.length > 1 ? (
+              <span className="text-[11px] text-text-tertiary">
+                {t("permission.pending", { count: queue.length - 1 })}
+              </span>
+            ) : null}
           </div>
           {/* 评审 R3-F1：edit/write 审批展示 diff/文件预览（批准前看得见改了什么），其余展示参数 */}
           <ArgsPreview toolName={request.toolName} args={request.args} />
-          <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
+          <div className="flex flex-wrap justify-end gap-2 border-t border-border px-4 py-3">
             <button
               type="button"
               data-testid="permission-deny"
@@ -127,8 +125,18 @@ function formatArgs(args: unknown): string {
 /** 审批卡参数预览（评审 R3-F1）：edit 渲染 oldText→newText 替换 diff，write 渲染目标路径+内容预览，其余 JSON */
 function ArgsPreview({ toolName, args }: { toolName: string; args: unknown }) {
   const { t } = useTranslation("chat");
-  const a = (args ?? {}) as { path?: unknown; edits?: unknown; content?: unknown };
+  const a = (args ?? {}) as { path?: unknown; edits?: unknown; content?: unknown; command?: unknown };
   const name = toolName.toLowerCase();
+  if ((name === "bash" || name === "powershell") && typeof a.command === "string") {
+    return (
+      <pre
+        data-testid="permission-command"
+        className="mono max-h-[40vh] min-w-0 overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words px-4 py-3 text-[12px] leading-5 text-text-secondary [overflow-wrap:anywhere]"
+      >
+        {a.command}
+      </pre>
+    );
+  }
   if (name === "edit" && typeof a.path === "string" && Array.isArray(a.edits)) {
     const edits = a.edits as { oldText?: unknown; newText?: unknown }[];
     return (
