@@ -35,7 +35,14 @@ jobs:
       - name: Test
         run: pnpm --filter @spcode/desktop test
 
-      - name: Build
+      - name: Build mobile PWA
+        run: pnpm --filter @spcode/mobile build
+
+      - name: Validate mobile PWA
+        working-directory: apps/desktop
+        run: pnpm check:mobile
+
+      - name: Build desktop
         run: pnpm --filter @spcode/desktop build
 
       - name: Package（不发布）
