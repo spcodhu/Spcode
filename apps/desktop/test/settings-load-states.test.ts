@@ -30,6 +30,7 @@ function deferred<T>() {
 function remoteStatus(enabled: boolean) {
   return {
     enabled,
+    mobilePwa: { available: true, packaged: false },
     urls: [],
     devices: [],
     pairing: null,

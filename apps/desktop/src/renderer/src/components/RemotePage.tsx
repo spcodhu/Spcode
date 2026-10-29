@@ -155,6 +155,40 @@ export function RemotePage() {
     <div data-testid="remote-page">
       <PageHeader title={t("nav.remote")} subtitle={t("remote.description")} />
 
+      {status && (
+        <div className="mb-3 rounded-xl border border-border bg-bg-elevated px-4 py-3" data-testid="remote-pwa-status">
+          <div className="text-[13px] font-medium text-text-secondary">
+            {status.mobilePwa.available ? t("remote.pwaIncluded") : t("remote.pwaMissing")}
+          </div>
+          <div className="mt-1 text-[12px] leading-5 text-text-tertiary">
+            {status.mobilePwa.available
+              ? t("remote.pwaIncludedDescription")
+              : status.mobilePwa.packaged
+                ? t("remote.pwaPackagedMissingDescription")
+                : t("remote.pwaDevMissingDescription")}
+          </div>
+        </div>
+      )}
+
+      <details
+        className="mb-3 rounded-xl border border-border bg-bg-elevated px-4 py-3"
+        data-testid="remote-phone-guide"
+      >
+        <summary className="cursor-pointer select-none text-[13px] font-medium text-text-secondary">
+          {t("remote.phoneGuide")}
+        </summary>
+        <ol className="mt-3 list-decimal space-y-1.5 pl-5 text-[12px] leading-5 text-text-tertiary">
+          <li>{t("remote.phoneGuide.enable")}</li>
+          <li>{t("remote.phoneGuide.network")}</li>
+          <li>{t("remote.phoneGuide.browser")}</li>
+          <li>{t("remote.phoneGuide.pair")}</li>
+          <li>{t("remote.phoneGuide.control")}</li>
+        </ol>
+        <p className="mt-3 border-t border-border pt-3 text-[12px] leading-5 text-text-tertiary">
+          {t("remote.phoneGuide.httpNote")}
+        </p>
+      </details>
+
       {/* 总开关 */}
       <div className="flex items-center justify-between rounded-xl border border-border bg-bg-elevated px-4 py-3">
         <div>
@@ -231,6 +265,7 @@ export function RemotePage() {
                     {pairing.otp}
                   </div>
                   <OtpCountdown expiresAt={pairing.expiresAt} now={now} />
+                  <div className="mt-1 text-[12px] leading-5 text-text-tertiary">{t("remote.otpHelp")}</div>
                   <button
                     type="button"
                     onClick={() => void regenerate()}
@@ -239,6 +274,7 @@ export function RemotePage() {
                   >
                     {t("remote.regenerate")}
                   </button>
+                  <PairingPayload key={pairing.qrPayload} payload={pairing.qrPayload} />
                 </div>
               </div>
             ) : (
@@ -617,6 +653,64 @@ function FeishuBadge({ state }: { state: RemoteFeishuState }) {
 /** openId 截断显示（ou_ 开头长串，保留首尾便于核对） */
 function truncateOpenId(openId: string): string {
   return openId.length > 14 ? `${openId.slice(0, 8)}…${openId.slice(-4)}` : openId;
+}
+
+/** 完整配对载荷：复制不触发重新生成；剪贴板不可用时自动展开供手动选择。 */
+function PairingPayload({ payload }: { payload: string }) {
+  const { t } = useTranslation("settings");
+  const [open, setOpen] = useState(false);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(payload);
+      setCopyState("copied");
+    } catch {
+      setCopyState("error");
+      setOpen(true);
+    }
+  };
+
+  return (
+    <div className="mt-3 border-t border-border pt-3">
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          data-testid="remote-copy-payload"
+          onClick={() => void copy()}
+          className="rounded-lg border border-border px-3 py-1.5 text-[12px] text-text-secondary hover:bg-bg-hover"
+        >
+          {copyState === "copied" ? t("remote.copied") : t("remote.copyPayload")}
+        </button>
+        <button
+          type="button"
+          data-testid="remote-payload-toggle"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+          className="rounded-lg px-3 py-1.5 text-[12px] text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
+        >
+          {open ? t("remote.hidePayload") : t("remote.showPayload")}
+        </button>
+      </div>
+      {copyState === "error" && (
+        <div role="alert" className="mt-2 text-[12px] leading-5 text-danger">
+          {t("remote.copyPayloadFailed")}
+        </div>
+      )}
+      {open && (
+        <textarea
+          readOnly
+          data-testid="remote-payload"
+          aria-label={t("remote.payloadLabel")}
+          value={payload}
+          rows={4}
+          onFocus={(event) => event.currentTarget.select()}
+          className="mono mt-2 w-full resize-y rounded-lg border border-border bg-bg-root px-3 py-2 text-[12px] leading-5 break-all text-text-secondary outline-none focus:border-accent"
+        />
+      )}
+      <div className="mt-2 text-[12px] leading-5 text-text-tertiary">{t("remote.payloadValidity")}</div>
+    </div>
+  );
 }
 
 /** 单行可复制文本（监听地址） */

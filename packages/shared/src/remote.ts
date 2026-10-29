@@ -318,6 +318,11 @@ export interface RemoteFeishuStatus {
 /** getRemoteStatus IPC 的返回结构 */
 export interface RemoteStatus {
   enabled: boolean;
+  /** 手机 PWA 资源状态：安装版应始终 available；开发版可用于展示构建提示 */
+  mobilePwa: {
+    available: boolean;
+    packaged: boolean;
+  };
   /** 可访问地址列表（局域网 http://ip:port + relay+wss://… 前缀项 + tailscale https 直连项）；未启动时为空 */
   urls: string[];
   devices: PairedDevice[];

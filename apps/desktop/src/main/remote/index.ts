@@ -38,7 +38,7 @@ import { RemoteEventAggregator } from "./aggregator.js";
 import { type FeishuApi, FeishuChannel } from "./channel/feishu.js";
 import { boxDecrypt, boxEncrypt, isValidPublicKey, SeqCounter, SeqGuard } from "./crypto.js";
 import { handleRemoteCommand, type RemoteHandlerDeps } from "./handlers.js";
-import { type MobilePwaRuntime, resolveMobileDistDir } from "./mobile-pwa.js";
+import { isMobilePwaBuilt, type MobilePwaRuntime, resolveMobileDistDir } from "./mobile-pwa.js";
 import { SessionOutputLog } from "./output-log.js";
 import { PairingManager } from "./pairing.js";
 import { PushService } from "./push.js";
@@ -100,6 +100,7 @@ export class RemoteServer {
   private readonly runtime: RemoteRuntimeTracker;
   private readonly push: PushService;
   private readonly tailscale: TailscaleManager;
+  private readonly mobileRuntime: MobilePwaRuntime;
   private readonly peers = new Set<PeerState>();
   private lanTransport: RemoteTransport | null;
   private relayTransport: RemoteTransport | null = null;
@@ -116,6 +117,11 @@ export class RemoteServer {
 
   constructor(deps: RemoteServerDeps) {
     this.deps = deps;
+    this.mobileRuntime = deps.mobileRuntime ?? {
+      appPath: process.cwd(),
+      resourcesPath: process.resourcesPath ?? "",
+      isPackaged: false,
+    };
     this.pairing = deps.pairing ?? new PairingManager();
     this.lanTransport = deps.transport ?? null;
     this.relayTransport = deps.relayTransport ?? null;
@@ -172,15 +178,8 @@ export class RemoteServer {
     if (!this.lanTransport) {
       this.lanTransport = new LanTransport({
         port: cfg.port ?? 0,
-        staticDir: resolveMobileDistDir(
-          this.deps.mobileDistDir,
-          this.deps.mobileRuntime ?? {
-            appPath: process.cwd(),
-            resourcesPath: process.resourcesPath ?? "",
-            isPackaged: false,
-          },
-        ),
-        packaged: this.deps.mobileRuntime?.isPackaged === true,
+        staticDir: resolveMobileDistDir(this.deps.mobileDistDir, this.mobileRuntime),
+        packaged: this.mobileRuntime.isPackaged,
       });
     }
     if (relayUrl && !this.relayTransport) {
@@ -324,6 +323,10 @@ export class RemoteServer {
     const feishuConfigured = !!(cfg.feishu?.appId && cfg.feishu?.appSecret);
     return {
       enabled: cfg.enabled,
+      mobilePwa: {
+        available: isMobilePwaBuilt(resolveMobileDistDir(this.deps.mobileDistDir, this.mobileRuntime)),
+        packaged: this.mobileRuntime.isPackaged,
+      },
       urls: this.urls(),
       devices: this.pairing.devices(),
       pairing: this.currentPairingInfo(),
