@@ -40,6 +40,15 @@ function remoteStatus(enabled: boolean) {
   };
 }
 
+function remotePairingStatus(payload: string) {
+  const urls = ["http://192.168.1.5:8123"];
+  return {
+    ...remoteStatus(true),
+    urls,
+    pairing: { otp: "12345678", qrPayload: payload, expiresAt: Date.now() + 300_000, urls },
+  };
+}
+
 let root: Root;
 const container = document;
 let mount: HTMLDivElement;
@@ -152,6 +161,35 @@ describe("远程控制状态读取", () => {
     await act(async () => vi.advanceTimersByTime(5000));
     expect(container.querySelector('[data-testid="remote-load-error"]')).toBeNull();
     expect(element("remote-urls")).not.toBeNull();
+  });
+  it("复制完整配对码使用当前 payload，不重新生成 OTP", async () => {
+    const payload = "spcode-remote://pair?v=2&hosts=demo&otp=12345678";
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const regenerate = vi.fn();
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    Object.assign(window.spcode, { remoteRegeneratePairing: regenerate });
+    remoteStatusQuery.mockResolvedValue(remotePairingStatus(payload));
+    await render(createElement(RemotePage));
+
+    await click("remote-copy-payload");
+    expect(writeText).toHaveBeenCalledWith(payload);
+    expect(regenerate).not.toHaveBeenCalled();
+    expect(element("remote-copy-payload").textContent).toContain("已复制");
+    expect(container.querySelector('[data-testid="remote-payload"]')).toBeNull();
+  });
+
+  it("剪贴板失败时展开完整配对码，允许手动选择", async () => {
+    const payload = "spcode-remote://pair?v=2&hosts=demo&otp=12345678";
+    const writeText = vi.fn().mockRejectedValue(new Error("denied"));
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    remoteStatusQuery.mockResolvedValue(remotePairingStatus(payload));
+    await render(createElement(RemotePage));
+
+    await click("remote-copy-payload");
+    const textarea = element<HTMLTextAreaElement>("remote-payload");
+    expect(textarea.value).toBe(payload);
+    expect(textarea.readOnly).toBe(true);
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("复制失败");
   });
 });
 

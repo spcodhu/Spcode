@@ -181,6 +181,11 @@ test.describe("Spcode 冒烟 E2E", () => {
     await expect(window.getByTestId("remote-qr")).toBeVisible({ timeout: 10000 });
     await expect(window.getByTestId("remote-otp")).toHaveText(/^\d{8}$/);
 
+    // 完整配对码可展开，内容使用现有 QR payload，不触发重新生成
+    await window.getByTestId("remote-payload-toggle").click();
+    await expect(window.getByTestId("remote-payload")).toHaveValue(/^spcode-remote:\/\/pair\?v=2&/);
+    await expect(window.getByTestId("remote-copy-payload")).toBeVisible();
+
     // 关闭：回到简介态
     await toggle.click();
     await expect(window.getByTestId("remote-intro")).toBeVisible({ timeout: 10000 });
