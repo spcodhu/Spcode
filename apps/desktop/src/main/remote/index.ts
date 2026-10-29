@@ -20,9 +20,6 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type {
   HostEvent,
   PairAckInner,
@@ -41,6 +38,7 @@ import { RemoteEventAggregator } from "./aggregator.js";
 import { type FeishuApi, FeishuChannel } from "./channel/feishu.js";
 import { boxDecrypt, boxEncrypt, isValidPublicKey, SeqCounter, SeqGuard } from "./crypto.js";
 import { handleRemoteCommand, type RemoteHandlerDeps } from "./handlers.js";
+import { type MobilePwaRuntime, resolveMobileDistDir } from "./mobile-pwa.js";
 import { SessionOutputLog } from "./output-log.js";
 import { PairingManager } from "./pairing.js";
 import { PushService } from "./push.js";
@@ -49,8 +47,6 @@ import { LanTransport } from "./transport/lan.js";
 import { deriveChannelId, RelayTransport } from "./transport/relay.js";
 import { TailscaleManager } from "./transport/tailscale.js";
 import type { PeerConnection, RemoteTransport } from "./transport/types.js";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /** 事件订阅能力（AgentBridge.onEvent 的结构子集） */
 export interface BridgeEventSource {
@@ -67,6 +63,8 @@ export interface RemoteServerDeps extends RemoteHandlerDeps {
   relayTransport?: RemoteTransport | null;
   /** 测试注入；缺省自动探测 apps/mobile 构建产物 */
   mobileDistDir?: string;
+  /** 主进程传入的 Electron 路径布局；测试可直接构造开发/安装包目录 */
+  mobileRuntime?: MobilePwaRuntime;
   /** 测试注入；缺省 ~/.spcode/remote 下的 VAPID/订阅存储 */
   push?: PushService;
   /** 测试注入；缺省真实 tailscale CLI 检测 */
@@ -92,19 +90,6 @@ interface PeerState {
   outSeq: SeqCounter;
   /** 本连接最后一个被接受的入站 seq（关闭时强制落盘用） */
   lastAcceptedSeq: number;
-}
-
-/** PWA 构建产物目录探测：env 覆盖 > 打包 resources > monorepo apps/mobile/dist */
-function resolveMobileDistDir(override?: string): string {
-  if (override) return override;
-  const fromEnv = process.env.SPCODE_MOBILE_DIST?.trim();
-  if (fromEnv) return fromEnv;
-  const candidates = [
-    join(process.resourcesPath ?? "", "mobile"),
-    join(__dirname, "../../mobile/dist"),
-    join(__dirname, "../../../mobile/dist"),
-  ];
-  return candidates.find((p) => existsSync(p)) ?? candidates[1]!;
 }
 
 export class RemoteServer {
@@ -187,7 +172,15 @@ export class RemoteServer {
     if (!this.lanTransport) {
       this.lanTransport = new LanTransport({
         port: cfg.port ?? 0,
-        staticDir: resolveMobileDistDir(this.deps.mobileDistDir),
+        staticDir: resolveMobileDistDir(
+          this.deps.mobileDistDir,
+          this.deps.mobileRuntime ?? {
+            appPath: process.cwd(),
+            resourcesPath: process.resourcesPath ?? "",
+            isPackaged: false,
+          },
+        ),
+        packaged: this.deps.mobileRuntime?.isPackaged === true,
       });
     }
     if (relayUrl && !this.relayTransport) {

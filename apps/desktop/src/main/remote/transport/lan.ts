@@ -39,7 +39,11 @@ function escapeHtml(text: string): string {
 }
 
 /** Render per request so an already-running transport follows locale changes. */
-function placeholderHtml(): string {
+function placeholderHtml(packaged: boolean): string {
+  const missing = packaged
+    ? i18n.t("main:lan.packagedMissing")
+    : i18n.t("main:lan.notBuilt", { path: "apps/mobile/dist" });
+  const instructions = packaged ? i18n.t("main:lan.packagedInstructions") : i18n.t("main:lan.instructions");
   return `<!doctype html>
 <html lang="${escapeHtml(getLocale())}">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -47,8 +51,8 @@ function placeholderHtml(): string {
 <body style="font-family:system-ui;background:#0b0f14;color:#dbe4ee;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0">
 <div style="max-width:560px;padding:24px;line-height:1.7">
 <h2>${escapeHtml(i18n.t("main:lan.started"))}</h2>
-<p>${escapeHtml(i18n.t("main:lan.notBuilt", { path: "apps/mobile/dist" }))}</p>
-<p>${escapeHtml(i18n.t("main:lan.instructions"))}</p>
+<p>${escapeHtml(missing)}</p>
+<p>${escapeHtml(instructions)}</p>
 </div></body></html>`;
 }
 
@@ -84,6 +88,8 @@ export interface LanTransportOptions {
   port: number;
   /** PWA 构建产物目录（不存在时服务占位页） */
   staticDir: string;
+  /** 安装版资源缺失时提示重新安装；开发版提示构建命令 */
+  packaged?: boolean;
   host?: string;
 }
 
@@ -240,6 +246,6 @@ export class LanTransport implements RemoteTransport {
       }
     }
     res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-    res.end(placeholderHtml());
+    res.end(placeholderHtml(this.opts.packaged === true));
   }
 }

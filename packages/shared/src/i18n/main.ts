@@ -16,8 +16,11 @@ export const zhCN = {
     "计划模式禁止修改。请完成计划并调用 WritePlan 落盘；用户在右侧阅读面板显式开始执行后才会恢复写入工具。",
   "lan.title": "Spcod 远程控制",
   "lan.started": "远程控制服务已启动",
-  "lan.notBuilt": "手机端 PWA 尚未构建（{{path}} 不存在）。",
-  "lan.instructions": "构建后刷新本页即可使用；或直接在桌面端设置页扫码完成配对。",
+  "lan.notBuilt": "开发环境的手机端 PWA 尚未构建（{{path}} 不可用）。",
+  "lan.instructions":
+    "请在电脑的项目根目录执行 pnpm --filter @spcode/mobile build，然后在桌面设置中关闭并重新开启远程控制。",
+  "lan.packagedMissing": "安装包中的手机端 PWA 资源缺失或损坏。",
+  "lan.packagedInstructions": "请重新安装完整的 Spcod 安装包；无需在手机或终端手动构建 PWA。",
   "lan.badRequest": "请求无效",
   "lan.forbidden": "禁止访问",
   "quota.availableBalance": "可用余额",
@@ -84,8 +87,12 @@ export const en = {
     "Modifications are forbidden in plan mode. Save the plan with WritePlan; write tools are restored only after the user explicitly starts execution from the plan panel.",
   "lan.title": "Spcod Remote Control",
   "lan.started": "Remote control service is running",
-  "lan.notBuilt": "The mobile PWA has not been built ({{path}} does not exist).",
-  "lan.instructions": "Build it and refresh this page, or scan the QR code in desktop Settings to pair your device.",
+  "lan.notBuilt": "The development mobile PWA is unavailable ({{path}}).",
+  "lan.instructions":
+    "Run pnpm --filter @spcode/mobile build in the project root on this computer, then restart Remote Control in desktop Settings.",
+  "lan.packagedMissing": "The mobile PWA resource bundled with this installation is missing or damaged.",
+  "lan.packagedInstructions":
+    "Reinstall the complete Spcod package. You do not need to build a PWA on your phone or in a terminal.",
   "lan.badRequest": "Bad request",
   "lan.forbidden": "Forbidden",
   "quota.availableBalance": "Available balance",

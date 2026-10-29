@@ -10,6 +10,11 @@ files:
   - out/**
   - package.json
 
+# 手机端是由桌面服务托管的 PWA，不是独立 App；统一随安装包携带，远程功能仍默认关闭
+extraResources:
+  - from: ../mobile/dist
+    to: mobile
+
 # pi 引擎是 ESM，Node 的 ESM loader 不支持 asar 归档，
 # agent-host 入口与全部依赖必须 unpacked（与 Finch 的 app.asar.unpacked 同款做法）
 asarUnpack:

@@ -316,7 +316,17 @@ async function fireScheduledTask(task: ScheduleTask): Promise<string> {
 // 远程控制（手机 PWA）：复用 settings/bridge/scheduler/registry 单例
 // ---------------------------------------------------------------------------
 
-const remote = new RemoteServer({ settings, bridge, scheduler, registry });
+const remote = new RemoteServer({
+  settings,
+  bridge,
+  scheduler,
+  registry,
+  mobileRuntime: {
+    appPath: app.getAppPath(),
+    resourcesPath: process.resourcesPath,
+    isPackaged: app.isPackaged,
+  },
+});
 
 // ---------------------------------------------------------------------------
 // IPC

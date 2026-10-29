@@ -232,7 +232,7 @@ describe("LAN transport HTTP 层", () => {
     setLocale("en");
     const en = await fetch(`http://127.0.0.1:${port}/`).then((res) => res.text());
     expect(en).toContain('lang="en"');
-    expect(en).toContain("has not been built");
+    expect(en).toContain("development mobile PWA is unavailable");
     expect(en).not.toMatch(/\p{Script=Han}/u);
   });
 
@@ -252,6 +252,23 @@ describe("LAN transport HTTP 层", () => {
     const res = await fetch(`http://127.0.0.1:${port}/`);
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("尚未构建");
+  });
+
+  it("安装版资源缺失时提示重新安装，而不是要求用户构建", async () => {
+    const packagedTransport = new LanTransport({
+      port: 0,
+      staticDir: join(dir, "packaged-pwa-missing"),
+      packaged: true,
+    });
+    await packagedTransport.start();
+    try {
+      const html = await fetch(`http://127.0.0.1:${packagedTransport.getPort()}/`).then((res) => res.text());
+      expect(html).toContain("安装包中的手机端 PWA 资源缺失或损坏");
+      expect(html).toContain("重新安装完整的 Spcod 安装包");
+      expect(html).not.toContain("pnpm --filter");
+    } finally {
+      await packagedTransport.stop();
+    }
   });
 
   it("目录穿越被拒绝/无害化（不会读到 staticDir 外的文件）", async () => {
