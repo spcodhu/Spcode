@@ -13,6 +13,8 @@
 import type {
   PermissionRequest,
   QuestionRequest,
+  RemoteHistoryChunk,
+  RemoteHistoryPage,
   RemoteOutputChunk,
   RemoteSessionSnapshot,
   ScheduleTask,
@@ -31,7 +33,7 @@ export interface OutputChunk {
   /** 列表渲染 key（自增，分配后不变） */
   id: number;
   chunk: string;
-  kind: "text" | "thinking";
+  kind: "user" | "text" | "thinking" | "notice";
   /** seq 缺口标记（断线期间 / 桌面缓冲截断导致未同步的输出） */
   gap?: boolean;
 }
@@ -69,6 +71,9 @@ interface AppState {
   sessions: Record<string, SessionView>;
   outputs: Record<string, OutputChunk[]>;
   outputSync: Record<string, OutputSyncState>;
+  /** undefined = 尚未加载历史；null = 已加载且没有更早页 */
+  historyCursors: Record<string, number | null>;
+  olderHistoryLoading: Record<string, boolean>;
   inputDrafts: Record<string, InputDraft>;
   questionDrafts: Record<string, QuestionDraft>;
   todos: Record<string, TodoItem[]>;
@@ -91,6 +96,9 @@ interface AppState {
   removeSession(id: string): void;
   appendOutput(sessionId: string, chunk: string, kind: "text" | "thinking", seq: number): void;
   mergeBackfill(sessionId: string, chunks: RemoteOutputChunk[]): void;
+  replaceHistory(sessionId: string, page: RemoteHistoryPage): void;
+  prependHistory(sessionId: string, chunks: RemoteHistoryChunk[], olderBefore: number | null): void;
+  setOlderHistoryLoading(sessionId: string, loading: boolean): void;
   setOutputSync(sessionId: string, state: OutputSyncState): void;
   setInputDraft(sessionId: string, text: string): number;
   restoreInputDraft(sessionId: string, text: string, expectedVersion: number): boolean;
@@ -114,6 +122,8 @@ const initialData = {
   sessions: {} as Record<string, SessionView>,
   outputs: {} as Record<string, OutputChunk[]>,
   outputSync: {} as Record<string, OutputSyncState>,
+  historyCursors: {} as Record<string, number | null>,
+  olderHistoryLoading: {} as Record<string, boolean>,
   inputDrafts: {} as Record<string, InputDraft>,
   questionDrafts: {} as Record<string, QuestionDraft>,
   todos: {} as Record<string, TodoItem[]>,
@@ -125,6 +135,10 @@ const initialData = {
 
 /** session.output 的 per-session 状态（模块级，不进 zustand 避免无谓重渲染） */
 interface OutputTrack {
+  /** 权威历史基线：不占实时 seq，向前翻页时 prepend */
+  history: RemoteHistoryChunk[];
+  /** 历史已覆盖的实时 seq 上限；小于等于它的实时帧一律视为重复 */
+  historyThroughSeq: number;
   /** seq → 原始 chunk（实时与 backfill 共用，backfill 据此精确补缺口） */
   raw: Map<number, { kind: "text" | "thinking"; chunk: string }>;
   /** 已收到的最大 seq（session.output.since 的 afterSeq 依据） */
@@ -140,7 +154,7 @@ let inputDraftVersion = 0;
 function trackOf(sessionId: string): OutputTrack {
   let t = outputTracks[sessionId];
   if (!t) {
-    t = { raw: new Map(), maxSeq: -1 };
+    t = { history: [], historyThroughSeq: -1, raw: new Map(), maxSeq: -1 };
     outputTracks[sessionId] = t;
   }
   return t;
@@ -153,11 +167,11 @@ function trimRaw(t: OutputTrack): void {
   t.raw = new Map(sorted.slice(sorted.length - MAX_CHUNKS));
 }
 
-/** 由 raw 推导渲染列表：seq 跳号插缺口标记；相邻同 kind 合并减少重渲染 */
+/** 由历史基线 + 实时 raw 推导渲染列表：seq 跳号插缺口，相邻同 kind 合并。 */
 function buildView(t: OutputTrack): OutputChunk[] {
   const seqs = [...t.raw.keys()].sort((a, b) => a - b);
-  const view: OutputChunk[] = [];
-  let prev = -1; // 上一个已呈现的 seq（桌面 seq 从 0 起，故首 chunk seq>0 = 头部截断缺口）
+  const view: OutputChunk[] = t.history.map((chunk) => ({ ...chunk, id: chunkIdCounter++ }));
+  let prev = t.historyThroughSeq;
   for (const seq of seqs) {
     if (seq > prev + 1) view.push({ id: chunkIdCounter++, chunk: "", kind: "text", gap: true });
     const c = t.raw.get(seq)!;
@@ -192,6 +206,8 @@ function reconcileSessions(
       ...Object.keys(s.sessions),
       ...Object.keys(s.outputs),
       ...Object.keys(s.outputSync),
+      ...Object.keys(s.historyCursors),
+      ...Object.keys(s.olderHistoryLoading),
       ...Object.keys(s.inputDrafts),
       ...Object.keys(s.todos),
     ].filter((id) => !retained.has(id)),
@@ -206,6 +222,8 @@ function reconcileSessions(
     sessions,
     outputs: keepSessions(s.outputs),
     outputSync: keepSessions(s.outputSync),
+    historyCursors: keepSessions(s.historyCursors),
+    olderHistoryLoading: keepSessions(s.olderHistoryLoading),
     inputDrafts: keepSessions(s.inputDrafts),
     todos: keepSessions(s.todos),
     permissions,
@@ -250,7 +268,7 @@ export const useAppStore = create<AppState>((set) => ({
   appendOutput: (sessionId, chunk, kind, seq) =>
     set((s) => {
       const t = trackOf(sessionId);
-      if (t.raw.has(seq)) return {}; // backfill 已含此 seq（实时/backfill 竞争），忽略重复
+      if (seq <= t.historyThroughSeq || t.raw.has(seq)) return {}; // 历史已覆盖 / 实时与 backfill 重复
       t.raw.set(seq, { kind, chunk });
       trimRaw(t);
       const prevMax = t.maxSeq;
@@ -281,6 +299,7 @@ export const useAppStore = create<AppState>((set) => ({
       if (chunks.length === 0) return {};
       const t = trackOf(sessionId);
       for (const c of chunks) {
+        if (c.seq <= t.historyThroughSeq) continue;
         if (!t.raw.has(c.seq)) t.raw.set(c.seq, { kind: c.kind, chunk: c.chunk });
         t.maxSeq = Math.max(t.maxSeq, c.seq);
       }
@@ -290,6 +309,35 @@ export const useAppStore = create<AppState>((set) => ({
       trimRaw(t);
       return { outputs: { ...s.outputs, [sessionId]: buildView(t) } };
     }),
+
+  replaceHistory: (sessionId, page) =>
+    set((s) => {
+      const t = trackOf(sessionId);
+      t.history = page.chunks;
+      t.historyThroughSeq = page.outputSeq;
+      // 历史请求期间到达的实时帧：历史已覆盖的删除，较新的保留，避免重复或丢新输出。
+      for (const seq of t.raw.keys()) {
+        if (seq <= page.outputSeq) t.raw.delete(seq);
+      }
+      t.maxSeq = Math.max(t.maxSeq, page.outputSeq);
+      return {
+        outputs: { ...s.outputs, [sessionId]: buildView(t) },
+        historyCursors: { ...s.historyCursors, [sessionId]: page.olderBefore },
+      };
+    }),
+
+  prependHistory: (sessionId, chunks, olderBefore) =>
+    set((s) => {
+      const t = trackOf(sessionId);
+      t.history = [...chunks, ...t.history];
+      return {
+        outputs: { ...s.outputs, [sessionId]: buildView(t) },
+        historyCursors: { ...s.historyCursors, [sessionId]: olderBefore },
+      };
+    }),
+
+  setOlderHistoryLoading: (sessionId, loading) =>
+    set((s) => ({ olderHistoryLoading: { ...s.olderHistoryLoading, [sessionId]: loading } })),
 
   setOutputSync: (sessionId, state) => set((s) => ({ outputSync: { ...s.outputSync, [sessionId]: state } })),
 

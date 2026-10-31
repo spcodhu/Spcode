@@ -6,6 +6,7 @@
 import type {
   QuestionAnswers,
   RemoteEvent as RemoteEventExt,
+  RemoteHistoryPage,
   ScheduleTask,
   ScheduleTaskInput,
   SessionMode,
@@ -32,6 +33,7 @@ interface OutputRequest {
   promise: Promise<void>;
 }
 const outputRequests = new Map<string, OutputRequest>();
+const olderOutputRequests = new Map<string, OutputRequest>();
 
 export function getClient(): RemoteClient | null {
   return client;
@@ -61,6 +63,7 @@ function startClient(record: PairingRecord): void {
   const generation = ++clientGeneration;
   sessionListRequest++;
   outputRequests.clear();
+  olderOutputRequests.clear();
   client?.stop();
   const store = useAppStore.getState();
   client = new RemoteClient(record, {
@@ -93,6 +96,7 @@ export async function unpair(): Promise<void> {
   clientGeneration++;
   sessionListRequest++;
   outputRequests.clear();
+  olderOutputRequests.clear();
   client?.stop();
   client = null;
   try {
@@ -217,7 +221,16 @@ export function ensureSessionOutput(sessionId: string, force = false): Promise<v
   s.setOutputSync(sessionId, { status: "loading" });
   const promise = (async () => {
     try {
-      await send({ type: "session.output.since", sessionId, afterSeq: getOutputMaxSeq(sessionId) ?? -1 });
+      let afterSeq = getOutputMaxSeq(sessionId) ?? -1;
+      if (s.historyCursors[sessionId] === undefined) {
+        const page = await send<RemoteHistoryPage>({ type: "session.history", sessionId });
+        if (generation !== clientGeneration) return;
+        const current = useAppStore.getState();
+        if (knownSession && !current.sessions[sessionId]) return;
+        current.replaceHistory(sessionId, page);
+        afterSeq = page.outputSeq;
+      }
+      await send({ type: "session.output.since", sessionId, afterSeq });
       if (generation !== clientGeneration) return;
       const current = useAppStore.getState();
       // 请求期间已被权威列表删除：不要把旧响应重新写回该会话。
@@ -240,6 +253,36 @@ export function ensureSessionOutput(sessionId: string, force = false): Promise<v
 
 export function retrySessionOutput(sessionId: string): Promise<void> {
   return ensureSessionOutput(sessionId, true);
+}
+
+/** 向前加载一页历史；同一会话同代次去重，旧客户端的迟到响应不得覆盖新游标。 */
+export function loadOlderSessionOutput(sessionId: string): Promise<void> {
+  const s = useAppStore.getState();
+  const before = s.historyCursors[sessionId];
+  if (before === undefined || before === null || s.connState !== "ready" || !client) return Promise.resolve();
+  const existing = olderOutputRequests.get(sessionId);
+  if (existing?.generation === clientGeneration) return existing.promise;
+
+  const generation = clientGeneration;
+  s.setOlderHistoryLoading(sessionId, true);
+  const promise = (async () => {
+    try {
+      const page = await send<RemoteHistoryPage>({ type: "session.history", sessionId, before });
+      if (generation !== clientGeneration) return;
+      const current = useAppStore.getState();
+      if (current.historyCursors[sessionId] !== before) return;
+      current.prependHistory(sessionId, page.chunks, page.olderBefore);
+    } finally {
+      if (generation === clientGeneration) useAppStore.getState().setOlderHistoryLoading(sessionId, false);
+    }
+  })();
+  const entry = { generation, promise };
+  olderOutputRequests.set(sessionId, entry);
+  const cleanup = () => {
+    if (olderOutputRequests.get(sessionId) === entry) olderOutputRequests.delete(sessionId);
+  };
+  void promise.then(cleanup, cleanup);
+  return promise;
 }
 
 /** 重连后补拉有缓存的会话和当前详情；空缓存的冷启动详情也使用 afterSeq=-1。 */

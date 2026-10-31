@@ -63,6 +63,14 @@ beforeAll(async () => {
     async call(cmd: HostCommand & { id: string }) {
       bridgeCalls.push(cmd);
       if (cmd.type === "session.create") return { sessionId: cmd.payload.sessionId, sessionFile: null };
+      if (cmd.type === "session.history") {
+        return {
+          messages: [
+            { role: "user", content: [{ type: "text", text: "手机历史问题" }] },
+            { role: "assistant", content: [{ type: "text", text: "手机历史回答" }] },
+          ],
+        };
+      }
       return { ok: true };
     },
     replyPermission: () => {},
@@ -264,6 +272,41 @@ describe("PWA ↔ 真实桌面 RemoteServer 全链路", () => {
       await mobile2.waitEvent((e) => e.type === "session.snapshot");
     } finally {
       mobile2.stop();
+    }
+  });
+
+  it("已有会话可通过真实远程协议读取历史页", async () => {
+    const sessionId = "mobile-history-session";
+    registryEntries.set(sessionId, {
+      id: sessionId,
+      mode: "chat",
+      cwd: "",
+      title: "手机历史会话",
+      titleKind: "custom",
+      model: null,
+      thinkingLevel: "medium",
+      sessionFile: "/tmp/mobile-history.jsonl",
+      createdAt: 1,
+      updatedAt: 2,
+    });
+    const record = await pairWithQr(localQrPayload(), "历史读取测试机");
+    const mobile = new MobileTestClient(record);
+    mobile.start();
+    try {
+      await mobile.waitState("ready");
+      const page = await mobile.client.command<{
+        chunks: { kind: string; chunk: string }[];
+        olderBefore: number | null;
+        outputSeq: number;
+      }>({ type: "session.history", sessionId });
+      expect(page.chunks).toEqual([
+        { kind: "user", chunk: "手机历史问题" },
+        { kind: "text", chunk: "手机历史回答" },
+      ]);
+      expect(page.olderBefore).toBeNull();
+      expect(page.outputSeq).toBe(-1);
+    } finally {
+      mobile.stop();
     }
   });
 

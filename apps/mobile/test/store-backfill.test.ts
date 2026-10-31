@@ -73,6 +73,57 @@ describe("appendOutput / mergeBackfill", () => {
     expect(getOutputMaxSeq(S)).toBe(1);
   });
 
+  it("历史响应覆盖旧实时帧，但保留高水位后的新帧并继续按 seq 去重", () => {
+    const s = useAppStore.getState();
+    s.appendOutput(S, "旧实时-A", "text", 0);
+    s.appendOutput(S, "旧实时-B", "text", 1);
+    s.appendOutput(S, "历史期间新输出", "text", 2);
+
+    s.replaceHistory(S, {
+      chunks: [
+        { kind: "user", chunk: "历史问题" },
+        { kind: "text", chunk: "历史回答" },
+      ],
+      olderBefore: 7,
+      outputSeq: 1,
+    });
+    expect(texts()).toBe("历史问题历史回答历史期间新输出");
+    expect(useAppStore.getState().historyCursors[S]).toBe(7);
+    expect(getOutputMaxSeq(S)).toBe(2);
+
+    s.appendOutput(S, "重复旧帧", "text", 1);
+    s.mergeBackfill(S, [
+      { seq: 0, kind: "text", chunk: "重复补拉" },
+      { seq: 2, kind: "text", chunk: "重复新帧" },
+      { seq: 3, kind: "text", chunk: "后续输出" },
+    ]);
+    expect(texts()).toBe("历史问题历史回答历史期间新输出后续输出");
+  });
+
+  it("向前翻页只 prepend 历史，不回退实时高水位", () => {
+    const s = useAppStore.getState();
+    s.replaceHistory(S, { chunks: [{ kind: "text", chunk: "较新历史" }], olderBefore: 10, outputSeq: 4 });
+    s.appendOutput(S, "实时", "text", 5);
+    s.prependHistory(
+      S,
+      [
+        { kind: "user", chunk: "更早问题" },
+        { kind: "thinking", chunk: "更早思考" },
+      ],
+      null,
+    );
+
+    expect(useAppStore.getState().outputs[S]?.map((c) => [c.kind, c.chunk])).toEqual([
+      ["user", "更早问题"],
+      ["thinking", "更早思考"],
+      ["text", "较新历史实时"],
+    ]);
+    expect(useAppStore.getState().historyCursors[S]).toBeNull();
+    expect(getOutputMaxSeq(S)).toBe(5);
+    s.reset();
+    expect(useAppStore.getState().historyCursors[S]).toBeUndefined();
+  });
+
   it("removeSession 清理输出与 seq 追踪", () => {
     const s = useAppStore.getState();
     s.setSessions([

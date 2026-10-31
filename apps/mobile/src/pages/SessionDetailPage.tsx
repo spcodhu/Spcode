@@ -6,14 +6,24 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorText, formatNumber } from "../lib/i18n";
-import { abortSession, ensureSessionOutput, retrySessionOutput, sendPrompt } from "../state/controller";
+import {
+  abortSession,
+  ensureSessionOutput,
+  loadOlderSessionOutput,
+  retrySessionOutput,
+  sendPrompt,
+} from "../state/controller";
 import { useAppStore } from "../state/store";
 
 function OutputView({ sessionId }: { sessionId: string }) {
   const { t } = useTranslation("mobile");
   const chunks = useAppStore((s) => s.outputs[sessionId]);
   const outputSync = useAppStore((s) => s.outputSync[sessionId]);
+  const olderBefore = useAppStore((s) => s.historyCursors[sessionId]);
+  const olderLoading = useAppStore((s) => s.olderHistoryLoading[sessionId] === true);
   const connState = useAppStore((s) => s.connState);
+  const [olderError, setOlderError] = useState<unknown>(null);
+  const prependingRef = useRef(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
@@ -33,9 +43,32 @@ function OutputView({ sessionId }: { sessionId: string }) {
   // 新输出到达时：停在底部则自动跟随；用户上滑后仅提示，不抢夺滚动位置。
   // biome-ignore lint/correctness/useExhaustiveDependencies: 只依赖 chunks；滚动函数与 ref 不需要重建此效果
   useEffect(() => {
+    if (prependingRef.current) {
+      prependingRef.current = false;
+      return;
+    }
     if (stickRef.current) scrollToBottom();
     else if (chunks && chunks.length > 0) setHasNewOutput(true);
   }, [chunks]);
+
+  const loadOlder = async () => {
+    const scroller = scrollerRef.current;
+    const previousHeight = scroller?.scrollHeight ?? 0;
+    const previousTop = scroller?.scrollTop ?? 0;
+    prependingRef.current = true;
+    stickRef.current = false;
+    setOlderError(null);
+    try {
+      await loadOlderSessionOutput(sessionId);
+      //  prepend 后保持原视口内容位置，不把用户拽到底部。
+      requestAnimationFrame(() => {
+        if (scroller) scroller.scrollTop = previousTop + scroller.scrollHeight - previousHeight;
+      });
+    } catch (error) {
+      prependingRef.current = false;
+      setOlderError(error);
+    }
+  };
 
   const onScroll = () => {
     const el = scrollerRef.current;
@@ -57,6 +90,24 @@ function OutputView({ sessionId }: { sessionId: string }) {
         className="thin-scroll h-full overflow-y-auto overscroll-contain px-4 py-4"
       >
         <div className="mx-auto max-w-prose">
+          {typeof olderBefore === "number" && (
+            <div className="mb-3 text-center">
+              <button
+                type="button"
+                data-testid="history-load-older"
+                disabled={olderLoading || connState !== "ready"}
+                onClick={() => void loadOlder()}
+                className="min-h-11 rounded-lg px-3 text-xs text-teal-300 underline disabled:opacity-40"
+              >
+                {olderLoading ? t("session.loadingOlder") : t("session.loadOlder")}
+              </button>
+            </div>
+          )}
+          {olderError != null && (
+            <div role="alert" className="safe-break mb-3 text-xs leading-5 text-red-300">
+              {errorText(olderError)}
+            </div>
+          )}
           {outputSync?.status === "error" && (
             <div
               role="alert"
@@ -89,6 +140,23 @@ function OutputView({ sessionId }: { sessionId: string }) {
                   return (
                     <div key={c.id} className="py-1 text-center text-[11px] leading-5 text-slate-500">
                       {t("session.gap")}
+                    </div>
+                  );
+                }
+                if (c.kind === "user") {
+                  return (
+                    <pre
+                      key={c.id}
+                      className="safe-break whitespace-pre-wrap rounded-2xl border border-teal-900/50 bg-teal-950/30 px-3.5 py-3 font-mono text-[13px] leading-6 text-teal-100"
+                    >
+                      {c.chunk}
+                    </pre>
+                  );
+                }
+                if (c.kind === "notice") {
+                  return (
+                    <div key={c.id} className="safe-break py-1 text-center text-[11px] leading-5 text-slate-500">
+                      {c.chunk}
                     </div>
                   );
                 }

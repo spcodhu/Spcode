@@ -7,6 +7,7 @@ import {
   attachPairedRecord,
   boot,
   ensureSessionOutput,
+  loadOlderSessionOutput,
   replyPermission,
   replyQuestion,
   retrySessionOutput,
@@ -84,6 +85,7 @@ beforeEach(() => {
   mocks.command.mockImplementation(async (cmd) => {
     if (cmd.type === "session.list") return { sessions: [session] };
     if (cmd.type === "schedule.list") return { tasks: [] };
+    if (cmd.type === "session.history") return { chunks: [], olderBefore: null, outputSeq: -1 };
     if (cmd.type === "session.output.since") return { count: 0 };
     return { ok: true };
   });
@@ -98,6 +100,7 @@ describe("冷启动与路由输出补拉", () => {
     const pending = deferred<{ count: number }>();
     mocks.command.mockImplementation(async (cmd) => {
       if (cmd.type === "session.output.since") return pending.promise;
+      if (cmd.type === "session.history") return { chunks: [], olderBefore: null, outputSeq: -1 };
       if (cmd.type === "session.list") return { sessions: [session] };
       if (cmd.type === "schedule.list") return { tasks: [] };
       return { ok: true };
@@ -107,6 +110,7 @@ describe("冷启动与路由输出补拉", () => {
     await boot();
     callback().onState("ready");
 
+    await vi.waitFor(() => expect(outputCalls()).toHaveLength(1));
     expect(outputCalls()).toEqual([{ type: "session.output.since", sessionId: "s1", afterSeq: -1 }]);
     expect(useAppStore.getState().outputSync.s1?.status).toBe("loading");
     pending.resolve({ count: 0 });
@@ -119,8 +123,44 @@ describe("冷启动与路由输出补拉", () => {
     expect(outputCalls()).toHaveLength(1);
   });
 
+  it("首次加载历史高水位后再补拉，重连不重复历史，向前翻页保持顺序", async () => {
+    mocks.command.mockImplementation(async (cmd) => {
+      if (cmd.type === "session.list") return { sessions: [session] };
+      if (cmd.type === "schedule.list") return { tasks: [] };
+      if (cmd.type === "session.history") {
+        if (cmd.before === 10) {
+          return { chunks: [{ kind: "user", chunk: "更早问题" }], olderBefore: null, outputSeq: 4 };
+        }
+        return { chunks: [{ kind: "text", chunk: "历史回答" }], olderBefore: 10, outputSeq: 4 };
+      }
+      if (cmd.type === "session.output.since") return { count: 0 };
+      return { ok: true };
+    });
+    useAppStore.getState().setSessions([session]);
+    attachPairedRecord(record);
+    useAppStore.getState().setRoute({ name: "session", id: "s1" });
+    callback().onState("ready");
+    await vi.waitFor(() => expect(useAppStore.getState().outputSync.s1?.status).toBe("loaded"));
+
+    expect(outputCalls()).toEqual([{ type: "session.output.since", sessionId: "s1", afterSeq: 4 }]);
+    expect(mocks.command.mock.calls.filter(([cmd]) => cmd.type === "session.history")).toHaveLength(1);
+    callback().onState("reconnecting");
+    callback().onState("ready");
+    await vi.waitFor(() => expect(outputCalls()).toHaveLength(2));
+    expect(outputCalls()[1]).toEqual({ type: "session.output.since", sessionId: "s1", afterSeq: 4 });
+    expect(mocks.command.mock.calls.filter(([cmd]) => cmd.type === "session.history")).toHaveLength(1);
+
+    await loadOlderSessionOutput("s1");
+    expect(useAppStore.getState().outputs.s1?.map((c) => [c.kind, c.chunk])).toEqual([
+      ["user", "更早问题"],
+      ["text", "历史回答"],
+    ]);
+    expect(useAppStore.getState().historyCursors.s1).toBeNull();
+  });
+
   it("失败保留错误且不随路由重进自动重发，显式重试才发起第二请求", async () => {
     mocks.command.mockImplementation(async (cmd) => {
+      if (cmd.type === "session.history") return { chunks: [], olderBefore: null, outputSeq: -1 };
       if (cmd.type === "session.output.since") {
         if (outputCalls().length === 1) throw new Error("backfill failed");
         return { count: 0 };
@@ -147,6 +187,7 @@ describe("冷启动与路由输出补拉", () => {
     const pending = deferred<{ count: number }>();
     mocks.command.mockImplementation(async (cmd) => {
       if (cmd.type === "session.output.since") return pending.promise;
+      if (cmd.type === "session.history") return { chunks: [], olderBefore: null, outputSeq: -1 };
       if (cmd.type === "session.list") return { sessions: [session] };
       if (cmd.type === "schedule.list") return { tasks: [] };
       return { ok: true };
@@ -160,6 +201,7 @@ describe("冷启动与路由输出补拉", () => {
     useAppStore.getState().setRoute({ name: "session", id: "s1" });
     const second = ensureSessionOutput("s1");
     expect(second).toBe(first);
+    await vi.waitFor(() => expect(outputCalls()).toHaveLength(1));
     expect(outputCalls()).toHaveLength(1);
     pending.resolve({ count: 0 });
     await Promise.all([first, second]);
