@@ -197,7 +197,7 @@ export function PairPage() {
           disabled={busy}
           onChange={(e) => setPayload(e.target.value)}
           rows={3}
-          placeholder="spcode-remote://pair?v=2&hosts=…"
+          placeholder="spcode-remote://pair?v=3&hosts=…"
           className="mt-2 min-h-24 w-full rounded-xl border border-border-strong bg-bg-main/70 px-3 py-2.5 font-mono text-base leading-6 text-text-primary outline-none focus:border-accent"
         />
         <button

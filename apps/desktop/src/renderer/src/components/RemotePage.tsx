@@ -15,6 +15,7 @@ import type {
   RemoteSettings,
   RemoteStatus,
 } from "@spcode/shared";
+import { OFFICIAL_RELAY_URL } from "@spcode/shared/remote";
 import { getLocale } from "@spcode/shared/i18n";
 import { useCallback, useEffect, useState } from "react";
 import QRCode from "react-qr-code";
@@ -33,6 +34,9 @@ export function RemotePage() {
   const [now, setNow] = useState(() => Date.now());
   /** relay 地址输入草稿（null = 未编辑，跟随 settings） */
   const [relayDraft, setRelayDraft] = useState<string | null>(null);
+  const [relayAccessKeyDraft, setRelayAccessKeyDraft] = useState<string | null>(null);
+  const [relayTesting, setRelayTesting] = useState(false);
+  const [relayTestResult, setRelayTestResult] = useState<{ ok: boolean; text: string } | null>(null);
   /** 飞书 App ID / App Secret 输入草稿（null = 未编辑，跟随 settings） */
   const [feishuAppIdDraft, setFeishuAppIdDraft] = useState<string | null>(null);
   const [feishuAppSecretDraft, setFeishuAppSecretDraft] = useState<string | null>(null);
@@ -137,11 +141,36 @@ export function RemotePage() {
   };
 
   const relayValue = relayDraft ?? remoteCfg?.relayUrl ?? "";
+  const relayAccessKeyValue = relayAccessKeyDraft ?? remoteCfg?.relayAccessKey ?? "";
+  const relayMode = remoteCfg?.relayMode ?? (remoteCfg?.relayUrl ? "custom" : "disabled");
+
+  const changeRelayMode = (mode: "official" | "custom" | "disabled") => {
+    setRelayTestResult(null);
+    void patchRemote({ relayMode: mode, ...(mode === "official" ? { relayAccessKey: null } : {}) });
+  };
+
+  const runRelayTest = async () => {
+    const url = relayMode === "official" ? OFFICIAL_RELAY_URL : relayValue.trim();
+    const accessKey = relayMode === "custom" ? relayAccessKeyValue.trim() || null : null;
+    if (!url || relayTesting) {
+      if (!url) setRelayTestResult({ ok: false, text: t("remote.relayUrlRequired") });
+      return;
+    }
+    setRelayTesting(true);
+    setRelayTestResult(null);
+    try {
+      const result = await window.spcode.remoteRelayTest({ url, accessKey });
+      setRelayTestResult({ ok: result.ok, text: result.ok ? t("remote.relayTestSuccess") : result.error });
+    } finally {
+      setRelayTesting(false);
+    }
+  };
 
   const saveRelayUrl = async () => {
     const v = relayValue.trim();
-    await patchRemote({ relayUrl: v || null });
+    await patchRemote({ relayMode: "custom", relayUrl: v || null, relayAccessKey: relayAccessKeyValue.trim() || null });
     setRelayDraft(null);
+    setRelayAccessKeyDraft(null);
     // relay 重连异步进行，稍后再刷一次让徽章反映 connecting → connected
     setTimeout(() => void refresh(), 1200);
   };
@@ -333,6 +362,11 @@ export function RemotePage() {
               </div>
             )}
           </div>
+          {pairing?.containsRelayAccessKey && (
+            <div role="alert" className="mt-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[12px] leading-5 text-warning">
+              {t("remote.relayQrSecretWarning")}
+            </div>
+          )}
 
           {/* 已配对设备 */}
           <SectionTitle>{t("remote.devices")}</SectionTitle>
@@ -365,26 +399,80 @@ export function RemotePage() {
           {/* 公网中继（relay） */}
           <SectionTitle>{t("remote.relay")}</SectionTitle>
           <div className="rounded-xl border border-border bg-bg-elevated px-4 py-3" data-testid="remote-relay">
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={relayValue}
-                onChange={(e) => setRelayDraft(e.target.value)}
-                placeholder="wss://relay.example.com"
-                spellCheck={false}
-                data-testid="remote-relay-input"
-                className="mono min-w-0 flex-1 rounded-lg border border-border bg-bg-root px-3 py-1.5 text-[13px] text-text-primary placeholder:text-text-tertiary focus:border-accent focus:outline-none"
-              />
-              <RelayBadge state={status.relay} />
-              <button
-                type="button"
-                onClick={() => void saveRelayUrl()}
-                disabled={busy || !remoteCfg || relayDraft === null}
-                className="shrink-0 rounded-lg bg-accent px-4 py-1.5 text-[13px] text-on-accent hover:bg-accent-dim disabled:opacity-40"
-              >
-                {t("save")}
-              </button>
+            <div className="mb-3 grid grid-cols-3 gap-2" data-testid="remote-relay-modes">
+              {(["official", "custom", "disabled"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  aria-pressed={relayMode === mode}
+                  onClick={() => changeRelayMode(mode)}
+                  className={`rounded-lg border px-3 py-2 text-[12px] transition-colors ${
+                    relayMode === mode
+                      ? "border-accent bg-accent-soft text-accent"
+                      : "border-border text-text-secondary hover:bg-bg-hover"
+                  }`}
+                >
+                  {t(`remote.relayMode.${mode}`)}
+                </button>
+              ))}
             </div>
+            {relayMode === "official" && (
+              <div className="mono rounded-lg border border-border bg-bg-root px-3 py-2 text-[12px] break-all text-text-secondary">
+                {OFFICIAL_RELAY_URL}
+              </div>
+            )}
+            {relayMode === "custom" && (
+              <div className="space-y-2">
+                <input
+                  type="text"
+                  value={relayValue}
+                  onChange={(e) => setRelayDraft(e.target.value)}
+                  placeholder="wss://relay.example.com"
+                  spellCheck={false}
+                  data-testid="remote-relay-input"
+                  className="mono w-full rounded-lg border border-border bg-bg-root px-3 py-1.5 text-[13px] text-text-primary placeholder:text-text-tertiary focus:border-accent focus:outline-none"
+                />
+                <input
+                  type="password"
+                  value={relayAccessKeyValue}
+                  onChange={(e) => setRelayAccessKeyDraft(e.target.value)}
+                  placeholder={t("remote.relayAccessKeyPlaceholder")}
+                  spellCheck={false}
+                  data-testid="remote-relay-key-input"
+                  aria-label={t("remote.relayAccessKey")}
+                  className="mono w-full rounded-lg border border-border bg-bg-root px-3 py-1.5 text-[13px] text-text-primary placeholder:text-text-tertiary focus:border-accent focus:outline-none"
+                />
+              </div>
+            )}
+            {relayMode !== "disabled" && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <RelayBadge state={status.relay} />
+                <button
+                  type="button"
+                  data-testid="remote-relay-test"
+                  onClick={() => void runRelayTest()}
+                  disabled={relayTesting || !remoteCfg}
+                  className="rounded-lg border border-border px-3 py-1.5 text-[12px] text-text-secondary hover:bg-bg-hover disabled:opacity-40"
+                >
+                  {relayTesting ? t("search.testing") : t("search.test")}
+                </button>
+                {relayMode === "custom" && (
+                  <button
+                    type="button"
+                    onClick={() => void saveRelayUrl()}
+                    disabled={busy || !remoteCfg || (relayDraft === null && relayAccessKeyDraft === null)}
+                    className="rounded-lg bg-accent px-4 py-1.5 text-[13px] text-on-accent hover:bg-accent-dim disabled:opacity-40"
+                  >
+                    {t("save")}
+                  </button>
+                )}
+              </div>
+            )}
+            {relayTestResult && (
+              <div role={relayTestResult.ok ? "status" : "alert"} className={`mt-2 text-[12px] ${relayTestResult.ok ? "text-success" : "text-danger"}`}>
+                {relayTestResult.text}
+              </div>
+            )}
             <div className="mt-2 text-[12px] leading-5 text-text-tertiary">{t("remote.relayDescription")}</div>
           </div>
 
@@ -664,6 +752,8 @@ function RelayBadge({ state }: { state: RemoteRelayState }) {
     disabled: { text: t("remote.disabled"), cls: "text-text-tertiary border-border" },
     connecting: { text: t("remote.connecting"), cls: "text-warning border-warning/40" },
     connected: { text: t("remote.connected"), cls: "text-accent border-accent/40" },
+    auth_failed: { text: t("remote.authFailed"), cls: "text-danger border-danger/40" },
+    error: { text: t("remote.connectionFailed"), cls: "text-danger border-danger/40" },
   };
   const s = styles[state];
   return (

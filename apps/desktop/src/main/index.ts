@@ -685,6 +685,12 @@ function registerIpc(): void {
   });
   ipcMain.handle(IPC.remoteRegeneratePairing, () => remote.regeneratePairing());
   ipcMain.handle(IPC.remoteUnpairDevice, (_e, deviceId: string) => remote.unpairDevice(deviceId));
+  ipcMain.handle(IPC.remoteRelayTest, (_e, input: { url: string; accessKey?: string | null }) =>
+    remote.testRelay({
+      url: input.url,
+      accessKey: input.accessKey === SECRET_MASK ? settings.get().remote.relayAccessKey : input.accessKey,
+    }),
+  );
   // 飞书通道（M4）：解绑授权用户；状态/绑定验证码走 remoteStatus，配置走 setSettings(remote.feishu)
   ipcMain.handle(IPC.remoteFeishuUnbind, (_e, openId: string) => remote.unbindFeishuUser(openId));
 

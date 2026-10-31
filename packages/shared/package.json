@@ -12,6 +12,7 @@
     "./theme": "./src/theme.ts",
     "./crypto": "./src/crypto.ts",
     "./remote-history": "./src/remote-history.ts",
+    "./remote": "./src/remote.ts",
     "./i18n": "./src/i18n/index.ts",
     "./i18n/build": "./src/i18n/build.ts",
     "./questions": "./src/questions.ts"

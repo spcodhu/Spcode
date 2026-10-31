@@ -160,7 +160,7 @@ describe("QR payload 解析", () => {
     expect(() => parseQrPayload(build(["http://1.2.3.4:1"], "bad-key"))).toThrow(/公钥/);
     expect(() => parseQrPayload(build(["http://1.2.3.4:1"], undefined, "123"))).toThrow(/OTP/);
     expect(() =>
-      parseQrPayload("spcode-remote://pair?v=3&hosts=http%3A%2F%2F1.2.3.4%3A1&desktop_pk=x&otp=12345678"),
+      parseQrPayload("spcode-remote://pair?v=4&hosts=http%3A%2F%2F1.2.3.4%3A1&desktop_pk=x&otp=12345678"),
     ).toThrow(/版本/);
     expect(() => parseQrPayload(build(["ftp://x"]))).toThrow(/地址/);
   });

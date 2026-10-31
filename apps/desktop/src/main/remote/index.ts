@@ -34,6 +34,7 @@ import type {
   RemoteStatus,
 } from "@spcode/shared";
 import type { Locale } from "@spcode/shared/i18n";
+import { resolveRelayConfig } from "@spcode/shared/remote";
 import { historyToRemotePage } from "@spcode/shared/remote-history";
 import { RemoteEventAggregator } from "./aggregator.js";
 import { type FeishuApi, FeishuChannel } from "./channel/feishu.js";
@@ -45,7 +46,7 @@ import { PairingManager } from "./pairing.js";
 import { PushService } from "./push.js";
 import { RemoteRuntimeTracker } from "./runtime-snapshot.js";
 import { LanTransport } from "./transport/lan.js";
-import { deriveChannelId, RelayTransport } from "./transport/relay.js";
+import { deriveChannelId, RelayTransport, testRelayConnection } from "./transport/relay.js";
 import { TailscaleManager } from "./transport/tailscale.js";
 import type { PeerConnection, RemoteTransport } from "./transport/types.js";
 
@@ -111,6 +112,7 @@ export class RemoteServer {
   /** 当前运行对应的配置指纹（端口 / relayUrl 变更后重启） */
   private activeConfigPort: number | null = null;
   private activeRelayUrl: string | null = null;
+  private activeRelayAccessKey: string | null = null;
   /** tailscale serve 当前映射的 LAN 端口（0 = 未映射），避免重复执行 serve 命令 */
   private tailscaleServingPort = 0;
   /** 飞书机器人通道（M4）；生命周期独立于 remote.enabled 总开关 */
@@ -151,8 +153,15 @@ export class RemoteServer {
   /** 按 settings.remote 启停（设置变更后由 IPC 层显式调用） */
   async applySettings(): Promise<void> {
     const cfg = this.deps.settings.get().remote;
-    const relayUrl = normalizeRelayUrl(cfg.relayUrl);
-    if (cfg.enabled && (!this.running || this.activeConfigPort !== cfg.port || this.activeRelayUrl !== relayUrl)) {
+    const resolved = resolveRelayConfig(cfg);
+    const relayUrl = normalizeRelayUrl(resolved.url);
+    if (
+      cfg.enabled &&
+      (!this.running ||
+        this.activeConfigPort !== cfg.port ||
+        this.activeRelayUrl !== relayUrl ||
+        this.activeRelayAccessKey !== resolved.accessKey)
+    ) {
       await this.stop();
       await this.start();
     } else if (!cfg.enabled && this.running) {
@@ -177,7 +186,8 @@ export class RemoteServer {
   async start(): Promise<void> {
     if (this.running) return;
     const cfg = this.deps.settings.get().remote;
-    const relayUrl = normalizeRelayUrl(cfg.relayUrl);
+    const resolved = resolveRelayConfig(cfg);
+    const relayUrl = normalizeRelayUrl(resolved.url);
     if (!this.lanTransport) {
       this.lanTransport = new LanTransport({
         port: cfg.port ?? 0,
@@ -192,6 +202,7 @@ export class RemoteServer {
       } else {
         this.relayTransport = new RelayTransport({
           url: relayUrl,
+          accessKey: resolved.accessKey,
           channelId: deriveChannelId(this.pairing.getIdentity().publicKey),
           log: (msg, extra) => console.warn(`[remote/relay] ${msg}`, extra ?? ""),
         });
@@ -232,6 +243,7 @@ export class RemoteServer {
       }
     }
     this.activeRelayUrl = relayUrl;
+    this.activeRelayAccessKey = resolved.accessKey;
     // 首次启用即生成 VAPID 密钥对（remote.hello 携带公钥供设备订阅推送）
     this.push.ensureVapid();
     this.running = true;
@@ -323,6 +335,15 @@ export class RemoteServer {
     return this.feishuChannel?.unbind(openId) ?? false;
   }
 
+  /** 设置页测试 relay：复用桌面身份签发票据，但不建立 host 长连接。 */
+  async testRelay(input: { url: string; accessKey?: string | null }): Promise<{ ok: true } | { ok: false; error: string }> {
+    return testRelayConnection({
+      url: input.url,
+      accessKey: input.accessKey,
+      channelId: deriveChannelId(this.pairing.getIdentity().publicKey),
+    });
+  }
+
   isRunning(): boolean {
     return this.running;
   }
@@ -345,6 +366,7 @@ export class RemoteServer {
 
   status(): RemoteStatus {
     const cfg = this.deps.settings.get().remote;
+    const resolved = resolveRelayConfig(cfg);
     const feishuConfigured = !!(cfg.feishu?.appId && cfg.feishu?.appSecret);
     return {
       enabled: cfg.enabled,
@@ -357,6 +379,8 @@ export class RemoteServer {
       devices: this.pairing.devices(),
       pairing: this.currentPairingInfo(),
       relay: this.relayState(),
+      relayMode: resolved.mode,
+      relayAccessKeyConfigured: !!resolved.accessKey,
       tailscale: this.tailscale.status(),
       // 飞书分区脱敏透出：只回传 configured 标记，不回传 appId/appSecret
       feishu: this.feishuChannel?.getStatus(feishuConfigured) ?? {
@@ -373,7 +397,14 @@ export class RemoteServer {
   regeneratePairing(): RemotePairingInfo {
     const win = this.pairing.beginPairing();
     const urls = this.urls();
-    return { otp: win.otp, expiresAt: win.expiresAt, qrPayload: this.pairing.buildQrPayload(urls, win), urls };
+    const accessKey = resolveRelayConfig(this.deps.settings.get().remote).accessKey;
+    return {
+      otp: win.otp,
+      expiresAt: win.expiresAt,
+      qrPayload: this.pairing.buildQrPayload(urls, win, accessKey),
+      containsRelayAccessKey: !!accessKey,
+      urls,
+    };
   }
 
   /** 吊销设备：落盘删除 + 断开该设备的现存连接 + 删除其推送订阅 */
@@ -392,7 +423,14 @@ export class RemoteServer {
     const win = this.pairing.currentPairing();
     if (!win) return null;
     const urls = this.urls();
-    return { otp: win.otp, expiresAt: win.expiresAt, qrPayload: this.pairing.buildQrPayload(urls, win), urls };
+    const accessKey = resolveRelayConfig(this.deps.settings.get().remote).accessKey;
+    return {
+      otp: win.otp,
+      expiresAt: win.expiresAt,
+      qrPayload: this.pairing.buildQrPayload(urls, win, accessKey),
+      containsRelayAccessKey: !!accessKey,
+      urls,
+    };
   }
 
   // -------------------------------------------------------------------------

@@ -7,8 +7,9 @@ import { getLocale } from "@spcode/shared/i18n";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorText } from "../lib/i18n";
+import { isRelayHost, OFFICIAL_RELAY_URL, RELAY_HOST_PREFIX } from "../lib/relay";
 import { isPushEnabledLocally, isPushSupported } from "../lib/push";
-import { disablePushNotifications, enablePushNotifications } from "../state/controller";
+import { disablePushNotifications, enablePushNotifications, probeRelayConfiguration, updateRelayConfiguration } from "../state/controller";
 import { useAppStore } from "../state/store";
 import { Sheet } from "./Sheet";
 
@@ -21,9 +22,49 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
   const [enabled, setEnabled] = useState(isPushEnabledLocally);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const relayHost = pairing?.hosts.find(isRelayHost) ?? null;
+  const currentRelayMode = relayHost
+    ? relayHost === `${RELAY_HOST_PREFIX}${OFFICIAL_RELAY_URL}`
+      ? "official"
+      : "custom"
+    : "disabled";
+  const [relayMode, setRelayMode] = useState<"official" | "custom" | "disabled">(currentRelayMode);
+  const [relayUrl, setRelayUrl] = useState(relayHost?.slice(RELAY_HOST_PREFIX.length) ?? "");
+  const [relayKey, setRelayKey] = useState(pairing?.relayAccessKey ?? "");
+  const [relayBusy, setRelayBusy] = useState(false);
+  const [relayTestText, setRelayTestText] = useState<string | null>(null);
 
   const pushSupported = isPushSupported();
   const pushActive = enabled && pushSupported;
+
+  const testRelay = async () => {
+    setRelayBusy(true);
+    setRelayTestText(null);
+    setError(null);
+    try {
+      await probeRelayConfiguration({
+        url: relayMode === "official" ? OFFICIAL_RELAY_URL : relayUrl.trim(),
+        accessKey: relayMode === "custom" ? relayKey.trim() || null : null,
+      });
+      setRelayTestText(t("settings.relayTestSuccess"));
+    } catch (err) {
+      setError(err);
+    } finally {
+      setRelayBusy(false);
+    }
+  };
+
+  const saveRelay = async () => {
+    setRelayBusy(true);
+    setError(null);
+    try {
+      await updateRelayConfiguration(relayMode, relayUrl, relayKey);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setRelayBusy(false);
+    }
+  };
 
   const toggle = async () => {
     if (busy || !pushSupported) return;
@@ -45,7 +86,7 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <Sheet title={t("common.settings")} onClose={onClose} busy={busy}>
+    <Sheet title={t("common.settings")} onClose={onClose} busy={busy || relayBusy}>
       <div className="space-y-4">
         <div className="rounded-2xl border border-border bg-bg-elevated px-4 py-3">
           <div className="flex items-center gap-3">
@@ -120,6 +161,88 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
         {error != null && (
           <div role="alert" className="safe-break text-xs leading-5 text-red-300">
             {errorText(error)}
+          </div>
+        )}
+
+        {pairing && (
+          <div className="rounded-2xl border border-border bg-bg-elevated px-4 py-3">
+            <div className="text-sm font-medium text-text-primary">{t("settings.relayServer")}</div>
+            <div className="safe-break mt-1 text-xs leading-5 text-text-tertiary">{t("settings.relayServerHelp")}</div>
+            <div className="mt-3 grid grid-cols-3 gap-2" data-testid="mobile-relay-modes">
+              {(["official", "custom", "disabled"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  aria-pressed={relayMode === mode}
+                  onClick={() => setRelayMode(mode)}
+                  className={`min-h-11 rounded-lg border px-2 py-2 text-xs ${
+                    relayMode === mode ? "border-accent bg-accent-soft text-accent" : "border-border text-text-secondary"
+                  }`}
+                >
+                  {t(`settings.relayMode.${mode}`)}
+                </button>
+              ))}
+            </div>
+            {relayMode === "official" && (
+              <div className="safe-break mt-3 rounded-lg bg-bg-main px-3 py-2 font-mono text-[11px] leading-5 text-text-secondary">
+                {OFFICIAL_RELAY_URL}
+              </div>
+            )}
+            {relayMode === "custom" && (
+              <div className="mt-3 space-y-2">
+                <input
+                  value={relayUrl}
+                  onChange={(event) => setRelayUrl(event.target.value)}
+                  placeholder="wss://relay.example.com"
+                  aria-label={t("settings.relayUrl")}
+                  data-testid="mobile-relay-url"
+                  className="min-h-11 w-full rounded-xl border border-border-strong bg-bg-main/70 px-3 py-2.5 font-mono text-base text-text-primary outline-none placeholder:text-text-tertiary focus:border-accent"
+                />
+                <input
+                  type="password"
+                  value={relayKey}
+                  onChange={(event) => setRelayKey(event.target.value)}
+                  placeholder={t("settings.relayKeyPlaceholder")}
+                  aria-label={t("settings.relayKey")}
+                  data-testid="mobile-relay-key"
+                  className="min-h-11 w-full rounded-xl border border-border-strong bg-bg-main/70 px-3 py-2.5 font-mono text-base text-text-primary outline-none placeholder:text-text-tertiary focus:border-accent"
+                />
+              </div>
+            )}
+            {relayMode !== "disabled" && (
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  data-testid="mobile-relay-test"
+                  disabled={relayBusy}
+                  onClick={() => void testRelay()}
+                  className="min-h-11 flex-1 rounded-xl border border-border px-3 text-xs text-text-secondary disabled:opacity-40"
+                >
+                  {t("settings.relayTest")}
+                </button>
+                <button
+                  type="button"
+                  data-testid="mobile-relay-save"
+                  disabled={relayBusy}
+                  onClick={() => void saveRelay()}
+                  className="min-h-11 flex-1 rounded-xl bg-accent px-3 text-xs font-medium text-on-accent disabled:opacity-40"
+                >
+                  {t("common.save")}
+                </button>
+              </div>
+            )}
+            {relayMode === "disabled" && (
+              <button
+                type="button"
+                data-testid="mobile-relay-save"
+                disabled={relayBusy}
+                onClick={() => void saveRelay()}
+                className="mt-3 min-h-11 w-full rounded-xl bg-accent px-3 text-xs font-medium text-on-accent disabled:opacity-40"
+              >
+                {t("common.save")}
+              </button>
+            )}
+            {relayTestText && <div role="status" className="mt-2 text-xs text-success">{relayTestText}</div>}
           </div>
         )}
 

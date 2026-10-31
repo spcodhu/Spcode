@@ -121,6 +121,7 @@ export class SettingsStore {
     // 坏文件先备份 .corrupt-<ts> 再回退默认设置，不再静默吞掉（评审 P2-4）
     const loaded = sanitizeAppSettings(readJsonFile(this.file, validateSettings) ?? {});
     // remote 是嵌套对象：浅合并会让旧 settings.json 缺字段时丢默认值，单独归一化
+    const hasRemoteSettings = !!(loaded.remote && typeof loaded.remote === "object");
     const loadedRemote =
       loaded.remote && typeof loaded.remote === "object" ? (loaded.remote as Partial<AppSettings["remote"]>) : {};
     // remote.feishu 再嵌套一层，同理归一化（旧配置缺 appSecret 等字段时补默认）
@@ -143,6 +144,14 @@ export class SettingsStore {
       loaded.themeMigrationVersion === undefined &&
       loaded.themeId === "spcode-dark" &&
       (loaded.customTheme === null || loaded.customTheme === undefined);
+    const relayMode =
+      loadedRemote.relayMode === "official" || loadedRemote.relayMode === "custom" || loadedRemote.relayMode === "disabled"
+        ? loadedRemote.relayMode
+        : hasRemoteSettings
+          ? loadedRemote.relayUrl
+            ? "custom"
+            : "disabled"
+          : DEFAULT_SETTINGS.remote.relayMode;
     this.cache = {
       ...DEFAULT_SETTINGS,
       ...loaded,
@@ -152,6 +161,8 @@ export class SettingsStore {
       remote: {
         ...DEFAULT_SETTINGS.remote,
         ...loadedRemote,
+        relayMode,
+        relayAccessKey: loadedRemote.relayAccessKey ?? null,
         feishu: { ...DEFAULT_SETTINGS.remote.feishu, ...loadedFeishu },
       },
       sandbox: {
@@ -189,6 +200,7 @@ export function redactSettingsForRenderer(s: AppSettings): AppSettings {
     webFetch: s.webFetch ? { ...s.webFetch, apiKey: s.webFetch.apiKey ? SECRET_MASK : "" } : null,
     remote: {
       ...s.remote,
+      relayAccessKey: s.remote.relayAccessKey ? SECRET_MASK : null,
       feishu: { ...s.remote.feishu, appSecret: s.remote.feishu.appSecret ? SECRET_MASK : "" },
     },
   };
@@ -205,6 +217,9 @@ export function restoreMaskedSecrets(patch: Partial<AppSettings>, current: AppSe
   }
   if (out.remote?.feishu && out.remote.feishu.appSecret === SECRET_MASK) {
     out.remote = { ...out.remote, feishu: { ...out.remote.feishu, appSecret: current.remote.feishu.appSecret } };
+  }
+  if (out.remote && out.remote.relayAccessKey === SECRET_MASK) {
+    out.remote = { ...out.remote, relayAccessKey: current.remote.relayAccessKey ?? null };
   }
   return out;
 }

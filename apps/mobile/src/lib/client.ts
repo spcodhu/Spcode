@@ -32,7 +32,7 @@ import type { PairingRecord } from "./db";
 import { savePairing } from "./db";
 import { MobileError, type MobileKey } from "./i18n";
 import { parseQrPayload } from "./qr";
-import { isRelayHost, orderHosts, relayWsUrl } from "./relay";
+import { isRelayHost, orderHosts, relayTicketQuery, relayWsUrl } from "./relay";
 
 export type PairErrorCode = "locked" | "expired" | "otp_mismatch" | "bad_payload";
 
@@ -67,8 +67,10 @@ function wsUrlOf(host: string): string {
 }
 
 /** host 项 → 实际 ws url：relay 前缀项走 channel 路径，其余为 LAN 直连 */
-function connectUrlOf(host: string, desktopPk: string, deviceId?: string): string {
-  return isRelayHost(host) ? relayWsUrl(host, desktopPk, deviceId) : wsUrlOf(host);
+async function connectUrlOf(host: string, desktopPk: string, deviceId?: string, accessKey?: string): Promise<string> {
+  if (!isRelayHost(host)) return wsUrlOf(host);
+  const ticket = await relayTicketQuery(host, desktopPk, "device", deviceId, accessKey);
+  return `${relayWsUrl(host, desktopPk, deviceId)}${ticket}`;
 }
 
 /** 等一帧满足条件的消息；超时或断连即 reject */
@@ -160,7 +162,7 @@ export async function pairWithQr(qrText: string, deviceName: string): Promise<Pa
   for (const host of orderHosts(payload.hosts)) {
     let ws: WebSocket | null = null;
     try {
-      ws = await connectWs(connectUrlOf(host, payload.desktopPk));
+      ws = await connectWs(await connectUrlOf(host, payload.desktopPk, undefined, payload.relayAccessKey));
       // 协议 v2：OTP 不上线，桌面用当前配对窗口 OTP 试解密文验证
       ws.send(JSON.stringify({ t: "pair", c }));
       const ack = (await waitFrame(ws, (f) => (f as { t?: string }).t === "pair_ack", 8000, "pair")) as
@@ -183,6 +185,7 @@ export async function pairWithQr(qrText: string, deviceName: string): Promise<Pa
         deviceName,
         keyPair,
         pairedAt: Date.now(),
+        ...(payload.relayAccessKey ? { relayAccessKey: payload.relayAccessKey } : {}),
       };
     } catch (err) {
       ws?.close();
@@ -322,7 +325,7 @@ export class RemoteClient {
     this.relay = isRelayHost(host);
     let ws: WebSocket;
     try {
-      ws = await connectWs(connectUrlOf(host, this.record.desktopPk, this.record.deviceId));
+      ws = await connectWs(await connectUrlOf(host, this.record.desktopPk, this.record.deviceId, this.record.relayAccessKey));
     } catch (err) {
       if (generation === this.generation) {
         this.scheduleReconnect(err instanceof Error ? err : new MobileError("error.connectionFailed"), generation);

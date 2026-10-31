@@ -7,12 +7,13 @@ import type {
   QuestionAnswers,
   RemoteEvent as RemoteEventExt,
   RemoteHistoryPage,
+  RelayMode,
   ScheduleTask,
   ScheduleTaskInput,
   SessionMode,
 } from "@spcode/shared";
 import { RemoteClient } from "../lib/client";
-import { clearPairing, loadPairing, type PairingRecord } from "../lib/db";
+import { clearPairing, loadPairing, savePairing, type PairingRecord } from "../lib/db";
 import { applyDesktopLocale, initializeMobileLocale, MobileError } from "../lib/i18n";
 import {
   isPushEnabledLocally,
@@ -22,6 +23,7 @@ import {
   unsubscribePush,
 } from "../lib/push";
 import { getOutputMaxSeq, useAppStore } from "./store";
+import { isRelayHost, OFFICIAL_RELAY_URL, probeRelay, RELAY_HOST_PREFIX } from "../lib/relay";
 
 let client: RemoteClient | null = null;
 /** 只采用最后一次发出的 session.list 响应，避免创建会话的刷新被更早的启动刷新覆盖 */
@@ -109,6 +111,35 @@ export async function unpair(): Promise<void> {
   }
   useAppStore.getState().reset();
   useAppStore.getState().setRoute({ name: "pair" });
+}
+
+export async function probeRelayConfiguration(input: { url: string; accessKey?: string | null }): Promise<void> {
+  const pairing = useAppStore.getState().pairing;
+  if (!pairing) throw new MobileError("error.notConnected");
+  await probeRelay({
+    url: input.url,
+    desktopPk: pairing.desktopPk,
+    deviceId: pairing.deviceId,
+    accessKey: input.accessKey,
+  });
+}
+
+/** 修改 relay 只重建传输：保留设备身份、密钥、输出缓存、路由和输入草稿。 */
+export async function updateRelayConfiguration(mode: RelayMode, url: string, accessKey?: string | null): Promise<void> {
+  const store = useAppStore.getState();
+  const record = store.pairing;
+  if (!record) throw new MobileError("error.notConnected");
+  const trimmed = url.trim().replace(/\/+$/, "");
+  if (mode === "custom" && !/^wss?:\/\//.test(trimmed)) throw new MobileError("error.relayUrl");
+  const hosts = record.hosts.filter((host) => !isRelayHost(host));
+  if (mode === "official") hosts.push(`${RELAY_HOST_PREFIX}${OFFICIAL_RELAY_URL}`);
+  if (mode === "custom") hosts.push(`${RELAY_HOST_PREFIX}${trimmed}`);
+  const next: PairingRecord = { ...record, hosts };
+  if (mode === "custom" && accessKey?.trim()) next.relayAccessKey = accessKey.trim();
+  else delete next.relayAccessKey;
+  await savePairing(next);
+  store.setPairing(next);
+  startClient(next);
 }
 
 // ---------------------------------------------------------------------------

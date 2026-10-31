@@ -639,6 +639,7 @@ export const IPC = {
   remoteSetEnabled: "spcode:remote-set-enabled",
   remoteRegeneratePairing: "spcode:remote-regenerate-pairing",
   remoteUnpairDevice: "spcode:remote-unpair-device",
+  remoteRelayTest: "spcode:remote-relay-test",
   /** renderer -> main (invoke)：飞书通道解绑授权用户（open_id） */
   remoteFeishuUnbind: "spcode:remote-feishu-unbind",
   /** renderer -> main (invoke)：定时任务 CRUD 与立即试运行 */
@@ -956,7 +957,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   remote: {
     enabled: false,
     port: null,
+    relayMode: "official",
     relayUrl: null,
+    relayAccessKey: null,
     tailscale: false,
     pushEnabled: false,
     feishu: { enabled: false, appId: "", appSecret: "" },

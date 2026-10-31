@@ -170,16 +170,18 @@ describe("设备管理", () => {
     expect(pm.removeDevice(r.device.id)).toBe(false);
   });
 
-  it("QR payload 格式（协议 v2）：spcode-remote://pair?v=2&hosts=…&desktop_pk=…&otp=…", () => {
+  it("QR payload 格式（协议 v3）：spcode-remote://pair?v=3&hosts=…&desktop_pk=…&otp=…", () => {
     const pm = setup();
     const win = pm.beginPairing();
     const payload = pm.buildQrPayload(["http://192.168.1.5:8123"], win);
     const url = new URL(payload);
     expect(url.protocol).toBe("spcode-remote:");
     expect(url.host).toBe("pair");
-    expect(url.searchParams.get("v")).toBe("2");
+    expect(url.searchParams.get("v")).toBe("3");
     expect(url.searchParams.get("hosts")).toBe("http://192.168.1.5:8123");
     expect(url.searchParams.get("desktop_pk")).toBe(pm.getIdentity().publicKey);
     expect(url.searchParams.get("otp")).toBe(win.otp);
+    const withKey = new URL(pm.buildQrPayload(["relay+wss://relay.example.com"], win, "server-secret"));
+    expect(withKey.searchParams.get("relay_key")).toBe("server-secret");
   });
 });

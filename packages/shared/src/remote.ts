@@ -238,14 +238,21 @@ export interface RemoteOutputChunk {
 }
 
 /** 设置项：远程控制开关、监听端口与 relay 地址 */
+export const OFFICIAL_RELAY_URL = "wss://relay.spcode.dev";
+export const OFFICIAL_MOBILE_URL = "https://relay.spcode.dev/";
+export type RelayMode = "official" | "custom" | "disabled";
+
 export interface RemoteSettings {
   enabled: boolean;
   /** 局域网监听端口（null = 随机端口） */
   port: number | null;
+  /** 缺省按旧配置推断：relayUrl 非空为 custom，否则为 disabled（避免老用户意外上公网） */
+  relayMode?: RelayMode;
+  /** 自托管访问密钥（仅 custom 使用；official 固定为空）。 */
+  relayAccessKey?: string | null;
   /**
-   * relay 服务器地址（wss://host[:port]，不含路径；null = 不启用 relay 通道）。
-   * host 侧出站连接 wss://<relayUrl>/channel/<channelId>?role=host，
-   * channelId = SHA-256(桌面 X25519 公钥原始 32 字节) 的 hex 小写。
+   * custom relay 地址（wss://host[:port]，不含路径；official 使用 OFFICIAL_RELAY_URL）。
+   * host 侧出站连接 wss://<relayUrl>/channel/<channelId>?role=host。
    */
   relayUrl: string | null;
   /**
@@ -257,6 +264,26 @@ export interface RemoteSettings {
   pushEnabled: boolean;
   /** 飞书机器人通道（M4，默认关闭；明文过飞书服务器，非 E2E——见设计文档 4.8） */
   feishu: RemoteFeishuSettings;
+}
+
+export interface ResolvedRelayConfig {
+  mode: RelayMode;
+  url: string | null;
+  accessKey: string | null;
+}
+
+/** 新旧配置统一解析；旧 relayUrl 非空保留 custom，旧 null 保持 LAN-only。 */
+export function resolveRelayConfig(
+  settings: Pick<RemoteSettings, "relayMode" | "relayUrl" | "relayAccessKey">,
+): ResolvedRelayConfig {
+  const mode = settings.relayMode ?? (settings.relayUrl ? "custom" : "disabled");
+  if (mode === "official") return { mode, url: OFFICIAL_RELAY_URL, accessKey: null };
+  if (mode === "custom") {
+    const url = settings.relayUrl?.trim() || null;
+    const accessKey = settings.relayAccessKey?.trim() || null;
+    return { mode, url, accessKey };
+  }
+  return { mode: "disabled", url: null, accessKey: null };
 }
 
 /**
@@ -302,12 +329,14 @@ export interface RemotePairingInfo {
    * channelId = SHA-256(desktop_pk 解码后的原始 32 字节) 的 hex 小写。
    */
   qrPayload: string;
+  /** custom relay 的 QR 含访问密钥时提示勿分享；official/无密钥为 false。 */
+  containsRelayAccessKey?: boolean;
   expiresAt: number;
   urls: string[];
 }
 
-/** relay 通道连接状态：disabled = 未配置 relayUrl / 远程未启用 */
-export type RemoteRelayState = "disabled" | "connecting" | "connected";
+/** relay 通道连接状态：auth_failed = 访问密钥/票据失败，error = 其他连接错误 */
+export type RemoteRelayState = "disabled" | "connecting" | "connected" | "auth_failed" | "error";
 
 /** 飞书通道连接状态：disabled = 未启用 / 未配置 appId+appSecret；error = 建连失败（详情见主进程日志） */
 export type RemoteFeishuState = "disabled" | "connecting" | "connected" | "error";
@@ -347,6 +376,9 @@ export interface RemoteStatus {
   pairing: RemotePairingInfo | null;
   /** relay 通道连接状态 */
   relay: RemoteRelayState;
+  /** 当前模式与脱敏配置状态（访问密钥本身绝不回传） */
+  relayMode: RelayMode;
+  relayAccessKeyConfigured: boolean;
   /** Tailscale 通道状态 */
   tailscale: RemoteTailscaleStatus;
   /** 飞书机器人通道状态（M4） */

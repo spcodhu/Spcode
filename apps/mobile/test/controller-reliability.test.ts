@@ -12,6 +12,7 @@ import {
   replyQuestion,
   retrySessionOutput,
   unpair,
+  updateRelayConfiguration,
 } from "../src/state/controller";
 import { useAppStore } from "../src/state/store";
 
@@ -19,11 +20,12 @@ const mocks = vi.hoisted(() => ({
   callbacks: [] as RemoteClientCallbacks[],
   command: vi.fn<(cmd: RemoteCommand) => Promise<unknown>>(),
   loadPairing: vi.fn<() => Promise<PairingRecord | null>>(),
+  savePairing: vi.fn<(record: PairingRecord) => Promise<void>>(),
 }));
 
 vi.mock("../src/lib/db", () => ({
   loadPairing: mocks.loadPairing,
-  savePairing: vi.fn(async () => {}),
+  savePairing: mocks.savePairing,
   clearPairing: vi.fn(async () => {}),
 }));
 vi.mock("../src/lib/client", () => ({
@@ -81,6 +83,7 @@ beforeEach(() => {
   useAppStore.getState().reset();
   mocks.callbacks.length = 0;
   mocks.command.mockReset();
+  mocks.savePairing.mockReset();
   mocks.loadPairing.mockReset().mockResolvedValue(record);
   mocks.command.mockImplementation(async (cmd) => {
     if (cmd.type === "session.list") return { sessions: [session] };
@@ -294,5 +297,27 @@ describe("权威快照与回复可靠性", () => {
       pendingQuestions: [],
     });
     expect(useAppStore.getState().sessions.s1?.status).toBe("idle");
+  });
+});
+
+describe("relay 配置更新", () => {
+  it("官方/自托管/局域网切换保留设备身份、路由与输出缓存", async () => {
+    attachPairedRecord({ ...record, relayAccessKey: "old" });
+    useAppStore.getState().setRoute({ name: "session", id: "s1" });
+    useAppStore.getState().appendOutput("s1", "正文", "text", 0);
+    await updateRelayConfiguration("official", "", "");
+    expect(useAppStore.getState().pairing?.hosts).toContain("relay+wss://relay.spcode.dev");
+    expect(useAppStore.getState().pairing?.relayAccessKey).toBeUndefined();
+
+    await updateRelayConfiguration("custom", "wss://relay.example.com/", "new-secret");
+    expect(useAppStore.getState().pairing?.hosts).toContain("relay+wss://relay.example.com");
+    expect(useAppStore.getState().pairing?.relayAccessKey).toBe("new-secret");
+    expect(useAppStore.getState().route).toEqual({ name: "session", id: "s1" });
+    expect(useAppStore.getState().outputs.s1?.[0]?.chunk).toBe("正文");
+
+    await updateRelayConfiguration("disabled", "", "");
+    expect(useAppStore.getState().pairing?.hosts.some((host) => host.startsWith("relay+"))).toBe(false);
+    expect(useAppStore.getState().pairing?.relayAccessKey).toBeUndefined();
+    expect(mocks.savePairing).toHaveBeenCalledTimes(3);
   });
 });

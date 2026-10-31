@@ -210,10 +210,11 @@ export class PairingManager {
    * QR payload（协议 v2）：
    *   spcode-remote://pair?v=2&hosts=<逗号分隔,URL编码>&desktop_pk=<base64>&otp=<8位>
    */
-  buildQrPayload(urls: string[], win: PairingWindow): string {
+  buildQrPayload(urls: string[], win: PairingWindow, relayAccessKey?: string | null): string {
     const hosts = encodeURIComponent(urls.join(","));
     const pk = encodeURIComponent(this.getIdentity().publicKey);
-    return `spcode-remote://pair?v=2&hosts=${hosts}&desktop_pk=${pk}&otp=${win.otp}`;
+    const relayKey = relayAccessKey ? `&relay_key=${encodeURIComponent(relayAccessKey)}` : "";
+    return `spcode-remote://pair?v=3&hosts=${hosts}&desktop_pk=${pk}&otp=${win.otp}${relayKey}`;
   }
 
   private persistDevices(): void {

@@ -28,6 +28,7 @@
  */
 
 import { randomUUID } from "node:crypto";
+import type { RemoteRelayState } from "@spcode/shared";
 import { deriveChannelId } from "@spcode/shared/crypto";
 import WebSocket from "ws";
 import type { PeerConnection, RemoteTransport } from "./types.js";
@@ -38,6 +39,10 @@ export { deriveChannelId };
 export interface RelayTransportOptions {
   /** relay 地址（wss://host[:port]，不含路径） */
   url: string;
+  /** 自托管可选访问密钥；有值时先经 HTTPS 换取单次 ticket。 */
+  accessKey?: string | null;
+  /** 测试注入 HTTP 实现；缺省全局 fetch。 */
+  fetchImpl?: typeof fetch;
   /** 见 deriveChannelId */
   channelId: string;
   /** 重连退避（默认 1000ms 起步，翻倍至 30000ms 封顶） */
@@ -46,6 +51,47 @@ export interface RelayTransportOptions {
   /** 断线期间本地出站缓冲上限（默认 500，超出丢最旧） */
   pendingLimit?: number;
   log?: (msg: string, extra?: unknown) => void;
+}
+
+class RelayHttpError extends Error {
+  constructor(readonly status: number) {
+    super(`relay_http_${status}`);
+  }
+}
+
+function httpBaseOf(url: string): string {
+  return url.replace(/^ws/i, "http").replace(/\/+$/, "");
+}
+
+async function issueHostTicket(opts: RelayTransportOptions): Promise<string> {
+  if (!opts.accessKey) return "";
+  const fetchImpl = opts.fetchImpl ?? fetch;
+  const response = await fetchImpl(`${httpBaseOf(opts.url)}/v1/tickets`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${opts.accessKey}` },
+    body: JSON.stringify({ channelId: opts.channelId, role: "host" }),
+  });
+  if (!response.ok) throw new RelayHttpError(response.status);
+  const grant = (await response.json()) as { ticket?: unknown };
+  if (typeof grant.ticket !== "string" || !grant.ticket) throw new RelayHttpError(500);
+  return `&ticket=${encodeURIComponent(grant.ticket)}`;
+}
+
+/** 设置页测试连接：健康检查或真实签发票据，不占用用户实际 channel。 */
+export async function testRelayConnection(
+  opts: RelayTransportOptions,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    if (opts.accessKey) {
+      await issueHostTicket(opts);
+    } else {
+      const response = await (opts.fetchImpl ?? fetch)(`${httpBaseOf(opts.url)}/health`);
+      if (!response.ok) throw new RelayHttpError(response.status);
+    }
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 /** 帧路由键：auth 帧缺 deviceId 时退回公钥键（此时 host→device 帧无 deviceId，由 relay 广播兜底） */
@@ -117,7 +163,7 @@ export class RelayTransport implements RemoteTransport {
   /** 被 host 主动关闭的 deviceId：重新 auth 前丢弃其业务帧 */
   private readonly tombstoned = new Set<string>();
   private pairPeer: RelayPeer | null = null;
-  private state: "connecting" | "connected" = "connecting";
+  private state: RemoteRelayState = "connecting";
   private started = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectDelay: number;
@@ -170,7 +216,7 @@ export class RelayTransport implements RemoteTransport {
     this.connCb = cb;
   }
 
-  getState(): "connecting" | "connected" {
+  getState(): RemoteRelayState {
     return this.state;
   }
 
@@ -216,8 +262,21 @@ export class RelayTransport implements RemoteTransport {
 
   private connect(): void {
     if (!this.started) return;
+    this.state = "connecting";
+    void this.openConnection().catch((error) => {
+      const status = error instanceof RelayHttpError ? error.status : 0;
+      const authFailed = status === 401 || status === 403;
+      this.state = authFailed ? "auth_failed" : "error";
+      this.log("relay 连接失败", { status, authFailed });
+      if (!authFailed) this.scheduleReconnect();
+    });
+  }
+
+  private async openConnection(): Promise<void> {
     const base = this.opts.url.replace(/\/+$/, "");
-    const url = `${base}/channel/${this.opts.channelId}?role=host`;
+    const ticket = await issueHostTicket(this.opts);
+    if (!this.started) return;
+    const url = `${base}/channel/${this.opts.channelId}?role=host${ticket}`;
     const ws = new WebSocket(url);
     this.ws = ws;
     this.state = "connecting";

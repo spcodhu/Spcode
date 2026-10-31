@@ -7,9 +7,9 @@
 
 import { createHash } from "node:crypto";
 import { b64decode, generateBoxKeyPair } from "@spcode/shared/crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { parseQrPayload } from "../src/lib/qr";
-import { deriveChannelId, isRelayHost, orderHosts, relayWsUrl } from "../src/lib/relay";
+import { deriveChannelId, isRelayHost, orderHosts, probeRelay, relayTicketQuery, relayWsUrl } from "../src/lib/relay";
 
 function makeQr(hosts: string[], desktopPk: string, otp = "12345678"): string {
   return `spcode-remote://pair?v=2&hosts=${encodeURIComponent(hosts.join(","))}&desktop_pk=${encodeURIComponent(desktopPk)}&otp=${otp}`;
@@ -31,6 +31,15 @@ describe("parseQrPayload：relay 前缀项", () => {
   it("拒绝非 ws(s) 的 relay 项与未知 scheme", () => {
     expect(() => parseQrPayload(makeQr(["relay+http://x"], pk))).toThrow(/relay/);
     expect(() => parseQrPayload(makeQr(["ftp://x"], pk))).toThrow(/非法/);
+  });
+
+  it("QR v3 携带自托管访问密钥，v2 保持兼容", () => {
+    const payload = parseQrPayload(
+      `spcode-remote://pair?v=3&hosts=${encodeURIComponent("relay+wss://relay.example.com")}&desktop_pk=${encodeURIComponent(pk)}&otp=12345678&relay_key=server-secret`,
+    );
+    expect(payload.version).toBe(3);
+    expect(payload.relayAccessKey).toBe("server-secret");
+    expect(parseQrPayload(makeQr(["relay+wss://relay.example.com"], pk)).relayAccessKey).toBeUndefined();
   });
 });
 
@@ -59,5 +68,31 @@ describe("relay 通道工具", () => {
       "relay+wss://r1",
       "relay+wss://r2",
     ]);
+  });
+
+  it("访问密钥换取单次 ticket 并绑定 device；401 映射认证失败", async () => {
+    const pk = generateBoxKeyPair().publicKey;
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ticket: "one-time" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const query = await relayTicketQuery("relay+wss://relay.example.com", pk, "device", "phone", "secret");
+    expect(query).toBe("&ticket=one-time");
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toBe("https://relay.example.com/v1/tickets");
+    expect(init?.headers).toMatchObject({ authorization: "Bearer secret" });
+    expect(JSON.parse(String(init?.body))).toMatchObject({ channelId: deriveChannelId(pk), role: "device", deviceId: "phone" });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 401 })));
+    await expect(relayTicketQuery("relay+wss://relay.example.com", pk, "device", "phone", "bad")).rejects.toThrow(
+      /密钥|无效/,
+    );
+    vi.unstubAllGlobals();
+  });
+
+  it("probeRelay 无密钥只查健康端点，有密钥真实签发票据", async () => {
+    const pk = generateBoxKeyPair().publicKey;
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await probeRelay({ url: "wss://relay.example.com", desktopPk: pk });
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("https://relay.example.com/health");
+    vi.unstubAllGlobals();
   });
 });

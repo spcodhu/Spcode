@@ -20,6 +20,8 @@ export interface QrPayload {
   desktopPk: string;
   /** 8 位数字一次性配对码 */
   otp: string;
+  /** QR v3：自托管 relay 可选访问密钥；仅用于申请短时票据，不是 E2E 私钥。 */
+  relayAccessKey?: string;
 }
 
 const SCHEME_PREFIX = "spcode-remote://pair";
@@ -34,7 +36,7 @@ export function parseQrPayload(text: string): QrPayload {
   const params = new URLSearchParams(trimmed.slice(qIndex + 1));
 
   const v = params.get("v");
-  if (v !== "2") {
+  if (v !== "2" && v !== "3") {
     if (v === "1") throw new MobileError("qr.oldVersion");
     if (v == null) throw new MobileError("qr.missingVersion");
     throw new MobileError("qr.version", { version: v });
@@ -61,6 +63,7 @@ export function parseQrPayload(text: string): QrPayload {
 
   const otp = params.get("otp");
   if (!otp || !/^\d{8}$/.test(otp)) throw new MobileError("qr.otp");
+  const relayAccessKey = params.get("relay_key")?.trim() || undefined;
 
-  return { version: 2, hosts, desktopPk, otp };
+  return { version: Number(v), hosts, desktopPk, otp, ...(relayAccessKey ? { relayAccessKey } : {}) };
 }

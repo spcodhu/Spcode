@@ -3,6 +3,8 @@
  * M1 只有 lan 实现；M2 relay、M3 tailscale 实现同一接口。
  */
 
+import type { RemoteRelayState } from "@spcode/shared";
+
 /** 一条对端连接（手机 PWA 的 WebSocket） */
 export interface PeerConnection {
   readonly id: string;
@@ -21,7 +23,7 @@ export interface RemoteTransport {
   /** 对外可访问的 base url 列表（如 http://192.168.1.5:8123）；未启动时为空 */
   getAdvertisedUrls(): string[];
   /** 连接状态（仅 relay 这类出站长连接 transport 实现；局域网监听型不实现） */
-  getState?(): "connecting" | "connected";
+  getState?(): RemoteRelayState;
   /** 实际监听端口（仅局域网监听型实现；tailscale serve 回源用） */
   getPort?(): number;
 }

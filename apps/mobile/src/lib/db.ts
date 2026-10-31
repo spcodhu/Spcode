@@ -21,6 +21,8 @@ export interface PairingRecord {
   /** 手机端 X25519 密钥对（base64） */
   keyPair: { publicKey: string; secretKey: string };
   pairedAt: number;
+  /** 自托管 relay 可选访问密钥；仅存本机 IndexedDB，绝不进入 WS URL。 */
+  relayAccessKey?: string;
   /** 协议 v2：下一个出站 seq（跨连接单调；节流落盘） */
   lastOutSeq?: number;
 }

@@ -93,6 +93,8 @@ export interface SpcodeApi {
   remoteRegeneratePairing(): Promise<RemotePairingInfo>;
   /** 解绑（吊销）已配对设备 */
   remoteUnpairDevice(deviceId: string): Promise<boolean>;
+  /** 测试 relay 地址与访问密钥，不占用真实会话 channel */
+  remoteRelayTest(input: { url: string; accessKey?: string | null }): Promise<{ ok: true } | { ok: false; error: string }>;
   /** 飞书通道：解绑授权用户（open_id） */
   remoteFeishuUnbind(openId: string): Promise<boolean>;
   /** 更新：状态查询与订阅 / 手动下载 / 重启安装 / 忽略版本 */
@@ -223,6 +225,9 @@ const api: SpcodeApi = {
   },
   remoteUnpairDevice(deviceId) {
     return ipcRenderer.invoke(IPC.remoteUnpairDevice, deviceId);
+  },
+  remoteRelayTest(input) {
+    return ipcRenderer.invoke(IPC.remoteRelayTest, input);
   },
   remoteFeishuUnbind(openId) {
     return ipcRenderer.invoke(IPC.remoteFeishuUnbind, openId);
