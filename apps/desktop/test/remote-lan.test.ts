@@ -521,7 +521,7 @@ describe("配对握手 + 加密命令全链路", () => {
     await c4.waitClosed();
   });
 
-  it("协议 v2：设备 nextSeq 落后于服务端基准线 → seq_rollback 拒绝", async () => {
+  it("协议 v2：nextSeq 落后时按桌面 resumeSeq 恢复，旧序号重放仍拒绝", async () => {
     const { phone, client } = await pairDeviceSeq();
     const desktopPk = pairing.getIdentity().publicKey;
     const decryptPayload = (f: unknown) => {
@@ -545,18 +545,23 @@ describe("配对握手 + 加密命令全链路", () => {
     // 关闭时基准线落盘，等一下让持久化生效
     await new Promise((r) => setTimeout(r, 50));
 
-    // 设备出站序号回滚（声称 nextSeq=0，落后基准线 1）→ 拒绝
+    // 浏览器刷新可能没来得及持久化 nextSeq=0；私钥证明有效时由桌面恢复到 2。
     const c2 = await TestClient.connect(wsUrl());
-    const deny = await authWithProof(c2, phone, desktopPk, { nextSeq: 0 });
-    expect(deny.ok).toBe(false);
-    expect(deny.error).toBe("seq_rollback");
+    const resumed = await authWithProof(c2, phone, desktopPk, { nextSeq: 0 });
+    expect(resumed.ok).toBe(true);
+    expect(resumed.resumeSeq).toBe(2);
+
+    // 恢复后的第一条命令使用新序号 2 → 正常接受；随后重放旧序号 0 → 断连。
+    c2.send(mk(2, "seq-resumed"));
+    await c2.waitFor((f) => decryptPayload(f)?.id === "seq-resumed");
+    c2.send(mk(0, "seq-replay"));
     await c2.waitClosed();
 
-    // 正常续接（nextSeq=2）→ 通过
+    // 上一条恢复连接已接受 seq=2，因此下一条正常续接从 3 开始。
     const c3 = await TestClient.connect(wsUrl());
-    const ok = await authWithProof(c3, phone, desktopPk, { nextSeq: 2 });
+    const ok = await authWithProof(c3, phone, desktopPk, { nextSeq: 3 });
     expect(ok.ok).toBe(true);
-    expect(ok.resumeSeq).toBe(2);
+    expect(ok.resumeSeq).toBe(3);
     c3.close();
   });
 

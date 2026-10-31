@@ -20,7 +20,9 @@ function ConnBanner() {
       ? t("connection.connecting")
       : connState === "reconnecting"
         ? t("connection.reconnecting")
-        : t("connection.unpaired");
+        : connState === "incompatible"
+          ? t("connection.incompatible")
+          : t("connection.unpaired");
   const text = detail ? t("connection.detail", { message, detail: errorText(detail) }) : message;
   return (
     <div
@@ -53,6 +55,7 @@ export default function App() {
     localeReady ||
     connState === "reconnecting" ||
     connState === "unpaired" ||
+    connState === "incompatible" ||
     connState === "stopped";
 
   useEffect(() => {

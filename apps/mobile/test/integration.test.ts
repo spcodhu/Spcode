@@ -264,14 +264,19 @@ describe("PWA ↔ 真实桌面 RemoteServer 全链路", () => {
       mobile.stop();
     }
 
-    // 5) 断线后重连（auth 模式）：同一配对记录新连接 → ready + 新快照
-    const mobile2 = new MobileTestClient(record);
-    mobile2.start();
-    try {
-      await mobile2.waitState("ready");
-      await mobile2.waitEvent((e) => e.type === "session.snapshot");
-    } finally {
-      mobile2.stop();
+    // 5) 连续模拟两次刷新：IndexedDB 都没来得及保存最新 lastOutSeq，
+    // 桌面仍应通过 resumeSeq 恢复，且恢复后的新命令可正常执行。
+    for (let refresh = 0; refresh < 2; refresh++) {
+      record.lastOutSeq = 0;
+      const refreshed = new MobileTestClient(record);
+      refreshed.start();
+      try {
+        await refreshed.waitState("ready");
+        await refreshed.waitEvent((e) => e.type === "session.snapshot");
+        await refreshed.client.command({ type: "session.list" });
+      } finally {
+        refreshed.stop();
+      }
     }
   });
 

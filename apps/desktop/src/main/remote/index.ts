@@ -509,17 +509,11 @@ export class RemoteServer {
       state.peer.close();
       return;
     }
-    // seq 回滚检查：设备声明的下一个出站 seq 不得落后于我们已接受的基准线
-    // （落后 = 设备状态被回滚/重装丢失，或有人在重放旧连接）
+    // 私钥证明已经确认设备身份。nextSeq 落后只说明浏览器刷新/关闭前来不及落盘，
+    // 不代表桌面解除了配对：由桌面给出权威续接点，手机从该点继续即可。
     const bar = this.pairing.lastInSeqOf(pending.device.publicKey);
     if (pending.nextSeq === null && bar > -1) {
       // 旧版客户端（无 nextSeq）连接有历史 seq 的设备：无法安全续接，要求刷新为新版
-      state.pendingAuth = null;
-      state.peer.send({ t: "auth_ack", ok: false, error: "seq_rollback" });
-      state.peer.close();
-      return;
-    }
-    if (pending.nextSeq !== null && pending.nextSeq <= bar) {
       state.pendingAuth = null;
       state.peer.send({ t: "auth_ack", ok: false, error: "seq_rollback" });
       state.peer.close();

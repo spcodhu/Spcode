@@ -202,6 +202,7 @@ export type ConnectionState =
   | "ready" // 已认证，可收发
   | "reconnecting" // 断线，退避重连中
   | "unpaired" // 桌面端不认识本设备（已在桌面侧解除配对）→ 需重新扫码
+  | "incompatible" // 桌面过旧，无法安全恢复跨连接序号 → 升级桌面，而非重新配对
   | "stopped";
 
 export type ConnectionDetail = string | Error;
@@ -408,9 +409,13 @@ export class RemoteClient {
       };
       if (this.stopped || generation !== this.generation) return;
       if (!ack.ok) {
-        // seq_rollback = 本地出站序号被回滚（如清了站点数据但桌面还记得旧 seq）：配对关系已不可信，需重新配对
-        this.stopped = true; // 桌面已不认识本设备：不再自动重连，等待用户重新配对
-        this.setState("unpaired", ack.error === "seq_rollback" ? new MobileError("error.seqRollback") : undefined);
+        const incompatible = ack.error === "seq_rollback";
+        this.stopped = true;
+        // 旧桌面只会拒绝序号回滚：提示升级；未知设备才进入真正重新配对。
+        this.setState(
+          incompatible ? "incompatible" : "unpaired",
+          incompatible ? new MobileError("error.desktopUpgrade") : undefined,
+        );
         ws.close();
         return;
       }
@@ -424,6 +429,8 @@ export class RemoteClient {
       this.backoff = this.backoffMin;
       // 协议 v2：按 host 的 resumeSeq 续接出站序号（与本地持久值取大者）
       this.outSeq.setNext(Math.max(ack.resumeSeq ?? 0, this.outSeq.peek()));
+      // 立即记录权威续接点；即使下一次刷新又来不及走 close 落盘，也尽量缩小回滚窗口。
+      this.persistOutSeq();
       this.setState("ready");
       // 冲刷握手期间（同一轮事件循环里）先到的加密帧（典型：snapshot 紧随 auth_ack）
       const early = this.earlyFrames;
