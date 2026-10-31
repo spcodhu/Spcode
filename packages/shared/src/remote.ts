@@ -334,6 +334,8 @@ export interface RemoteFeishuStatus {
 /** getRemoteStatus IPC 的返回结构 */
 export interface RemoteStatus {
   enabled: boolean;
+  /** 当前实际监听端口；未运行时为 null。首次绑定后会持久化以稳定 PWA origin */
+  port: number | null;
   /** 手机 PWA 资源状态：安装版应始终 available；开发版可用于展示构建提示 */
   mobilePwa: {
     available: boolean;

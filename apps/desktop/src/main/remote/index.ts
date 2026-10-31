@@ -66,6 +66,8 @@ export interface RemoteServerDeps extends RemoteHandlerDeps {
   mobileDistDir?: string;
   /** 主进程传入的 Electron 路径布局；测试可直接构造开发/安装包目录 */
   mobileRuntime?: MobilePwaRuntime;
+  /** 首次随机端口绑定成功后回写设置；后续启动复用以稳定手机 PWA origin */
+  onLanPortBound?: (port: number) => void;
   /** 测试注入；缺省 ~/.spcode/remote 下的 VAPID/订阅存储 */
   push?: PushService;
   /** 测试注入；缺省真实 tailscale CLI 检测 */
@@ -202,11 +204,33 @@ export class RemoteServer {
       await t.stop();
     }
     const transports = [this.lanTransport, ...(relayUrl && this.relayTransport ? [this.relayTransport] : [])];
-    for (const t of transports) {
-      t.onConnection((peer) => this.acceptPeer(peer));
-      await t.start();
+    try {
+      for (const t of transports) {
+        t.onConnection((peer) => this.acceptPeer(peer));
+        await t.start();
+      }
+    } catch (error) {
+      // 端口冲突等启动失败必须清掉半初始化 transport；否则“更换端口”会复用旧实例反复失败。
+      for (const t of transports) {
+        await t.stop().catch(() => {});
+      }
+      if (!this.deps.transport) this.lanTransport = null;
+      if (this.deps.relayTransport === undefined) this.relayTransport = null;
+      throw error;
     }
     this.activeConfigPort = cfg.port;
+    if (cfg.port === null && this.deps.onLanPortBound) {
+      const boundPort = this.lanTransport.getPort?.() ?? 0;
+      if (boundPort > 0) {
+        try {
+          this.deps.onLanPortBound(boundPort);
+          // 回写后让配置指纹与实际持久值一致，避免下一次 applySettings 无谓重启。
+          this.activeConfigPort = boundPort;
+        } catch (error) {
+          console.warn("[remote/lan] 监听端口持久化失败", error);
+        }
+      }
+    }
     this.activeRelayUrl = relayUrl;
     // 首次启用即生成 VAPID 密钥对（remote.hello 携带公钥供设备订阅推送）
     this.push.ensureVapid();
@@ -324,6 +348,7 @@ export class RemoteServer {
     const feishuConfigured = !!(cfg.feishu?.appId && cfg.feishu?.appSecret);
     return {
       enabled: cfg.enabled,
+      port: this.running ? (this.lanTransport?.getPort?.() ?? null) : null,
       mobilePwa: {
         available: isMobilePwaBuilt(resolveMobileDistDir(this.deps.mobileDistDir, this.mobileRuntime)),
         packaged: this.mobileRuntime.isPackaged,

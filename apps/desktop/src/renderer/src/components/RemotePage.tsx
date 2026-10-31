@@ -28,6 +28,7 @@ export function RemotePage() {
   const [status, setStatus] = useState<RemoteStatus | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   /** OTP 倒计时用的当前时间（启用且有配对窗口时每秒刷新） */
   const [now, setNow] = useState(() => Date.now());
   /** relay 地址输入草稿（null = 未编辑，跟随 settings） */
@@ -71,10 +72,27 @@ export function RemotePage() {
   const toggle = async (v: boolean) => {
     if (busy) return;
     setBusy(true);
+    setActionError(null);
     try {
       // remoteSetEnabled 返回最新 RemoteStatus，直接以它刷新 UI
       setStatus(await window.spcode.remoteSetEnabled(v));
       setNow(Date.now());
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const changePort = async () => {
+    if (busy || !window.confirm(t("remote.portChangeConfirm"))) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      setStatus(await window.spcode.remoteSetEnabled(true, null));
+      setNow(Date.now());
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
     } finally {
       setBusy(false);
     }
@@ -187,6 +205,7 @@ export function RemotePage() {
         <p className="mt-3 border-t border-border pt-3 text-[12px] leading-5 text-text-tertiary">
           {t("remote.phoneGuide.httpNote")}
         </p>
+        <p className="mt-2 text-[12px] leading-5 text-text-tertiary">{t("remote.phoneGuide.persistence")}</p>
       </details>
 
       {/* 总开关 */}
@@ -204,6 +223,12 @@ export function RemotePage() {
           label={t("remote.enable")}
         />
       </div>
+
+      {actionError && (
+        <div role="alert" data-testid="remote-action-error" className="mt-3 text-[13px] leading-6 text-danger">
+          {actionError}
+        </div>
+      )}
 
       {loadFailed && (
         <div
@@ -246,6 +271,21 @@ export function RemotePage() {
               </div>
             )}
             <div className="mt-2 text-[12px] text-text-tertiary">{t("remote.sameNetwork")}</div>
+            <div className="mt-2 flex items-center justify-between gap-3 border-t border-border pt-2">
+              <span className="text-[12px] text-text-tertiary" data-testid="remote-port">
+                {t("remote.portValue", { port: status.port ?? "—" })}
+              </span>
+              <button
+                type="button"
+                data-testid="remote-change-port"
+                disabled={busy}
+                onClick={() => void changePort()}
+                className="shrink-0 rounded-lg px-3 py-1 text-[12px] text-text-tertiary hover:bg-bg-hover hover:text-text-secondary disabled:opacity-40"
+              >
+                {t("remote.changePort")}
+              </button>
+            </div>
+            <div className="mt-1 text-[12px] leading-5 text-text-tertiary">{t("remote.portHint")}</div>
           </div>
 
           {/* 配对二维码 + OTP */}

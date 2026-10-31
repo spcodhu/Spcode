@@ -274,9 +274,15 @@ export const zhCN = {
   "remote.phoneGuide.control": "配对成功后即可查看会话、发送指令、回复提问和处理权限请求。",
   "remote.phoneGuide.httpNote":
     "普通局域网 HTTP 可完成基本远程控制；摄像头、Web Push 和添加到主屏幕等能力可能受浏览器与安全上下文限制。",
+  "remote.phoneGuide.persistence":
+    "同一浏览器、同一地址与端口且未清除站点数据时，配对可长期复用；更换 origin、浏览器或清除站点数据后需重新配对。",
   "remote.addresses": "监听地址",
   "remote.loadingAddresses": "监听地址获取中…",
   "remote.sameNetwork": "手机需与电脑连接同一局域网",
+  "remote.portValue": "监听端口：{{port}}",
+  "remote.changePort": "更换端口",
+  "remote.portChangeConfirm": "更换端口会改变手机 PWA 的 origin，手机需使用新地址并可能重新配对。确定继续？",
+  "remote.portHint": "首次启用后固定此端口，桌面重启不会随机变化；主动更换前请确认影响。",
   "remote.pair": "配对新设备",
   "remote.scan": "用手机浏览器打开监听地址，再扫码或粘贴完整配对码：",
   "remote.otpHelp": "上方 8 位数字为一次性 OTP，仅供核对，不能单独用于手机手动配对。",
@@ -748,9 +754,16 @@ export const en = {
     "Once paired, view sessions, send prompts, answer questions, and handle permission requests.",
   "remote.phoneGuide.httpNote":
     "Basic remote control works over local HTTP. Camera access, Web Push, and home-screen installation may depend on browser and secure-context support.",
+  "remote.phoneGuide.persistence":
+    "Pairing persists in the same browser at the same address and port unless site data is cleared. A different origin or browser, or cleared site data, requires pairing again.",
   "remote.addresses": "Listening addresses",
   "remote.loadingAddresses": "Getting listening addresses…",
   "remote.sameNetwork": "Your phone and computer must be on the same local network",
+  "remote.portValue": "Listening port: {{port}}",
+  "remote.changePort": "Change port",
+  "remote.portChangeConfirm":
+    "Changing the port changes the mobile PWA origin. Your phone will need the new address and may need to pair again. Continue?",
+  "remote.portHint": "The port is reused after the first successful start so desktop restarts do not change it.",
   "remote.pair": "Pair a new device",
   "remote.scan": "Open the listening address in a phone browser, then scan or paste the full pairing code:",
   "remote.otpHelp":

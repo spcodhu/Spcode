@@ -30,6 +30,7 @@ function deferred<T>() {
 function remoteStatus(enabled: boolean) {
   return {
     enabled,
+    port: enabled ? 8123 : null,
     mobilePwa: { available: true, packaged: false },
     urls: [],
     devices: [],
@@ -162,6 +163,20 @@ describe("远程控制状态读取", () => {
     expect(container.querySelector('[data-testid="remote-load-error"]')).toBeNull();
     expect(element("remote-urls")).not.toBeNull();
   });
+  it("更换端口前提示 origin 影响，确认后请求重新绑定并持久化新端口", async () => {
+    const remoteSetEnabled = vi.fn().mockResolvedValue({ ...remoteStatus(true), port: 9999 });
+    const confirm = vi.fn().mockReturnValue(true);
+    Object.assign(window.spcode, { remoteSetEnabled });
+    vi.stubGlobal("confirm", confirm);
+    remoteStatusQuery.mockResolvedValue(remoteStatus(true));
+    await render(createElement(RemotePage));
+
+    await click("remote-change-port");
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("origin"));
+    expect(remoteSetEnabled).toHaveBeenCalledWith(true, null);
+    expect(element("remote-port").textContent).toContain("9999");
+  });
+
   it("复制完整配对码使用当前 payload，不重新生成 OTP", async () => {
     const payload = "spcode-remote://pair?v=2&hosts=demo&otp=12345678";
     const writeText = vi.fn().mockResolvedValue(undefined);

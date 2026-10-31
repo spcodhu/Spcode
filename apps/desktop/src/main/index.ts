@@ -326,6 +326,10 @@ const remote = new RemoteServer({
     resourcesPath: process.resourcesPath,
     isPackaged: app.isPackaged,
   },
+  onLanPortBound: (port) => {
+    const current = settings.get().remote;
+    if (current.port === null) settings.set({ remote: { ...current, port } });
+  },
 });
 
 // ---------------------------------------------------------------------------
