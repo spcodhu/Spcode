@@ -66,6 +66,9 @@ function startClient(record: PairingRecord): void {
   olderOutputRequests.clear();
   client?.stop();
   const store = useAppStore.getState();
+  for (const sessionId of Object.keys(store.olderHistoryLoading)) {
+    store.setOlderHistoryLoading(sessionId, false);
+  }
   client = new RemoteClient(record, {
     onEvent: (event) => {
       if (generation === clientGeneration) handleEvent(event);

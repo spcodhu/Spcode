@@ -109,16 +109,16 @@ export function PairPage() {
     }
   };
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
       mountedRef.current = false;
       pairGenerationRef.current++;
       scanGenerationRef.current++;
       scannerRef.current?.destroy();
       scannerRef.current = null;
-    },
-    [],
-  );
+    };
+  }, []);
 
   // 扫码生命周期。设备名通过 ref 在识别成功时读取，避免 scanner 闭包冻结旧值。
   // biome-ignore lint/correctness/useExhaustiveDependencies: 仅在扫码开关变化时重建扫描器，配对函数统一走 ref/代次保护

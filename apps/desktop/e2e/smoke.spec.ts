@@ -1,3 +1,6 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { launchApp } from "./helpers";
 
@@ -191,6 +194,30 @@ test.describe("Spcode 冒烟 E2E", () => {
     await expect(window.getByTestId("remote-intro")).toBeVisible({ timeout: 10000 });
 
     await app.close();
+  });
+
+  test("设置页：远程监听端口首次固定并跨重启复用", async () => {
+    const spcodeHome = mkdtempSync(join(tmpdir(), "spcode-e2e-remote-port-"));
+    const app = await launchApp({ spcodeHome });
+    const window = await app.firstWindow();
+    await window.getByRole("button", { name: /新建聊天/ }).click();
+    await expect(window.getByPlaceholder(/说点什么/)).toBeVisible({ timeout: 15000 });
+    await window.getByTitle("设置", { exact: true }).click();
+    await window.getByRole("button", { name: "远程控制" }).click();
+    await window.getByRole("switch", { name: "启用远程控制" }).click();
+    await expect(window.getByTestId("remote-port")).toBeVisible({ timeout: 10000 });
+    const firstPort = await window.getByTestId("remote-port").textContent();
+    expect(firstPort).toMatch(/\d+/);
+    await app.close();
+
+    const app2 = await launchApp({ spcodeHome });
+    const window2 = await app2.firstWindow();
+    await expect(window2.getByTestId("brand")).toBeVisible({ timeout: 15000 });
+    await window2.getByTitle("设置", { exact: true }).click();
+    await window2.getByRole("button", { name: "远程控制" }).click();
+    await expect(window2.getByTestId("remote-port")).toBeVisible({ timeout: 10000 });
+    await expect(window2.getByTestId("remote-port")).toHaveText(firstPort!);
+    await app2.close();
   });
 
   test("设置页：远程控制分区——relay/推送开关/Tailscale 灰态/隐私说明展开", async () => {
