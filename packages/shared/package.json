@@ -9,6 +9,7 @@
     "./advanced-search": "./src/advanced-search.ts",
     "./web-fetch": "./src/web-fetch.ts",
     "./run-error": "./src/run-error.ts",
+    "./theme": "./src/theme.ts",
     "./crypto": "./src/crypto.ts",
     "./remote-history": "./src/remote-history.ts",
     "./i18n": "./src/i18n/index.ts",

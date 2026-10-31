@@ -1,8 +1,41 @@
 @import "tailwindcss";
+@import "katex/dist/katex.min.css";
+@import "@spcode/ui/markdown.css";
+
+@source "../node_modules/streamdown/dist/*.js";
+@source "../node_modules/@streamdown/code/dist/*.js";
+@source "../node_modules/@streamdown/math/dist/*.js";
+@source "../node_modules/@streamdown/mermaid/dist/*.js";
+
+@theme inline {
+  --color-bg-root: #121212;
+  --color-bg-sidebar: #181818;
+  --color-bg-main: #1f1f1f;
+  --color-bg-elevated: #262626;
+  --color-bg-hover: #2c2c2c;
+  --color-bg-active: #343434;
+  --color-border: #363636;
+  --color-border-strong: #4a4a4a;
+  --color-text-primary: #ececec;
+  --color-text-secondary: #a3a3a3;
+  --color-text-tertiary: #858585;
+  --color-accent: #f2f2f2;
+  --color-on-accent: #171717;
+  --color-on-danger: #1b1012;
+  --color-accent-dim: #d4d4d4;
+  --color-accent-soft: rgba(255, 255, 255, 0.09);
+  --color-danger: #e5636f;
+  --color-warning: #d9a045;
+  --color-success: #5cb87a;
+  --color-user-bubble: #292929;
+  --color-thinking: #969696;
+}
 
 :root {
   color-scheme: dark;
   font-synthesis: none;
+  --ui-font: system-ui, -apple-system, "PingFang SC", "Noto Sans SC", sans-serif;
+  --mono-font: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   --mobile-bg: #0b100f;
   --mobile-surface: #111817;
   --mobile-surface-raised: #16201e;

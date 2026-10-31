@@ -1,0 +1,33 @@
+{
+  "name": "@spcode/ui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./markdown.css": "./src/markdown.css",
+    "./md-detect": "./src/md-detect.ts",
+    "./plan-links": "./src/plan-links.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@spcode/shared": "workspace:*",
+    "@streamdown/code": "^1.1.1",
+    "@streamdown/math": "^1.0.3",
+    "@streamdown/mermaid": "^1.0.3",
+    "katex": "^0.19.0",
+    "react": "^19.3.0",
+    "react-i18next": "^17.1.2",
+    "streamdown": "^2.6.0"
+  },
+  "peerDependencies": {
+    "react": "^19.3.0",
+    "react-i18next": "^17.1.2"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "typescript": "^5.9.2"
+  }
+}

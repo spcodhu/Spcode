@@ -3,6 +3,7 @@
  * 底部输入框（运行中发送即 steer 插话）+ 中断按钮。
  */
 
+import { Markdown } from "@spcode/ui";
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorText, formatNumber } from "../lib/i18n";
@@ -171,12 +172,9 @@ function OutputView({ sessionId }: { sessionId: string }) {
                   ) : null;
                 }
                 return (
-                  <pre
-                    key={c.id}
-                    className="safe-break whitespace-pre-wrap rounded-2xl border border-slate-800/60 bg-slate-900/40 px-3.5 py-3 font-mono text-[13px] leading-6 text-slate-200"
-                  >
-                    {c.chunk}
-                  </pre>
+                  <div key={c.id} className="min-w-0 text-text-primary">
+                    <Markdown text={c.chunk} themeBase="dark" />
+                  </div>
                 );
               })}
             </div>
