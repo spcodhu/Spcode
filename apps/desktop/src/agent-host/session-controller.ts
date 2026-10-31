@@ -441,6 +441,7 @@ export class SessionController {
       sessionId: this.sessionId,
       sessionFile: this.sessionFile,
       planMode: this.planMode,
+      running: this.isRunning(),
       permissionMode: this.permissionModeRef.current,
       sandbox: this.sandboxInfo as SessionInfo["sandbox"],
       model: model ? { provider: model.provider, modelId: model.id } : null,

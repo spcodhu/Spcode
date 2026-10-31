@@ -1102,7 +1102,7 @@ export const useStore = create<StoreState>((set, get) => ({
         updatedAt: entry.updatedAt,
       },
       messages: [],
-      running: false,
+      running: info.running ?? false,
       usage: { ...EMPTY_USAGE },
       lastUsage: null,
       supportedThinkingLevels: info.supportedThinkingLevels ?? [],

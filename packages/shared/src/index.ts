@@ -139,6 +139,8 @@ export interface SessionInfo {
   sessionId: string;
   sessionFile: string | null;
   planMode: boolean;
+  /** 宿主当前是否仍在执行该会话；打开运行中会话时桌面据此初始化运行态 */
+  running: boolean;
   /** 当前会话的权限模式（三档：总是询问/必要时询问/总不询问） */
   permissionMode: import("./permission.js").PermissionMode;
   /** 沙盒状态：active=内核边界生效；disabled=用户关闭；unavailable=平台/依赖不满足 */

@@ -120,6 +120,51 @@ describe("会话切换的宿主休眠/唤醒联动", () => {
     expect(useStore.getState().sessions["hib-nofile"]?.hostAwake).toBe(true);
   });
 
+  it("远程创建的运行中会话首次打开保留 running，切走不休眠，切回不重复 open", async () => {
+    const info = {
+      sessionId: "remote-run",
+      sessionFile: "/tmp/remote-run.jsonl",
+      running: true,
+      planMode: false,
+      permissionMode: "ask" as const,
+      sandbox: { state: "active" as const },
+      model: null,
+      thinkingLevel: "off",
+      supportedThinkingLevels: [],
+    };
+    const command = vi.fn(async (_cmd: { type: string }) => info);
+    vi.stubGlobal("window", { spcode: { command } });
+    seedAwakeSession("open-other");
+    useStore.setState((s) => ({
+      registrySessions: [
+        ...s.registrySessions,
+        {
+          id: "remote-run",
+          mode: "chat" as const,
+          cwd: "",
+          title: "手机长任务",
+          titleKind: "custom" as const,
+          model: null,
+          thinkingLevel: "off",
+          sessionFile: "/tmp/remote-run.jsonl",
+          createdAt: 1,
+          updatedAt: 2,
+        },
+      ],
+    }));
+
+    await useStore.getState().openSessionById("remote-run");
+    expect(useStore.getState().sessions["remote-run"]?.running).toBe(true);
+    useStore.getState().setActive("open-other");
+    expect(command).not.toHaveBeenCalledWith({
+      type: "session.hibernate",
+      payload: { sessionId: "remote-run" },
+    });
+
+    await useStore.getState().openSessionById("remote-run");
+    expect(command.mock.calls.filter(([cmd]) => cmd.type === "session.open")).toHaveLength(1);
+  });
+
   it("hibernate 命令失败：回滚 awake 标记", async () => {
     const command = vi.fn(async (cmd: { type: string }) => {
       if (cmd.type === "session.hibernate") throw new Error("host down");

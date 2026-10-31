@@ -39,6 +39,7 @@ import { resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
 import { exportSessionContext } from "./export-context.js";
 import { HibernationManager } from "./hibernation.js";
 import { getMcpManager } from "./mcp.js";
+import { getOrCreateOpenedController } from "./session-open.js";
 import { MemoryStore } from "./memory-store.js";
 import {
   addCustomModel,
@@ -573,25 +574,20 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         break;
       }
       case "session.open": {
-        // 同 sessionId 重复 open：同 create，先释放旧实例
+        // 活跃实例原样复用：桌面/手机打开视图不得中断正在运行的任务。
         hibernation.cancel(cmd.payload.sessionId);
         hibernated.delete(cmd.payload.sessionId);
-        const existing = sessions.get(cmd.payload.sessionId);
-        if (existing) {
-          settlePendingForSession(cmd.payload.sessionId);
-          await existing.dispose().catch(() => {});
-          sessions.delete(cmd.payload.sessionId);
-        }
-        const ctl = await createController({
-          sessionId: cmd.payload.sessionId,
-          cwd: cmd.payload.cwd,
-          // 恢复会话按 cwd 推断模式（聊天会话 cwd 为空）
-          mode: cmd.payload.cwd?.trim() ? "project" : "chat",
-          sessionFile: cmd.payload.sessionFile,
-          planMode: cmd.payload.planMode,
-          permissionMode: cmd.payload.permissionMode,
-        });
-        sessions.set(cmd.payload.sessionId, ctl);
+        const { controller: ctl } = await getOrCreateOpenedController(sessions, cmd.payload.sessionId, () =>
+          createController({
+            sessionId: cmd.payload.sessionId,
+            cwd: cmd.payload.cwd,
+            // 恢复会话按 cwd 推断模式（聊天会话 cwd 为空）
+            mode: cmd.payload.cwd?.trim() ? "project" : "chat",
+            sessionFile: cmd.payload.sessionFile,
+            planMode: cmd.payload.planMode,
+            permissionMode: cmd.payload.permissionMode,
+          }),
+        );
         // 先回响应，再推历史（渲染进程按序处理）
         respond(id, true, ctl.info());
         emit({
