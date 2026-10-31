@@ -19,6 +19,13 @@ function guessDeviceName(): string {
   return "phone";
 }
 
+function cameraStartError(error: unknown): MobileError {
+  const name = (error as { name?: unknown } | null)?.name;
+  if (name === "NotAllowedError" || name === "SecurityError") return new MobileError("pair.cameraPermissionDenied");
+  if (name === "NotFoundError" || name === "OverconstrainedError") return new MobileError("pair.cameraNotFound");
+  return new MobileError("pair.cameraError");
+}
+
 export function PairPage() {
   const { t } = useTranslation("mobile");
   const [name, setName] = useState<string | null>(null);
@@ -26,10 +33,13 @@ export function PairPage() {
   const defaultName = device === "android" ? t("pair.androidPhone") : device === "phone" ? t("pair.phone") : device;
   const [payload, setPayload] = useState("");
   const [scanning, setScanning] = useState(false);
+  const [cameraStarting, setCameraStarting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const payloadRef = useRef<HTMLTextAreaElement | null>(null);
   const scannerRef = useRef<QrScanner | null>(null);
+  const cameraStartingRef = useRef(false);
   const scanGenerationRef = useRef(0);
   const pairGenerationRef = useRef(0);
   const busyRef = useRef(false);
@@ -39,9 +49,41 @@ export function PairPage() {
 
   const stopScan = () => {
     scanGenerationRef.current++;
+    cameraStartingRef.current = false;
+    setCameraStarting(false);
     scannerRef.current?.destroy();
     scannerRef.current = null;
     setScanning(false);
+  };
+
+  const startScan = async () => {
+    if (busyRef.current || cameraStartingRef.current) return;
+    const generation = ++scanGenerationRef.current;
+    setError(null);
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      setError(new MobileError("pair.cameraInsecure"));
+      payloadRef.current?.focus();
+      return;
+    }
+    cameraStartingRef.current = true;
+    setCameraStarting(true);
+    try {
+      // 必须在安全上下文中由用户点击显式请求，浏览器才会展示正常的权限确认窗口。
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: "environment" },
+      });
+      for (const track of stream.getTracks()) track.stop();
+      if (generation !== scanGenerationRef.current || !mountedRef.current) return;
+      setScanning(true);
+    } catch (error) {
+      if (generation !== scanGenerationRef.current || !mountedRef.current) return;
+      setError(cameraStartError(error));
+      setScanning(false);
+    } finally {
+      cameraStartingRef.current = false;
+      if (mountedRef.current) setCameraStarting(false);
+    }
   };
 
   const doPair = async (qrText: string) => {
@@ -138,22 +180,18 @@ export function PairPage() {
         <button
           type="button"
           data-testid="pair-scan"
-          disabled={busy}
-          onClick={() => {
-            if (busyRef.current) return;
-            scanGenerationRef.current++;
-            setError(null);
-            setScanning(true);
-          }}
+          disabled={busy || cameraStarting}
+          onClick={() => void startScan()}
           className="mt-4 min-h-12 w-full rounded-xl bg-teal-700 px-4 py-3 text-sm font-medium text-white active:bg-teal-600 disabled:opacity-40"
         >
-          {t("pair.scan")}
+          {cameraStarting ? t("pair.cameraStarting") : t("pair.scan")}
         </button>
       )}
 
       <div className="mt-6">
         <div className="text-xs text-slate-500">{t("pair.pasteHelp")}</div>
         <textarea
+          ref={payloadRef}
           data-testid="pair-payload"
           value={payload}
           disabled={busy}

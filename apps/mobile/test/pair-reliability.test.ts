@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   pairWithQr: vi.fn(),
   savePairing: vi.fn(),
   attachPairedRecord: vi.fn(),
+  getUserMedia: vi.fn(),
+  trackStop: vi.fn(),
   scanners: [] as {
     callback: (result: { data: string }) => void;
     start: ReturnType<typeof vi.fn>;
@@ -69,6 +71,15 @@ beforeEach(() => {
   mocks.pairWithQr.mockReset();
   mocks.savePairing.mockReset().mockResolvedValue(undefined);
   mocks.attachPairedRecord.mockReset();
+  mocks.trackStop.mockReset();
+  mocks.getUserMedia.mockReset().mockImplementation(async () => ({
+    getTracks: () => [{ stop: mocks.trackStop }],
+  }));
+  vi.stubGlobal("isSecureContext", true);
+  vi.stubGlobal("navigator", {
+    userAgent: "iPhone",
+    mediaDevices: { getUserMedia: mocks.getUserMedia },
+  });
   mocks.scanners.length = 0;
   container = document.createElement("div");
   container.id = "root";
@@ -84,6 +95,35 @@ afterEach(async () => {
 });
 
 describe("配对互斥与代次", () => {
+  it("HTTP 非安全上下文不调用摄像头，说明原因并聚焦完整配对码", async () => {
+    vi.stubGlobal("isSecureContext", false);
+    await render();
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="pair-scan"]')!.click());
+
+    expect(mocks.getUserMedia).not.toHaveBeenCalled();
+    expect(mocks.scanners).toHaveLength(0);
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain("HTTP 局域网地址");
+    expect(document.activeElement).toBe(document.querySelector('[data-testid="pair-payload"]'));
+  });
+
+  it("HTTPS 下点击扫码显式请求权限，预检流停止后再启动扫描器", async () => {
+    await render();
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="pair-scan"]')!.click());
+
+    expect(mocks.getUserMedia).toHaveBeenCalledWith({ audio: false, video: { facingMode: "environment" } });
+    expect(mocks.trackStop).toHaveBeenCalledTimes(1);
+    expect(mocks.scanners).toHaveLength(1);
+  });
+
+  it("权限被拒绝时不启动扫描器，并提示到网站设置中恢复", async () => {
+    mocks.getUserMedia.mockRejectedValueOnce({ name: "NotAllowedError" });
+    await render();
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="pair-scan"]')!.click());
+
+    expect(mocks.scanners).toHaveLength(0);
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain("网站设置");
+  });
+
   it("扫描器回调读取识别时的最新设备名", async () => {
     mocks.pairWithQr.mockResolvedValueOnce(record);
     await render();
