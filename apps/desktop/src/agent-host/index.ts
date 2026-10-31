@@ -726,11 +726,12 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         const model =
           (want && available.find((m) => m.provider === want.provider && m.id === want.modelId)) || available[0];
         if (!model) throw new Error(i18n.t("integration:theme.noModel"));
+        const base = cmd.payload.base === "dark" ? "dark" : "light";
         const systemPrompt = [
-          "You are a desktop application theme designer. Generate a dark theme JSON from the user's description.",
+          `You are a desktop application theme designer. Generate a ${base} theme JSON from the user's description.`,
           "Output only JSON, without Markdown fences, using this exact structure:",
-          '{"name":"Theme name","base":"dark","colors":{"bgRoot":"#...","bgSidebar":"#...","bgMain":"#...","bgElevated":"#...","bgHover":"#...","bgActive":"#...","border":"#...","textPrimary":"#...","textSecondary":"#...","textTertiary":"#...","accent":"#...","danger":"#...","warning":"#...","success":"#..."}}',
-          "Use distinct background layers (root darkest, elevated lightest), body text contrast of at least 7:1, one primary accent color, and low saturation for comfortable reading.",
+          `{"name":"Theme name","base":"${base}","colors":{"bgRoot":"#...","bgSidebar":"#...","bgMain":"#...","bgElevated":"#...","bgHover":"#...","bgActive":"#...","border":"#...","textPrimary":"#...","textSecondary":"#...","textTertiary":"#...","accent":"#...","danger":"#...","warning":"#...","success":"#..."}}`,
+          "Use clearly separated background layers, body text contrast of at least 4.5:1, one primary accent color, and low saturation for comfortable reading.",
           `Write the theme name in ${getLocale() === "zh-CN" ? "Simplified Chinese" : "English"}. Keep all JSON keys and the base value unchanged.`,
         ].join("\n");
         const result = await rt.completeSimple(model, {

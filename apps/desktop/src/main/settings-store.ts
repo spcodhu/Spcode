@@ -41,6 +41,9 @@ export function sanitizeAppSettings(input: Partial<AppSettings>): Partial<AppSet
   for (const k of ["memoryDistill", "quickQuota", "autoUpdate", "betaUpdates"] as const) {
     if (out[k] !== undefined && typeof out[k] !== "boolean") delete out[k];
   }
+  if (out.themeMigrationVersion !== undefined && !Number.isSafeInteger(out.themeMigrationVersion)) {
+    delete out.themeMigrationVersion;
+  }
   // 字符串字段
   for (const k of [
     "defaultThinkingLevel",
@@ -136,9 +139,15 @@ export class SettingsStore {
       loadedSandbox.filesystem && typeof loadedSandbox.filesystem === "object"
         ? (loadedSandbox.filesystem as Partial<AppSettings["sandbox"]["filesystem"]>)
         : {};
+    const migrateLegacyDefaultDark =
+      loaded.themeMigrationVersion === undefined &&
+      loaded.themeId === "spcode-dark" &&
+      (loaded.customTheme === null || loaded.customTheme === undefined);
     this.cache = {
       ...DEFAULT_SETTINGS,
       ...loaded,
+      themeId: migrateLegacyDefaultDark ? DEFAULT_SETTINGS.themeId : (loaded.themeId ?? DEFAULT_SETTINGS.themeId),
+      themeMigrationVersion: 1,
       locale: resolveLocale(loaded.locale),
       remote: {
         ...DEFAULT_SETTINGS.remote,

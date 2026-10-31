@@ -1,11 +1,21 @@
 <!doctype html>
-<html class="dark">
+<html>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#0b0f14" />
+    <meta name="theme-color" content="#ffffff" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <script>
+      try {
+        const base = localStorage.getItem("spcod-mobile-theme") === "dark" ? "dark" : "light";
+        document.documentElement.dataset.themeBase = base;
+        document.documentElement.style.colorScheme = base;
+      } catch {
+        document.documentElement.dataset.themeBase = "light";
+        document.documentElement.style.colorScheme = "light";
+      }
+    </script>
     <link rel="manifest" href="./manifest.webmanifest" />
     <title>Spcod</title>
   </head>

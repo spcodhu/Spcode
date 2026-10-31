@@ -4,9 +4,11 @@ import { createRoot } from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
 import App from "./App";
 import { initializeMobileLocale } from "./lib/i18n";
+import { initializeMobileTheme } from "./lib/theme";
 import "./index.css";
 
 initializeMobileLocale();
+initializeMobileTheme();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

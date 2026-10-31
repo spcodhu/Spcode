@@ -13,32 +13,30 @@
 @source "../../../node_modules/@streamdown/math/dist/*.js";
 @source "../../../node_modules/@streamdown/mermaid/dist/*.js";
 
-/*
- * Spcode 默认暗色主题「雀羽 · 墨」（Finch 风格中性灰 + 雀绿 accent）
- * 中性灰阶不带蓝调；accent 为雀绿，用于激活态、开关、进度条、发送键。
- */
+/* 默认亮色；暗色由 applyTheme 按设置注入完整色板。
+   中性灰阶 + 黑白主操作，状态色只表达真实状态。 */
 @theme inline {
-  --color-bg-root: #141416;
-  --color-bg-sidebar: #17171a;
-  --color-bg-main: #1b1b1f;
-  --color-bg-elevated: #212127;
-  --color-bg-hover: #26262d;
-  --color-bg-active: #2c2c34;
-  --color-border: #2c2c33;
-  --color-border-strong: #3a3a44;
-  --color-text-primary: #ececee;
-  --color-text-secondary: #9c9ca5;
-  --color-text-tertiary: #898993;
-  --color-accent: #3fa97b;
-  --color-on-accent: #101610;
-  --color-on-danger: #1b1012;
-  --color-accent-dim: #2f8560;
-  --color-accent-soft: rgba(63, 169, 123, 0.14);
-  --color-danger: #e5636f;
-  --color-warning: #d9a045;
-  --color-success: #5cb87a;
-  --color-user-bubble: #232329;
-  --color-thinking: #8b7fc0;
+  --color-bg-root: #f7f7f5;
+  --color-bg-sidebar: #f0f0ee;
+  --color-bg-main: #ffffff;
+  --color-bg-elevated: #ffffff;
+  --color-bg-hover: #eeeeec;
+  --color-bg-active: #e6e6e3;
+  --color-border: #e2e2de;
+  --color-border-strong: #cfcfca;
+  --color-text-primary: #1c1c1c;
+  --color-text-secondary: #616161;
+  --color-text-tertiary: #7a7a78;
+  --color-accent: #171717;
+  --color-on-accent: #ffffff;
+  --color-on-danger: #ffffff;
+  --color-accent-dim: #3d3d3d;
+  --color-accent-soft: rgba(0, 0, 0, 0.06);
+  --color-danger: #c94b57;
+  --color-warning: #a86f16;
+  --color-success: #2e7d52;
+  --color-user-bubble: #f0f0ed;
+  --color-thinking: #6f6f6f;
 }
 
 :root {

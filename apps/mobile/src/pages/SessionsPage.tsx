@@ -14,8 +14,8 @@ import { createSession, removeSession, renameSession, unpair } from "../state/co
 import { type SessionStatus, useAppStore } from "../state/store";
 
 const STATUS_CLASS: Record<SessionStatus, string> = {
-  running: "bg-teal-950 text-teal-300",
-  idle: "bg-slate-800 text-slate-400",
+  running: "bg-accent-soft text-accent",
+  idle: "bg-bg-elevated text-text-tertiary",
   waiting_permission: "bg-amber-950 text-amber-300",
 };
 
@@ -50,7 +50,7 @@ function NewTaskSheet({ onClose }: { onClose: () => void }) {
           type="button"
           disabled={busy || !prompt.trim() || (mode === "project" && !cwd.trim())}
           onClick={() => void submit()}
-          className="min-h-12 w-full rounded-xl bg-teal-700 px-4 py-3 text-sm font-medium text-white transition-colors active:bg-teal-600 disabled:opacity-40"
+          className="min-h-12 w-full rounded-xl bg-accent px-4 py-3 text-sm font-medium text-on-accent transition-colors active:bg-accent-dim disabled:opacity-40"
         >
           {busy ? t("common.creating") : t("sessions.start")}
         </button>
@@ -66,8 +66,8 @@ function NewTaskSheet({ onClose }: { onClose: () => void }) {
               onClick={() => setMode(m)}
               className={`min-h-11 flex-1 rounded-xl border px-3 py-2.5 text-sm transition-colors ${
                 mode === m
-                  ? "border-teal-600 bg-teal-800/70 text-teal-50"
-                  : "border-slate-700 bg-slate-800/70 text-slate-300"
+                  ? "border-accent bg-accent-soft text-accent"
+                  : "border-border-strong bg-bg-elevated text-text-secondary"
               }`}
             >
               {m === "chat" ? t("common.chat") : t("common.project")}
@@ -82,7 +82,7 @@ function NewTaskSheet({ onClose }: { onClose: () => void }) {
             aria-label={t("common.projectPath")}
             autoCapitalize="off"
             spellCheck={false}
-            className="min-h-11 w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2.5 text-base text-slate-100 outline-none placeholder:text-slate-600 focus:border-teal-500"
+            className="min-h-11 w-full rounded-xl border border-border-strong bg-bg-main/70 px-3 py-2.5 text-base text-text-primary outline-none placeholder:text-text-tertiary focus:border-accent"
           />
         )}
         <textarea
@@ -91,7 +91,7 @@ function NewTaskSheet({ onClose }: { onClose: () => void }) {
           rows={4}
           placeholder={t("sessions.prompt")}
           aria-label={t("sessions.prompt")}
-          className="min-h-28 w-full resize-y rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2.5 text-base leading-6 text-slate-100 outline-none placeholder:text-slate-600 focus:border-teal-500"
+          className="min-h-28 w-full resize-y rounded-xl border border-border-strong bg-bg-main/70 px-3 py-2.5 text-base leading-6 text-text-primary outline-none placeholder:text-text-tertiary focus:border-accent"
         />
         {error != null && (
           <div role="alert" className="safe-break text-xs leading-5 text-red-300">
@@ -131,7 +131,7 @@ function SessionActionsSheet({ session, onClose }: { session: SessionMeta; onClo
           type="button"
           disabled={busy}
           onClick={() => setMode("menu")}
-          className="min-h-12 flex-1 rounded-xl bg-slate-800 px-3 py-3 text-sm text-slate-300 disabled:opacity-40"
+          className="min-h-12 flex-1 rounded-xl bg-bg-elevated px-3 py-3 text-sm text-text-secondary disabled:opacity-40"
         >
           {t("common.back")}
         </button>
@@ -139,7 +139,7 @@ function SessionActionsSheet({ session, onClose }: { session: SessionMeta; onClo
           type="button"
           disabled={busy || !title.trim() || title.trim() === session.title}
           onClick={() => void run(() => renameSession(session.id, title.trim()))}
-          className="min-h-12 flex-1 rounded-xl bg-teal-700 px-3 py-3 text-sm font-medium text-white disabled:opacity-40"
+          className="min-h-12 flex-1 rounded-xl bg-accent px-3 py-3 text-sm font-medium text-on-accent disabled:opacity-40"
         >
           {busy ? t("common.saving") : t("common.save")}
         </button>
@@ -150,7 +150,7 @@ function SessionActionsSheet({ session, onClose }: { session: SessionMeta; onClo
           type="button"
           disabled={busy}
           onClick={() => setMode("menu")}
-          className="min-h-12 flex-1 rounded-xl bg-slate-800 px-3 py-3 text-sm text-slate-300 disabled:opacity-40"
+          className="min-h-12 flex-1 rounded-xl bg-bg-elevated px-3 py-3 text-sm text-text-secondary disabled:opacity-40"
         >
           {t("common.cancel")}
         </button>
@@ -158,7 +158,7 @@ function SessionActionsSheet({ session, onClose }: { session: SessionMeta; onClo
           type="button"
           disabled={busy}
           onClick={() => void run(() => removeSession(session.id))}
-          className="min-h-12 flex-1 rounded-xl bg-red-800 px-3 py-3 text-sm font-medium text-white disabled:opacity-40"
+          className="min-h-12 flex-1 rounded-xl bg-red-800 px-3 py-3 text-sm font-medium text-on-accent disabled:opacity-40"
         >
           {busy ? t("common.deleting") : t("common.confirmDelete")}
         </button>
@@ -172,7 +172,7 @@ function SessionActionsSheet({ session, onClose }: { session: SessionMeta; onClo
           <button
             type="button"
             onClick={() => setMode("rename")}
-            className="min-h-12 w-full rounded-xl bg-slate-800 px-4 py-3 text-sm text-slate-100 transition-colors active:bg-slate-700"
+            className="min-h-12 w-full rounded-xl bg-bg-elevated px-4 py-3 text-sm text-text-primary transition-colors active:bg-bg-active"
           >
             {t("sessions.rename")}
           </button>
@@ -195,7 +195,7 @@ function SessionActionsSheet({ session, onClose }: { session: SessionMeta; onClo
           data-dialog-initial-focus
           // biome-ignore lint/a11y/noAutofocus: 重命名弹层主动聚焦输入框，便于直接编辑
           autoFocus
-          className="min-h-11 w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2.5 text-base text-slate-100 outline-none focus:border-teal-500"
+          className="min-h-11 w-full rounded-xl border border-border-strong bg-bg-main/70 px-3 py-2.5 text-base text-text-primary outline-none focus:border-accent"
         />
       )}
 
@@ -228,16 +228,16 @@ export function SessionsPage() {
 
   return (
     <div className="relative flex h-full flex-col">
-      <header className="shrink-0 space-y-3 border-b border-slate-800/80 px-4 py-3">
+      <header className="shrink-0 space-y-3 border-b border-border px-4 py-3">
         <div className="flex min-w-0 items-center justify-between gap-3">
-          <h1 className="min-w-0 truncate text-lg font-semibold tracking-tight text-slate-100">
+          <h1 className="min-w-0 truncate text-lg font-semibold tracking-tight text-text-primary">
             {t("sessions.title")}
           </h1>
           <button
             type="button"
             onClick={() => setShowSettings(true)}
             aria-label={t("common.settings")}
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-800/80 text-base text-slate-300 transition-colors active:bg-slate-700"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-bg-elevated text-base text-text-secondary transition-colors active:bg-bg-active"
           >
             <span aria-hidden="true">⚙</span>
           </button>
@@ -246,7 +246,7 @@ export function SessionsPage() {
           <button
             type="button"
             onClick={() => setRoute({ name: "schedules" })}
-            className="min-h-11 rounded-xl bg-slate-800/80 px-3 py-2.5 text-xs font-medium text-slate-200 transition-colors active:bg-slate-700"
+            className="min-h-11 rounded-xl bg-bg-elevated px-3 py-2.5 text-xs font-medium text-text-primary transition-colors active:bg-bg-active"
           >
             {t("schedules.title")}
           </button>
@@ -254,7 +254,7 @@ export function SessionsPage() {
             type="button"
             onClick={() => setShowNew(true)}
             disabled={connState !== "ready"}
-            className="min-h-11 rounded-xl bg-teal-700 px-3 py-2.5 text-xs font-medium text-white transition-colors active:bg-teal-600 disabled:opacity-40"
+            className="min-h-11 rounded-xl bg-accent px-3 py-2.5 text-xs font-medium text-on-accent transition-colors active:bg-accent-dim disabled:opacity-40"
           >
             {t("sessions.addTask")}
           </button>
@@ -263,27 +263,27 @@ export function SessionsPage() {
 
       <div className="thin-scroll min-h-0 flex-1 overflow-y-auto">
         {list.length === 0 ? (
-          <div className="px-6 py-16 text-center text-sm leading-7 text-slate-500">
+          <div className="px-6 py-16 text-center text-sm leading-7 text-text-tertiary">
             {t("sessions.empty")}
             <br />
             {t("sessions.emptyHint")}
           </div>
         ) : (
           list.map((s) => (
-            <div key={s.id} className="flex items-stretch border-b border-slate-800/60">
+            <div key={s.id} className="flex items-stretch border-b border-border">
               <button
                 type="button"
                 onClick={() => setRoute({ name: "session", id: s.id })}
-                className="min-w-0 flex-1 px-4 py-3.5 text-left transition-colors active:bg-slate-800/40"
+                className="min-w-0 flex-1 px-4 py-3.5 text-left transition-colors active:bg-bg-hover"
               >
-                <span className="safe-break line-clamp-2 block text-sm font-medium leading-6 text-slate-100">
+                <span className="safe-break line-clamp-2 block text-sm font-medium leading-6 text-text-primary">
                   {s.title}
                 </span>
                 <span className="mt-1.5 flex min-w-0 items-center gap-2">
                   <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] leading-4 ${STATUS_CLASS[s.status]}`}>
                     {t(`status.${s.status}`)}
                   </span>
-                  <span className="min-w-0 flex-1 truncate text-[11px] leading-4 text-slate-500">
+                  <span className="min-w-0 flex-1 truncate text-[11px] leading-4 text-text-tertiary">
                     {s.mode === "project" ? s.cwd : t("common.chat")} · {formatDate(s.updatedAt)}
                   </span>
                 </span>
@@ -292,7 +292,7 @@ export function SessionsPage() {
                 type="button"
                 onClick={() => setActionsFor(s)}
                 aria-label={t("sessions.actions", { title: s.title })}
-                className="flex min-h-11 w-12 shrink-0 items-center justify-center self-stretch text-lg text-slate-500 transition-colors active:bg-slate-800/40 active:text-slate-200"
+                className="flex min-h-11 w-12 shrink-0 items-center justify-center self-stretch text-lg text-text-tertiary transition-colors active:bg-bg-hover active:text-text-primary"
               >
                 <span aria-hidden="true">⋯</span>
               </button>
@@ -301,7 +301,7 @@ export function SessionsPage() {
         )}
       </div>
 
-      <footer className="shrink-0 border-t border-slate-800/80 px-4 py-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] text-center">
+      <footer className="shrink-0 border-t border-border px-4 py-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] text-center">
         {confirmUnpair ? (
           <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs text-red-300">
             <span>{t("sessions.confirmUnpair")}</span>
@@ -310,7 +310,7 @@ export function SessionsPage() {
             </button>
             <button
               type="button"
-              className="min-h-11 px-2 text-slate-400 underline"
+              className="min-h-11 px-2 text-text-tertiary underline"
               onClick={() => setConfirmUnpair(false)}
             >
               {t("common.cancel")}
@@ -319,7 +319,7 @@ export function SessionsPage() {
         ) : (
           <button
             type="button"
-            className="min-h-11 px-2 text-[11px] text-slate-500"
+            className="min-h-11 px-2 text-[11px] text-text-tertiary"
             onClick={() => setConfirmUnpair(true)}
           >
             {t("sessions.footer")}

@@ -12,6 +12,7 @@ import { DEEPSEEK_FETCH_ENDPOINT, isWebFetchReady } from "@spcode/shared/web-fet
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useStore } from "../store";
+import { resolveThemeBase } from "../theme";
 import { Icon } from "./Icon";
 import { McpPage } from "./McpPage";
 import { ModelsPage } from "./ModelsPage";
@@ -626,11 +627,11 @@ function AppearancePage() {
       // 评审 P2-5：显式带上默认模型，避免宿主误用可用列表首个（可能是最贵模型）
       const raw = await window.spcode.command({
         type: "theme.generate",
-        payload: { description: desc, model: settings?.defaultModel ?? undefined },
+        payload: { description: desc, model: settings?.defaultModel ?? undefined, base: resolveThemeBase(settings) },
       });
-      const { normalizeTheme } = await import("../theme.js");
+      const { normalizeTheme, validateGeneratedTheme } = await import("../theme.js");
       const theme = normalizeTheme(raw);
-      if (!theme) return flash(false, t("appearance.incompleteTheme"));
+      if (!theme || validateGeneratedTheme(theme).length > 0) return flash(false, t("appearance.incompleteTheme"));
       await saveSettings({ customTheme: theme });
       flash(true, t("appearance.generated", { name: theme.name }));
       setThemeDesc("");
@@ -666,17 +667,35 @@ function AppearancePage() {
       )}
 
       <SectionTitle>{t("appearance.theme")}</SectionTitle>
+      <div className="mb-3 grid grid-cols-2 gap-2" data-testid="builtin-themes">
+        {(["spcode-light", "spcode-dark"] as const).map((id) => (
+          <button
+            key={id}
+            type="button"
+            data-testid={id}
+            aria-pressed={!settings?.customTheme && (settings?.themeId ?? "spcode-light") === id}
+            onClick={() => void saveSettings({ themeId: id, customTheme: null })}
+            className={`rounded-xl border px-4 py-3 text-left text-[13px] font-medium transition-colors ${
+              !settings?.customTheme && (settings?.themeId ?? "spcode-light") === id
+                ? "border-accent bg-accent-soft text-accent"
+                : "border-border bg-bg-elevated text-text-secondary hover:bg-bg-hover"
+            }`}
+          >
+            {t(id === "spcode-light" ? "appearance.lightTheme" : "appearance.darkTheme")}
+          </button>
+        ))}
+      </div>
       <div className="mb-3 flex items-center justify-between gap-4 rounded-xl border border-border bg-bg-elevated px-4 py-3">
         <div className="text-[14px] text-text-primary">
           {settings?.customTheme
             ? t("appearance.customTheme", { name: settings.customTheme.name })
-            : t("appearance.defaultTheme")}
+            : t(settings?.themeId === "spcode-dark" ? "appearance.darkTheme" : "appearance.lightTheme")}
         </div>
         <div className="flex gap-2">
           {settings?.customTheme && (
             <button
               type="button"
-              onClick={() => void saveSettings({ customTheme: null })}
+              onClick={() => void saveSettings({ customTheme: null, themeId: "spcode-light" })}
               className="text-[12px] text-text-tertiary hover:text-danger"
             >
               {t("appearance.restore")}

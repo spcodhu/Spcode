@@ -14,7 +14,7 @@ import { Sheet } from "./Sheet";
 const FREQUENCIES = ["once", "hourly", "daily", "weekday", "weekly"] as const;
 const WEEKDAYS = [0, 1, 2, 3, 4, 5, 6] as const;
 const FIELD_CLASS =
-  "mt-1.5 min-h-11 w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2.5 text-base text-slate-100 outline-none placeholder:text-slate-600 focus:border-teal-500";
+  "mt-1.5 min-h-11 w-full rounded-xl border border-border-strong bg-bg-main/70 px-3 py-2.5 text-base text-text-primary outline-none placeholder:text-text-tertiary focus:border-accent";
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -150,14 +150,14 @@ export function ScheduleEditorSheet({
           data-testid="schedule-submit"
           disabled={busy}
           onClick={() => void submit()}
-          className="min-h-12 w-full rounded-xl bg-teal-700 px-4 py-3 text-sm font-medium text-white transition-colors active:bg-teal-600 disabled:opacity-40"
+          className="min-h-12 w-full rounded-xl bg-accent px-4 py-3 text-sm font-medium text-on-accent transition-colors active:bg-accent-dim disabled:opacity-40"
         >
           {busy ? t("common.saving") : task ? t("common.save") : t("common.create")}
         </button>
       }
     >
       <div className="space-y-4">
-        <label className="block text-xs font-medium text-slate-400">
+        <label className="block text-xs font-medium text-text-tertiary">
           {t("schedule.name")}
           <input
             value={name}
@@ -168,7 +168,7 @@ export function ScheduleEditorSheet({
           />
         </label>
 
-        <label className="block text-xs font-medium text-slate-400">
+        <label className="block text-xs font-medium text-text-tertiary">
           {t("schedule.prompt")}
           <textarea
             value={prompt}
@@ -179,7 +179,7 @@ export function ScheduleEditorSheet({
           />
         </label>
 
-        <label className="block text-xs font-medium text-slate-400">
+        <label className="block text-xs font-medium text-text-tertiary">
           {t("schedule.frequency")}
           <select
             value={frequency}
@@ -195,7 +195,7 @@ export function ScheduleEditorSheet({
         </label>
 
         {frequency === "once" && (
-          <label className="block text-xs font-medium text-slate-400">
+          <label className="block text-xs font-medium text-text-tertiary">
             {t("schedule.runAt")}
             <input
               type="datetime-local"
@@ -207,7 +207,7 @@ export function ScheduleEditorSheet({
         )}
 
         {frequency === "hourly" && (
-          <label className="block text-xs font-medium text-slate-400">
+          <label className="block text-xs font-medium text-text-tertiary">
             {t("schedule.minute")}
             <input
               type="number"
@@ -221,7 +221,7 @@ export function ScheduleEditorSheet({
         )}
 
         {(frequency === "daily" || frequency === "weekday" || frequency === "weekly") && (
-          <label className="block text-xs font-medium text-slate-400">
+          <label className="block text-xs font-medium text-text-tertiary">
             {t("schedule.time")}
             <input
               type="time"
@@ -234,7 +234,7 @@ export function ScheduleEditorSheet({
         )}
 
         {frequency === "weekly" && (
-          <label className="block text-xs font-medium text-slate-400">
+          <label className="block text-xs font-medium text-text-tertiary">
             {t("schedule.dayOfWeek")}
             <select value={weekday} onChange={(e) => setWeekday(Number(e.target.value))} className={FIELD_CLASS}>
               {WEEKDAYS.map((day) => (
@@ -247,7 +247,7 @@ export function ScheduleEditorSheet({
         )}
 
         <div>
-          <div className="text-xs font-medium text-slate-400">{t("schedule.mode")}</div>
+          <div className="text-xs font-medium text-text-tertiary">{t("schedule.mode")}</div>
           <fieldset className="mt-1.5 flex gap-2" aria-label={t("schedule.mode")}>
             {(["chat", "project"] as const).map((k) => (
               <button
@@ -257,8 +257,8 @@ export function ScheduleEditorSheet({
                 onClick={() => setKind(k)}
                 className={`min-h-11 flex-1 rounded-xl border px-3 py-2.5 text-sm transition-colors ${
                   kind === k
-                    ? "border-teal-600 bg-teal-800/70 text-teal-50"
-                    : "border-slate-700 bg-slate-800/70 text-slate-300"
+                    ? "border-accent bg-accent-soft text-accent"
+                    : "border-border-strong bg-bg-elevated text-text-secondary"
                 }`}
               >
                 {k === "chat" ? t("common.chatSession") : t("common.projectSession")}

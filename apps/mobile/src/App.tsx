@@ -63,11 +63,11 @@ export default function App() {
   }, []);
 
   return (
-    <div className="mobile-app relative mx-auto flex w-full max-w-md flex-col bg-[#0b100f]">
+    <div className="mobile-app relative mx-auto flex w-full max-w-md flex-col bg-bg-root">
       {route.name !== "pair" && <ConnBanner />}
       <div className="min-h-0 flex-1">
         {!showContent && (
-          <div role="status" data-testid="locale-pending" className="px-4 py-8 text-center text-sm text-slate-400">
+          <div role="status" data-testid="locale-pending" className="px-4 py-8 text-center text-sm text-text-tertiary">
             {t("connection.localePending")}
           </div>
         )}

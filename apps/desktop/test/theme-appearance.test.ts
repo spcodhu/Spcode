@@ -16,9 +16,20 @@ describe("applyTheme", () => {
     expect(document.documentElement.style.getPropertyValue("--color-on-accent")).toBe("#102010");
 
     applyTheme(null);
+    expect(document.documentElement.dataset.themeBase).toBe("light");
+    expect(document.documentElement.style.colorScheme).toBe("light");
+    expect(document.documentElement.style.getPropertyValue("--color-bg-root")).toBe("#F7F7F5");
+    expect(document.documentElement.style.getPropertyValue("--color-on-accent")).toBe("#FFFFFF");
+  });
+
+  it("内置暗色完整注入，自定义主题只覆盖指定令牌", () => {
+    applyTheme(null, "spcode-dark");
     expect(document.documentElement.dataset.themeBase).toBe("dark");
-    expect(document.documentElement.style.colorScheme).toBe("dark");
-    expect(document.documentElement.style.getPropertyValue("--color-bg-root")).toBe("");
-    expect(document.documentElement.style.getPropertyValue("--color-on-accent")).toBe("");
+    expect(document.documentElement.style.getPropertyValue("--color-bg-root")).toBe("#121212");
+    expect(document.documentElement.style.getPropertyValue("--color-accent")).toBe("#F2F2F2");
+
+    applyTheme({ name: "仅覆盖", base: "dark", colors: { accent: "#123456" } }, "spcode-dark");
+    expect(document.documentElement.style.getPropertyValue("--color-accent")).toBe("#123456");
+    expect(document.documentElement.style.getPropertyValue("--color-bg-root")).toBe("#121212");
   });
 });

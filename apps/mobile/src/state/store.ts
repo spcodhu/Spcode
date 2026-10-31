@@ -21,9 +21,11 @@ import type {
   SessionMeta,
   TodoItem,
 } from "@spcode/shared";
+import type { ThemeBase } from "@spcode/shared/theme";
 import { create } from "zustand";
 import type { ConnectionDetail, ConnectionState } from "../lib/client";
 import type { PairingRecord } from "../lib/db";
+import { readMobileTheme, setMobileTheme } from "../lib/theme";
 
 export type Route = { name: "pair" } | { name: "sessions" } | { name: "session"; id: string } | { name: "schedules" };
 
@@ -66,6 +68,8 @@ interface AppState {
   connDetail?: ConnectionDetail;
   /** Authenticated locale must arrive before rendering newly connected session content. */
   localeReady: boolean;
+  themeBase: ThemeBase;
+  setThemeBase(base: ThemeBase): void;
   setLocaleReady(ready: boolean): void;
   pairing: PairingRecord | null;
   sessions: Record<string, SessionView>;
@@ -118,6 +122,7 @@ const initialData = {
   connState: "connecting" as ConnectionState,
   connDetail: undefined as ConnectionDetail | undefined,
   localeReady: false,
+  themeBase: readMobileTheme(),
   pairing: null as PairingRecord | null,
   sessions: {} as Record<string, SessionView>,
   outputs: {} as Record<string, OutputChunk[]>,
@@ -237,6 +242,10 @@ export const useAppStore = create<AppState>((set) => ({
   ...initialData,
 
   setRoute: (route) => set({ route }),
+  setThemeBase: (themeBase) => {
+    setMobileTheme(themeBase);
+    set({ themeBase });
+  },
   setLocaleReady: (localeReady) => set({ localeReady }),
   setConn: (connState, detail) => set({ connState, connDetail: detail }),
   setPairing: (pairing) => set({ pairing }),
@@ -396,6 +405,6 @@ export const useAppStore = create<AppState>((set) => ({
   reset: () => {
     for (const k of Object.keys(outputTracks)) delete outputTracks[k];
     // inputDraftVersion 不归零：旧异步发送跨 reset 迟到时也不能撞上新版本号。
-    set({ ...initialData });
+    set({ ...initialData, themeBase: readMobileTheme() });
   },
 }));

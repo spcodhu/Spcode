@@ -42,21 +42,21 @@ export function SchedulesPage() {
 
   return (
     <div className="relative flex h-full flex-col">
-      <header className="flex shrink-0 items-center gap-2 border-b border-slate-800/80 px-3 py-2.5">
+      <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2.5">
         <button
           type="button"
           aria-label={tr("common.back")}
           onClick={() => setRoute({ name: "sessions" })}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-2xl text-slate-400 active:bg-slate-800"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-2xl text-text-tertiary active:bg-bg-hover"
         >
           <span aria-hidden="true">‹</span>
         </button>
-        <h1 className="min-w-0 flex-1 text-lg font-semibold text-slate-100">{tr("schedules.title")}</h1>
+        <h1 className="min-w-0 flex-1 text-lg font-semibold text-text-primary">{tr("schedules.title")}</h1>
         <button
           type="button"
           onClick={() => setEditing(null)}
           disabled={connState !== "ready"}
-          className="min-h-11 shrink-0 rounded-xl bg-teal-700 px-4 py-2.5 text-sm font-medium text-white active:bg-teal-600 disabled:opacity-40"
+          className="min-h-11 shrink-0 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-on-accent active:bg-accent-dim disabled:opacity-40"
         >
           {tr("schedules.add")}
         </button>
@@ -70,7 +70,7 @@ export function SchedulesPage() {
 
       <div className="thin-scroll min-h-0 flex-1 overflow-y-auto">
         {schedules.length === 0 ? (
-          <div className="px-6 py-16 text-center text-sm leading-7 text-slate-400">
+          <div className="px-6 py-16 text-center text-sm leading-7 text-text-tertiary">
             {tr("schedules.empty")}
             <br />
             {tr("schedules.emptyHint")}
@@ -82,18 +82,18 @@ export function SchedulesPage() {
               <section
                 key={task.id}
                 aria-busy={pending || undefined}
-                className="border-b border-slate-800/60 px-4 py-4"
+                className="border-b border-border px-4 py-4"
                 data-testid={`schedule-row-${task.id}`}
               >
                 <div className="flex items-start gap-3">
                   <div className="min-w-0 flex-1">
-                    <h2 className="truncate text-sm font-medium text-slate-100">{task.name}</h2>
-                    <div className="safe-break mt-1 text-xs leading-5 text-slate-400">
+                    <h2 className="truncate text-sm font-medium text-text-primary">{task.name}</h2>
+                    <div className="safe-break mt-1 text-xs leading-5 text-text-tertiary">
                       {describeMobileSchedule(task)} ·{" "}
                       {task.target.kind === "project" ? task.target.cwd : tr("common.chatSession")}
                     </div>
                     {task.lastRunAt && (
-                      <div className="safe-break mt-1 text-[11px] leading-5 text-slate-500">
+                      <div className="safe-break mt-1 text-[11px] leading-5 text-text-tertiary">
                         {tr("schedules.lastRun", { time: formatDate(task.lastRunAt) })}
                         {task.lastStatus === "error" && (
                           <span className="text-red-300">
@@ -117,7 +117,7 @@ export function SchedulesPage() {
                     <span
                       aria-hidden="true"
                       className={`absolute left-0.5 top-2.5 h-6 w-11 rounded-full transition-colors ${
-                        task.enabled ? "bg-teal-600" : "bg-slate-700"
+                        task.enabled ? "bg-accent" : "bg-bg-active"
                       }`}
                     >
                       <span
@@ -134,7 +134,7 @@ export function SchedulesPage() {
                     data-testid={`schedule-run-${task.id}`}
                     disabled={pending || connState !== "ready"}
                     onClick={() => void run(() => runScheduleNow(task.id), task.id)}
-                    className="min-h-11 rounded-xl bg-slate-800 px-3.5 py-2.5 text-sm text-teal-200 active:bg-slate-700 disabled:opacity-40"
+                    className="min-h-11 rounded-xl bg-bg-elevated px-3.5 py-2.5 text-sm text-accent active:bg-bg-active disabled:opacity-40"
                   >
                     {pending ? tr("status.running") : tr("schedules.runNow")}
                   </button>
@@ -142,7 +142,7 @@ export function SchedulesPage() {
                     type="button"
                     disabled={pending || connState !== "ready"}
                     onClick={() => setEditing(task)}
-                    className="min-h-11 rounded-xl bg-slate-800 px-3.5 py-2.5 text-sm text-slate-200 active:bg-slate-700 disabled:opacity-40"
+                    className="min-h-11 rounded-xl bg-bg-elevated px-3.5 py-2.5 text-sm text-text-primary active:bg-bg-active disabled:opacity-40"
                   >
                     {tr("common.edit")}
                   </button>
@@ -163,7 +163,7 @@ export function SchedulesPage() {
                         type="button"
                         disabled={pending}
                         onClick={() => setConfirmRemoveId(null)}
-                        className="min-h-11 rounded-xl bg-slate-800 px-3.5 py-2.5 text-sm text-slate-300 disabled:opacity-40"
+                        className="min-h-11 rounded-xl bg-bg-elevated px-3.5 py-2.5 text-sm text-text-secondary disabled:opacity-40"
                       >
                         {tr("common.cancel")}
                       </button>
@@ -173,7 +173,7 @@ export function SchedulesPage() {
                       type="button"
                       disabled={pending || connState !== "ready"}
                       onClick={() => setConfirmRemoveId(task.id)}
-                      className="min-h-11 rounded-xl bg-slate-800 px-3.5 py-2.5 text-sm text-slate-400 active:bg-slate-700 disabled:opacity-40"
+                      className="min-h-11 rounded-xl bg-bg-elevated px-3.5 py-2.5 text-sm text-text-tertiary active:bg-bg-active disabled:opacity-40"
                     >
                       {tr("common.delete")}
                     </button>

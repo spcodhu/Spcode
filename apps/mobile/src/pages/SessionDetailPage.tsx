@@ -19,6 +19,7 @@ import { useAppStore } from "../state/store";
 function OutputView({ sessionId }: { sessionId: string }) {
   const { t } = useTranslation("mobile");
   const chunks = useAppStore((s) => s.outputs[sessionId]);
+  const themeBase = useAppStore((s) => s.themeBase);
   const outputSync = useAppStore((s) => s.outputSync[sessionId]);
   const olderBefore = useAppStore((s) => s.historyCursors[sessionId]);
   const olderLoading = useAppStore((s) => s.olderHistoryLoading[sessionId] === true);
@@ -98,7 +99,7 @@ function OutputView({ sessionId }: { sessionId: string }) {
                 data-testid="history-load-older"
                 disabled={olderLoading || connState !== "ready"}
                 onClick={() => void loadOlder()}
-                className="min-h-11 rounded-lg px-3 text-xs text-teal-300 underline disabled:opacity-40"
+                className="min-h-11 rounded-lg px-3 text-xs text-accent underline disabled:opacity-40"
               >
                 {olderLoading ? t("session.loadingOlder") : t("session.loadOlder")}
               </button>
@@ -128,9 +129,9 @@ function OutputView({ sessionId }: { sessionId: string }) {
           )}
           {!chunks || chunks.length === 0 ? (
             outputSync?.status === "loaded" ? (
-              <div className="py-16 text-center text-sm text-slate-500">{t("session.emptyOutput")}</div>
+              <div className="py-16 text-center text-sm text-text-tertiary">{t("session.emptyOutput")}</div>
             ) : outputSync?.status === "error" ? null : (
-              <div role="status" className="py-16 text-center text-sm text-slate-500">
+              <div role="status" className="py-16 text-center text-sm text-text-tertiary">
                 {t("session.loadingOutput")}
               </div>
             )
@@ -139,7 +140,7 @@ function OutputView({ sessionId }: { sessionId: string }) {
               {chunks.map((c) => {
                 if (c.gap) {
                   return (
-                    <div key={c.id} className="py-1 text-center text-[11px] leading-5 text-slate-500">
+                    <div key={c.id} className="py-1 text-center text-[11px] leading-5 text-text-tertiary">
                       {t("session.gap")}
                     </div>
                   );
@@ -148,7 +149,7 @@ function OutputView({ sessionId }: { sessionId: string }) {
                   return (
                     <pre
                       key={c.id}
-                      className="safe-break whitespace-pre-wrap rounded-2xl border border-teal-900/50 bg-teal-950/30 px-3.5 py-3 font-mono text-[13px] leading-6 text-teal-100"
+                      className="safe-break whitespace-pre-wrap rounded-2xl border border-accent bg-accent-soft px-3.5 py-3 font-mono text-[13px] leading-6 text-accent"
                     >
                       {c.chunk}
                     </pre>
@@ -156,7 +157,7 @@ function OutputView({ sessionId }: { sessionId: string }) {
                 }
                 if (c.kind === "notice") {
                   return (
-                    <div key={c.id} className="safe-break py-1 text-center text-[11px] leading-5 text-slate-500">
+                    <div key={c.id} className="safe-break py-1 text-center text-[11px] leading-5 text-text-tertiary">
                       {c.chunk}
                     </div>
                   );
@@ -165,7 +166,7 @@ function OutputView({ sessionId }: { sessionId: string }) {
                   return showThinking ? (
                     <pre
                       key={c.id}
-                      className="safe-break whitespace-pre-wrap border-l-2 border-slate-700 py-1 pl-3 font-mono text-xs italic leading-6 text-slate-500"
+                      className="safe-break whitespace-pre-wrap border-l-2 border-border-strong py-1 pl-3 font-mono text-xs italic leading-6 text-text-tertiary"
                     >
                       {c.chunk}
                     </pre>
@@ -173,7 +174,7 @@ function OutputView({ sessionId }: { sessionId: string }) {
                 }
                 return (
                   <div key={c.id} className="min-w-0 text-text-primary">
-                    <Markdown text={c.chunk} themeBase="dark" />
+                    <Markdown text={c.chunk} themeBase={themeBase} />
                   </div>
                 );
               })}
@@ -183,7 +184,7 @@ function OutputView({ sessionId }: { sessionId: string }) {
             <button
               type="button"
               onClick={() => setShowThinking((v) => !v)}
-              className="mt-2 min-h-11 px-2 text-left text-xs text-slate-400 underline decoration-slate-700 underline-offset-4"
+              className="mt-2 min-h-11 px-2 text-left text-xs text-text-tertiary underline decoration-border-strong underline-offset-4"
             >
               {showThinking ? t("session.hideThinking") : t("session.showThinking")}
             </button>
@@ -196,7 +197,7 @@ function OutputView({ sessionId }: { sessionId: string }) {
           type="button"
           data-testid="output-scroll-bottom"
           onClick={scrollToBottom}
-          className="absolute bottom-3 left-1/2 min-h-11 -translate-x-1/2 whitespace-nowrap rounded-full border border-teal-600/70 bg-[#142522]/95 px-4 py-2.5 text-xs font-medium text-teal-100 shadow-lg shadow-black/30"
+          className="absolute bottom-3 left-1/2 min-h-11 -translate-x-1/2 whitespace-nowrap rounded-full border border-accent bg-bg-elevated/95 px-4 py-2.5 text-xs font-medium text-accent shadow-lg shadow-black/30"
         >
           {t(hasNewOutput ? "session.newOutput" : "session.backToBottom")} <span aria-hidden="true">↓</span>
         </button>
@@ -214,7 +215,7 @@ function TodoBar({ sessionId }: { sessionId: string }) {
   const done = todos.filter((todo) => todo.status === "completed").length;
   const active = todos.find((todo) => todo.status === "in_progress");
   return (
-    <div className="shrink-0 border-t border-slate-800/80 bg-[#101716] px-4 py-1.5">
+    <div className="shrink-0 border-t border-border bg-bg-main px-4 py-1.5">
       <button
         type="button"
         aria-expanded={expanded}
@@ -223,22 +224,22 @@ function TodoBar({ sessionId }: { sessionId: string }) {
         onClick={() => setExpanded((value) => !value)}
         className="min-h-11 w-full py-1.5 text-left"
       >
-        <span className="flex items-center gap-2 text-[11px] text-slate-400">
+        <span className="flex items-center gap-2 text-[11px] text-text-tertiary">
           <span className="shrink-0">
             {t("session.todos", { done: formatNumber(done), total: formatNumber(todos.length) })}
           </span>
-          <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-800" aria-hidden="true">
+          <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-bg-elevated" aria-hidden="true">
             <span
-              className="block h-full rounded-full bg-teal-500 transition-all"
+              className="block h-full rounded-full bg-accent transition-all"
               style={{ width: `${(done / todos.length) * 100}%` }}
             />
           </span>
-          <span aria-hidden="true" className={`text-slate-500 transition-transform ${expanded ? "rotate-180" : ""}`}>
+          <span aria-hidden="true" className={`text-text-tertiary transition-transform ${expanded ? "rotate-180" : ""}`}>
             ⌄
           </span>
         </span>
         {active && !expanded && (
-          <span className="mt-0.5 block truncate text-[11px] leading-4 text-slate-500">
+          <span className="mt-0.5 block truncate text-[11px] leading-4 text-text-tertiary">
             ▸ {active.activeForm ?? active.content}
           </span>
         )}
@@ -247,7 +248,7 @@ function TodoBar({ sessionId }: { sessionId: string }) {
         <ol
           id={listId}
           data-testid="todo-list"
-          className="thin-scroll mb-2 max-h-56 space-y-2.5 overflow-y-auto border-t border-slate-800/80 pt-2.5"
+          className="thin-scroll mb-2 max-h-56 space-y-2.5 overflow-y-auto border-t border-border pt-2.5"
         >
           {todos.map((todo) => (
             <li key={`${todo.status}-${todo.content}`} className="flex items-start gap-2 text-xs leading-5">
@@ -255,20 +256,20 @@ function TodoBar({ sessionId }: { sessionId: string }) {
                 aria-hidden="true"
                 className={`w-4 shrink-0 text-center ${
                   todo.status === "completed"
-                    ? "text-teal-500"
+                    ? "text-accent0"
                     : todo.status === "in_progress"
                       ? "text-amber-300"
-                      : "text-slate-600"
+                      : "text-text-tertiary"
                 }`}
               >
                 {todo.status === "completed" ? "✓" : todo.status === "in_progress" ? "▸" : "○"}
               </span>
               <div className="safe-break min-w-0 flex-1">
-                <div className={todo.status === "completed" ? "text-slate-500 line-through" : "text-slate-300"}>
+                <div className={todo.status === "completed" ? "text-text-tertiary line-through" : "text-text-secondary"}>
                   {todo.content}
                 </div>
                 {todo.activeForm && todo.activeForm !== todo.content && (
-                  <div className="mt-0.5 text-[11px] leading-4 text-slate-500">{todo.activeForm}</div>
+                  <div className="mt-0.5 text-[11px] leading-4 text-text-tertiary">{todo.activeForm}</div>
                 )}
               </div>
             </li>
@@ -333,31 +334,31 @@ export function SessionDetailPage({ sessionId }: { sessionId: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex shrink-0 items-start gap-2 border-b border-slate-800/80 px-3 py-3">
+      <header className="flex shrink-0 items-start gap-2 border-b border-border px-3 py-3">
         <button
           type="button"
           aria-label={t("common.back")}
           onClick={() => setRoute({ name: "sessions" })}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-2xl text-slate-400 transition-colors active:bg-slate-800"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-2xl text-text-tertiary transition-colors active:bg-bg-hover"
         >
           <span aria-hidden="true">‹</span>
         </button>
         <div className="min-w-0 flex-1 py-0.5">
-          <div className="safe-break line-clamp-2 text-sm font-medium leading-6 text-slate-100">
+          <div className="safe-break line-clamp-2 text-sm font-medium leading-6 text-text-primary">
             {session?.title ?? t("sessions.title")}
           </div>
           <div className="mt-0.5 flex items-start gap-2">
-            <div className="safe-break min-w-0 flex-1 text-[11px] leading-4 text-slate-500">
+            <div className="safe-break min-w-0 flex-1 text-[11px] leading-4 text-text-tertiary">
               {session?.mode === "project" ? session.cwd : t("common.chatSession")}
             </div>
             {session && (
               <span
                 className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] leading-4 ${
                   session.status === "running"
-                    ? "bg-teal-950 text-teal-300"
+                    ? "bg-accent-soft text-accent"
                     : session.status === "waiting_permission"
                       ? "bg-amber-950 text-amber-300"
-                      : "bg-slate-800 text-slate-400"
+                      : "bg-bg-elevated text-text-tertiary"
                 }`}
               >
                 {t(`status.${session.status}`)}
@@ -379,14 +380,14 @@ export function SessionDetailPage({ sessionId }: { sessionId: string }) {
         </div>
       )}
 
-      <div className="flex shrink-0 items-end gap-2 border-t border-slate-800/80 bg-[#101716] px-3 py-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div className="flex shrink-0 items-end gap-2 border-t border-border bg-bg-main px-3 py-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <textarea
           data-testid="session-input"
           value={text}
           onChange={(e) => setInputDraft(sessionId, e.target.value)}
           rows={1}
           placeholder={running ? t("session.steerPlaceholder") : t("session.promptPlaceholder")}
-          className="thin-scroll max-h-32 min-h-11 min-w-0 flex-1 resize-none overflow-y-auto rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2.5 text-base leading-6 text-slate-100 outline-none placeholder:text-slate-600 focus:border-teal-500"
+          className="thin-scroll max-h-32 min-h-11 min-w-0 flex-1 resize-none overflow-y-auto rounded-xl border border-border-strong bg-bg-main/70 px-3 py-2.5 text-base leading-6 text-text-primary outline-none placeholder:text-text-tertiary focus:border-accent"
         />
         {running && (
           <button
@@ -403,7 +404,7 @@ export function SessionDetailPage({ sessionId }: { sessionId: string }) {
           data-testid="session-send"
           onClick={() => void send()}
           disabled={sending || connState !== "ready" || !text.trim()}
-          className="min-h-11 shrink-0 rounded-xl bg-teal-700 px-4 py-2.5 text-sm font-medium text-white transition-colors active:bg-teal-600 disabled:opacity-40"
+          className="min-h-11 shrink-0 rounded-xl bg-accent px-4 py-2.5 text-sm font-medium text-on-accent transition-colors active:bg-accent-dim disabled:opacity-40"
         >
           {sending ? t("session.sending") : t("session.send")}
         </button>

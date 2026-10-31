@@ -212,7 +212,7 @@ function ModalSurface({
               onClick={() => !busyRef.current && onCloseRef.current?.()}
               aria-label={t("common.cancel")}
               data-sheet-close
-              className="-mr-2 -mt-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-2xl leading-none text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-100 disabled:opacity-40"
+              className="-mr-2 -mt-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-2xl leading-none text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:opacity-40"
             >
               <span aria-hidden="true">×</span>
             </button>

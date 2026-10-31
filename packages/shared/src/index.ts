@@ -357,8 +357,8 @@ export type HostCommand =
    * 会惰性触发 SandboxManager 初始化（首次约 1–2s），调用方需带超时。
    */
   | { id: string; type: "sandbox.status" }
-  /** AI 生成主题：可选指定模型（默认取设置里的默认模型，缺省退回可用列表首个） */
-  | { id: string; type: "theme.generate"; payload: { description: string; model?: ModelRef } }
+  /** AI 生成主题：可选指定模型与明暗基底（默认跟随当前主题） */
+  | { id: string; type: "theme.generate"; payload: { description: string; model?: ModelRef; base?: "light" | "dark" } }
   | { type: "memory.setDistillEnabled"; payload: { enabled: boolean } }
   /** 高级搜索配置下发（设置页变更后推送；宿主就绪时重推） */
   | { type: "search.setAdvancedConfig"; payload: { config: AdvancedSearchConfig | null } }
@@ -746,8 +746,10 @@ export interface AppSettings {
   defaultThinkingLevel: string;
   /** 新会话默认权限模式（三档）；单会话可在输入框左下角覆盖 */
   permissionMode: PermissionMode;
-  /** UI 主题 id，dark 为内置默认 */
+  /** UI 主题 id，spcode-light 为内置默认 */
   themeId: string;
+  /** 旧版默认暗色一次性迁移标记；当前为 1 */
+  themeMigrationVersion?: number;
   /** 自定义主题 JSON（AI 生成或手工编写） */
   customTheme: CustomTheme | null;
   uiFontFamily: string;
@@ -931,7 +933,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultModel: null,
   defaultThinkingLevel: "medium",
   permissionMode: DEFAULT_PERMISSION_MODE,
-  themeId: "spcode-dark",
+  themeId: "spcode-light",
+  themeMigrationVersion: 1,
   customTheme: null,
   uiFontFamily: "",
   monoFontFamily: "",

@@ -15,6 +15,8 @@ import { Sheet } from "./Sheet";
 export function SettingsSheet({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation("mobile");
   const pairing = useAppStore((s) => s.pairing);
+  const themeBase = useAppStore((s) => s.themeBase);
+  const setThemeBase = useAppStore((s) => s.setThemeBase);
   const vapidKey = useAppStore((s) => s.vapidKey);
   const [enabled, setEnabled] = useState(isPushEnabledLocally);
   const [busy, setBusy] = useState(false);
@@ -45,11 +47,42 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
   return (
     <Sheet title={t("common.settings")} onClose={onClose} busy={busy}>
       <div className="space-y-4">
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/55 px-4 py-3">
+        <div className="rounded-2xl border border-border bg-bg-elevated px-4 py-3">
           <div className="flex items-center gap-3">
             <div className="min-w-0 flex-1">
-              <div className="text-sm font-medium text-slate-100">{t("settings.push")}</div>
-              <div className="safe-break mt-1 text-xs leading-5 text-slate-400">{t("settings.pushHelp")}</div>
+              <div className="text-sm font-medium text-text-primary">{t("settings.appearance")}</div>
+              <div className="safe-break mt-1 text-xs leading-5 text-text-tertiary">{t("settings.darkModeHelp")}</div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={themeBase === "dark"}
+              onClick={() => setThemeBase(themeBase === "dark" ? "light" : "dark")}
+              className="relative h-11 w-12 shrink-0 rounded-full"
+              aria-label={t("settings.darkMode")}
+              data-testid="theme-toggle"
+            >
+              <span
+                aria-hidden="true"
+                className={`absolute left-0.5 top-2.5 h-6 w-11 rounded-full transition-colors ${
+                  themeBase === "dark" ? "bg-accent" : "bg-bg-active"
+                }`}
+              >
+                <span
+                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-all ${
+                    themeBase === "dark" ? "left-[22px]" : "left-0.5"
+                  }`}
+                />
+              </span>
+            </button>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-border bg-bg-elevated px-4 py-3">
+          <div className="flex items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-medium text-text-primary">{t("settings.push")}</div>
+              <div className="safe-break mt-1 text-xs leading-5 text-text-tertiary">{t("settings.pushHelp")}</div>
             </div>
             <button
               type="button"
@@ -63,7 +96,7 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
               <span
                 aria-hidden="true"
                 className={`absolute left-0.5 top-2.5 h-6 w-11 rounded-full transition-colors ${
-                  pushActive ? "bg-teal-600" : "bg-slate-700"
+                  pushActive ? "bg-accent" : "bg-bg-active"
                 }`}
               >
                 <span
@@ -91,15 +124,15 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
         )}
 
         {pairing && (
-          <div className="safe-break rounded-2xl border border-slate-800 bg-slate-900/55 px-4 py-3 text-xs leading-6 text-slate-400">
+          <div className="safe-break rounded-2xl border border-border bg-bg-elevated px-4 py-3 text-xs leading-6 text-text-tertiary">
             <div>
               {t("settings.device")}
-              <span className="text-slate-200">{pairing.deviceName}</span>
+              <span className="text-text-primary">{pairing.deviceName}</span>
               {t("settings.deviceId", { id: pairing.deviceId.slice(0, 8) })}
             </div>
             <div>
               {t("settings.desktopKey")}
-              <span className="font-mono text-slate-300">{pairing.desktopPk.slice(0, 12)}…</span>
+              <span className="font-mono text-text-secondary">{pairing.desktopPk.slice(0, 12)}…</span>
             </div>
             <div>
               {t("settings.channels", {

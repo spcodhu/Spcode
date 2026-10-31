@@ -85,7 +85,7 @@ function QuestionDraft({ request }: { request: QuestionRequest }) {
       busy={busy}
       title={t("card.title")}
       description={t("card.session", { title: session?.title ?? request.sessionId })}
-      titleClassName="text-teal-200"
+      titleClassName="text-accent"
       footer={
         <div className="flex gap-3">
           <button
@@ -93,7 +93,7 @@ function QuestionDraft({ request }: { request: QuestionRequest }) {
             data-testid="question-dismiss"
             disabled={busy}
             onClick={() => void submitAnswers(dismissQuestionAnswers(request))}
-            className="min-h-12 rounded-xl px-4 py-3 text-sm text-slate-300 transition-colors active:bg-slate-800 disabled:opacity-40"
+            className="min-h-12 rounded-xl px-4 py-3 text-sm text-text-secondary transition-colors active:bg-bg-hover disabled:opacity-40"
           >
             {t("card.cancel")}
           </button>
@@ -102,7 +102,7 @@ function QuestionDraft({ request }: { request: QuestionRequest }) {
             data-testid="question-submit"
             disabled={busy}
             onClick={submit}
-            className="min-h-12 flex-1 rounded-xl bg-teal-700 px-4 py-3 text-sm font-medium text-white transition-colors active:bg-teal-600 disabled:opacity-40"
+            className="min-h-12 flex-1 rounded-xl bg-accent px-4 py-3 text-sm font-medium text-on-accent transition-colors active:bg-accent-dim disabled:opacity-40"
           >
             {busy ? tMobile("request.submitting") : t("card.submit")}
           </button>
@@ -127,17 +127,17 @@ function QuestionDraft({ request }: { request: QuestionRequest }) {
             <section
               key={key}
               aria-labelledby={questionId}
-              className="rounded-2xl border border-slate-700/80 bg-slate-900/60 p-4"
+              className="rounded-2xl border border-border-strong bg-bg-elevated p-4"
             >
               {q.header && (
-                <div className="safe-break mb-1.5 text-xs font-medium text-teal-200">
+                <div className="safe-break mb-1.5 text-xs font-medium text-accent">
                   {q.presentation?.header ? renderMessage(q.presentation.header) : q.header}
                 </div>
               )}
-              <div id={questionId} className="safe-break text-sm font-medium leading-6 text-slate-100">
+              <div id={questionId} className="safe-break text-sm font-medium leading-6 text-text-primary">
                 {questionText}
               </div>
-              {isMulti && <div className="mt-1 text-xs text-slate-400">{t("card.multiSelect")}</div>}
+              {isMulti && <div className="mt-1 text-xs text-text-tertiary">{t("card.multiSelect")}</div>}
               <div className="mt-3 flex flex-wrap gap-2">
                 {q.options?.map((opt, oi) => {
                   const selected = (answers[key] ?? []).includes(opt.value);
@@ -154,8 +154,8 @@ function QuestionDraft({ request }: { request: QuestionRequest }) {
                       onClick={() => choose(key, opt.value, isMulti)}
                       className={`safe-break min-h-11 max-w-full rounded-xl border px-3.5 py-2.5 text-left text-sm leading-5 transition-colors disabled:opacity-40 ${
                         selected
-                          ? "border-teal-600 bg-teal-800/70 text-teal-50"
-                          : "border-slate-700 bg-slate-800/80 text-slate-200"
+                          ? "border-accent bg-accent-soft text-accent"
+                          : "border-border-strong bg-bg-elevated text-text-primary"
                       }`}
                     >
                       <span className="block">
@@ -173,7 +173,7 @@ function QuestionDraft({ request }: { request: QuestionRequest }) {
                 placeholder={t(q.options?.length ? "card.typeInstead" : "card.typeAnswer")}
                 aria-label={t(q.options?.length ? "card.typeInstead" : "card.typeAnswer")}
                 data-testid={`question-free-text-${qi}`}
-                className="mt-3 min-h-11 w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2.5 text-base text-slate-100 outline-none placeholder:text-slate-600 focus:border-teal-500 disabled:opacity-40"
+                className="mt-3 min-h-11 w-full rounded-xl border border-border-strong bg-bg-main/70 px-3 py-2.5 text-base text-text-primary outline-none placeholder:text-text-tertiary focus:border-accent disabled:opacity-40"
               />
             </section>
           );

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { normalizeTheme } from "../src/renderer/src/theme.js";
+import { BUILT_IN_THEMES } from "@spcode/shared/theme";
+import { contrastRatio, normalizeTheme, validateGeneratedTheme } from "../src/renderer/src/theme.js";
 
 describe("normalizeTheme", () => {
   it("接受合法主题并保留白名单令牌", () => {
@@ -29,5 +30,28 @@ describe("normalizeTheme", () => {
   it("base 非法值归一为 dark", () => {
     const theme = normalizeTheme({ name: "x", base: "purple", colors: { accent: "#fff" } });
     expect(theme?.base).toBe("dark");
+  });
+
+  it("AI 主题要求核心令牌与 WCAG AA 对比度，内置双主题均达标", () => {
+    expect(BUILT_IN_THEMES["spcode-light"].colors.textPrimary).toBeTruthy();
+    for (const theme of Object.values(BUILT_IN_THEMES)) {
+      expect(contrastRatio(theme.colors.textPrimary, theme.colors.bgMain)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(theme.colors.onAccent, theme.colors.accent)).toBeGreaterThanOrEqual(4.5);
+    }
+    expect(
+      validateGeneratedTheme({
+        name: "低对比",
+        base: "light",
+        colors: {
+          bgRoot: "#ffffff",
+          bgMain: "#ffffff",
+          bgElevated: "#ffffff",
+          textPrimary: "#eeeeee",
+          textSecondary: "#777777",
+          accent: "#ffffff",
+          onAccent: "#ffffff",
+        },
+      }),
+    ).toEqual(["contrast:textPrimary/bgMain", "contrast:onAccent/accent"]);
   });
 });

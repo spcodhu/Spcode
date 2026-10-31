@@ -13,7 +13,7 @@ import { useAppStore } from "../state/store";
 import { FullScreenDialog } from "./Sheet";
 
 const RISK_CLASS: Record<ToolRisk, string> = {
-  readonly: "bg-slate-800 text-slate-300",
+  readonly: "bg-bg-elevated text-text-secondary",
   write: "bg-amber-950 text-amber-300",
   outward: "bg-orange-950 text-orange-300",
   danger: "bg-red-950 text-red-200",
@@ -189,7 +189,7 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
               data-testid="permission-allow"
               disabled={busy}
               onClick={() => void reply(true)}
-              className="min-h-12 flex-1 rounded-xl bg-teal-700 px-3 py-3 text-sm font-medium text-white transition-colors active:bg-teal-600 disabled:opacity-40"
+              className="min-h-12 flex-1 rounded-xl bg-accent px-3 py-3 text-sm font-medium text-on-accent transition-colors active:bg-accent-dim disabled:opacity-40"
             >
               {busy ? t("request.submitting") : t("permission.allow")}
             </button>
@@ -199,16 +199,16 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
             data-testid="permission-deny"
             disabled={busy}
             onClick={() => void reply(false)}
-            className="min-h-12 flex-1 rounded-xl bg-slate-800 px-3 py-3 text-sm font-medium text-slate-100 transition-colors active:bg-slate-700 disabled:opacity-40"
+            className="min-h-12 flex-1 rounded-xl bg-bg-elevated px-3 py-3 text-sm font-medium text-text-primary transition-colors active:bg-bg-active disabled:opacity-40"
           >
             {t("permission.deny")}
           </button>
         </div>
       }
     >
-      <section className="rounded-2xl border border-slate-700/80 bg-slate-900/60 p-4">
+      <section className="rounded-2xl border border-border-strong bg-bg-elevated p-4">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="safe-break min-w-0 font-mono text-sm font-semibold text-slate-100">{request.toolName}</span>
+          <span className="safe-break min-w-0 font-mono text-sm font-semibold text-text-primary">{request.toolName}</span>
           <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] ${RISK_CLASS[request.risk]}`}>
             {t(`permission.${request.risk}`)}
           </span>
@@ -217,7 +217,7 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
           aria-label={t("permission.arguments")}
           className="thin-scroll mt-3 max-h-80 overflow-auto rounded-xl bg-black/35"
         >
-          <pre className="safe-break whitespace-pre-wrap p-3 font-mono text-xs leading-6 text-slate-300">
+          <pre className="safe-break whitespace-pre-wrap p-3 font-mono text-xs leading-6 text-text-secondary">
             {formatArgs(request.args)}
           </pre>
         </section>
@@ -227,8 +227,8 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
           </div>
         )}
         {danger && (
-          <div className="mt-3 rounded-xl border border-slate-700 px-3 py-2.5">
-            <p className="text-xs leading-5 text-slate-400">{t("permission.alternativeHelp")}</p>
+          <div className="mt-3 rounded-xl border border-border-strong px-3 py-2.5">
+            <p className="text-xs leading-5 text-text-tertiary">{t("permission.alternativeHelp")}</p>
             <button
               type="button"
               data-testid={reviewed ? "danger-confirm" : "danger-reviewed"}

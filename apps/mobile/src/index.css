@@ -8,6 +8,30 @@
 @source "../node_modules/@streamdown/mermaid/dist/*.js";
 
 @theme inline {
+  --color-bg-root: #f7f7f5;
+  --color-bg-sidebar: #f0f0ee;
+  --color-bg-main: #ffffff;
+  --color-bg-elevated: #ffffff;
+  --color-bg-hover: #eeeeec;
+  --color-bg-active: #e6e6e3;
+  --color-border: #e2e2de;
+  --color-border-strong: #cfcfca;
+  --color-text-primary: #1c1c1c;
+  --color-text-secondary: #616161;
+  --color-text-tertiary: #7a7a78;
+  --color-accent: #171717;
+  --color-on-accent: #ffffff;
+  --color-on-danger: #ffffff;
+  --color-accent-dim: #3d3d3d;
+  --color-accent-soft: rgba(0, 0, 0, 0.06);
+  --color-danger: #c94b57;
+  --color-warning: #a86f16;
+  --color-success: #2e7d52;
+  --color-user-bubble: #f0f0ed;
+  --color-thinking: #6f6f6f;
+}
+
+:root[data-theme-base="dark"] {
   --color-bg-root: #121212;
   --color-bg-sidebar: #181818;
   --color-bg-main: #1f1f1f;
@@ -32,16 +56,15 @@
 }
 
 :root {
-  color-scheme: dark;
   font-synthesis: none;
   --ui-font: system-ui, -apple-system, "PingFang SC", "Noto Sans SC", sans-serif;
   --mono-font: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
-  --mobile-bg: #0b100f;
-  --mobile-surface: #111817;
-  --mobile-surface-raised: #16201e;
-  --mobile-border: #2b3835;
-  --mobile-accent: #0f766e;
-  --mobile-focus: #5eead4;
+  --mobile-bg: var(--color-bg-root);
+  --mobile-surface: var(--color-bg-main);
+  --mobile-surface-raised: var(--color-bg-elevated);
+  --mobile-border: var(--color-border);
+  --mobile-accent: var(--color-accent);
+  --mobile-focus: var(--color-accent);
 }
 
 html,
@@ -57,13 +80,10 @@ html {
 }
 
 body {
-  @apply bg-[#0b100f] text-slate-200 antialiased;
-  font-family:
-    system-ui,
-    -apple-system,
-    "PingFang SC",
-    "Noto Sans SC",
-    sans-serif;
+  @apply antialiased;
+  background: var(--color-bg-root);
+  color: var(--color-text-primary);
+  font-family: var(--ui-font);
   overscroll-behavior: none;
 }
 
@@ -90,7 +110,7 @@ button:disabled {
 }
 
 ::selection {
-  background: rgb(20 184 166 / 35%);
+  background: var(--color-accent-soft);
 }
 
 :focus-visible {
@@ -136,7 +156,7 @@ button:disabled {
   width: 100%;
   max-width: 28rem;
   flex-direction: column;
-  color: #e2e8f0;
+  color: var(--color-text-primary);
   background: var(--mobile-surface);
   box-shadow: 0 -18px 60px rgb(0 0 0 / 38%);
   outline: none;
@@ -164,7 +184,7 @@ button:disabled {
   align-items: flex-start;
   gap: 0.75rem;
   padding: 1rem 1.25rem 0.75rem;
-  border-bottom: 1px solid rgb(43 56 53 / 72%);
+  border-bottom: 1px solid var(--mobile-border);
 }
 
 .mobile-fullscreen-panel .mobile-dialog-header {
@@ -180,7 +200,7 @@ button:disabled {
 
 .mobile-dialog-description {
   margin-top: 0.25rem;
-  color: #94a3b8;
+  color: var(--color-text-secondary);
   font-size: 0.75rem;
   line-height: 1.25rem;
 }
@@ -203,12 +223,12 @@ button:disabled {
   padding: 0.75rem 1.25rem;
   padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
   border-top: 1px solid var(--mobile-border);
-  background: rgb(17 24 23 / 98%);
+  background: var(--mobile-surface);
 }
 
 /* 细滚动条（输出流与弹层正文） */
 .thin-scroll {
-  scrollbar-color: #3f4f4b transparent;
+  scrollbar-color: var(--color-border-strong) transparent;
   scrollbar-width: thin;
 }
 .thin-scroll::-webkit-scrollbar {
@@ -216,7 +236,7 @@ button:disabled {
   height: 4px;
 }
 .thin-scroll::-webkit-scrollbar-thumb {
-  background: #3f4f4b;
+  background: var(--color-border-strong);
   border-radius: 999px;
 }
 
