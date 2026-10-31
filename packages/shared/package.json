@@ -10,6 +10,7 @@
     "./web-fetch": "./src/web-fetch.ts",
     "./run-error": "./src/run-error.ts",
     "./crypto": "./src/crypto.ts",
+    "./remote-history": "./src/remote-history.ts",
     "./i18n": "./src/i18n/index.ts",
     "./i18n/build": "./src/i18n/build.ts",
     "./questions": "./src/questions.ts"

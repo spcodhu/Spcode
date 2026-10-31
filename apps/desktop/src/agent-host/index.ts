@@ -683,6 +683,24 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         });
         break;
       }
+      case "session.history": {
+        // 活跃/休眠实例复用统一恢复路径；桌面重启后的冷会话则由注册表 sessionFile 恢复。
+        let ctl = await getOrRevive(cmd.payload.sessionId);
+        if (!ctl && cmd.payload.sessionFile) {
+          ctl = await createController({
+            sessionId: cmd.payload.sessionId,
+            cwd: cmd.payload.cwd,
+            mode: cmd.payload.cwd.trim() ? "project" : "chat",
+            sessionFile: cmd.payload.sessionFile,
+            planMode: cmd.payload.planMode,
+            permissionMode: cmd.payload.permissionMode,
+          });
+          sessions.set(cmd.payload.sessionId, ctl);
+        }
+        if (!ctl) throw new Error(i18n.t("integration:session.missing", { id: cmd.payload.sessionId }));
+        respond(id, true, { messages: ctl.history() });
+        break;
+      }
       case "memory.read": {
         respond(id, true, getMemoryStore().readAll());
         break;

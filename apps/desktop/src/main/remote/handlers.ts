@@ -64,6 +64,22 @@ export async function handleRemoteCommand(cmd: RemoteCommand, deps: RemoteHandle
   switch (cmd.type) {
     case "session.list":
       return { sessions: deps.registry.list() };
+    case "session.history": {
+      const entry = deps.registry.get(cmd.sessionId);
+      if (!entry) throw new Error(i18n.t("integration:session.missing", { id: cmd.sessionId }));
+      return deps.bridge.call(
+        withId({
+          type: "session.history",
+          payload: {
+            sessionId: entry.id,
+            sessionFile: entry.sessionFile ?? undefined,
+            cwd: entry.cwd,
+            planMode: entry.planMode,
+            permissionMode: entry.permissionMode,
+          },
+        }),
+      );
+    }
     case "session.create":
       return createSession(cmd, deps);
     case "session.prompt": {

@@ -176,6 +176,20 @@ beforeAll(async () => {
       if (cmd.type === "session.create") {
         return { sessionId: cmd.payload.sessionId, sessionFile: null };
       }
+      if (cmd.type === "session.history") {
+        return {
+          messages: [
+            { role: "user", content: [{ type: "text", text: "配对前的提问" }] },
+            {
+              role: "assistant",
+              content: [
+                { type: "thinking", thinking: "配对前的思考" },
+                { type: "text", text: "配对前的回答" },
+              ],
+            },
+          ],
+        };
+      }
       return { ok: true };
     },
     replyPermission: () => {},
@@ -376,6 +390,69 @@ describe("配对握手 + 加密命令全链路", () => {
     } finally {
       client.close();
     }
+  });
+
+  it("session.history：返回配对前历史与实时高水位", async () => {
+    const sessionId = "history-session";
+    registryEntries.set(sessionId, {
+      id: sessionId,
+      mode: "chat",
+      cwd: "",
+      title: "历史会话",
+      titleKind: "custom",
+      model: null,
+      thinkingLevel: "medium",
+      sessionFile: "/tmp/history-session.jsonl",
+      createdAt: 1,
+      updatedAt: 2,
+    });
+    for (const listener of bridgeListeners) {
+      listener({
+        type: "session.event",
+        sessionId,
+        event: { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "实时输出" } },
+      });
+      listener({ type: "session.event", sessionId, event: { type: "agent_settled" } });
+    }
+
+    const { phone, client } = await pairDeviceSeq("历史测试机");
+    const desktopPk = pairing.getIdentity().publicKey;
+    client.send({
+      id: "history-read",
+      seq: 0,
+      t: "encrypted",
+      c: boxEncrypt(
+        JSON.stringify({ kind: "command", command: { type: "session.history", sessionId } }),
+        desktopPk,
+        phone.secretKey,
+      ),
+    });
+    const payload = await client.waitFor((frame) => {
+      const f = frame as { t?: string; c?: string };
+      if (f.t !== "encrypted" || typeof f.c !== "string") return false;
+      const plain = boxDecrypt(f.c, desktopPk, phone.secretKey);
+      if (!plain) return false;
+      const parsed = JSON.parse(plain) as { kind?: string; id?: string };
+      return parsed.kind === "response" && parsed.id === "history-read";
+    });
+    const plain = boxDecrypt((payload as { c: string }).c, desktopPk, phone.secretKey)!;
+    const response = JSON.parse(plain) as {
+      ok: boolean;
+      data: { chunks: { kind: string; chunk: string }[]; olderBefore: number | null; outputSeq: number };
+    };
+    expect(response.ok).toBe(true);
+    expect(response.data.outputSeq).toBe(0);
+    expect(response.data.olderBefore).toBeNull();
+    expect(response.data.chunks).toEqual([
+      { kind: "user", chunk: "配对前的提问" },
+      { kind: "thinking", chunk: "配对前的思考" },
+      { kind: "text", chunk: "配对前的回答" },
+    ]);
+    expect(bridgeCalls.at(-1)).toMatchObject({
+      type: "session.history",
+      payload: { sessionId, sessionFile: "/tmp/history-session.jsonl" },
+    });
+    client.close();
   });
 
   it("seq 重放 → 直接断开连接", async () => {

@@ -37,6 +37,11 @@ export class SessionOutputLog {
     return buf.filter((c) => c.seq > afterSeq);
   }
 
+  /** 当前缓冲的最新 seq；无缓冲返回 -1，供历史基线与实时增量对齐 */
+  maxSeq(sessionId: string): number {
+    return this.buffers.get(sessionId)?.at(-1)?.seq ?? -1;
+  }
+
   /** 会话删除时释放缓冲 */
   drop(sessionId: string): void {
     this.buffers.delete(sessionId);

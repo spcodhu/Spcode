@@ -34,6 +34,7 @@ import type {
   RemoteStatus,
 } from "@spcode/shared";
 import type { Locale } from "@spcode/shared/i18n";
+import { historyToRemotePage } from "@spcode/shared/remote-history";
 import { RemoteEventAggregator } from "./aggregator.js";
 import { type FeishuApi, FeishuChannel } from "./channel/feishu.js";
 import { boxDecrypt, boxEncrypt, isValidPublicKey, SeqCounter, SeqGuard } from "./crypto.js";
@@ -535,6 +536,30 @@ export class RemoteServer {
   }
 
   private async executeCommand(state: PeerState, frameId: string, command: RemoteCommand): Promise<void> {
+    if (command.type === "session.history") {
+      let response: RemoteEncryptedPayload;
+      try {
+        const result = (await handleRemoteCommand(command, this.deps)) as { messages: unknown[] };
+        response = {
+          kind: "response",
+          id: frameId,
+          ok: true,
+          data: {
+            ...historyToRemotePage(result.messages, command.before),
+            outputSeq: this.outputLog.maxSeq(command.sessionId),
+          },
+        };
+      } catch (err) {
+        response = {
+          kind: "response",
+          id: frameId,
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+      this.sendEncrypted(state, response);
+      return;
+    }
     // 断线补拉：结果以 session.output.backfill 事件下发（按 seq 升序，只含 > afterSeq 的）
     if (command.type === "session.output.since") {
       const chunks = this.outputLog.since(command.sessionId, command.afterSeq);

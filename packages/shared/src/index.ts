@@ -331,6 +331,18 @@ export type HostCommand =
         permissionMode?: import("./permission.js").PermissionMode;
       };
     }
+  | {
+      id: string;
+      /** 手机远程历史：读取活跃实例，或按墓碑/sessionFile 恢复后返回权威消息 */
+      type: "session.history";
+      payload: {
+        sessionId: string;
+        sessionFile?: string;
+        cwd: string;
+        planMode?: boolean;
+        permissionMode?: import("./permission.js").PermissionMode;
+      };
+    }
   | { id: string; type: "models.list" }
   | { id: string; type: "models.catalog" }
   /** 设置页「添加模型」：追加到用户 models.json（同 id 覆盖），仅自定义模型可删 */
@@ -970,3 +982,4 @@ export function resolveAllowPrerelease(pref: boolean | undefined | null, current
 // ---------------------------------------------------------------------------
 
 export type * from "./remote.js";
+export type * from "./remote-history.js";

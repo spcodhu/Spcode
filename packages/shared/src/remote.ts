@@ -27,6 +27,8 @@ import type {
 /** 手机 → 桌面 */
 export type RemoteCommand =
   | { type: "session.list" }
+  /** 首次进入会话：按游标读取权威历史；before 缺省 = 最近一页 */
+  | { type: "session.history"; sessionId: string; before?: number }
   | { type: "session.create"; mode: SessionMode; cwd?: string; prompt: string; model?: ModelRef }
   /** 空闲 = 正常输入；运行中 = steer 插话（宿主侧无需特判） */
   | { type: "session.prompt"; sessionId: string; text: string }
@@ -212,6 +214,20 @@ export interface PairedDevice {
   pairedAt: number;
   /** 协议 v2：该设备最后一个被接受的入站 seq（跨连接单调，防重放基准线；节流落盘） */
   lastInSeq?: number;
+}
+
+/** 手机历史页中的文本块；与实时 RemoteOutputChunk 分开，不占用实时 seq。 */
+export interface RemoteHistoryChunk {
+  kind: "user" | "text" | "thinking" | "notice";
+  chunk: string;
+}
+
+export interface RemoteHistoryPage {
+  chunks: RemoteHistoryChunk[];
+  /** 更早一页的 before 游标；null = 没有更早历史 */
+  olderBefore: number | null;
+  /** 桌面历史响应对应的实时输出高水位；手机据此丢弃重复 chunk 并继续补拉 */
+  outputSeq: number;
 }
 
 /** 断线补拉的输出 chunk（session.output 的持久化形态） */

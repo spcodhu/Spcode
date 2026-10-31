@@ -140,7 +140,35 @@ describe("session.create 链路", () => {
   });
 });
 
-describe("session.prompt / abort / subscribe", () => {
+describe("session.history / prompt / abort / subscribe", () => {
+  it("history：从注册表补齐恢复信息并调用宿主只读历史命令", async () => {
+    const { deps, bridgeCalls } = makeDeps();
+    deps.registry.entries.set("s-history", {
+      id: "s-history",
+      mode: "project",
+      cwd: "/code/demo",
+      title: "历史会话",
+      model: null,
+      thinkingLevel: "medium",
+      sessionFile: "/tmp/history.jsonl",
+      planMode: true,
+      permissionMode: "auto",
+      createdAt: 0,
+      updatedAt: 0,
+    });
+    await handleRemoteCommand({ type: "session.history", sessionId: "s-history" }, deps);
+    expect(bridgeCalls[0]).toMatchObject({
+      type: "session.history",
+      payload: {
+        sessionId: "s-history",
+        sessionFile: "/tmp/history.jsonl",
+        cwd: "/code/demo",
+        planMode: true,
+        permissionMode: "auto",
+      },
+    });
+  });
+
   it("prompt：直调 bridge.call；出厂默认标题时用首条消息兜底", async () => {
     const { deps, bridgeCalls, registry } = makeDeps();
     registry.entries.set("s1", {
