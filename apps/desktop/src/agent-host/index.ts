@@ -33,14 +33,11 @@ import type {
   QuestionRequest,
   SandboxSettings,
   SandboxStatusReport,
-  UsageRecord,
   WebFetchConfig,
 } from "@spcode/shared";
 import {
   DEFAULT_COMPACTION_SETTINGS,
   DEFAULT_SANDBOX_SETTINGS,
-  hasNonzeroPrice,
-  resolveUsageRecordPricing,
   sanitizeModelPricing,
 } from "@spcode/shared";
 import { getLocale, i18n, setLocale } from "@spcode/shared/i18n";
@@ -61,6 +58,7 @@ import {
 import { getSandboxService } from "./sandbox/manager.js";
 import { SessionController } from "./session-controller.js";
 import { getOrCreateOpenedController } from "./session-open.js";
+import { catalogPricing, priceUsageRecord } from "./usage-pricing.js";
 
 // ---------------------------------------------------------------------------
 // 通信基座
@@ -213,7 +211,7 @@ function toModelInfo(m: {
   reasoning?: boolean;
   cost?: ModelPriceRates;
 }): ModelInfo {
-  const pricing = catalogPricing(m);
+  const pricing = catalogPricing(modelOverlay, m);
   return {
     provider: m.provider,
     modelId: m.id,
@@ -225,35 +223,6 @@ function toModelInfo(m: {
     available: true,
     ...pricing,
   };
-}
-
-/** 目录默认价与“0 是否真免费”的判定：内置目录的 0 可信，自定义模型的未知 0 不可信。 */
-function catalogPricing(m: { provider: string; id: string; cost?: ModelPriceRates }): {
-  cost: ModelPriceRates;
-  priceKnown: boolean;
-} {
-  const cost: ModelPriceRates = {
-    input: m.cost?.input ?? 0,
-    output: m.cost?.output ?? 0,
-    cacheRead: m.cost?.cacheRead ?? 0,
-    cacheWrite: m.cost?.cacheWrite ?? 0,
-  };
-  return {
-    cost,
-    priceKnown: hasNonzeroPrice(cost) || sourceOfModel(modelOverlay, m.provider, m.id) === "builtin",
-  };
-}
-
-/** 所有主对话/压缩/蒸馏/标题 usage 的统一产生时计价入口。 */
-function priceUsageRecord(record: UsageRecord, rt: ModelRuntime): UsageRecord {
-  const key = `${record.model.provider}/${record.model.modelId}`;
-  const model = rt.getModel(record.model.provider, record.model.modelId);
-  const pricing = model ? catalogPricing(model) : undefined;
-  return resolveUsageRecordPricing(record, {
-    override: modelPricing[key],
-    defaultRates: pricing?.cost,
-    defaultKnown: pricing?.priceKnown ?? false,
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -431,7 +400,7 @@ async function createController(params: {
     noTitleAutomation: params.noTitleAutomation,
     emitEvent: (event) => emit({ type: "session.event", sessionId: params.sessionId, event }),
     emitUsage: (usage) =>
-      emit({ type: "session.usage", sessionId: params.sessionId, usage: priceUsageRecord(usage, rt) }),
+      emit({ type: "session.usage", sessionId: params.sessionId, usage: priceUsageRecord(usage, rt, modelOverlay, modelPricing) }),
     emitContext: (snapshot) => emit({ type: "session.context", sessionId: params.sessionId, snapshot }),
     emitTodo: (todos) => emit({ type: "session.todo", sessionId: params.sessionId, todos }),
     emitPlanMode: (enabled) => emit({ type: "session.planmode", sessionId: params.sessionId, enabled }),
@@ -569,7 +538,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
             modelId: m.id,
             displayName: m.name ?? m.id,
             reasoning: !!m.reasoning,
-            ...catalogPricing(m),
+            ...catalogPricing(modelOverlay, m),
             source: sourceOfModel(modelOverlay, m.provider, m.id),
             removable: isRemovable(modelOverlay, m.provider, m.id),
           })),
