@@ -34,6 +34,14 @@
 | 26 | 依赖锁定：tweetnacl / ws / web-push 均锁版本（pnpm-lock.yaml）；relay 服务端无业务依赖外新增 | `apps/desktop/package.json`；`pnpm-lock.yaml` | 每次安装即锁定；审计时 `pnpm audit` | ✅ |
 | 27 | 远程模块只在 Main 进程复用单例（不开第二进程写 ~/.spcode）；不进 agent-host / preload / renderer | `remote/index.ts` 头部注释；`main/index.ts` 接线 | 代码评审项；架构约束见设计文档 4.4 | ✅ |
 | 28 | 设置页隐私说明（附录 B 全文）随应用内置、可展开；飞书条款标注“后续版本提供” | `renderer/src/components/RemotePage.tsx`（`data-testid="remote-privacy"`） | e2e `smoke.spec.ts`「远程控制分区」隐私说明展开断言 | ✅ |
+| 29 | relay 长期访问密钥只经 HTTPS Authorization 头，WS 只用 30 秒单次 ticket；错绑定/过期/重放拒绝 | 独立仓库 `src/tickets.ts`、`src/index.ts` | `tickets.test.ts`、`server.test.ts` 票据用例 | ✅ |
+| 30 | relay 多设备定向离线队列：A 在线不吞 B 的帧；同 deviceId 新连接替换旧连接 | 独立仓库 `src/channel.ts` | `channel.test.ts` 多设备用例 | ✅ |
+| 31 | relay 心跳与慢消费者背压；断开后由客户端权威快照/补拉恢复 | 独立仓库 `src/index.ts` | `server.test.ts`、`backpressure.test.ts` | ✅ |
+| 32 | relay 配置迁移：新安装默认 official；旧 relayUrl=null 保持 LAN-only；密钥脱敏与掩码还原 | `packages/shared/src/remote.ts`、`main/settings-store.ts` | `remote-relay-config.test.ts`、`settings-security.test.ts` | ✅ |
+| 33 | 手机切换 relay 不清除设备身份、输出缓存、路由或草稿 | `apps/mobile/src/state/controller.ts` | `controller-reliability.test.ts` relay 配置更新用例 | ✅ |
+| 34 | 桌面打开手机创建的运行中会话不销毁 controller，不结清待决请求 | `agent-host/session-open.ts`、`agent-host/index.ts` | `session-open.test.ts`、`store-hibernation.test.ts` | ✅ |
+| 35 | 双端共用 Streamdown 与亮/暗 Shiki/Mermaid，手机不再用 pre 渲染 Markdown 原文 | `packages/ui`、`apps/mobile/src/pages/SessionDetailPage.tsx` | 双端构建与 Markdown 渲染用例 | ✅ |
+| 36 | 默认亮色，暗色完整覆盖；AI 主题核心令牌与 WCAG AA 对比度校验 | `packages/shared/src/theme.ts`、`renderer/theme.ts` | `theme.test.ts`、`theme-appearance.test.ts`、手机 `theme.test.ts` | ✅ |
 
 ## 已知弱点（设计文档第 7 节，本期接受）
 
