@@ -34,10 +34,12 @@ function usePersistentState<T>(key: string, initial: T): [T, (v: T | ((prev: T) 
 }
 
 export function Sidebar({
+  width = 248,
   onOpenSettings,
   onOpenSearch,
   onOpenSchedule,
 }: {
+  width?: number;
   onOpenSettings: () => void;
   onOpenSearch: () => void;
   onOpenSchedule: () => void;
@@ -150,7 +152,7 @@ export function Sidebar({
   };
 
   return (
-    <aside className="flex w-[248px] shrink-0 flex-col bg-bg-sidebar">
+    <aside className="flex shrink-0 flex-col bg-bg-sidebar" style={{ width }} data-testid="sidebar-panel">
       {/* 顶部：首页 / 搜索 / 历史（标题栏拖拽区） */}
       <div className="titlebar-drag flex h-12 items-center gap-1 px-3 pl-20">
         <button

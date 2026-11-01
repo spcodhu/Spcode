@@ -4,14 +4,14 @@ import { useStore } from "../store";
 import { Icon } from "./Icon";
 import { Markdown } from "./Markdown";
 
-export function PlanPanel() {
+export function PlanPanel({ width = 560 }: { width?: number }) {
   const panel = useStore((s) => s.planPanel);
   const activeSessionId = useStore((s) => s.activeSessionId);
   if (!panel || panel.sessionId !== activeSessionId) return null;
-  return <PlanPanelContent key={panel.path} sessionId={panel.sessionId} path={panel.path} />;
+  return <PlanPanelContent key={panel.path} sessionId={panel.sessionId} path={panel.path} width={width} />;
 }
 
-function PlanPanelContent({ sessionId, path }: { sessionId: string; path: string }) {
+function PlanPanelContent({ sessionId, path, width }: { sessionId: string; path: string; width: number }) {
   const { t } = useTranslation("chat");
   const closePlanFile = useStore((s) => s.closePlanFile);
   const startPlanExecution = useStore((s) => s.startPlanExecution);
@@ -37,7 +37,8 @@ function PlanPanelContent({ sessionId, path }: { sessionId: string; path: string
   return (
     <aside
       data-testid="plan-panel"
-      className="flex w-[42%] min-w-[320px] max-w-[760px] shrink-0 flex-col border-l border-border bg-bg-main"
+      className="flex shrink-0 flex-col border-l border-border bg-bg-main"
+      style={{ width }}
       aria-label={t("plan.panelTitle")}
     >
       <header className="flex h-12 shrink-0 items-center gap-2.5 border-b border-border px-4">
@@ -84,7 +85,7 @@ function PlanPanelContent({ sessionId, path }: { sessionId: string; path: string
               setStarting(true);
               void startPlanExecution().finally(() => setStarting(false));
             }}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-[13px] font-medium text-on-accent transition-colors hover:bg-accent-dim disabled:opacity-50"
+            className="flex w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-accent px-4 py-2.5 text-[13px] font-medium text-on-accent transition-colors hover:bg-accent-dim disabled:opacity-50"
           >
             <Icon name="arrowUp" size={15} />
             {t(starting ? "plan.starting" : "plan.start")}

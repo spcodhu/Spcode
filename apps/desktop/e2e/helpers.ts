@@ -17,14 +17,16 @@ export const appDir = join(dirname(fileURLToPath(import.meta.url)), "..");
 export interface LaunchOptions {
   /** 启动前在临时 SPCODE_HOME 里预置数据（注册表/会话文件等夹具） */
   seed?: (spcodeHome: string) => void;
-  /** 固定 SPCODE_HOME（默认每次 mkdtemp 新建）；草稿持久化等跨重启测试用 */
+  /** 固定 SPCODE_HOME（默认每次 mkdtemp 新建）；草稿/布局持久化等跨重启测试用 */
   spcodeHome?: string;
+  /** 固定 Chromium user-data-dir；localStorage 跨重启测试用 */
+  userDataDir?: string;
 }
 
 export async function launchApp(opts?: LaunchOptions): Promise<ElectronApplication> {
   const spcodeHome = opts?.spcodeHome ?? mkdtempSync(join(tmpdir(), "spcode-e2e-"));
   opts?.seed?.(spcodeHome);
-  const userDataDir = mkdtempSync(join(tmpdir(), "spcode-e2e-userdata-"));
+  const userDataDir = opts?.userDataDir ?? mkdtempSync(join(tmpdir(), "spcode-e2e-userdata-"));
   // playwright 的 env 是整体替换而非合并，必须带上 process.env
   const env = { ...process.env, SPCODE_HOME: spcodeHome };
   // 默认后台跑：窗口不显示、不抢焦点（调试交互时可设 SPCODE_E2E_FOREGROUND=1 恢复可见）

@@ -4,6 +4,7 @@ import { ChatView } from "./components/ChatView";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ForkDialog } from "./components/ForkDialog";
 import { PlanPanel } from "./components/PlanPanel";
+import { ResizeHandle } from "./components/ResizeHandle";
 import { SchedulePage } from "./components/SchedulePage";
 import { SearchPalette } from "./components/SearchPalette";
 import { SettingsPage } from "./components/SettingsPage";
@@ -11,6 +12,14 @@ import { Sidebar } from "./components/Sidebar";
 import { ToastRegion } from "./components/ToastRegion";
 import { TopBar } from "./components/TopBar";
 import { closeTopModal } from "./components/ui/Modal";
+import {
+  constrainLayoutWidths,
+  DEFAULT_LAYOUT_WIDTHS,
+  LAYOUT_STORAGE_KEY,
+  parseLayoutWidths,
+  planRange,
+  sidebarRange,
+} from "./layout";
 import { teardownHostEvents, useStore } from "./store";
 import { applyAppearance } from "./theme";
 
@@ -23,6 +32,25 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const planOpen = useStore((s) => !!s.planPanel && s.planPanel.sessionId === s.activeSessionId);
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
+  const [widths, setWidths] = useState(() => parseLayoutWidths(localStorage.getItem(LAYOUT_STORAGE_KEY)));
+  const layout = constrainLayoutWidths(widths, viewportWidth, planOpen);
+  const [sidebarMin, sidebarMax] = sidebarRange(viewportWidth, layout.plan, planOpen);
+  const [planMin, planMax] = planRange(viewportWidth, layout.sidebar);
+
+  useEffect(() => {
+    const onResize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(widths));
+    } catch {
+      // 存储不可用时保留内存态，不影响拖拽
+    }
+  }, [widths]);
 
   useEffect(() => {
     void useStore.getState().init();
@@ -66,9 +94,20 @@ export default function App() {
     <ErrorBoundary label={t("app.application")}>
       <div className="flex h-full">
         <Sidebar
+          width={layout.sidebar}
           onOpenSettings={() => setSettingsOpen(true)}
           onOpenSearch={() => setSearchOpen(true)}
           onOpenSchedule={() => setScheduleOpen(true)}
+        />
+        <ResizeHandle
+          label={t("layout.resizeSidebar")}
+          testId="sidebar-resize-handle"
+          value={layout.sidebar}
+          min={sidebarMin}
+          max={sidebarMax}
+          direction={1}
+          onChange={(sidebar) => setWidths((current) => ({ ...current, sidebar }))}
+          onReset={() => setWidths((current) => ({ ...current, sidebar: DEFAULT_LAYOUT_WIDTHS.sidebar }))}
         />
         <div className="flex min-w-0 flex-1 flex-col">
           <TopBar />
@@ -83,8 +122,20 @@ export default function App() {
             )}
           </div>
         </div>
+        {planOpen && (
+          <ResizeHandle
+            label={t("layout.resizePlan")}
+            testId="plan-resize-handle"
+            value={layout.plan}
+            min={planMin}
+            max={planMax}
+            direction={-1}
+            onChange={(plan) => setWidths((current) => ({ ...current, plan }))}
+            onReset={() => setWidths((current) => ({ ...current, plan: DEFAULT_LAYOUT_WIDTHS.plan }))}
+          />
+        )}
         <ErrorBoundary label={t("plan.panelTitle")}>
-          <PlanPanel />
+          <PlanPanel width={layout.plan} />
         </ErrorBoundary>
         {forkDialogFor && <ForkDialog sourceId={forkDialogFor} onClose={() => setForkDialogFor(null)} />}
         {settingsOpen && <SettingsPage onClose={() => setSettingsOpen(false)} />}

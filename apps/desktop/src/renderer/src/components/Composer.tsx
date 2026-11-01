@@ -400,109 +400,116 @@ export function Composer({ sessionId }: { sessionId: string }) {
             </div>
           )}
 
-          {/* 底部胶囊工具栏 */}
-          <div className="flex items-center gap-1.5 px-2.5 pb-2.5">
-            {/* 图片：plain 模式挂附件 chips；MD 模式在编辑器工具栏里（内嵌到光标处） */}
-            {!mdMode && (
-              <ToolButton title={t("composer.addImage")} onClick={() => void pickAttachments()}>
-                <Icon name="plus" size={16} />
-              </ToolButton>
-            )}
-
-            {/* 长文本输入入口（MD 模式内的退出按钮在编辑器工具栏右端，同一 testid 不同时出现） */}
-            {!mdMode && (
-              <button
-                type="button"
-                data-testid="md-mode-toggle"
-                onClick={() => {
-                  updateDraft({ inputMode: "markdown" });
-                  setMdView("edit");
-                }}
-                title={t("composer.longTextHint")}
-                className="flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
-              >
-                <Icon name="pen" size={13} />
-                {t("composer.longText")}
-              </button>
-            )}
-
-            {/* MD 模式专属：添加文件（图片在工具栏，视图三态在工具栏右侧） */}
-            {mdMode && (
-              <ToolButton title={t("composer.addFile")} onClick={() => void pickFiles()}>
-                <Icon name="fileText" size={15} />
-              </ToolButton>
-            )}
-
-            {/* 权限模式（三档，按会话生效） */}
-            <PermissionModeMenu
-              mode={permissionMode}
-              sandboxState={session?.sandbox?.state}
-              onPick={pickPermissionMode}
-            />
-
-            {/* 计划模式 */}
-            <button
-              type="button"
-              onClick={() => void setPlanMode(!planMode)}
-              title={t(planMode ? "composer.exitPlan" : "composer.enterPlan")}
-              data-testid="composer-plan-mode"
-              className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] transition-colors ${
-                planMode ? "bg-accent/20 text-accent" : "text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
-              }`}
+          {/* 底部胶囊工具栏：右侧主操作固定，左侧次要工具在窄栏横向滚动 */}
+          <div className="flex items-center gap-2 px-2.5 pb-2.5" data-testid="composer-toolbar">
+            <div
+              data-testid="composer-secondary-actions"
+              className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto"
             >
-              <Icon name={planMode ? "clipboardCheck" : "clipboard"} size={13} />
-              {t("composer.plan")}
-            </button>
+              {/* 图片：plain 模式挂附件 chips；MD 模式在编辑器工具栏里（内嵌到光标处） */}
+              {!mdMode && (
+                <ToolButton title={t("composer.addImage")} onClick={() => void pickAttachments()}>
+                  <Icon name="plus" size={16} />
+                </ToolButton>
+              )}
 
-            <div className="flex-1" />
+              {/* 长文本输入入口（MD 模式内的退出按钮在编辑器工具栏右端，同一 testid 不同时出现） */}
+              {!mdMode && (
+                <button
+                  type="button"
+                  data-testid="md-mode-toggle"
+                  onClick={() => {
+                    updateDraft({ inputMode: "markdown" });
+                    setMdView("edit");
+                  }}
+                  title={t("composer.longTextHint")}
+                  className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-[12px] text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
+                >
+                  <Icon name="pen" size={13} />
+                  {t("composer.longText")}
+                </button>
+              )}
 
-            {/* 上下文占用环（悬浮看明细 + 手动压缩入口） */}
-            {settings?.quickQuota && session?.meta.model && (
-              <ContextRing
-                model={session.meta.model}
-                context={session.context ?? null}
-                models={models}
-                compacting={session.compacting === true}
-                busy={session.running}
-                draft={session.draft === true}
-                onCompact={() => void compactSession()}
+              {/* MD 模式专属：添加文件（图片在工具栏，视图三态在工具栏右侧） */}
+              {mdMode && (
+                <ToolButton title={t("composer.addFile")} onClick={() => void pickFiles()}>
+                  <Icon name="fileText" size={15} />
+                </ToolButton>
+              )}
+
+              {/* 权限模式（三档，按会话生效） */}
+              <PermissionModeMenu
+                mode={permissionMode}
+                sandboxState={session?.sandbox?.state}
+                onPick={pickPermissionMode}
               />
-            )}
 
-            {/* 模型选择（两级弹出菜单） */}
-            <ModelMenu
-              models={enabledModels}
-              value={session?.meta.model ?? null}
-              thinkingLevel={session?.meta.thinkingLevel ?? ""}
-              thinkingLevels={session?.supportedThinkingLevels ?? []}
-              onChange={(ref) => void setModel(ref)}
-              onThinkingChange={(lv) => void setThinkingLevel(lv)}
-            />
-
-            {/* 发送 / 停止（运行中并存：发送 = steer 插话，不打断当前运行） */}
-            {running && (
+              {/* 计划模式 */}
               <button
                 type="button"
-                onClick={() => void abort()}
-                title={t("common.stop")}
-                aria-label={t("common.stop")}
-                data-testid="composer-stop"
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-danger/15 text-danger transition-colors hover:bg-danger/25"
+                onClick={() => void setPlanMode(!planMode)}
+                title={t(planMode ? "composer.exitPlan" : "composer.enterPlan")}
+                data-testid="composer-plan-mode"
+                className={`flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-[12px] transition-colors ${
+                  planMode
+                    ? "bg-accent/20 text-accent"
+                    : "text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
+                }`}
               >
-                <span className="text-[11px]">■</span>
+                <Icon name={planMode ? "clipboardCheck" : "clipboard"} size={13} />
+                {t("composer.plan")}
               </button>
-            )}
-            <button
-              type="button"
-              onClick={send}
-              disabled={!canSend}
-              title={t(running ? "composer.steer" : "common.send")}
-              aria-label={t(running ? "composer.steer" : "common.send")}
-              data-testid="composer-send"
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-accent text-on-accent transition-colors hover:bg-accent-dim disabled:opacity-30"
-            >
-              <Icon name="arrowUp" size={16} strokeWidth={2.2} />
-            </button>
+            </div>
+
+            <div data-testid="composer-primary-actions" className="flex shrink-0 items-center gap-1.5">
+              {/* 上下文占用环（点击/悬浮看明细 + 手动压缩入口） */}
+              {settings?.quickQuota && session?.meta.model && (
+                <ContextRing
+                  model={session.meta.model}
+                  context={session.context ?? null}
+                  models={models}
+                  compacting={session.compacting === true}
+                  busy={session.running}
+                  draft={session.draft === true}
+                  onCompact={() => void compactSession()}
+                />
+              )}
+
+              {/* 模型选择（两级弹出菜单） */}
+              <ModelMenu
+                models={enabledModels}
+                value={session?.meta.model ?? null}
+                thinkingLevel={session?.meta.thinkingLevel ?? ""}
+                thinkingLevels={session?.supportedThinkingLevels ?? []}
+                onChange={(ref) => void setModel(ref)}
+                onThinkingChange={(lv) => void setThinkingLevel(lv)}
+              />
+
+              {/* 发送 / 停止（运行中并存：发送 = steer 插话，不打断当前运行） */}
+              {running && (
+                <button
+                  type="button"
+                  onClick={() => void abort()}
+                  title={t("common.stop")}
+                  aria-label={t("common.stop")}
+                  data-testid="composer-stop"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-danger/15 text-danger transition-colors hover:bg-danger/25"
+                >
+                  <span className="text-[11px]">■</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={send}
+                disabled={!canSend}
+                title={t(running ? "composer.steer" : "common.send")}
+                aria-label={t(running ? "composer.steer" : "common.send")}
+                data-testid="composer-send"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-on-accent transition-colors hover:bg-accent-dim disabled:opacity-30"
+              >
+                <Icon name="arrowUp" size={16} strokeWidth={2.2} />
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -571,6 +578,8 @@ function PermissionModeMenu({
   }, [open]);
 
   const active = PERMISSION_MODE_STYLE[mode];
+  const [popupPosition, setPopupPosition] = useState({ left: 0, bottom: 0 });
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const options = [
     { mode: "ask" as const, label: t("composer.modeAsk"), hint: t("composer.modeAskHint") },
     { mode: "auto" as const, label: t("composer.modeAuto"), hint: t("composer.modeAutoHint") },
@@ -581,16 +590,26 @@ function PermissionModeMenu({
   // 沙盒未生效时，「必要时询问」「总不询问」的自动放行没有内核兜底，必须当面提醒
   const sandboxInactive = sandboxState !== undefined && sandboxState !== "active";
   return (
-    <div ref={rootRef} className="relative">
+    <div ref={rootRef} className="relative shrink-0">
       <button
+        ref={buttonRef}
         type="button"
-        onClick={() => setOpen(!open)}
+        onClick={() => {
+          if (!open && buttonRef.current) {
+            const rect = buttonRef.current.getBoundingClientRect();
+            setPopupPosition({
+              left: Math.max(8, Math.min(rect.left, window.innerWidth - 328)),
+              bottom: window.innerHeight - rect.top + 8,
+            });
+          }
+          setOpen(!open);
+        }}
         title={activeHint}
         data-testid="composer-permission-mode"
         data-mode={mode}
         aria-haspopup="menu"
         aria-expanded={open}
-        className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] transition-colors ${active.tone}`}
+        className={`flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-1 text-[12px] transition-colors ${active.tone}`}
       >
         <Icon name={active.icon} size={13} />
         {activeLabel}
@@ -601,7 +620,8 @@ function PermissionModeMenu({
         <div
           role="menu"
           data-testid="permission-mode-menu"
-          className="absolute bottom-9 left-0 z-50 w-80 rounded-2xl border border-border bg-bg-elevated p-1.5 shadow-2xl"
+          style={popupPosition}
+          className="fixed z-50 w-80 rounded-2xl border border-border bg-bg-elevated p-1.5 shadow-2xl"
         >
           {options.map((o) => {
             const ui = PERMISSION_MODE_STYLE[o.mode];
@@ -691,7 +711,7 @@ function ToolButton({ children, title, onClick }: { children: React.ReactNode; t
       title={title}
       aria-label={title}
       onClick={onClick}
-      className="flex h-7 w-7 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
+      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
     >
       {children}
     </button>
@@ -939,7 +959,7 @@ export function ModelMenu({
   };
 
   return (
-    <div ref={rootRef} className="relative">
+    <div ref={rootRef} className="relative shrink-0">
       {/* 胶囊按钮 */}
       <button
         ref={buttonRef}
@@ -960,7 +980,7 @@ export function ModelMenu({
           setOpen(!open);
           setView("main");
         }}
-        className="flex items-center gap-1 rounded-full border border-border bg-bg-main px-2.5 py-1 text-[12px] text-text-secondary transition-colors hover:border-border-strong"
+        className="flex max-w-full items-center gap-1 whitespace-nowrap rounded-full border border-border bg-bg-main px-2.5 py-1 text-[12px] text-text-secondary transition-colors hover:border-border-strong"
       >
         <Icon name="cpu" size={13} className="text-text-tertiary" />
         <span className="max-w-44 truncate">{pillText}</span>
