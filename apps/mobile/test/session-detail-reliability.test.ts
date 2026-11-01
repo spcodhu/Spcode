@@ -112,6 +112,35 @@ describe("会话输出加载状态", () => {
   });
 });
 
+describe("共享 Markdown 渲染", () => {
+  it("助手正文使用与桌面相同的 Streamdown，而不是纯 pre 原文", async () => {
+    await renderPage("s1");
+    await act(async () => {
+      useAppStore.getState().setOutputSync("s1", { status: "loaded" });
+      useAppStore
+        .getState()
+        .appendOutput(
+          "s1",
+          "# 标题\n\n**粗体** 与 [链接](https://example.com)\n\n| A | B |\n| - | - |\n| 1 | 2 |\n\n```ts\nconst answer = 42;\n```",
+          "text",
+          0,
+        );
+    });
+
+    const body = document.querySelector('[data-testid="markdown-body"]')!;
+    expect(body).not.toBeNull();
+    expect(body.querySelector("h1")?.textContent).toBe("标题");
+    expect(body.querySelector('[data-streamdown="strong"]')?.textContent).toBe("粗体");
+    expect(body.querySelector('[data-streamdown="link"]')).not.toBeNull();
+    expect(body.querySelector("table")).not.toBeNull();
+    await vi.waitFor(() => {
+      expect(body.querySelector('[data-streamdown="strong"]')?.textContent).toBe("粗体");
+      expect(body.querySelector('[data-streamdown="code-block"]')).not.toBeNull();
+    });
+    expect(body.textContent).toContain("const answer = 42;");
+  });
+});
+
 describe("会话输入草稿与发送失败", () => {
   it("按 sessionId 切换保留草稿；等待期间继续编辑时失败不覆盖新文本", async () => {
     const pending = deferred();
