@@ -392,7 +392,7 @@ async function getOrRevive(sessionId: string): Promise<SessionController | null>
   });
   sessions.set(sessionId, ctl);
   // 唤醒后回放历史：渲染进程只在本地为空时采用（session.history 处理器有 guard）
-  emit({ type: "session.history", sessionId, messages: ctl.history(), lastUsage: ctl.lastUsageForRing() });
+  emit({ type: "session.history", sessionId, messages: ctl.history(), contextUsage: ctl.contextUsage() });
   return ctl;
 }
 
@@ -431,6 +431,7 @@ async function createController(params: {
     emitEvent: (event) => emit({ type: "session.event", sessionId: params.sessionId, event }),
     emitUsage: (usage) =>
       emit({ type: "session.usage", sessionId: params.sessionId, usage: priceUsageRecord(usage, rt) }),
+    emitContext: (snapshot) => emit({ type: "session.context", sessionId: params.sessionId, snapshot }),
     emitTodo: (todos) => emit({ type: "session.todo", sessionId: params.sessionId, todos }),
     emitPlanMode: (enabled) => emit({ type: "session.planmode", sessionId: params.sessionId, enabled }),
     emitPermissionMode: (mode) => emit({ type: "session.permissionmode", sessionId: params.sessionId, mode }),
@@ -644,7 +645,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
           type: "session.history",
           sessionId: cmd.payload.sessionId,
           messages: ctl.history(),
-          lastUsage: ctl.lastUsageForRing(),
+          contextUsage: ctl.contextUsage(),
         });
         break;
       }
@@ -691,7 +692,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
           type: "session.history",
           sessionId: newSessionId,
           messages: ctl.history(),
-          lastUsage: ctl.lastUsageForRing(),
+          contextUsage: ctl.contextUsage(),
         });
         break;
       }
@@ -725,7 +726,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
           type: "session.history",
           sessionId: cmd.payload.sessionId,
           messages: ctl.history(),
-          lastUsage: ctl.lastUsageForRing(),
+          contextUsage: ctl.contextUsage(),
         });
         break;
       }
@@ -841,6 +842,8 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         const ctl = await getOrRevive(cmd.payload.sessionId);
         if (!ctl) throw new Error(i18n.t("integration:session.missing", { id: cmd.payload.sessionId }));
         await ctl.setModel(cmd.payload.model);
+        const context = ctl.contextUsage();
+        if (context) emit({ type: "session.context", sessionId: cmd.payload.sessionId, snapshot: context });
         respond(id, true, ctl.info());
         break;
       }

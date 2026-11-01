@@ -12,6 +12,7 @@
 import type {
   AppSettings,
   ComposerDraft,
+  ContextUsageSnapshot,
   ExportContextResult,
   HostEvent,
   ImageAttachment,
@@ -89,6 +90,8 @@ export interface ChatMessage {
         tokensBefore?: number;
         tokensAfter?: number;
         summary?: string;
+        /** 实时事件可区分手动/自动；历史恢复未持久化来源时为空 */
+        trigger?: "auto" | "manual";
       }
     | {
         kind: "runError";
@@ -178,8 +181,10 @@ export interface SessionState {
   /** 账本快照版本与加载状态；历史会话打开时防止旧快照覆盖新事件 */
   usageRevision?: number;
   usageLoaded?: boolean;
-  /** 最近一次请求的用量快照；上下文占用口径见 Composer.ContextRing（与引擎压缩判断同源） */
+  /** 最近一次请求的用量快照（旧字段，仅兼容测试/调试；不再驱动上下文环） */
   lastUsage: UsageRecord | null;
+  /** pi 引擎权威上下文投影；辅助调用永不可写 */
+  context?: ContextUsageSnapshot | null;
   /** 引擎正在压缩上下文（compaction_start/end 驱动；运行状态条据此显示「正在压缩」） */
   compacting?: boolean;
   supportedThinkingLevels: string[];
@@ -264,7 +269,7 @@ interface StoreState {
   setActive(id: string): void;
   sendPrompt(text: string, images?: ImageAttachment[], files?: { name: string; size: number }[]): Promise<boolean>;
   abort(): Promise<void>;
-  /** 手动压缩当前会话上下文（结果以压缩分隔线形式进入消息流；错误走 lastError） */
+  /** 手动压缩当前会话上下文（结果与异常都以会话内 notice 呈现，不使用全局提示） */
   compactSession(): Promise<void>;
   setModel(ref: ModelRef): Promise<void>;
   setThinkingLevel(level: string): Promise<void>;
@@ -392,7 +397,20 @@ const nextMsgId = () => `m${++msgSeq}`;
  * 压缩分隔线消息（compaction_end 实时插入 / 会话恢复时由 compactionSummary 回放）。
  * 让用户能回答「是不是压缩过」：线内注明前后 token 量，摘要可展开。
  */
-function makeCompactionNotice(tokensBefore?: number, tokensAfter?: number, summary?: string): ChatMessage {
+function compactionDoneKey(trigger?: "auto" | "manual") {
+  return trigger === "manual"
+    ? "integration:compaction.manualDone"
+    : trigger === "auto"
+      ? "integration:compaction.autoDone"
+      : "integration:compaction.done";
+}
+
+function makeCompactionNotice(
+  tokensBefore?: number,
+  tokensAfter?: number,
+  summary?: string,
+  trigger?: "auto" | "manual",
+): ChatMessage {
   const range =
     tokensBefore !== undefined
       ? `${formatCompact(tokensBefore)}${tokensAfter !== undefined ? ` → ${formatCompact(tokensAfter)}` : ""}`
@@ -404,11 +422,11 @@ function makeCompactionNotice(tokensBefore?: number, tokensAfter?: number, summa
       {
         kind: "text",
         id: nextMsgId(),
-        text: i18n.t("integration:compaction.done", { range: range ? ` · ${range}` : "" }),
+        text: i18n.t(compactionDoneKey(trigger), { range: range ? ` · ${range}` : "" }),
       },
     ],
     streaming: false,
-    notice: { kind: "compaction", tokensBefore, tokensAfter, summary },
+    notice: { kind: "compaction", tokensBefore, tokensAfter, summary, trigger },
   };
 }
 
@@ -430,7 +448,7 @@ function relocalizeNoticeMessage(message: ChatMessage): ChatMessage {
       tokensBefore !== undefined
         ? `${formatCompact(tokensBefore)}${tokensAfter !== undefined ? ` → ${formatCompact(tokensAfter)}` : ""}`
         : "";
-    const text = i18n.t("integration:compaction.done", { range: range ? ` · ${range}` : "" });
+    const text = i18n.t(compactionDoneKey(message.notice.trigger), { range: range ? ` · ${range}` : "" });
     return {
       ...message,
       segments: message.segments.map((segment) => (segment.kind === "text" ? { ...segment, text } : segment)),
@@ -705,12 +723,18 @@ export function applySessionEvent(session: SessionState, event: Record<string, u
       session.compacting = false;
       const e = event as {
         result?: { tokensBefore?: number; estimatedTokensAfter?: number; summary?: string };
+        reason?: "manual" | "threshold" | "overflow";
         aborted?: boolean;
         errorMessage?: string;
       };
       if (e.result) {
         session.messages.push(
-          makeCompactionNotice(e.result.tokensBefore, e.result.estimatedTokensAfter, e.result.summary),
+          makeCompactionNotice(
+            e.result.tokensBefore,
+            e.result.estimatedTokensAfter,
+            e.result.summary,
+            e.reason === "manual" ? "manual" : "auto",
+          ),
         );
       } else if (!e.aborted && e.errorMessage) {
         // 失败也要留痕（用户点了手动压缩却什么都没发生是最差的体验）；aborted = 用户主动取消，不打扰
@@ -1023,6 +1047,7 @@ export const useStore = create<StoreState>((set, get) => ({
       usageRevision: 0,
       usageLoaded: true,
       lastUsage: null,
+      context: null,
       supportedThinkingLevels: modelInfo?.thinkingLevels ?? [],
       todos: [],
       planMode: false,
@@ -1104,6 +1129,7 @@ export const useStore = create<StoreState>((set, get) => ({
       usageRevision: usageSnapshot?.revision ?? 0,
       usageLoaded: usageSnapshot !== null,
       lastUsage: null,
+      context: null,
       supportedThinkingLevels: info.supportedThinkingLevels ?? [],
       todos: [],
       planMode: info.planMode ?? entry.planMode ?? false,
@@ -1351,9 +1377,24 @@ export const useStore = create<StoreState>((set, get) => ({
     try {
       await window.spcode.command({ type: "session.compact", payload: { sessionId: activeSessionId } });
     } catch (e) {
-      // 引擎拒绝（如「Nothing to compact」「Already compacted」）：compaction_end 的
-      // 失败 notice 已进入消息流，这里只兜底引擎没发事件的异常
-      set({ lastError: e instanceof Error ? e.message : String(e) });
+      // 引擎未发 compaction_end 的异常也只留在当前会话，不制造全局 Toast
+      const message = e instanceof Error ? e.message : String(e);
+      set((state) =>
+        touchSession(state, activeSessionId, (draft) => {
+          draft.messages.push({
+            id: nextMsgId(),
+            role: "notice",
+            segments: [
+              {
+                kind: "text",
+                id: nextMsgId(),
+                text: i18n.t("integration:compaction.failed", { error: friendlyCompactionError(message) }),
+              },
+            ],
+            streaming: false,
+          });
+        }),
+      );
     }
   },
 
@@ -1381,6 +1422,7 @@ export const useStore = create<StoreState>((set, get) => ({
       touchSession(s, activeSessionId, (draft) => {
         if (info) {
           draft.meta = { ...draft.meta, model: info.model, thinkingLevel: info.thinkingLevel };
+          draft.context = null;
           draft.supportedThinkingLevels = info.supportedThinkingLevels ?? [];
         }
       }),
@@ -1556,9 +1598,8 @@ export const useStore = create<StoreState>((set, get) => ({
             applySessionEvent(draft, event.event as Record<string, unknown>),
           );
         case "session.usage":
-          return touchSession(s, event.sessionId, (draft) => {
-            draft.lastUsage = event.usage;
-          });
+          // 原始 usage 只用于主进程落账与远程透传；聚合由 summary、上下文由 session.context 负责
+          return s;
         case "session.usage.summary":
           return touchSession(s, event.sessionId, (draft) => {
             const revision = event.snapshot.revision;
@@ -1568,13 +1609,16 @@ export const useStore = create<StoreState>((set, get) => ({
               draft.usageLoaded = true;
             }
           });
+        case "session.context":
+          return touchSession(s, event.sessionId, (draft) => {
+            draft.context = event.snapshot;
+          });
         case "session.history":
           return touchSession(s, event.sessionId, (draft) => {
             if (draft.messages.length === 0) {
               draft.messages = historyToMessages(event.messages);
-              // 恢复会话时上下文环不归零：用投影中最后一条有效 assistant usage 初始化
-              // （压缩点之前的 usage 已被宿主作废为 null，不会显示失真的大数字）
-              if (event.lastUsage) draft.lastUsage = event.lastUsage;
+              // 恢复会话时上下文环不归零：用引擎投影初始化；tokens=null 表示未知而不是 0
+              draft.context = event.contextUsage ?? null;
             }
           });
         case "session.todo":

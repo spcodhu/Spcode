@@ -1,11 +1,18 @@
-import type { ComposerDraft, ImageAttachment, ModelInfo, ModelRef, PermissionMode } from "@spcode/shared";
+import type {
+  ComposerDraft,
+  ContextUsageSnapshot,
+  ImageAttachment,
+  ModelInfo,
+  ModelRef,
+  PermissionMode,
+} from "@spcode/shared";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { buildFileBlocks, type DraftFile } from "../file-blocks";
 import { formatCompact, formatFileSize } from "../format";
 import { openImageContextMenu } from "../image-actions";
 import { resolveImageRefs } from "../md-editor";
-import { composerDraftKeyOf, type SessionState, useStore } from "../store";
+import { composerDraftKeyOf, useStore } from "../store";
 import { thinkingLevelLabel } from "../tooling";
 import { Icon } from "./Icon";
 import { ImageLightbox } from "./ImageLightbox";
@@ -453,10 +460,11 @@ export function Composer({ sessionId }: { sessionId: string }) {
             {settings?.quickQuota && session?.meta.model && (
               <ContextRing
                 model={session.meta.model}
-                lastUsage={session.lastUsage}
+                context={session.context ?? null}
                 models={models}
                 compacting={session.compacting === true}
                 busy={session.running}
+                draft={session.draft === true}
                 onCompact={() => void compactSession()}
               />
             )}
@@ -691,90 +699,124 @@ function ToolButton({ children, title, onClick }: { children: React.ReactNode; t
 }
 
 // ---------------------------------------------------------------------------
-// 上下文占用环：当前会话最近一次请求的上下文占用 / 模型上下文窗口
-// 悬浮显示自绘明细卡（不用原生 title，深色主题下原生提示太违和）+ 手动压缩入口
+// 上下文占用环：pi 引擎投影 / 模型上下文窗口
+// 点击或悬浮查看明细 + 手动压缩入口；计费 usage 与辅助调用不参与计算
 // ---------------------------------------------------------------------------
 
 function ContextRing({
   model,
-  lastUsage,
+  context,
   models,
   compacting,
   busy,
+  draft,
   onCompact,
 }: {
   model: ModelRef;
-  lastUsage: SessionState["lastUsage"];
+  context: ContextUsageSnapshot | null;
   models: ModelInfo[];
   compacting: boolean;
   /** 会话运行中（手动压缩会先 abort 运行，不在中途插入，故运行中禁用） */
   busy: boolean;
+  draft: boolean;
   onCompact: () => void;
 }) {
   const { t } = useTranslation("chat");
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const info = models.find((m) => m.provider === model.provider && m.modelId === model.modelId);
-  const window = info?.contextWindow ?? 0;
-  if (window <= 0) return null;
+  const contextWindow = context?.contextWindow ?? info?.contextWindow ?? 0;
+  const used = context?.tokens ?? null;
+  const pct = used !== null && contextWindow > 0 ? Math.min(100, Math.round((used / contextWindow) * 100)) : null;
+  const color =
+    pct !== null && pct >= 90
+      ? "var(--color-danger)"
+      : pct !== null && pct >= 70
+        ? "var(--color-warning)"
+        : "var(--color-accent)";
 
-  // 上下文占用 = 最近一次请求的 input + cacheRead + cacheWrite + output（= 引擎压缩判断的
-  // totalTokens 口径）。漏掉 cacheWrite 会让冷缓存请求显示失真小数字（缓存 TTL 过期后
-  // 上下文大头全计在 cacheWrite 上），环出现「突然变小又变大」的跳动。
-  const used = lastUsage ? lastUsage.input + lastUsage.cacheRead + lastUsage.cacheWrite + lastUsage.output : 0;
-  const pct = Math.min(100, Math.round((used / window) * 100));
-  const color = pct >= 90 ? "var(--color-danger)" : pct >= 70 ? "var(--color-warning)" : "var(--color-accent)";
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (event: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      setOpen(false);
+      buttonRef.current?.focus();
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
 
   const R = 7;
   const C = 2 * Math.PI * R;
+  const disabledReason = draft ? t("context.draftUnavailable") : busy ? t("context.busy") : undefined;
   return (
-    <div className="group relative flex h-7 w-7 items-center justify-center">
-      <svg width="18" height="18" viewBox="0 0 18 18" role="img" aria-label={t("context.percent", { percent: pct })}>
-        <circle cx="9" cy="9" r={R} fill="none" stroke="var(--color-bg-hover)" strokeWidth="2.5" />
-        <circle
-          cx="9"
-          cy="9"
-          r={R}
-          fill="none"
-          stroke={color}
-          strokeWidth="2.5"
-          strokeDasharray={`${(pct / 100) * C} ${C}`}
-          strokeLinecap="round"
-          transform="rotate(-90 9 9)"
-        />
-      </svg>
-      {/* 悬浮明细卡 */}
-      <div className="pointer-events-none absolute bottom-8 right-0 z-50 w-64 rounded-xl border border-border bg-bg-elevated p-3 opacity-0 shadow-2xl transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100">
-        <div className="flex items-baseline justify-between">
+    <div ref={rootRef} className="group relative flex h-7 w-7 shrink-0 items-center justify-center">
+      <button
+        ref={buttonRef}
+        type="button"
+        data-testid="context-ring"
+        aria-label={pct === null ? t("context.unknown") : t("context.percent", { percent: pct })}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="flex h-7 w-7 items-center justify-center rounded-full hover:bg-bg-hover"
+      >
+        <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+          <circle cx="9" cy="9" r={R} fill="none" stroke="var(--color-bg-hover)" strokeWidth="2.5" />
+          <circle
+            cx="9"
+            cy="9"
+            r={R}
+            fill="none"
+            stroke={color}
+            strokeWidth="2.5"
+            strokeDasharray={`${((pct ?? 0) / 100) * C} ${C}`}
+            strokeLinecap="round"
+            transform="rotate(-90 9 9)"
+          />
+        </svg>
+      </button>
+      <div
+        role="dialog"
+        aria-label={t("context.title")}
+        className={`absolute bottom-8 right-0 z-50 w-64 rounded-xl border border-border bg-bg-elevated p-3 shadow-2xl transition-opacity duration-150 ${
+          open
+            ? "pointer-events-auto opacity-100"
+            : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
+        }`}
+      >
+        <div className="flex items-baseline justify-between gap-2">
           <span className="text-[13px] font-medium text-text-primary">{t("context.title")}</span>
-          <span className="text-[13px] text-text-secondary">
-            {t("context.usage", { used: formatCompact(used), total: formatCompact(window), percent: pct })}
+          <span className="shrink-0 text-[13px] text-text-secondary">
+            {used !== null && contextWindow > 0 && pct !== null
+              ? t("context.usage", { used: formatCompact(used), total: formatCompact(contextWindow), percent: pct })
+              : "—"}
           </span>
         </div>
-        {lastUsage ? (
-          <div className="mt-2 space-y-1 text-[12px]">
-            <div className="flex justify-between">
-              <span className="text-text-tertiary">{t("context.inputCache")}</span>
-              <span className="text-text-secondary">
-                {lastUsage.input.toLocaleString()} / {lastUsage.cacheRead.toLocaleString()} /
-                {lastUsage.cacheWrite.toLocaleString()}
-              </span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-text-tertiary">{t("context.output")}</span>
-              <span className="text-text-secondary">{lastUsage.output.toLocaleString()}</span>
-            </div>
-          </div>
-        ) : (
-          <div className="mt-2 text-[12px] text-text-tertiary">{t("context.empty")}</div>
-        )}
+        <div className="mt-2 text-[12px] leading-snug text-text-tertiary">
+          {used === null ? t("context.unavailable") : context?.estimated ? t("context.estimated") : t("context.engine")}
+        </div>
         <button
           type="button"
           data-testid="compact-now"
-          disabled={compacting || busy}
+          disabled={compacting || busy || draft}
+          title={disabledReason}
           onClick={onCompact}
-          className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-border px-2 py-1.5 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-45"
+          className="mt-2.5 flex w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-border px-2 py-1.5 text-[12px] text-text-secondary transition-colors hover:bg-bg-hover hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-45"
         >
           {t(compacting ? "context.compacting" : "context.compactNow")}
         </button>
+        {disabledReason && <div className="mt-1.5 text-[11px] text-text-tertiary">{disabledReason}</div>}
         <div className="mt-1.5 text-[11px] leading-snug text-text-tertiary">{t("context.hint")}</div>
       </div>
     </div>

@@ -130,12 +130,30 @@ export const MessageItem = memo(MessageItemImpl);
 function NoticeItemImpl({ message }: { message: ChatMessage }) {
   const { t } = useTranslation("chat");
   const compaction = message.notice?.kind === "compaction" ? message.notice : undefined;
+  const compactionKeys =
+    compaction?.trigger === "auto"
+      ? ({
+          single: "message.autoCompacted",
+          before: "message.autoCompactedBefore",
+          range: "message.autoCompactedRange",
+        } as const)
+      : compaction?.trigger === "manual"
+        ? ({
+            single: "message.manualCompacted",
+            before: "message.manualCompactedBefore",
+            range: "message.manualCompactedRange",
+          } as const)
+        : ({
+            single: "message.compacted",
+            before: "message.compactedBefore",
+            range: "message.compactedRange",
+          } as const);
   const text = compaction
     ? compaction.tokensBefore === undefined
-      ? t("message.compacted")
+      ? t(compactionKeys.single)
       : compaction.tokensAfter === undefined
-        ? t("message.compactedBefore", { before: formatCompact(compaction.tokensBefore) })
-        : t("message.compactedRange", {
+        ? t(compactionKeys.before, { before: formatCompact(compaction.tokensBefore) })
+        : t(compactionKeys.range, {
             before: formatCompact(compaction.tokensBefore),
             after: formatCompact(compaction.tokensAfter),
           })
@@ -144,7 +162,7 @@ function NoticeItemImpl({ message }: { message: ChatMessage }) {
   const [open, setOpen] = useState(false);
   if (message.notice?.kind === "runError") return <RunErrorCard notice={message.notice} />;
   return (
-    <div className="my-5">
+    <div className="my-5" data-testid={compaction ? "compaction-notice" : undefined} data-trigger={compaction?.trigger}>
       <button
         type="button"
         disabled={!summary}

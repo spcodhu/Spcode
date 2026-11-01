@@ -18,6 +18,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type {
   AdvancedSearchConfig,
+  ContextUsageSnapshot,
   ModelRef,
   PermissionMode,
   PermissionRequest,
@@ -182,6 +183,7 @@ export interface SessionControllerOptions {
   permissionMode?: PermissionMode;
   emitEvent: (event: AgentSessionEvent) => void;
   emitUsage: (usage: UsageRecord) => void;
+  emitContext?: (snapshot: ContextUsageSnapshot) => void;
   emitTodo: (todos: TodoItem[]) => void;
   /** 计划模式开关变化（主进程回填注册表、渲染进程更新 UI） */
   emitPlanMode: (enabled: boolean) => void;
@@ -422,6 +424,12 @@ export class SessionController {
       }
       const usage = extractUsage(event, opts.sessionId, ctl.currentModelRef());
       if (usage) opts.emitUsage(usage);
+      if (event.type === "message_end" || event.type === "compaction_end" || event.type === "agent_settled") {
+        const snapshot = ctl.contextUsage(
+          event.type === "compaction_end" ? event.result?.estimatedTokensAfter : undefined,
+        );
+        if (snapshot) opts.emitContext?.(snapshot);
+      }
     });
 
     // 权限网关：挂在 pi 的 beforeToolCall 钩子上（实现已抽 permission-gate.ts，
@@ -496,12 +504,21 @@ export class SessionController {
   }
 
   /**
-   * 恢复会话时初始化上下文环的用量快照：取投影中最后一条有效 assistant usage。
-   * 若该 usage 来自最新压缩点之前则作废返回 null——它反映的是压缩前的大上下文，
-   * 直接展示就是「环突然变大」的假象（与 pi getContextUsage 的失效保护同语义）。
+   * 引擎权威上下文占用。压缩完成时用引擎给出的投影估算立即刷新，
+   * tokens=null 保持“未知”语义，绝不回落到压缩前 usage 或辅助 worker。
    */
-  lastUsageForRing(): UsageRecord | null {
-    return lastAssistantUsageForRing(this.sessionId, this.session.messages, this.currentModelRef());
+  contextUsage(estimatedTokensAfter?: number): ContextUsageSnapshot | null {
+    const current = this.session.getContextUsage();
+    const contextWindow = current?.contextWindow ?? this.session.model?.contextWindow ?? 0;
+    if (estimatedTokensAfter !== undefined && contextWindow > 0) {
+      return {
+        tokens: estimatedTokensAfter,
+        contextWindow,
+        percent: (estimatedTokensAfter / contextWindow) * 100,
+        estimated: true,
+      };
+    }
+    return current ?? null;
   }
 
   /** 是否正在运行（含引擎流式中）：宿主休眠/安全释放的前置检查 */
@@ -702,69 +719,3 @@ export function extractUsage(event: AgentSessionEvent, sessionId: string, model:
 }
 
 export type { SessionMode };
-
-// ---------------------------------------------------------------------------
-// 恢复会话时的上下文环初始化
-// ---------------------------------------------------------------------------
-
-interface AssistantUsageLike {
-  role?: string;
-  provider?: string;
-  model?: string;
-  stopReason?: string;
-  timestamp?: number;
-  usage?: Partial<UsageLike>;
-}
-
-/**
- * 从消息列表提取「上下文环初始值」：最后一条有效 assistant usage。
- * 规则（导出供单测）：
- * - 跳过 aborted/error 与全零 usage（它们不反映真实上下文体积）；
- * - 若最近一条有效 usage 的时间戳不晚于最新 compactionSummary，返回 null
- * （压缩点之前的 usage 反映的是压缩前的大上下文，直接展示就是假象）；
- * - 消息缺 provider/model 时回落当前会话模型。
- */
-export function lastAssistantUsageForRing(
-  sessionId: string,
-  messages: unknown[],
-  fallbackModel: ModelRef | null,
-): UsageRecord | null {
-  let lastCompactionTs = -Infinity;
-  for (const raw of messages) {
-    const m = raw as { role?: string; timestamp?: number };
-    if (m.role === "compactionSummary" && typeof m.timestamp === "number") {
-      if (m.timestamp > lastCompactionTs) lastCompactionTs = m.timestamp;
-    }
-  }
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i] as AssistantUsageLike;
-    if (m.role !== "assistant" || !m.usage || typeof m.usage !== "object") continue;
-    if (m.stopReason === "aborted" || m.stopReason === "error") continue;
-    const u = m.usage;
-    const input = u.input ?? 0;
-    const output = u.output ?? 0;
-    const cacheRead = u.cacheRead ?? 0;
-    const cacheWrite = u.cacheWrite ?? 0;
-    if (input + output + cacheRead + cacheWrite <= 0) continue;
-    const ts = typeof m.timestamp === "number" ? m.timestamp : Date.now();
-    if (ts <= lastCompactionTs) return null;
-    const model = m.provider && m.model ? { provider: m.provider, modelId: m.model } : fallbackModel;
-    if (!model) return null;
-    const cost = (u.cost ?? {}) as Partial<UsageLike["cost"]>;
-    return {
-      sessionId,
-      model,
-      timestamp: ts,
-      input,
-      output,
-      cacheRead,
-      cacheWrite,
-      costInput: cost.input ?? 0,
-      costOutput: cost.output ?? 0,
-      costCacheRead: cost.cacheRead ?? 0,
-      costCacheWrite: cost.cacheWrite ?? 0,
-      costTotal: cost.total ?? 0,
-    };
-  }
-  return null;
-}

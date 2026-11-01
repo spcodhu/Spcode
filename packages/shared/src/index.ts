@@ -226,6 +226,16 @@ export interface SessionUsageSnapshot {
   revision: number;
 }
 
+/** pi AgentSession.getContextUsage() 的 UI 投影；与计费 usage 完全分离。 */
+export interface ContextUsageSnapshot {
+  /** null = 引擎暂时没有可信值（如恢复一个刚压缩、尚无新请求的会话），不等于 0 */
+  tokens: number | null;
+  contextWindow: number;
+  percent: number | null;
+  /** true = 来自 compaction_end.estimatedTokensAfter 或投影估算 */
+  estimated?: boolean;
+}
+
 /** 按四类 token 与单价计算一条 usage 的成本（不改 token 原始值）。 */
 export function priceUsageSample<T extends UsageSample>(sample: T, rates: ModelPriceRates): T {
   const costInput = (rates.input * sample.input) / 1_000_000;
@@ -471,10 +481,14 @@ export type HostEvent =
       messages: unknown[];
       /** 恢复会话时的上下文环初始值（投影中最后一条有效 assistant usage；压缩点之前的已作废为 null） */
       lastUsage?: UsageRecord | null;
+      /** 恢复会话时的引擎上下文快照；与 lastUsage 计费记录无关 */
+      contextUsage?: ContextUsageSnapshot | null;
     }
   | { type: "session.usage"; sessionId: string; usage: UsageRecord }
   /** 主进程账本落盘后的权威会话聚合；渲染层据此恢复历史并避免本地重复累计 */
   | { type: "session.usage.summary"; sessionId: string; snapshot: SessionUsageSnapshot }
+  /** 引擎权威上下文占用；只由主会话投影驱动，辅助模型调用永不影响 */
+  | { type: "session.context"; sessionId: string; snapshot: ContextUsageSnapshot }
   | { type: "session.todo"; sessionId: string; todos: TodoItem[] }
   /** AI 通过 RenameSession 工具主动起的会话标题 */
   | { type: "session.renamed"; sessionId: string; title: string }

@@ -1,5 +1,7 @@
 export const zhCN = {
   "compaction.done": "上下文已压缩{{range}}",
+  "compaction.autoDone": "已自动压缩上下文{{range}}",
+  "compaction.manualDone": "已手动压缩上下文{{range}}",
   "compaction.short": "上下文还太短，无需压缩",
   "compaction.already": "刚刚已经压缩过了",
   "compaction.cancelled": "压缩被取消",
@@ -53,6 +55,8 @@ export const zhCN = {
 
 export const en = {
   "compaction.done": "Context compacted{{range}}",
+  "compaction.autoDone": "Context automatically compacted{{range}}",
+  "compaction.manualDone": "Context manually compacted{{range}}",
   "compaction.short": "The context is too short to compact",
   "compaction.already": "The context was just compacted",
   "compaction.cancelled": "Compaction cancelled",

@@ -351,7 +351,7 @@ describe("session.renamed 标题更新", () => {
 });
 
 describe("session.usage 与账本快照", () => {
-  it("原始事件只更新最近用量；权威 summary 更新聚合且旧 revision 被忽略", () => {
+  it("原始事件不直接修改聚合或上下文；权威 summary 更新聚合且旧 revision 被忽略", () => {
     stubSpcodeApi();
     seedSession("s-usage");
     const usage = (input: number) => ({
@@ -372,7 +372,7 @@ describe("session.usage 与账本快照", () => {
     useStore.getState().applyHostEvent({ type: "session.usage", sessionId: "s-usage", usage: usage(2000) });
 
     let session = useStore.getState().sessions["s-usage"];
-    expect(session?.lastUsage?.input).toBe(2000);
+    expect(session?.context ?? null).toBeNull();
     expect(session?.usage.input).toBe(0); // 不再把实时事件重复累加到历史账本之上
 
     const snapshot = (revision: number, input: number) => ({
@@ -393,6 +393,47 @@ describe("session.usage 与账本快照", () => {
     expect(session?.usage.input).toBe(5000);
     expect(session?.usageRevision).toBe(2);
     expect(session?.usageLoaded).toBe(true);
+  });
+});
+
+describe("session.context 引擎上下文快照", () => {
+  it("只有独立 context 通道能更新圆环数据，辅助 usage 不覆盖，历史可恢复", () => {
+    stubSpcodeApi();
+    seedSession("s-context");
+    const snapshot = { tokens: 120000, contextWindow: 200000, percent: 60, estimated: false };
+    useStore.getState().applyHostEvent({ type: "session.context", sessionId: "s-context", snapshot });
+    useStore.getState().applyHostEvent({
+      type: "session.usage",
+      sessionId: "s-context",
+      usage: {
+        sessionId: "s-context",
+        model: { provider: "p", modelId: "m" },
+        timestamp: 1,
+        input: 1,
+        output: 1,
+        cacheRead: 0,
+        cacheWrite: 0,
+        costInput: 0,
+        costOutput: 0,
+        costCacheRead: 0,
+        costCacheWrite: 0,
+        costTotal: 0,
+        source: "distill",
+      },
+    });
+    expect(useStore.getState().sessions["s-context"]?.context).toEqual(snapshot);
+
+    useStore.getState().applyHostEvent({
+      type: "session.history",
+      sessionId: "s-context",
+      messages: [],
+      contextUsage: { tokens: null, contextWindow: 200000, percent: null },
+    });
+    expect(useStore.getState().sessions["s-context"]?.context).toEqual({
+      tokens: null,
+      contextWindow: 200000,
+      percent: null,
+    });
   });
 });
 
@@ -487,11 +528,34 @@ describe("compaction 事件流", () => {
     expect(session?.compacting).toBe(false);
     const notice = session?.messages[session.messages.length - 1];
     expect(notice?.role).toBe("notice");
-    expect(notice?.notice?.kind).toBe("compaction");
-    expect(notice?.notice?.tokensBefore).toBe(182000);
-    expect(notice?.notice?.tokensAfter).toBe(52000);
+    expect(notice?.notice).toMatchObject({
+      kind: "compaction",
+      trigger: "auto",
+      tokensBefore: 182000,
+      tokensAfter: 52000,
+    });
     expect(messageText(notice!)).toContain("182k");
     expect(messageText(notice!)).toContain("52k");
+  });
+
+  it("手动压缩 notice 标记 manual，且不写全局通知", () => {
+    stubSpcodeApi();
+    seedSession("s-compact-manual-notice");
+    useStore.setState({ notice: { text: "既有全局通知" } });
+    useStore.getState().applyHostEvent({
+      type: "session.event",
+      sessionId: "s-compact-manual-notice",
+      event: {
+        type: "compaction_end",
+        reason: "manual",
+        result: { summary: "s", tokensBefore: 90000, estimatedTokensAfter: 30000 },
+        aborted: false,
+        willRetry: false,
+      },
+    } as never);
+    const session = useStore.getState().sessions["s-compact-manual-notice"];
+    expect(session?.messages.at(-1)?.notice).toMatchObject({ kind: "compaction", trigger: "manual" });
+    expect(useStore.getState().notice?.text).toBe("既有全局通知");
   });
 
   it("压缩失败（非取消）插入错误提示；用户取消不留痕", () => {

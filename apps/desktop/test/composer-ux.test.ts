@@ -56,6 +56,7 @@ function deferred<T>() {
 let root: Root;
 let container: HTMLDivElement;
 let sendPrompt: ReturnType<typeof vi.fn>;
+let compactSession: ReturnType<typeof vi.fn>;
 let setPermissionMode: ReturnType<typeof vi.fn>;
 let rafId: number;
 let rafCallbacks: Map<number, FrameRequestCallback>;
@@ -72,6 +73,7 @@ beforeEach(() => {
   vi.stubGlobal("cancelAnimationFrame", (id: number) => rafCallbacks.delete(id));
   setLocale("zh-CN");
   sendPrompt = vi.fn();
+  compactSession = vi.fn(async () => {});
   setPermissionMode = vi.fn(async (mode: PermissionMode) => {
     const id = useStore.getState().activeSessionId;
     if (!id) return;
@@ -96,7 +98,7 @@ beforeEach(() => {
     setModel: vi.fn(async () => {}),
     setThinkingLevel: vi.fn(async () => {}),
     setPlanMode: vi.fn(async () => {}),
-    compactSession: vi.fn(async () => {}),
+    compactSession,
   });
   Object.defineProperty(window, "spcode", {
     configurable: true,
@@ -339,5 +341,52 @@ describe("Composer 编辑区快捷键与 Markdown 工具状态", () => {
     await click("md-view-edit");
     expect(element("md-tool-bold").disabled).toBe(false);
     expect(element("md-tool-image").disabled).toBe(false);
+  });
+});
+
+describe("Composer 上下文环与手动压缩", () => {
+  async function renderWithContext(context: SessionState["context"], draft = false) {
+    const current = makeSession("s1");
+    current.meta.model = { provider: "p", modelId: "m" };
+    current.context = context;
+    current.draft = draft;
+    useStore.setState({
+      settings: { quickQuota: true } as never,
+      models: [
+        {
+          provider: "p",
+          modelId: "m",
+          displayName: "M",
+          contextWindow: 100000,
+          maxTokens: 1000,
+          thinkingLevels: [],
+          available: true,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          priceKnown: false,
+        },
+      ],
+      sessions: { ...useStore.getState().sessions, s1: current },
+    });
+    await render("s1");
+  }
+
+  it("显示引擎上下文百分比，点击后可发起手动压缩", async () => {
+    await renderWithContext({ tokens: 50000, contextWindow: 100000, percent: 50 });
+    expect(element("context-ring").getAttribute("aria-label")).toBe("上下文占用 50%");
+    await click("context-ring");
+    const button = element("compact-now");
+    expect(button.disabled).toBe(false);
+    await click("compact-now");
+    expect(compactSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("没有可信快照仍显示入口；草稿禁用并说明原因", async () => {
+    await renderWithContext(null, true);
+    expect(element("context-ring").getAttribute("aria-label")).toBe("上下文占用未知");
+    await click("context-ring");
+    const button = element("compact-now");
+    expect(button.disabled).toBe(true);
+    expect(button.title).toContain("发送第一条消息");
+    expect(compactSession).not.toHaveBeenCalled();
   });
 });
