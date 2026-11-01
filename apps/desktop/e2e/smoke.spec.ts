@@ -186,7 +186,7 @@ test.describe("Spcode 冒烟 E2E", () => {
 
     // 完整配对码可展开，内容使用现有 QR payload，不触发重新生成
     await window.getByTestId("remote-payload-toggle").click();
-    await expect(window.getByTestId("remote-payload")).toHaveValue(/^spcode-remote:\/\/pair\?v=2&/);
+    await expect(window.getByTestId("remote-payload")).toHaveValue(/^spcode-remote:\/\/pair\?v=3&/);
     await expect(window.getByTestId("remote-copy-payload")).toBeVisible();
 
     // 关闭：回到简介态
@@ -236,6 +236,8 @@ test.describe("Spcode 冒烟 E2E", () => {
     // 开启远程控制：M2/M3 新分区出现（锚 data-testid / role，不绑展示文案——评审 N4）
     await window.getByRole("switch", { name: "启用远程控制" }).click();
     await expect(window.getByTestId("remote-relay")).toBeVisible({ timeout: 10000 });
+    // 当前默认是「官方中继」；地址输入只在「自托管」模式渲染
+    await window.getByRole("button", { name: "自托管", exact: true }).click();
     await expect(window.getByTestId("remote-relay-input")).toHaveAttribute("placeholder", "wss://relay.example.com");
     // 未配置 relayUrl → 徽章"未启用"
     await expect(window.getByTestId("remote-relay-badge")).toHaveText("未启用");
