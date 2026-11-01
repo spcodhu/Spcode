@@ -29,7 +29,7 @@ export type RemoteCommand =
   | { type: "session.list" }
   /** 首次进入会话：按游标读取权威历史；before 缺省 = 最近一页 */
   | { type: "session.history"; sessionId: string; before?: number }
-  | { type: "session.create"; mode: SessionMode; cwd?: string; prompt: string; model?: ModelRef }
+  | { type: "session.create"; mode: SessionMode; cwd?: string; prompt?: string; model?: ModelRef }
   /** 空闲 = 正常输入；运行中 = steer 插话（宿主侧无需特判） */
   | { type: "session.prompt"; sessionId: string; text: string }
   | { type: "session.abort"; sessionId: string }

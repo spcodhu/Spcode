@@ -5,10 +5,12 @@
  */
 
 import type { ScheduleFrequency, ScheduleTask, ScheduleTaskInput } from "@spcode/shared";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorText, formatWeekday, MobileError } from "../lib/i18n";
 import { createSchedule, updateSchedule } from "../state/controller";
+import { useAppStore } from "../state/store";
+import { collectProjectOptions, ProjectPicker } from "./ProjectPicker";
 import { Sheet } from "./Sheet";
 
 const FREQUENCIES = ["once", "hourly", "daily", "weekday", "weekly"] as const;
@@ -44,6 +46,16 @@ export function ScheduleEditorSheet({
   onClose: () => void;
 }) {
   const { t } = useTranslation("mobile");
+  const sessions = useAppStore((s) => s.sessions);
+  const projects = useMemo(() => {
+    const options = collectProjectOptions(Object.values(sessions));
+    const savedProjectCwd = task?.target.kind === "project" ? task.target.cwd : null;
+    // 编辑旧任务时保留已保存目录，即使它因注册表异常暂时不在候选中。
+    if (savedProjectCwd && !options.some((option) => option.cwd === savedProjectCwd)) {
+      options.unshift({ cwd: savedProjectCwd, name: savedProjectCwd, updatedAt: 0 });
+    }
+    return options;
+  }, [sessions, task]);
   const [name, setName] = useState(task?.name ?? "");
   const [prompt, setPrompt] = useState(task?.prompt ?? "");
   const [frequency, setFrequency] = useState<ScheduleFrequency>(task?.frequency ?? "daily");
@@ -266,15 +278,9 @@ export function ScheduleEditorSheet({
             ))}
           </fieldset>
           {kind === "project" && (
-            <input
-              value={cwd}
-              onChange={(e) => setCwd(e.target.value)}
-              placeholder={t("common.projectPath")}
-              aria-label={t("common.projectPath")}
-              autoCapitalize="off"
-              spellCheck={false}
-              className={FIELD_CLASS}
-            />
+            <div className="mt-2">
+              <ProjectPicker projects={projects} value={cwd} onChange={setCwd} />
+            </div>
           )}
         </div>
 

@@ -138,6 +138,23 @@ describe("session.create 链路", () => {
     expect(createCmd.payload).toMatchObject({ mode: "project", cwd: "/code/my-app" });
     expect(registry.entries.get(result.sessionId)?.title).toBe("看下这个仓库");
   });
+
+  it("无 prompt 只创建空会话，不向引擎发送空消息", async () => {
+    const { deps, bridgeCalls, registry, localEvents } = makeDeps();
+    const result = (await handleRemoteCommand(
+      { type: "session.create", mode: "project", cwd: "/code/my-app" },
+      deps,
+    )) as { sessionId: string };
+    expect(bridgeCalls.map((command) => command.type)).toEqual(["session.create"]);
+    expect(registry.entries.get(result.sessionId)?.title).toBe("my-app");
+    expect(localEvents).toEqual([{ type: "sessions.changed" }]);
+  });
+
+  it("空白 prompt 与缺省一样不触发 session.prompt", async () => {
+    const { deps, bridgeCalls } = makeDeps();
+    await handleRemoteCommand({ type: "session.create", mode: "chat", prompt: "  \n " }, deps);
+    expect(bridgeCalls.map((command) => command.type)).toEqual(["session.create"]);
+  });
 });
 
 describe("session.history / prompt / abort / subscribe", () => {

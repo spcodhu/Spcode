@@ -5,8 +5,9 @@
  */
 
 import type { SessionMeta, SessionMode } from "@spcode/shared";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { collectProjectOptions, ProjectPicker } from "../components/ProjectPicker";
 import { SettingsSheet } from "../components/SettingsSheet";
 import { Sheet } from "../components/Sheet";
 import { errorText, formatDate } from "../lib/i18n";
@@ -21,18 +22,25 @@ const STATUS_CLASS: Record<SessionStatus, string> = {
 
 function NewTaskSheet({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation("mobile");
+  const sessions = useAppStore((s) => s.sessions);
+  const projects = useMemo(() => collectProjectOptions(Object.values(sessions)), [sessions]);
   const [mode, setMode] = useState<SessionMode>("chat");
-  const [prompt, setPrompt] = useState("");
   const [cwd, setCwd] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
+  useEffect(() => {
+    if (mode !== "project") return;
+    if (!cwd || !projects.some((project) => project.cwd === cwd)) setCwd(projects[0]?.cwd ?? "");
+  }, [mode, projects, cwd]);
+
   const submit = async () => {
-    if (!prompt.trim() || busy) return;
+    if (busy || (mode === "project" && !cwd)) return;
     setBusy(true);
     setError(null);
     try {
-      await createSession({ mode, prompt: prompt.trim(), cwd: cwd.trim() || undefined });
+      // 先进入空会话，首条指令在详情页输入；不再把 prompt 当作创建前置条件。
+      await createSession({ mode, cwd: mode === "project" ? cwd : undefined });
       onClose();
     } catch (err) {
       setError(err);
@@ -43,12 +51,14 @@ function NewTaskSheet({ onClose }: { onClose: () => void }) {
   return (
     <Sheet
       title={t("sessions.newTask")}
+      description={t("sessions.createHint")}
       onClose={onClose}
       busy={busy}
       footer={
         <button
           type="button"
-          disabled={busy || !prompt.trim() || (mode === "project" && !cwd.trim())}
+          data-testid="new-session-submit"
+          disabled={busy || (mode === "project" && !cwd)}
           onClick={() => void submit()}
           className="min-h-12 w-full rounded-xl bg-accent px-4 py-3 text-sm font-medium text-on-accent transition-colors active:bg-accent-dim disabled:opacity-40"
         >
@@ -63,6 +73,7 @@ function NewTaskSheet({ onClose }: { onClose: () => void }) {
               key={m}
               type="button"
               aria-pressed={mode === m}
+              data-testid={`new-session-mode-${m}`}
               onClick={() => setMode(m)}
               className={`min-h-11 flex-1 rounded-xl border px-3 py-2.5 text-sm transition-colors ${
                 mode === m
@@ -74,25 +85,13 @@ function NewTaskSheet({ onClose }: { onClose: () => void }) {
             </button>
           ))}
         </fieldset>
-        {mode === "project" && (
-          <input
-            value={cwd}
-            onChange={(e) => setCwd(e.target.value)}
-            placeholder={t("common.projectPath")}
-            aria-label={t("common.projectPath")}
-            autoCapitalize="off"
-            spellCheck={false}
-            className="min-h-11 w-full rounded-xl border border-border-strong bg-bg-main/70 px-3 py-2.5 text-base text-text-primary outline-none placeholder:text-text-tertiary focus:border-accent"
-          />
+        {mode === "project" ? (
+          <ProjectPicker projects={projects} value={cwd} onChange={setCwd} />
+        ) : (
+          <div className="rounded-xl border border-border bg-bg-elevated px-3.5 py-3 text-xs leading-5 text-text-tertiary">
+            {t("sessions.chatHint")}
+          </div>
         )}
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          rows={4}
-          placeholder={t("sessions.prompt")}
-          aria-label={t("sessions.prompt")}
-          className="min-h-28 w-full resize-y rounded-xl border border-border-strong bg-bg-main/70 px-3 py-2.5 text-base leading-6 text-text-primary outline-none placeholder:text-text-tertiary focus:border-accent"
-        />
         {error != null && (
           <div role="alert" className="safe-break text-xs leading-5 text-red-300">
             {errorText(error)}

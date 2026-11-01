@@ -340,11 +340,11 @@ export async function refreshSchedules(): Promise<void> {
   }
 }
 
-export async function createSession(input: { mode: SessionMode; prompt: string; cwd?: string }): Promise<string> {
+export async function createSession(input: { mode: SessionMode; prompt?: string; cwd?: string }): Promise<string> {
   const data = await send<{ sessionId: string }>({
     type: "session.create",
     mode: input.mode,
-    prompt: input.prompt,
+    ...(input.prompt?.trim() ? { prompt: input.prompt.trim() } : {}),
     ...(input.mode === "project" && input.cwd ? { cwd: input.cwd } : {}),
   });
   useAppStore.getState().setRoute({ name: "session", id: data.sessionId });

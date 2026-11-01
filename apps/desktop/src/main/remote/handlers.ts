@@ -135,9 +135,8 @@ export async function handleRemoteCommand(cmd: RemoteCommand, deps: RemoteHandle
 }
 
 /**
- * 远程创建会话 + 注入首条 prompt：与 fireScheduledTask 同款链路
- * （registry.upsert → session.create → backfill → session.prompt），
- * 但保留标题自动化（标题先给出厂默认，首条 prompt 触发兜底推导）。
+ * 远程创建会话；带非空 prompt 时再注入首条消息（兼容旧客户端）：
+ * registry.upsert → session.create → backfill → 可选 session.prompt。
  */
 async function createSession(
   cmd: Extract<RemoteCommand, { type: "session.create" }>,
@@ -169,12 +168,16 @@ async function createSession(
   backfillSessionFile(createCmd, info, deps.registry);
   // 首条 prompt 标题兜底（与 IPC 链路 session.prompt 行为对齐）
   const entry = deps.registry.get(sessionId);
+  const prompt = cmd.prompt?.trim() ?? "";
   if (entry && isDefaultTitle(entry.title, entry.cwd, entry.titleKind)) {
-    const title = cleanSessionTitle(cmd.prompt);
+    const title = cleanSessionTitle(prompt);
     if (title) deps.registry.patch(sessionId, { title, titleKind: "custom" });
   }
   // 注册表写入不产生事件：把新会话同步给发起设备及其他已配对设备
   deps.bridge.emitLocal?.({ type: "sessions.changed" });
-  await deps.bridge.call(withId({ type: "session.prompt", payload: { sessionId, text: cmd.prompt } }));
+  // 新建流程允许先进入空会话；空 prompt 绝不能注入引擎。
+  if (prompt) {
+    await deps.bridge.call(withId({ type: "session.prompt", payload: { sessionId, text: cmd.prompt! } }));
+  }
   return { sessionId };
 }

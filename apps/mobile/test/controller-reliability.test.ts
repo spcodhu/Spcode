@@ -6,6 +6,7 @@ import type { PairingRecord } from "../src/lib/db";
 import {
   attachPairedRecord,
   boot,
+  createSession,
   ensureSessionOutput,
   loadOlderSessionOutput,
   replyPermission,
@@ -297,6 +298,23 @@ describe("权威快照与回复可靠性", () => {
       pendingQuestions: [],
     });
     expect(useAppStore.getState().sessions.s1?.status).toBe("idle");
+  });
+});
+
+describe("空会话创建", () => {
+  it("缺省 prompt 不进入协议载荷，创建成功后直接进入会话", async () => {
+    attachPairedRecord(record);
+    mocks.command.mockImplementation(async (cmd) => {
+      if (cmd.type === "session.create") return { sessionId: "empty-project" };
+      if (cmd.type === "session.list") return { sessions: [] };
+      if (cmd.type === "schedule.list") return { tasks: [] };
+      return { ok: true };
+    });
+    await createSession({ mode: "project", cwd: "/code/demo" });
+    const command = mocks.command.mock.calls.map(([cmd]) => cmd).find((cmd) => cmd.type === "session.create");
+    expect(command).toEqual({ type: "session.create", mode: "project", cwd: "/code/demo" });
+    expect(command).not.toHaveProperty("prompt");
+    expect(useAppStore.getState().route).toEqual({ name: "session", id: "empty-project" });
   });
 });
 
