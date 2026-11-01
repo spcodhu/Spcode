@@ -1,4 +1,5 @@
 node_modules/
+.pnpm-store/
 dist/
 out/
 *.log
@@ -12,3 +13,4 @@ test-results/
 .qoder/
 spcode-icon*.png
 ci-job.log
+/spcod-relay/
