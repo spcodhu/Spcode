@@ -32,6 +32,13 @@ export function formatTime(ts: number): string {
   return new Intl.DateTimeFormat(getLocale(), { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(ts);
 }
 
+/** 消息悬浮元信息：本地 YYYY-MM-DD HH:mm（不受显示语言影响，便于跨端对照日志）。 */
+export function formatMessageTimestamp(ts: number): string {
+  const date = new Date(ts);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 /** Calendar keys are parsed as local dates, never UTC timestamps. */
 export function formatDateKey(key: string, includeYear = true): string {
   const [year = 0, month = 1, day = 1] = key.split("-").map(Number);

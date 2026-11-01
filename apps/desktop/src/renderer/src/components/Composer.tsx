@@ -27,8 +27,8 @@ import { Modal } from "./ui/Modal";
 
 const COMPOSER_PREFILL_EVENT = "spcode:composer-prefill";
 
-export function prefillComposer(text: string): void {
-  window.dispatchEvent(new CustomEvent(COMPOSER_PREFILL_EVENT, { detail: { text } }));
+export function prefillComposer(text: string, attachments?: ImageAttachment[]): void {
+  window.dispatchEvent(new CustomEvent(COMPOSER_PREFILL_EVENT, { detail: { text, attachments } }));
 }
 
 // ---------------------------------------------------------------------------
@@ -91,10 +91,16 @@ export function Composer({ sessionId }: { sessionId: string }) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: updateDraft 随 draftKey 重建，只需在 key 变化时重绑
   useEffect(() => {
     const onPrefill = (e: Event) => {
-      const text = (e as CustomEvent<{ text: string }>).detail?.text ?? "";
+      const detail = (e as CustomEvent<{ text: string; attachments?: ImageAttachment[] }>).detail;
+      const text = detail?.text ?? "";
+      const attachments = detail?.attachments ?? [];
       const currentText = useStore.getState().composerDrafts[draftKey]?.text ?? "";
       const nextText = currentText ? `${currentText}\n\n${text}` : text;
-      updateDraft({ text: nextText });
+      const currentAttachments = useStore.getState().composerDrafts[draftKey]?.attachments ?? [];
+      updateDraft({
+        text: nextText,
+        ...(attachments.length > 0 ? { attachments: [...currentAttachments, ...attachments] } : {}),
+      });
       requestAnimationFrame(() => {
         const mode = useStore.getState().composerDrafts[draftKey]?.inputMode ?? "plain";
         if (mode === "markdown") {

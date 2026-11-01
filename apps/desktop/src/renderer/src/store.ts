@@ -72,6 +72,8 @@ export type Segment =
 
 export interface ChatMessage {
   id: string;
+  /** 消息产生时间（pi 原始 timestamp；实时消息取本地接收时间） */
+  timestamp?: number;
   role: "user" | "assistant" | "notice";
   segments: Segment[];
   /** 用户消息携带的图片附件（base64 内联，用于气泡缩略图） */
@@ -533,6 +535,7 @@ function ensureStreamingMessage(session: SessionState): ChatMessage {
   const msg: ChatMessage = {
     id: nextMsgId(),
     role: "assistant",
+    timestamp: Date.now(),
     segments: [],
     streaming: true,
   };
@@ -622,9 +625,11 @@ export function applySessionEvent(session: SessionState, event: Record<string, u
         content?: unknown;
         stopReason?: string;
         errorMessage?: string;
+        timestamp?: number;
       };
       if (msg.role === "assistant") {
         const cur = ensureStreamingMessage(session);
+        if (typeof msg.timestamp === "number") cur.timestamp = msg.timestamp;
         if (cur.segments.length === 0 && Array.isArray(msg.content)) {
           // 非流式提供商兜底：没有 delta 事件，从最终 content 按序重建段
           cur.segments = contentToSegments(msg.content);
@@ -821,6 +826,7 @@ export function historyToMessages(messages: unknown[]): ChatMessage[] {
       tokensBefore?: number;
       stopReason?: string;
       errorMessage?: string;
+      timestamp?: number;
     };
     if (m.role === "compactionSummary") {
       // 压缩检查点：回放为分隔线（压缩前的历史已折叠成摘要，可从线上展开查看）
@@ -845,6 +851,7 @@ export function historyToMessages(messages: unknown[]): ChatMessage[] {
         out.push({
           id: nextMsgId(),
           role: "user",
+          timestamp: typeof m.timestamp === "number" ? m.timestamp : undefined,
           segments: text ? [{ kind: "text", id: nextMsgId(), text }] : [],
           ...(images.length ? { images } : {}),
           streaming: false,
@@ -855,7 +862,13 @@ export function historyToMessages(messages: unknown[]): ChatMessage[] {
       // 先回放已有的段，再追加错误卡；否则重启后「任务被中断」的痕迹会彻底消失（旧实现的坑）。
       const segments = contentToSegments(m.content, toolResults);
       if (segments.length > 0) {
-        out.push({ id: nextMsgId(), role: "assistant", segments, streaming: false });
+        out.push({
+          id: nextMsgId(),
+          role: "assistant",
+          timestamp: typeof m.timestamp === "number" ? m.timestamp : undefined,
+          segments,
+          streaming: false,
+        });
       }
       if (m.stopReason === "error" && m.errorMessage?.trim()) {
         out.push(makeRunErrorNotice(m.errorMessage.trim()));
@@ -1301,6 +1314,7 @@ export const useStore = create<StoreState>((set, get) => ({
         draft.messages.push({
           id: nextMsgId(),
           role: "user",
+          timestamp: Date.now(),
           segments: [{ kind: "text", id: nextMsgId(), text }],
           ...(images?.length ? { images } : {}),
           ...(files?.length ? { files } : {}),
@@ -1312,6 +1326,7 @@ export const useStore = create<StoreState>((set, get) => ({
           draft.messages.push({
             id: nextMsgId(),
             role: "assistant",
+            timestamp: Date.now(),
             segments: [],
             streaming: true,
           });

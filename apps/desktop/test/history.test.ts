@@ -8,7 +8,7 @@ function kinds(segments: Segment[] | undefined): string[] {
 describe("historyToMessages", () => {
   it("还原 user/assistant 消息与工具调用配对，段保持 content 原有顺序", () => {
     const messages = [
-      { role: "user", content: [{ type: "text", text: "看下这个文件" }] },
+      { role: "user", content: [{ type: "text", text: "看下这个文件" }], timestamp: 1000 },
       {
         role: "assistant",
         content: [
@@ -23,7 +23,7 @@ describe("historyToMessages", () => {
         content: [{ type: "text", text: "文件内容…" }],
         isError: false,
       },
-      { role: "assistant", content: [{ type: "text", text: "这个文件是…" }] },
+      { role: "assistant", content: [{ type: "text", text: "这个文件是…" }], timestamp: 3000 },
     ];
     const out = historyToMessages(messages);
     expect(out).toHaveLength(3);
@@ -38,6 +38,8 @@ describe("historyToMessages", () => {
     expect(tools?.kind === "tools" && tools.calls[0]?.status).toBe("done");
     expect(tools?.kind === "tools" && tools.calls[0]?.output).toBe("文件内容…");
     expect(messageText(out[2]!)).toBe("这个文件是…");
+    expect(out[0]?.timestamp).toBe(1000);
+    expect(out[2]?.timestamp).toBe(3000);
   });
 
   it("工具错误标记为 error，空消息被跳过", () => {

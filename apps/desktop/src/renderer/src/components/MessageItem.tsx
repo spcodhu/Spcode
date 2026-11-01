@@ -1,7 +1,7 @@
 import { i18n } from "@spcode/shared/i18n";
 import { memo, type ReactNode, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { formatCompact, formatFileSize } from "../format";
+import { formatCompact, formatFileSize, formatMessageTimestamp } from "../format";
 import { openImageContextMenu } from "../image-actions";
 import {
   type ActivitySegment,
@@ -15,12 +15,87 @@ import {
 import { type ChatMessage, flattenSegments, messageText, type ToolCallState } from "../store";
 import { isCommandTool, summarizeArgs, toolLabel } from "../tooling";
 import { DiffPatch } from "./DiffBlock";
+import { prefillComposer } from "./Composer";
 import { Icon } from "./Icon";
 import { ImageLightbox } from "./ImageLightbox";
 import { Markdown } from "./Markdown";
 
 /** 用户气泡长文本折叠阈值（行）：MD 模式粘贴大段结构化文本/文件拼接回放时免刷屏 */
 const COLLAPSE_LINES = 12;
+
+/** 悬浮/聚焦时显示的消息元信息：时间、复制，以及仅回填输入框的编辑。 */
+function MessageHoverMeta({
+  timestamp,
+  copyText,
+  onEdit,
+  align,
+}: {
+  timestamp?: number;
+  copyText: string;
+  onEdit?: () => void;
+  align: "start" | "end";
+}) {
+  const { t } = useTranslation("chat");
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    },
+    [],
+  );
+
+  const copy = async () => {
+    if (!copyText.trim() || !navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(copyText);
+      setCopied(true);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setCopied(false), 1200);
+    } catch {
+      // 剪贴板不可用时保持原图标，不伪造成功反馈。
+    }
+  };
+
+  return (
+    <div
+      data-testid="message-meta"
+      className={`pointer-events-none flex h-6 items-center gap-2 opacity-0 transition-opacity ${
+        align === "end" ? "justify-end" : "justify-start"
+      } group-hover/message:pointer-events-auto group-hover/message:opacity-100 group-focus-within/message:pointer-events-auto group-focus-within/message:opacity-100`}
+    >
+      {timestamp !== undefined && (
+        <time data-testid="message-time" dateTime={new Date(timestamp).toISOString()} className="text-[11px] tabular-nums text-text-tertiary">
+          {formatMessageTimestamp(timestamp)}
+        </time>
+      )}
+      {copyText.trim() && (
+        <button
+          type="button"
+          onClick={() => void copy()}
+          title={t(copied ? "message.copied" : "message.copy")}
+          aria-label={t(copied ? "message.copied" : "message.copy")}
+          data-testid="message-copy"
+          className="rounded p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
+        >
+          <Icon name={copied ? "check" : "copy"} size={13} className={copied ? "text-success" : undefined} />
+        </button>
+      )}
+      {onEdit && (
+        <button
+          type="button"
+          onClick={onEdit}
+          title={t("message.edit")}
+          aria-label={t("message.edit")}
+          data-testid="message-edit"
+          className="rounded p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-secondary"
+        >
+          <Icon name="pen" size={13} />
+        </button>
+      )}
+    </div>
+  );
+}
 
 /** 用户消息气泡（含图片附件缩略图点击放大、文件附件 chips；长文本默认折叠） */
 function MessageItemImpl({ message }: { message: ChatMessage }) {
@@ -33,7 +108,7 @@ function MessageItemImpl({ message }: { message: ChatMessage }) {
   const lineCount = text ? text.split("\n").length : 0;
   const collapsible = lineCount > COLLAPSE_LINES;
   return (
-    <div className="mb-4 flex flex-col items-end gap-2">
+    <div className="group/message mb-4 flex flex-col items-end gap-2" data-testid="user-message">
       {images.length > 0 && (
         <div data-testid="message-image-strip" className="ml-auto flex max-w-[85%] flex-nowrap gap-2 overflow-x-auto pb-1">
           {images.map((img, i) => (
@@ -103,6 +178,12 @@ function MessageItemImpl({ message }: { message: ChatMessage }) {
           )}
         </div>
       )}
+      <MessageHoverMeta
+        timestamp={message.timestamp}
+        copyText={text}
+        align="end"
+        onEdit={text.trim() || images.length > 0 ? () => prefillComposer(text, images) : undefined}
+      />
       {previewIdx !== null && (
         <ImageLightbox
           images={images}
@@ -263,13 +344,19 @@ function AssistantRunItemImpl({
   if (!active) {
     // 任务结束：只留最后一段正文（总结），其余按到达顺序收进一个过程折叠区。
     const { process, summary } = splitCompletedRun(blocks);
+    const copyText = blocks
+      .filter((block): block is RunTextBlock => block.kind === "text")
+      .map((block) => block.text)
+      .join("\n\n");
+    const timestamp = messages[messages.length - 1]?.timestamp ?? messages[0]?.timestamp;
     return (
-      <div className="mb-6">
+      <div className="group/message mb-6">
         {process.length > 0 ? (
           <RunProcess blocks={process} summary={summary} />
         ) : (
           summary && <Markdown key={summary.key} text={summary.text} />
         )}
+        <MessageHoverMeta timestamp={timestamp} copyText={copyText} align="start" />
       </div>
     );
   }
