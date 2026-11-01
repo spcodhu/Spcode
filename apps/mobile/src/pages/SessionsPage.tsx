@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { collectProjectOptions, ProjectPicker } from "../components/ProjectPicker";
 import { ModelField } from "../components/ModelPickerSheet";
+import { Icon } from "../components/Icon";
 import { SettingsSheet } from "../components/SettingsSheet";
 import { Sheet } from "../components/Sheet";
 import { errorText, formatDate } from "../lib/i18n";
@@ -248,7 +249,7 @@ export function SessionsPage() {
             aria-label={t("common.settings")}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-bg-elevated text-base text-text-secondary transition-colors active:bg-bg-active"
           >
-            <span aria-hidden="true">⚙</span>
+            <Icon name="settings" size={20} testId="settings-icon" />
           </button>
         </div>
         <div className="grid grid-cols-2 gap-2">

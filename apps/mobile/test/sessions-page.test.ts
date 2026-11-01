@@ -120,6 +120,14 @@ describe("手机新建会话流程", () => {
     expect(mocks.createSession).toHaveBeenCalledWith({ mode: "project", cwd: "/code/beta" });
   });
 
+  it("设置入口使用自绘 SVG，不再显示 Unicode 齿轮", async () => {
+    await renderPage();
+    const icon = document.querySelector('[data-testid="settings-icon"]');
+    expect(icon?.tagName.toLowerCase()).toBe("svg");
+    expect(icon?.closest("button")?.getAttribute("aria-label")).toBe("设置");
+    expect(icon?.closest("button")?.textContent).not.toContain("⚙");
+  });
+
   it("新建会话可选择 PC 已配置模型", async () => {
     await renderPage();
     await openNewTask();
