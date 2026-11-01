@@ -35,14 +35,14 @@ function MessageItemImpl({ message }: { message: ChatMessage }) {
   return (
     <div className="mb-4 flex flex-col items-end gap-2">
       {images.length > 0 && (
-        <div className="flex max-w-[85%] flex-wrap justify-end gap-2">
+        <div data-testid="message-image-strip" className="ml-auto flex max-w-[85%] flex-nowrap gap-2 overflow-x-auto pb-1">
           {images.map((img, i) => (
             <button
               type="button"
               key={`${img.name}-${img.data.length}`}
               onClick={() => setPreviewIdx(i)}
               title={t("common.previewFile", { name: img.name })}
-              className="cursor-zoom-in"
+              className="shrink-0 cursor-zoom-in"
             >
               <img
                 src={`data:${img.mimeType};base64,${img.data}`}
@@ -53,7 +53,7 @@ function MessageItemImpl({ message }: { message: ChatMessage }) {
                   e.stopPropagation();
                   void openImageContextMenu(img);
                 }}
-                className="max-h-40 rounded-xl border border-border object-cover transition-opacity hover:opacity-85"
+                className="h-36 w-52 rounded-xl border border-border object-cover transition-opacity hover:opacity-85"
               />
             </button>
           ))}
