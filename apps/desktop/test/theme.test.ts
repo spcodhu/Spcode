@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import { BUILT_IN_THEMES } from "@spcode/shared/theme";
+import { describe, expect, it } from "vitest";
 import { contrastRatio, normalizeTheme, validateGeneratedTheme } from "../src/renderer/src/theme.js";
 
 describe("normalizeTheme", () => {

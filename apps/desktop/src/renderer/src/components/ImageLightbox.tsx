@@ -1,7 +1,7 @@
 /** 图片预览灯箱：多图切换、缩放/拖动、原生右键菜单；浮层行为复用统一 Modal。 */
 
 import type { ImageAttachment } from "@spcode/shared";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { openImageContextMenu } from "../image-actions";
 import { Icon } from "./Icon";
@@ -33,22 +33,24 @@ export function ImageLightbox({
   const [dragging, setDragging] = useState(false);
   const dragRef = useRef<{ pointerId: number; x: number; y: number; originX: number; originY: number } | null>(null);
 
-  const resetView = () => {
+  const resetView = useCallback(() => {
     setScale(1);
     setOffset({ x: 0, y: 0 });
     dragRef.current = null;
     setDragging(false);
-  };
-  const zoomBy = (factor: number) => {
+  }, []);
+  const zoomBy = useCallback((factor: number) => {
     setScale((currentScale) => {
       const next = clampScale(currentScale * factor);
       if (next === 1) setOffset({ x: 0, y: 0 });
       return next;
     });
-  };
+  }, []);
 
   // 切图后从适应窗口重新开始，不把上一张的缩放与位移带过去。
-  useEffect(resetView, [index]);
+  useEffect(() => {
+    if (current) resetView();
+  }, [current, resetView]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -77,7 +79,7 @@ export function ImageLightbox({
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [index, total, onNavigate]);
+  }, [index, total, onNavigate, resetView, zoomBy]);
 
   if (!current) return null;
 
@@ -90,9 +92,11 @@ export function ImageLightbox({
       panelClassName="relative flex h-[92vh] w-[96vw] items-center justify-center outline-none"
     >
       {/* 点击图像外的预览空白关闭；控制按钮和图片自身不会触发 */}
-      {/* biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: 键盘关闭由 Modal Esc 统一处理 */}
-      <div
-        className="absolute inset-0"
+      <button
+        type="button"
+        tabIndex={-1}
+        aria-label={t("image.close")}
+        className="absolute inset-0 cursor-default"
         onMouseDown={(event) => {
           if (event.target === event.currentTarget) onClose();
         }}
@@ -150,7 +154,13 @@ export function ImageLightbox({
           if (scale === 1) return;
           event.preventDefault();
           event.currentTarget.setPointerCapture(event.pointerId);
-          dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, originX: offset.x, originY: offset.y };
+          dragRef.current = {
+            pointerId: event.pointerId,
+            x: event.clientX,
+            y: event.clientY,
+            originX: offset.x,
+            originY: offset.y,
+          };
           setDragging(true);
         }}
         onPointerMove={(event) => {

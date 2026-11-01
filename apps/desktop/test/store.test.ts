@@ -296,7 +296,7 @@ describe("session.model 双端模型同步", () => {
   it("更新当前会话与注册表，不重置消息", () => {
     stubSpcodeApi();
     seedSession("s-model");
-    useStore.setState((s) => ({
+    useStore.setState((_s) => ({
       registrySessions: [
         {
           id: "s-model",

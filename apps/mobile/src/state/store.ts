@@ -11,9 +11,9 @@
  */
 
 import type {
-  PermissionRequest,
   ModelInfo,
   ModelRef,
+  PermissionRequest,
   QuestionRequest,
   RemoteHistoryChunk,
   RemoteHistoryPage,

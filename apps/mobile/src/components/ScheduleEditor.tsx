@@ -10,8 +10,8 @@ import { useTranslation } from "react-i18next";
 import { errorText, formatWeekday, MobileError } from "../lib/i18n";
 import { createSchedule, updateSchedule } from "../state/controller";
 import { useAppStore } from "../state/store";
-import { collectProjectOptions, ProjectPicker } from "./ProjectPicker";
 import { ModelField } from "./ModelPickerSheet";
+import { collectProjectOptions, ProjectPicker } from "./ProjectPicker";
 import { Sheet } from "./Sheet";
 
 const FREQUENCIES = ["once", "hourly", "daily", "weekday", "weekly"] as const;

@@ -1,5 +1,5 @@
 import type { ModelInfo, ModelRef } from "@spcode/shared";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorText } from "../lib/i18n";
 import { refreshModels } from "../state/controller";
@@ -96,7 +96,7 @@ export function ModelPickerSheet({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -106,12 +106,10 @@ export function ModelPickerSheet({
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
   useEffect(() => {
     void load();
-    // 每次打开选择器主动刷新 PC 目录；load 不需进入依赖。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [load]);
 
   const selected = value ?? (allowDefault || !inferDefault ? null : defaultModel);
   return (
@@ -122,7 +120,10 @@ export function ModelPickerSheet({
         </div>
       )}
       {error != null && (
-        <div role="alert" className="safe-break mb-3 rounded-xl border border-red-900/60 bg-red-950/40 px-3 py-2.5 text-xs leading-5 text-red-300">
+        <div
+          role="alert"
+          className="safe-break mb-3 rounded-xl border border-red-900/60 bg-red-950/40 px-3 py-2.5 text-xs leading-5 text-red-300"
+        >
           <div>{errorText(error)}</div>
           <button type="button" onClick={() => void load()} className="mt-1 min-h-11 px-1 text-red-100 underline">
             {t("session.retry")}
@@ -142,7 +143,9 @@ export function ModelPickerSheet({
               data-testid="model-option-default"
               onClick={() => onSelect(null)}
               className={`min-h-12 w-full rounded-xl border px-3.5 py-2.5 text-left text-sm font-medium ${
-                value === null ? "border-accent bg-accent-soft text-accent" : "border-border bg-bg-elevated text-text-primary"
+                value === null
+                  ? "border-accent bg-accent-soft text-accent"
+                  : "border-border bg-bg-elevated text-text-primary"
               }`}
             >
               {t("models.followDefault")}
@@ -174,12 +177,11 @@ export function ModelField({
   const connState = useAppStore((s) => s.connState);
   const [open, setOpen] = useState(false);
   const effective = value ?? (allowDefault || !inferDefault ? null : defaultModel);
-  const info = effective
-    ? models.find((model) => sameModel(model, effective))
-    : undefined;
-  const label = allowDefault && value === null
-    ? t("models.followDefault")
-    : info?.displayName ?? effective?.modelId ?? t("models.unconfigured");
+  const info = effective ? models.find((model) => sameModel(model, effective)) : undefined;
+  const label =
+    allowDefault && value === null
+      ? t("models.followDefault")
+      : (info?.displayName ?? effective?.modelId ?? t("models.unconfigured"));
 
   return (
     <>
@@ -191,7 +193,9 @@ export function ModelField({
         className="flex min-h-11 w-full items-center gap-2 rounded-xl border border-border-strong bg-bg-main/70 px-3 py-2.5 text-left text-sm text-text-primary outline-none transition-colors focus:border-accent disabled:opacity-40"
       >
         <span className="min-w-0 flex-1 truncate">{label}</span>
-        <span aria-hidden="true" className="shrink-0 text-text-tertiary">⌄</span>
+        <span aria-hidden="true" className="shrink-0 text-text-tertiary">
+          ⌄
+        </span>
       </button>
       {open && (
         <ModelPickerSheet

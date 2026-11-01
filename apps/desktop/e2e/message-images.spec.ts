@@ -14,7 +14,13 @@ function seed(home: string): void {
   mkdirSync(sessionsDir, { recursive: true });
   const sessionFile = join(sessionsDir, "session.jsonl");
   const lines = [
-    JSON.stringify({ type: "session", version: 3, id: "e2emessageimages", timestamp: "2026-02-01T00:00:00.000Z", cwd: CWD }),
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "e2emessageimages",
+      timestamp: "2026-02-01T00:00:00.000Z",
+      cwd: CWD,
+    }),
     JSON.stringify({
       type: "message",
       id: "u1",
@@ -24,7 +30,12 @@ function seed(home: string): void {
         role: "user",
         timestamp: 1769904000000,
         content: [
-          ...[1, 2, 3, 4].map((index) => ({ type: "image", data: PIXEL, mimeType: "image/png", name: `图${index}.png` })),
+          ...[1, 2, 3, 4].map((index) => ({
+            type: "image",
+            data: PIXEL,
+            mimeType: "image/png",
+            name: `图${index}.png`,
+          })),
           { type: "text", text: "这四张图并排展示" },
         ],
       },

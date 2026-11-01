@@ -3,12 +3,12 @@
  * 底部输入框（运行中发送即 steer 插话）+ 中断按钮。
  */
 
-import { Markdown } from "@spcode/ui";
 import type { ModelRef } from "@spcode/shared";
+import { Markdown } from "@spcode/ui";
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { errorText, formatNumber } from "../lib/i18n";
 import { ModelField } from "../components/ModelPickerSheet";
+import { errorText, formatNumber } from "../lib/i18n";
 import {
   abortSession,
   ensureSessionOutput,
@@ -237,7 +237,10 @@ function TodoBar({ sessionId }: { sessionId: string }) {
               style={{ width: `${(done / todos.length) * 100}%` }}
             />
           </span>
-          <span aria-hidden="true" className={`text-text-tertiary transition-transform ${expanded ? "rotate-180" : ""}`}>
+          <span
+            aria-hidden="true"
+            className={`text-text-tertiary transition-transform ${expanded ? "rotate-180" : ""}`}
+          >
             ⌄
           </span>
         </span>
@@ -268,7 +271,9 @@ function TodoBar({ sessionId }: { sessionId: string }) {
                 {todo.status === "completed" ? "✓" : todo.status === "in_progress" ? "▸" : "○"}
               </span>
               <div className="safe-break min-w-0 flex-1">
-                <div className={todo.status === "completed" ? "text-text-tertiary line-through" : "text-text-secondary"}>
+                <div
+                  className={todo.status === "completed" ? "text-text-tertiary line-through" : "text-text-secondary"}
+                >
                   {todo.content}
                 </div>
                 {todo.activeForm && todo.activeForm !== todo.content && (
@@ -379,7 +384,11 @@ export function SessionDetailPage({ sessionId }: { sessionId: string }) {
             )}
           </div>
           <div className="mt-2 max-w-64">
-            <ModelField value={session?.model ?? null} inferDefault={false} onChange={(model) => void changeModel(model)} />
+            <ModelField
+              value={session?.model ?? null}
+              inferDefault={false}
+              onChange={(model) => void changeModel(model)}
+            />
           </div>
         </div>
       </header>

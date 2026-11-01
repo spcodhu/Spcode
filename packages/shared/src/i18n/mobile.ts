@@ -371,7 +371,8 @@ export const en = {
   "settings.channels": "Channels: {{channels}}",
   "settings.relay": "Relay",
   "settings.relayServer": "Relay server",
-  "settings.relayServerHelp": "The official relay needs no key. Self-hosted servers accept a URL and access key. Changes reconnect only and do not unpair.",
+  "settings.relayServerHelp":
+    "The official relay needs no key. Self-hosted servers accept a URL and access key. Changes reconnect only and do not unpair.",
   "settings.relayMode.official": "Official",
   "settings.relayMode.custom": "Self-hosted",
   "settings.relayMode.disabled": "LAN only",

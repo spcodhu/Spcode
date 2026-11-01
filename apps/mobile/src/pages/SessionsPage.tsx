@@ -7,9 +7,9 @@
 import type { ModelRef, SessionMeta, SessionMode } from "@spcode/shared";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { collectProjectOptions, ProjectPicker } from "../components/ProjectPicker";
-import { ModelField } from "../components/ModelPickerSheet";
 import { Icon } from "../components/Icon";
+import { ModelField } from "../components/ModelPickerSheet";
+import { collectProjectOptions, ProjectPicker } from "../components/ProjectPicker";
 import { SettingsSheet } from "../components/SettingsSheet";
 import { Sheet } from "../components/Sheet";
 import { errorText, formatDate } from "../lib/i18n";

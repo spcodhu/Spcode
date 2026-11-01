@@ -14,7 +14,13 @@ function seed(home: string): void {
   mkdirSync(sessionsDir, { recursive: true });
   const sessionFile = join(sessionsDir, "session.jsonl");
   const lines = [
-    JSON.stringify({ type: "session", version: 3, id: "e2emessageactions", timestamp: "2026-11-01T14:18:00.000Z", cwd: CWD }),
+    JSON.stringify({
+      type: "session",
+      version: 3,
+      id: "e2emessageactions",
+      timestamp: "2026-11-01T14:18:00.000Z",
+      cwd: CWD,
+    }),
     JSON.stringify({
       type: "message",
       id: "u1",

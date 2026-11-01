@@ -102,15 +102,19 @@ describe("手机新建会话流程", () => {
   });
 
   it("项目只能从 PC 已有空间选择，cwd 去重且不需要手输", async () => {
-    useAppStore.getState().setSessions([
-      meta("p1", "project", "/code/alpha", 2),
-      meta("p2", "project", "/code/alpha", 4),
-      meta("p3", "project", "/code/beta", 3),
-      meta("c1", "chat", "", 9),
-    ]);
+    useAppStore
+      .getState()
+      .setSessions([
+        meta("p1", "project", "/code/alpha", 2),
+        meta("p2", "project", "/code/alpha", 4),
+        meta("p3", "project", "/code/beta", 3),
+        meta("c1", "chat", "", 9),
+      ]);
     await renderPage();
     await openNewTask();
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="new-session-mode-project"]')!.click());
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>('[data-testid="new-session-mode-project"]')!.click(),
+    );
 
     const options = [...document.querySelectorAll<HTMLElement>('[data-testid="project-option"]')];
     expect(options.map((option) => option.dataset.cwd)).toEqual(["/code/alpha", "/code/beta"]);
@@ -144,7 +148,9 @@ describe("手机新建会话流程", () => {
   it("没有 PC 项目时展示空态并禁止创建项目会话", async () => {
     await renderPage();
     await openNewTask();
-    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="new-session-mode-project"]')!.click());
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>('[data-testid="new-session-mode-project"]')!.click(),
+    );
     expect(document.querySelector('[data-testid="project-options-empty"]')?.textContent).toContain("还没有项目空间");
     expect(document.querySelector<HTMLButtonElement>('[data-testid="new-session-submit"]')!.disabled).toBe(true);
     expect(mocks.createSession).not.toHaveBeenCalled();

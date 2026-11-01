@@ -7,16 +7,16 @@ import type {
   ModelInfo,
   ModelRef,
   QuestionAnswers,
+  RelayMode,
   RemoteEvent as RemoteEventExt,
   RemoteHistoryPage,
-  RelayMode,
   ScheduleTask,
   ScheduleTaskInput,
   SessionInfo,
   SessionMode,
 } from "@spcode/shared";
 import { RemoteClient } from "../lib/client";
-import { clearPairing, loadPairing, savePairing, type PairingRecord } from "../lib/db";
+import { clearPairing, loadPairing, type PairingRecord, savePairing } from "../lib/db";
 import { applyDesktopLocale, initializeMobileLocale, MobileError } from "../lib/i18n";
 import {
   isPushEnabledLocally,
@@ -25,8 +25,8 @@ import {
   subscribePush,
   unsubscribePush,
 } from "../lib/push";
-import { getOutputMaxSeq, useAppStore } from "./store";
 import { isRelayHost, OFFICIAL_RELAY_URL, probeRelay, RELAY_HOST_PREFIX } from "../lib/relay";
+import { getOutputMaxSeq, useAppStore } from "./store";
 
 let client: RemoteClient | null = null;
 /** 只采用最后一次发出的 session.list 响应，避免创建会话的刷新被更早的启动刷新覆盖 */

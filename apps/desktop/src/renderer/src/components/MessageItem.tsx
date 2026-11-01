@@ -14,8 +14,8 @@ import {
 } from "../run-activity";
 import { type ChatMessage, flattenSegments, messageText, type ToolCallState } from "../store";
 import { isCommandTool, summarizeArgs, toolLabel } from "../tooling";
-import { DiffPatch } from "./DiffBlock";
 import { prefillComposer } from "./Composer";
+import { DiffPatch } from "./DiffBlock";
 import { Icon } from "./Icon";
 import { ImageLightbox } from "./ImageLightbox";
 import { Markdown } from "./Markdown";
@@ -65,7 +65,11 @@ function MessageHoverMeta({
       } group-hover/message:pointer-events-auto group-hover/message:opacity-100 group-focus-within/message:pointer-events-auto group-focus-within/message:opacity-100`}
     >
       {timestamp !== undefined && (
-        <time data-testid="message-time" dateTime={new Date(timestamp).toISOString()} className="text-[11px] tabular-nums text-text-tertiary">
+        <time
+          data-testid="message-time"
+          dateTime={new Date(timestamp).toISOString()}
+          className="text-[11px] tabular-nums text-text-tertiary"
+        >
           {formatMessageTimestamp(timestamp)}
         </time>
       )}
@@ -110,7 +114,10 @@ function MessageItemImpl({ message }: { message: ChatMessage }) {
   return (
     <div className="group/message mb-4 flex flex-col items-end gap-2" data-testid="user-message">
       {images.length > 0 && (
-        <div data-testid="message-image-strip" className="ml-auto flex max-w-[85%] flex-nowrap gap-2 overflow-x-auto pb-1">
+        <div
+          data-testid="message-image-strip"
+          className="ml-auto flex max-w-[85%] flex-nowrap gap-2 overflow-x-auto pb-1"
+        >
           {images.map((img, i) => (
             <button
               type="button"

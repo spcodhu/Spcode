@@ -34,10 +34,7 @@ describe("applyTheme", () => {
   });
 
   it("暗色自定义主题始终使用完整暗色板兜底，即使 themeId 仍是亮色", () => {
-    applyTheme(
-      { name: "局部暗色", base: "dark", colors: { bgMain: "#202024", bgRoot: "#111114" } },
-      "spcode-light",
-    );
+    applyTheme({ name: "局部暗色", base: "dark", colors: { bgMain: "#202024", bgRoot: "#111114" } }, "spcode-light");
     expect(document.documentElement.dataset.themeBase).toBe("dark");
     expect(document.documentElement.style.colorScheme).toBe("dark");
     expect(document.documentElement.style.getPropertyValue("--color-bg-main")).toBe("#202024");

@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChatView } from "./components/ChatView";
-import { Icon } from "./components/Icon";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ForkDialog } from "./components/ForkDialog";
+import { Icon } from "./components/Icon";
 import { PlanPanel } from "./components/PlanPanel";
 import { ResizeHandle } from "./components/ResizeHandle";
 import { SchedulePage } from "./components/SchedulePage";

@@ -10,7 +10,6 @@
  */
 
 import type {
-  ModelInfo,
   ModelRef,
   PermissionRequest,
   QuestionRequest,

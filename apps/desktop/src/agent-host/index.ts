@@ -35,11 +35,7 @@ import type {
   SandboxStatusReport,
   WebFetchConfig,
 } from "@spcode/shared";
-import {
-  DEFAULT_COMPACTION_SETTINGS,
-  DEFAULT_SANDBOX_SETTINGS,
-  sanitizeModelPricing,
-} from "@spcode/shared";
+import { DEFAULT_COMPACTION_SETTINGS, DEFAULT_SANDBOX_SETTINGS, sanitizeModelPricing } from "@spcode/shared";
 import { getLocale, i18n, setLocale } from "@spcode/shared/i18n";
 import { resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
 import { configureNetworkProxy } from "../network-proxy.js";
@@ -400,7 +396,11 @@ async function createController(params: {
     noTitleAutomation: params.noTitleAutomation,
     emitEvent: (event) => emit({ type: "session.event", sessionId: params.sessionId, event }),
     emitUsage: (usage) =>
-      emit({ type: "session.usage", sessionId: params.sessionId, usage: priceUsageRecord(usage, rt, modelOverlay, modelPricing) }),
+      emit({
+        type: "session.usage",
+        sessionId: params.sessionId,
+        usage: priceUsageRecord(usage, rt, modelOverlay, modelPricing),
+      }),
     emitContext: (snapshot) => emit({ type: "session.context", sessionId: params.sessionId, snapshot }),
     emitTodo: (todos) => emit({ type: "session.todo", sessionId: params.sessionId, todos }),
     emitPlanMode: (enabled) => emit({ type: "session.planmode", sessionId: params.sessionId, enabled }),

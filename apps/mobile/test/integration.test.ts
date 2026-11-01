@@ -363,7 +363,9 @@ describe("PWA ↔ 真实桌面 RemoteServer 全链路", () => {
         model: { provider: "p", modelId: "remote-model" },
         thinkingLevel: "low",
       });
-      const modelEvent = await mobile.waitEvent((event) => event.type === "session.model" && event.sessionId === sessionId);
+      const modelEvent = await mobile.waitEvent(
+        (event) => event.type === "session.model" && event.sessionId === sessionId,
+      );
       expect(modelEvent).toMatchObject({ thinkingLevel: "low" });
     } finally {
       mobile.stop();
