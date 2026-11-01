@@ -1,8 +1,9 @@
-import { baseName } from "@spcode/shared";
+import { baseName, type WindowChromeState } from "@spcode/shared";
 import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { formatRelative } from "../format";
 import { type RegistrySession, useStore } from "../store";
+import { shouldReserveTrafficLightInset } from "../window-chrome";
 import { Icon } from "./Icon";
 import { UpdateButton } from "./UpdateButton";
 
@@ -56,6 +57,25 @@ export function Sidebar({
   const exportSessionContext = useStore((s) => s.exportSessionContext);
   const pendingQuestions = useStore((s) => s.pendingQuestions);
   const pendingPermissions = useStore((s) => s.pendingPermissions);
+  const [windowChrome, setWindowChrome] = useState<WindowChromeState>({ platform: "", fullScreen: false });
+  useEffect(() => {
+    let alive = true;
+    if (!window.spcode.getWindowChrome) return;
+    void window.spcode
+      .getWindowChrome()
+      .then((state) => {
+        if (alive) setWindowChrome(state);
+      })
+      .catch(() => {});
+    const unsubscribe = window.spcode.onWindowChromeChanged?.((state) => {
+      if (alive) setWindowChrome(state);
+    });
+    return () => {
+      alive = false;
+      unsubscribe?.();
+    };
+  }, []);
+  const reserveTrafficLights = shouldReserveTrafficLightInset(windowChrome);
 
   /** 有待回答提问 / 待批准权限的会话集合（侧栏状态标记用） */
   const waitingSessionIds = useMemo(() => new Set(pendingQuestions.map((q) => q.sessionId)), [pendingQuestions]);
@@ -154,10 +174,16 @@ export function Sidebar({
   return (
     <aside className="flex shrink-0 flex-col bg-bg-sidebar" style={{ width }} data-testid="sidebar-panel">
       {/* 顶部：首页 / 搜索 / 历史（标题栏拖拽区） */}
-      <div className="titlebar-drag flex h-12 items-center gap-1 px-3 pl-20">
+      <div
+        className={`titlebar-drag flex h-12 items-center gap-1 ${reserveTrafficLights ? "pl-20 pr-3" : "px-3"}`}
+        data-testid="sidebar-titlebar"
+        data-platform={windowChrome.platform}
+        data-fullscreen={windowChrome.fullScreen}
+      >
         <button
           type="button"
           onClick={() => setActive("")}
+          data-testid="sidebar-home"
           className="titlebar-no-drag flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-text-primary hover:bg-bg-hover"
         >
           <Icon name="home" size={16} />

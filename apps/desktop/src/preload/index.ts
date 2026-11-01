@@ -24,6 +24,7 @@ import {
   type SessionUsageSnapshot,
   type UpdateState,
   type WebFetchConfig,
+  type WindowChromeState,
 } from "@spcode/shared";
 import { contextBridge, ipcRenderer } from "electron";
 
@@ -76,6 +77,9 @@ export interface SpcodeApi {
   getFontData(fileName: string): Promise<Uint8Array | null>;
   pickThemeFile(): Promise<string | null>;
   getSettings(): Promise<AppSettings>;
+  /** 原生窗口平台与全屏状态；用于 macOS 非全屏红绿灯 inset 自适应 */
+  getWindowChrome(): Promise<WindowChromeState>;
+  onWindowChromeChanged(cb: (state: WindowChromeState) => void): () => void;
   readPlanFile(path: string): Promise<string>;
   setSettings(patch: Partial<AppSettings>): Promise<AppSettings>;
   /** 应用版本号（设置页更新通道开关展示默认值用） */
@@ -198,6 +202,14 @@ const api: SpcodeApi = {
   },
   getSettings() {
     return ipcRenderer.invoke(IPC.getSettings);
+  },
+  getWindowChrome() {
+    return ipcRenderer.invoke(IPC.windowChromeGet);
+  },
+  onWindowChromeChanged(cb) {
+    const listener = (_e: unknown, state: WindowChromeState) => cb(state);
+    ipcRenderer.on(IPC.windowChromeChanged, listener);
+    return () => ipcRenderer.removeListener(IPC.windowChromeChanged, listener);
   },
   readPlanFile(path) {
     return ipcRenderer.invoke(IPC.planRead, path);

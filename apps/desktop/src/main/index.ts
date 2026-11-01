@@ -25,6 +25,7 @@ import {
   SECRET_MASK,
   type SessionMode,
   type WebFetchConfig,
+  type WindowChromeState,
 } from "@spcode/shared";
 import { executeSearch, isAdvancedSearchReady } from "@spcode/shared/advanced-search";
 import { i18n, setLocale } from "@spcode/shared/i18n";
@@ -139,6 +140,10 @@ let mainWindow: BrowserWindow | null = null;
 /** E2E 后台模式：窗口不显示不抢焦点（只由 e2e/helpers.ts 设置） */
 const backgroundE2E = process.env.SPCODE_E2E_BACKGROUND === "1";
 
+function windowChromeOf(win: BrowserWindow | null): WindowChromeState {
+  return { platform: process.platform, fullScreen: win?.isFullScreen() ?? false };
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -163,6 +168,15 @@ function createWindow(): void {
       sandbox: true,
     },
   });
+
+  // 原生全屏事件发生后读取权威状态；仅渲染层据此调整 macOS 红绿灯留白
+  const publishWindowChrome = () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(IPC.windowChromeChanged, windowChromeOf(mainWindow));
+    }
+  };
+  mainWindow.on("enter-full-screen", publishWindowChrome);
+  mainWindow.on("leave-full-screen", publishWindowChrome);
 
   // 安全：外链一律转外部浏览器打开，不允许新窗口
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -621,6 +635,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.getSettings, () => redactSettingsForRenderer(settings.get()));
   ipcMain.handle(IPC.planRead, (_e, path: string) => readSessionPlan(String(path)));
   ipcMain.handle(IPC.getAppVersion, () => app.getVersion());
+  ipcMain.handle(IPC.windowChromeGet, () => windowChromeOf(mainWindow));
 
   // 更新：状态查询 / 手动下载 / 重启安装 / 忽略版本（状态推送见 setupAutoUpdater 的 onState）
   ipcMain.handle(IPC.updateGetState, () => getUpdateState());

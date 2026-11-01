@@ -682,6 +682,11 @@ export type HostCommandInput = HostCommand extends infer C
 // Renderer ↔ Main IPC 通道名
 // ---------------------------------------------------------------------------
 
+export interface WindowChromeState {
+  platform: string;
+  fullScreen: boolean;
+}
+
 export const IPC = {
   /** renderer -> main (invoke)，payload 为 HostCommand（id 由 main 补发也可） */
   hostCommand: "spcode:host-command",
@@ -747,6 +752,9 @@ export const IPC = {
   scheduleUpdate: "spcode:schedule-update",
   scheduleDelete: "spcode:schedule-delete",
   scheduleRunNow: "spcode:schedule-run-now",
+  /** main -> renderer：原生窗口平台与全屏状态（macOS 红绿灯 inset 自适应） */
+  windowChromeGet: "spcode:window-chrome-get",
+  windowChromeChanged: "spcode:window-chrome-changed",
   /** main -> renderer：更新状态机变化推送（UpdateState） */
   updateState: "spcode:update-state",
   /** renderer -> main (invoke)：更新状态查询 / 手动下载 / 重启安装 / 忽略版本 */
