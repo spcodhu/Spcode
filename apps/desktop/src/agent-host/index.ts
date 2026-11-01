@@ -24,6 +24,8 @@ import type {
   HostCommand,
   HostEvent,
   ModelInfo,
+  ModelPriceRates,
+  ModelPricingOverrides,
   ModelRef,
   PermissionMode,
   PermissionRequest,
@@ -31,15 +33,21 @@ import type {
   QuestionRequest,
   SandboxSettings,
   SandboxStatusReport,
+  UsageRecord,
   WebFetchConfig,
 } from "@spcode/shared";
-import { DEFAULT_COMPACTION_SETTINGS, DEFAULT_SANDBOX_SETTINGS } from "@spcode/shared";
+import {
+  DEFAULT_COMPACTION_SETTINGS,
+  DEFAULT_SANDBOX_SETTINGS,
+  hasNonzeroPrice,
+  resolveUsageRecordPricing,
+  sanitizeModelPricing,
+} from "@spcode/shared";
 import { getLocale, i18n, setLocale } from "@spcode/shared/i18n";
 import { resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
 import { exportSessionContext } from "./export-context.js";
 import { HibernationManager } from "./hibernation.js";
 import { getMcpManager } from "./mcp.js";
-import { getOrCreateOpenedController } from "./session-open.js";
 import { MemoryStore } from "./memory-store.js";
 import {
   addCustomModel,
@@ -51,6 +59,7 @@ import {
 } from "./model-overlay.js";
 import { getSandboxService } from "./sandbox/manager.js";
 import { SessionController } from "./session-controller.js";
+import { getOrCreateOpenedController } from "./session-open.js";
 
 // ---------------------------------------------------------------------------
 // 通信基座
@@ -89,6 +98,8 @@ const modelOverlay = createModelOverlayStore(AGENT_DIR);
 
 let modelRuntime: ModelRuntime | null = null;
 let memoryStore: MemoryStore | null = null;
+/** 用户按模型配置的单价；只应用于收到配置后新产生的 usage，不回算历史。 */
+let modelPricing: ModelPricingOverrides = {};
 /** 记忆蒸馏总开关（主进程设置页经 memory.setDistillEnabled 下发；宿主重启后由主进程重推） */
 let distillEnabled = true;
 /** 高级搜索配置（主进程设置页经 search.setAdvancedConfig 下发；宿主重启后由主进程重推） */
@@ -199,7 +210,9 @@ function toModelInfo(m: {
   contextWindow?: number;
   maxTokens?: number;
   reasoning?: boolean;
+  cost?: ModelPriceRates;
 }): ModelInfo {
+  const pricing = catalogPricing(m);
   return {
     provider: m.provider,
     modelId: m.id,
@@ -209,7 +222,37 @@ function toModelInfo(m: {
     // 具体档位由 session 创建后按模型 clamp；这里只标注是否支持思考
     thinkingLevels: m.reasoning ? ["minimal", "low", "medium", "high", "xhigh", "max"] : [],
     available: true,
+    ...pricing,
   };
+}
+
+/** 目录默认价与“0 是否真免费”的判定：内置目录的 0 可信，自定义模型的未知 0 不可信。 */
+function catalogPricing(m: { provider: string; id: string; cost?: ModelPriceRates }): {
+  cost: ModelPriceRates;
+  priceKnown: boolean;
+} {
+  const cost: ModelPriceRates = {
+    input: m.cost?.input ?? 0,
+    output: m.cost?.output ?? 0,
+    cacheRead: m.cost?.cacheRead ?? 0,
+    cacheWrite: m.cost?.cacheWrite ?? 0,
+  };
+  return {
+    cost,
+    priceKnown: hasNonzeroPrice(cost) || sourceOfModel(modelOverlay, m.provider, m.id) === "builtin",
+  };
+}
+
+/** 所有主对话/压缩/蒸馏/标题 usage 的统一产生时计价入口。 */
+function priceUsageRecord(record: UsageRecord, rt: ModelRuntime): UsageRecord {
+  const key = `${record.model.provider}/${record.model.modelId}`;
+  const model = rt.getModel(record.model.provider, record.model.modelId);
+  const pricing = model ? catalogPricing(model) : undefined;
+  return resolveUsageRecordPricing(record, {
+    override: modelPricing[key],
+    defaultRates: pricing?.cost,
+    defaultKnown: pricing?.priceKnown ?? false,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -386,7 +429,8 @@ async function createController(params: {
     permissionMode: params.permissionMode,
     noTitleAutomation: params.noTitleAutomation,
     emitEvent: (event) => emit({ type: "session.event", sessionId: params.sessionId, event }),
-    emitUsage: (usage) => emit({ type: "session.usage", sessionId: params.sessionId, usage }),
+    emitUsage: (usage) =>
+      emit({ type: "session.usage", sessionId: params.sessionId, usage: priceUsageRecord(usage, rt) }),
     emitTodo: (todos) => emit({ type: "session.todo", sessionId: params.sessionId, todos }),
     emitPlanMode: (enabled) => emit({ type: "session.planmode", sessionId: params.sessionId, enabled }),
     emitPermissionMode: (mode) => emit({ type: "session.permissionmode", sessionId: params.sessionId, mode }),
@@ -470,6 +514,11 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
     return;
   }
 
+  if (cmd.type === "pricing.setConfig") {
+    modelPricing = sanitizeModelPricing(cmd.payload.config);
+    return;
+  }
+
   const { id } = cmd;
   try {
     switch (cmd.type) {
@@ -512,6 +561,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
             modelId: m.id,
             displayName: m.name ?? m.id,
             reasoning: !!m.reasoning,
+            ...catalogPricing(m),
             source: sourceOfModel(modelOverlay, m.provider, m.id),
             removable: isRemovable(modelOverlay, m.provider, m.id),
           })),

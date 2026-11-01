@@ -14,6 +14,7 @@ import {
   normalizeProjectCwd,
   SECRET_MASK,
   sanitizeCompactionSettings,
+  sanitizeModelPricing,
 } from "@spcode/shared";
 import { resolveLocale } from "@spcode/shared/i18n";
 import { readJsonFile, resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
@@ -65,6 +66,12 @@ export function sanitizeAppSettings(input: Partial<AppSettings>): Partial<AppSet
       continue;
     }
     out[k] = v.filter((x): x is string => typeof x === "string") as never;
+  }
+  // 模型单价：逐条校验四项有限非负数字；显式全 0 是合法配置
+  if (out.modelPricing !== undefined) {
+    const value = out.modelPricing;
+    if (!value || typeof value !== "object" || Array.isArray(value)) delete out.modelPricing;
+    else out.modelPricing = sanitizeModelPricing(value);
   }
   // 项目权限规则：逐项目/逐规则校验，非法项剔除而不是带病参与自动放行
   if (out.projectPermissionRules !== undefined) {
@@ -145,7 +152,9 @@ export class SettingsStore {
       loaded.themeId === "spcode-dark" &&
       (loaded.customTheme === null || loaded.customTheme === undefined);
     const relayMode =
-      loadedRemote.relayMode === "official" || loadedRemote.relayMode === "custom" || loadedRemote.relayMode === "disabled"
+      loadedRemote.relayMode === "official" ||
+      loadedRemote.relayMode === "custom" ||
+      loadedRemote.relayMode === "disabled"
         ? loadedRemote.relayMode
         : hasRemoteSettings
           ? loadedRemote.relayUrl

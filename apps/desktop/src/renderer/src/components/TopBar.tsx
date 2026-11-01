@@ -36,24 +36,29 @@ export function TopBar() {
 function UsageChip() {
   const { t } = useTranslation("chat");
   const session = useStore((s) => (s.activeSessionId ? s.sessions[s.activeSessionId] : undefined));
-  if (!session || session.usage.count === 0) return null;
+  if (!session) return null;
   const u = session.usage;
-  const totalTokens = u.input + u.output;
-  const cacheHitRate = u.input > 0 ? Math.round((u.cacheRead / (u.input + u.cacheRead)) * 100) : 0;
+  const loading = session.usageLoaded === false;
+  const unpriced = (u.unpricedCount ?? 0) > 0;
+  const totalTokens = u.input + u.output + u.cacheRead + u.cacheWrite;
+  const cacheHitRate = u.input + u.cacheRead > 0 ? Math.round((u.cacheRead / (u.input + u.cacheRead)) * 100) : 0;
+  const cost = loading ? "…" : unpriced ? "$—" : `$${u.costTotal.toFixed(4)}`;
   return (
     <div
+      data-testid="session-usage-chip"
       title={t("topbar.usage", {
         input: u.input.toLocaleString(),
         output: u.output.toLocaleString(),
         cache: u.cacheRead.toLocaleString(),
-        cost: `$${u.costTotal.toFixed(4)}`,
+        cacheWrite: u.cacheWrite.toLocaleString(),
+        cost: unpriced ? t("topbar.unpriced") : cost,
       })}
-      className="titlebar-no-drag flex items-center gap-1.5 rounded-full border border-border bg-bg-elevated px-2.5 py-1 text-[11px] text-text-tertiary"
+      className="titlebar-no-drag flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-bg-elevated px-2.5 py-1 text-[11px] text-text-tertiary"
     >
       <Icon name="chart" size={12} />
       <span>{formatTokens(totalTokens)}</span>
       <span className="text-accent">{t("topbar.cacheRate", { percent: cacheHitRate })}</span>
-      <span>${u.costTotal.toFixed(4)}</span>
+      <span>{cost}</span>
     </div>
   );
 }

@@ -4,7 +4,7 @@
  */
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { DailyUsage, UsageAggregate, UsageRecord } from "@spcode/shared";
+import type { DailyUsage, SessionUsageSnapshot, UsageAggregate, UsageRecord } from "@spcode/shared";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 
 // DailyUsage 已下沉 shared（评审 R3-C12）；re-export 兼容
@@ -12,6 +12,8 @@ export type { DailyUsage } from "@spcode/shared";
 
 export class UsageLedger {
   private readonly dir: string;
+  private readonly sessionRevisions = new Map<string, number>();
+  private readonly sessionCache = new Map<string, UsageAggregate>();
 
   constructor(baseDir?: string) {
     this.dir = join(baseDir ?? resolveSpcodeHome(), "usage");
@@ -33,6 +35,24 @@ export class UsageLedger {
   append(record: UsageRecord): void {
     const line = JSON.stringify({ ...record, date: UsageLedger.dateOf(record.timestamp) });
     appendFileSync(this.fileFor(UsageLedger.dateOf(record.timestamp)), `${line}\n`, "utf-8");
+    this.sessionRevisions.set(record.sessionId, (this.sessionRevisions.get(record.sessionId) ?? 0) + 1);
+    const cached = this.sessionCache.get(record.sessionId);
+    if (cached) foldInto(cached, record);
+  }
+
+  /** 指定会话的权威累计快照。首次按需扫描全部日期，后续 append 直接增量折叠。 */
+  sessionUsage(sessionId: string): SessionUsageSnapshot {
+    let usage = this.sessionCache.get(sessionId);
+    if (!usage) {
+      usage = emptyAgg();
+      for (const date of this.listDates()) {
+        for (const record of this.readDay(date)) {
+          if (record.sessionId === sessionId) foldInto(usage, record);
+        }
+      }
+      this.sessionCache.set(sessionId, usage);
+    }
+    return { usage: { ...usage }, revision: this.sessionRevisions.get(sessionId) ?? 0 };
   }
 
   private readDay(date: string): UsageRecord[] {
@@ -134,6 +154,7 @@ export function emptyAgg(): UsageAggregate {
     costCacheWrite: 0,
     costTotal: 0,
     count: 0,
+    unpricedCount: 0,
   };
 }
 
@@ -148,6 +169,7 @@ function foldInto(agg: UsageAggregate, r: UsageRecord): void {
   agg.costCacheWrite += r.costCacheWrite;
   agg.costTotal += r.costTotal;
   agg.count += 1;
+  if (r.costBasis === "unpriced") agg.unpricedCount = (agg.unpricedCount ?? 0) + 1;
 }
 
 /** 按 provider/modelId 分桶聚合（get-or-create 后折叠） */

@@ -350,8 +350,8 @@ describe("session.renamed 标题更新", () => {
   });
 });
 
-describe("session.usage 最近用量快照", () => {
-  it("lastUsage 记录最近一次请求（上下文占用环的数据源）", () => {
+describe("session.usage 与账本快照", () => {
+  it("原始事件只更新最近用量；权威 summary 更新聚合且旧 revision 被忽略", () => {
     stubSpcodeApi();
     seedSession("s-usage");
     const usage = (input: number) => ({
@@ -371,9 +371,28 @@ describe("session.usage 最近用量快照", () => {
     useStore.getState().applyHostEvent({ type: "session.usage", sessionId: "s-usage", usage: usage(1000) });
     useStore.getState().applyHostEvent({ type: "session.usage", sessionId: "s-usage", usage: usage(2000) });
 
-    const session = useStore.getState().sessions["s-usage"];
-    expect(session?.lastUsage?.input).toBe(2000); // 最近一次
-    expect(session?.usage.input).toBe(3000); // 聚合照旧累加
+    let session = useStore.getState().sessions["s-usage"];
+    expect(session?.lastUsage?.input).toBe(2000);
+    expect(session?.usage.input).toBe(0); // 不再把实时事件重复累加到历史账本之上
+
+    const snapshot = (revision: number, input: number) => ({
+      revision,
+      usage: { ...usage(input), input, count: revision, unpricedCount: 0 },
+    });
+    useStore.getState().applyHostEvent({
+      type: "session.usage.summary",
+      sessionId: "s-usage",
+      snapshot: snapshot(2, 5000),
+    });
+    useStore.getState().applyHostEvent({
+      type: "session.usage.summary",
+      sessionId: "s-usage",
+      snapshot: snapshot(1, 100),
+    });
+    session = useStore.getState().sessions["s-usage"];
+    expect(session?.usage.input).toBe(5000);
+    expect(session?.usageRevision).toBe(2);
+    expect(session?.usageLoaded).toBe(true);
   });
 });
 

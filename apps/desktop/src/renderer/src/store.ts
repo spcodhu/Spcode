@@ -175,6 +175,9 @@ export interface SessionState {
   messages: ChatMessage[];
   running: boolean;
   usage: UsageAggregate;
+  /** 账本快照版本与加载状态；历史会话打开时防止旧快照覆盖新事件 */
+  usageRevision?: number;
+  usageLoaded?: boolean;
   /** 最近一次请求的用量快照；上下文占用口径见 Composer.ContextRing（与引擎压缩判断同源） */
   lastUsage: UsageRecord | null;
   /** 引擎正在压缩上下文（compaction_start/end 驱动；运行状态条据此显示「正在压缩」） */
@@ -379,22 +382,8 @@ const EMPTY_USAGE: UsageAggregate = {
   costCacheWrite: 0,
   costTotal: 0,
   count: 0,
+  unpricedCount: 0,
 };
-
-function foldUsage(agg: UsageAggregate, u: UsageRecord): UsageAggregate {
-  return {
-    input: agg.input + u.input,
-    output: agg.output + u.output,
-    cacheRead: agg.cacheRead + u.cacheRead,
-    cacheWrite: agg.cacheWrite + u.cacheWrite,
-    costInput: agg.costInput + u.costInput,
-    costOutput: agg.costOutput + u.costOutput,
-    costCacheRead: agg.costCacheRead + u.costCacheRead,
-    costCacheWrite: agg.costCacheWrite + u.costCacheWrite,
-    costTotal: agg.costTotal + u.costTotal,
-    count: agg.count + 1,
-  };
-}
 
 let msgSeq = 0;
 const nextMsgId = () => `m${++msgSeq}`;
@@ -1031,6 +1020,8 @@ export const useStore = create<StoreState>((set, get) => ({
       messages: [],
       running: false,
       usage: { ...EMPTY_USAGE },
+      usageRevision: 0,
+      usageLoaded: true,
       lastUsage: null,
       supportedThinkingLevels: modelInfo?.thinkingLevels ?? [],
       todos: [],
@@ -1084,10 +1075,16 @@ export const useStore = create<StoreState>((set, get) => ({
       return;
     }
     const prevActive = get().activeSessionId;
-    const info = await window.spcode.command<HostSessionInfo>({
-      type: "session.open",
-      payload: { sessionId: entry.id, sessionFile: entry.sessionFile, cwd: entry.cwd },
-    });
+    const usageSnapshotPromise = window.spcode.usageSession
+      ? window.spcode.usageSession(entry.id).catch(() => null)
+      : Promise.resolve(null);
+    const [info, usageSnapshot] = await Promise.all([
+      window.spcode.command<HostSessionInfo>({
+        type: "session.open",
+        payload: { sessionId: entry.id, sessionFile: entry.sessionFile, cwd: entry.cwd },
+      }),
+      usageSnapshotPromise,
+    ]);
     const session: SessionState = {
       sandbox: info.sandbox,
       meta: {
@@ -1103,7 +1100,9 @@ export const useStore = create<StoreState>((set, get) => ({
       },
       messages: [],
       running: info.running ?? false,
-      usage: { ...EMPTY_USAGE },
+      usage: usageSnapshot?.usage ?? { ...EMPTY_USAGE },
+      usageRevision: usageSnapshot?.revision ?? 0,
+      usageLoaded: usageSnapshot !== null,
       lastUsage: null,
       supportedThinkingLevels: info.supportedThinkingLevels ?? [],
       todos: [],
@@ -1558,8 +1557,16 @@ export const useStore = create<StoreState>((set, get) => ({
           );
         case "session.usage":
           return touchSession(s, event.sessionId, (draft) => {
-            draft.usage = foldUsage(draft.usage, event.usage);
             draft.lastUsage = event.usage;
+          });
+        case "session.usage.summary":
+          return touchSession(s, event.sessionId, (draft) => {
+            const revision = event.snapshot.revision;
+            if (!draft.usageLoaded || revision > (draft.usageRevision ?? -1)) {
+              draft.usage = event.snapshot.usage;
+              draft.usageRevision = revision;
+              draft.usageLoaded = true;
+            }
           });
         case "session.history":
           return touchSession(s, event.sessionId, (draft) => {

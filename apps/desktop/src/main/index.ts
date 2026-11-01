@@ -235,9 +235,14 @@ function watchSessionLifecycle(): void {
     if (event.type === "session.event") {
       notifier.noteSessionEvent(event.sessionId, event.event as { type?: string });
     }
-    // 用量落账
+    // 用量落账并广播权威会话快照；渲染层不再从零自行累计历史
     if (event.type === "session.usage") {
       ledger.append(event.usage);
+      bridge.emitLocal({
+        type: "session.usage.summary",
+        sessionId: event.sessionId,
+        snapshot: ledger.sessionUsage(event.sessionId),
+      });
       return;
     }
     // AI 通过 RenameSession 起的标题：持久化到注册表（渲染进程由广播自行更新）
@@ -498,6 +503,7 @@ function registerIpc(): void {
   });
 
   ipcMain.handle(IPC.usageSummary, (_e, days?: number) => ledger.summarize(days ?? 14));
+  ipcMain.handle(IPC.usageSession, (_e, sessionId: string) => ledger.sessionUsage(String(sessionId)));
   ipcMain.handle(IPC.usageAggregate, (_e, range: "today" | "week" | "all") => ledger.aggregateRange(range ?? "week"));
   ipcMain.handle(IPC.quotaQuery, (_e, force?: boolean) => quota.queryAll({ force: force === true }));
 
@@ -653,6 +659,10 @@ function registerIpc(): void {
     if ("compaction" in patch) {
       bridge.push({ type: "compaction.setConfig", payload: { config: next.compaction } });
     }
+    // 单价只影响之后新产生的 usage；活跃会话无需重建
+    if ("modelPricing" in patch) {
+      bridge.push({ type: "pricing.setConfig", payload: { config: next.modelPricing } });
+    }
     // MCP 服务器配置实时下发宿主（对已创建会话不生效，新会话生效——工具列表创建时固定）
     if ("mcpServers" in patch) {
       bridge.push({ type: "mcp.setServers", payload: { servers: next.mcpServers } });
@@ -801,6 +811,7 @@ if (!app.requestSingleInstanceLock()) {
         bridge.push({ type: "webfetch.setConfig", payload: { config: settings.get().webFetch } });
         bridge.push({ type: "sandbox.setConfig", payload: { config: settings.get().sandbox } });
         bridge.push({ type: "compaction.setConfig", payload: { config: settings.get().compaction } });
+        bridge.push({ type: "pricing.setConfig", payload: { config: settings.get().modelPricing } });
         bridge.push({ type: "mcp.setServers", payload: { servers: settings.get().mcpServers } });
       }
     });

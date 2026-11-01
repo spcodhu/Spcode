@@ -416,6 +416,10 @@ export class SessionController {
         ctl.maybeGenerateFallbackTitle();
       }
       opts.emitEvent(event);
+      // 压缩摘要是一次真实模型调用：计入会话账本，但不参与上下文环（后者由独立快照驱动）
+      if (event.type === "compaction_end" && event.result?.usage) {
+        ctl.emitUsageRecord(event.result.usage, "compaction");
+      }
       const usage = extractUsage(event, opts.sessionId, ctl.currentModelRef());
       if (usage) opts.emitUsage(usage);
     });
@@ -548,13 +552,16 @@ export class SessionController {
   }
 
   /** 兜底标题等辅助调用的 usage 上抛（与会话用量同通道，归属本会话） */
-  private emitUsageRecord(u: {
-    input?: number;
-    output?: number;
-    cacheRead?: number;
-    cacheWrite?: number;
-    cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; total?: number };
-  }): void {
+  private emitUsageRecord(
+    u: {
+      input?: number;
+      output?: number;
+      cacheRead?: number;
+      cacheWrite?: number;
+      cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; total?: number };
+    },
+    source: "compaction" | "title" = "title",
+  ): void {
     const model = this.currentModelRef();
     if (!model) return;
     this.emitUsageCb({
@@ -570,6 +577,7 @@ export class SessionController {
       costCacheRead: u.cost?.cacheRead ?? 0,
       costCacheWrite: u.cost?.cacheWrite ?? 0,
       costTotal: u.cost?.total ?? 0,
+      source,
     });
   }
 
@@ -689,6 +697,7 @@ export function extractUsage(event: AgentSessionEvent, sessionId: string, model:
     costCacheRead: cost.cacheRead ?? 0,
     costCacheWrite: cost.cacheWrite ?? 0,
     costTotal: cost.total ?? 0,
+    source: "conversation",
   };
 }
 

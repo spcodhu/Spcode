@@ -61,7 +61,9 @@ export const zhCN = {
   "topbar.project": "项目",
   "topbar.chat": "聊天",
   "topbar.breadcrumb": "会话位置",
-  "topbar.usage": "输入 {{input}} · 输出 {{output}} · 缓存命中 {{cache}} · 成本 {{cost}}",
+  "topbar.usage":
+    "输入 {{input}} · 输出 {{output}} · 缓存读 {{cache}} · 缓存写 {{cacheWrite}} · 估算成本 {{cost}}（以服务商账单为准）",
+  "topbar.unpriced": "含未定价调用",
   "topbar.cacheRate": "缓存 {{percent}}%",
   "search.placeholder": "搜索会话标题与正文…",
   "search.searching": "搜索中…",
@@ -401,7 +403,9 @@ export const en = {
   "topbar.project": "Project",
   "topbar.chat": "Chat",
   "topbar.breadcrumb": "Conversation location",
-  "topbar.usage": "Input {{input}} · Output {{output}} · Cache hits {{cache}} · Cost {{cost}}",
+  "topbar.usage":
+    "Input {{input}} · Output {{output}} · Cache read {{cache}} · Cache write {{cacheWrite}} · Estimated cost {{cost}} (provider bills prevail)",
+  "topbar.unpriced": "includes unpriced calls",
   "topbar.cacheRate": "Cache {{percent}}%",
   "search.placeholder": "Search conversation titles and messages…",
   "search.searching": "Searching…",

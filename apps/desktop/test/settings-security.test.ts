@@ -85,6 +85,19 @@ describe("sanitizeAppSettings（fail-safe）", () => {
     expect(out.sandbox).toBeUndefined();
     expect(out.remote).toBeUndefined();
   });
+
+  it("modelPricing 清洗非法条目，显式全零保留；非标量字段回落默认", () => {
+    const out = sanitizeAppSettings({
+      modelPricing: {
+        "p/free": { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        "p/bad": { input: -2, output: 0, cacheRead: 0, cacheWrite: 0 },
+      },
+    });
+    expect(out.modelPricing).toEqual({
+      "p/free": { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    });
+    expect(sanitizeAppSettings({ modelPricing: [] as never }).modelPricing).toBeUndefined();
+  });
 });
 
 describe("settings.json 权限", () => {

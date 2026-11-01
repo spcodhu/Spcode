@@ -151,6 +151,7 @@ export class MemoryDistiller {
         costCacheRead: cost.cacheRead ?? 0,
         costCacheWrite: cost.cacheWrite ?? 0,
         costTotal: cost.total ?? 0,
+        source: "distill",
       });
       return;
     }

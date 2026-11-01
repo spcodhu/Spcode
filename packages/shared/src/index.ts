@@ -22,10 +22,14 @@ export interface ModelInfo {
   displayName: string;
   contextWindow: number;
   maxTokens: number;
-  /** 支持的思考档位，如 ["off","low","medium","high"];空数组表示不支持思考 */
+  /** 支持思考档位，如 ["off","low","medium","high"];空数组表示不支持思考 */
   thinkingLevels: string[];
   /** 是否已有可用凭证 */
   available: boolean;
+  /** 目录默认单价（USD / 1M tokens），仅作展示与新记录默认计价 */
+  cost: ModelPriceRates;
+  /** false = 自定义模型无法确定默认价，不能把 0 当成真实免费 */
+  priceKnown: boolean;
 }
 
 /** 设置页「添加模型」表单载荷（models.addModel 命令） */
@@ -44,6 +48,9 @@ export interface CatalogModel {
   modelId: string;
   displayName: string;
   reasoning: boolean;
+  /** 目录默认单价与定价可信状态 */
+  cost: ModelPriceRates;
+  priceKnown: boolean;
   /** pi 内置 / 官方补丁 / 用户自定义（手写 models.json 与 UI 添加都算） */
   source: import("./models-overlay.js").ModelSource;
   /** 仅 UI 添加（models.custom.json）的模型可经 models.removeModel 删除 */
@@ -151,8 +158,39 @@ export interface SessionInfo {
 }
 
 // ---------------------------------------------------------------------------
-// Token 用量（与 pi 的 usage 结构对齐）
+// Token 用量与模型计价（与 pi 的 usage / cost 结构对齐）
 // ---------------------------------------------------------------------------
+
+/** 四类 token 的单价，统一为 USD / 1M tokens。 */
+export interface ModelPriceRates {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
+export type ModelPricingOverrides = Record<string, ModelPriceRates>;
+
+/** 设置文件中的单价表清洗：非法条目整项丢弃，显式四项全 0 是合法的免费配置。 */
+export function sanitizeModelPricing(input: unknown): ModelPricingOverrides {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+  const out: ModelPricingOverrides = {};
+  for (const [rawKey, rawRates] of Object.entries(input)) {
+    const key = rawKey.trim();
+    if (!key || key.includes("\0") || key.length > 512 || !rawRates || typeof rawRates !== "object") continue;
+    const value = rawRates as Partial<Record<keyof ModelPriceRates, unknown>>;
+    const rates = Object.fromEntries(
+      (["input", "output", "cacheRead", "cacheWrite"] as const).map((field) => [field, value[field]]),
+    ) as Record<keyof ModelPriceRates, unknown>;
+    if (Object.values(rates).some((n) => typeof n !== "number" || !Number.isFinite(n) || n < 0)) continue;
+    out[key] = rates as ModelPriceRates;
+  }
+  return out;
+}
+
+export function hasNonzeroPrice(rates: ModelPriceRates | null | undefined): boolean {
+  return !!rates && rates.input + rates.output + rates.cacheRead + rates.cacheWrite > 0;
+}
 
 export interface UsageSample {
   input: number;
@@ -170,10 +208,51 @@ export interface UsageRecord extends UsageSample {
   sessionId: string;
   model: ModelRef;
   timestamp: number;
+  /** 新记录的成本来源；旧 JSONL 无此字段时按历史已知成本处理。 */
+  costBasis?: "engine" | "custom" | "unpriced";
+  /** 会话内真实模型调用来源，便于审计辅助消耗。 */
+  source?: "conversation" | "compaction" | "distill" | "title";
 }
 
 export interface UsageAggregate extends UsageSample {
   count: number;
+  /** 有 token 消耗但无法定价的记录数；>0 时总成本不完整。 */
+  unpricedCount?: number;
+}
+
+/** 主进程账本返回的权威会话快照；revision 用于拒绝异步竞态中的旧快照。 */
+export interface SessionUsageSnapshot {
+  usage: UsageAggregate;
+  revision: number;
+}
+
+/** 按四类 token 与单价计算一条 usage 的成本（不改 token 原始值）。 */
+export function priceUsageSample<T extends UsageSample>(sample: T, rates: ModelPriceRates): T {
+  const costInput = (rates.input * sample.input) / 1_000_000;
+  const costOutput = (rates.output * sample.output) / 1_000_000;
+  const costCacheRead = (rates.cacheRead * sample.cacheRead) / 1_000_000;
+  const costCacheWrite = (rates.cacheWrite * sample.cacheWrite) / 1_000_000;
+  return {
+    ...sample,
+    costInput,
+    costOutput,
+    costCacheRead,
+    costCacheWrite,
+    costTotal: costInput + costOutput + costCacheRead + costCacheWrite,
+  };
+}
+
+/** 新 usage 的产生时定价：用户覆盖 > 引擎非零目录价 > 已知零价 / 未定价。 */
+export function resolveUsageRecordPricing(
+  record: UsageRecord,
+  options: { override?: ModelPriceRates; defaultRates?: ModelPriceRates; defaultKnown: boolean },
+): UsageRecord {
+  if (options.override) return { ...priceUsageSample(record, options.override), costBasis: "custom" };
+  if (record.costTotal === 0 && hasNonzeroPrice(options.defaultRates)) {
+    return { ...priceUsageSample(record, options.defaultRates!), costBasis: "engine" };
+  }
+  if (record.costTotal > 0 || options.defaultKnown) return { ...record, costBasis: "engine" };
+  return { ...record, costBasis: "unpriced" };
 }
 
 // ---------------------------------------------------------------------------
@@ -373,6 +452,8 @@ export type HostCommand =
    * 与沙盒不同：pi 引擎每次压缩判断都实时读 SettingsManager，活跃会话即时生效。
    */
   | { type: "compaction.setConfig"; payload: { config: CompactionSettings } }
+  /** 模型单价覆盖下发；只影响下发后新产生的 usage，不回算历史账本 */
+  | { type: "pricing.setConfig"; payload: { config: ModelPricingOverrides } }
   | { id: string; type: "auth.setApiKey"; payload: { provider: string; apiKey: string } }
   | { id: string; type: "auth.listProviders" }
   | { type: "permission.reply"; payload: { requestId: string; approved: boolean } }
@@ -392,6 +473,8 @@ export type HostEvent =
       lastUsage?: UsageRecord | null;
     }
   | { type: "session.usage"; sessionId: string; usage: UsageRecord }
+  /** 主进程账本落盘后的权威会话聚合；渲染层据此恢复历史并避免本地重复累计 */
+  | { type: "session.usage.summary"; sessionId: string; snapshot: SessionUsageSnapshot }
   | { type: "session.todo"; sessionId: string; todos: TodoItem[] }
   /** AI 通过 RenameSession 工具主动起的会话标题 */
   | { type: "session.renamed"; sessionId: string; title: string }
@@ -599,6 +682,8 @@ export const IPC = {
   removeSession: "spcode:remove-session",
   /** renderer -> main (invoke)：用量聚合查询（days 可选）/ 厂商配额查询 */
   usageSummary: "spcode:usage-summary",
+  /** main -> renderer (invoke)：指定会话的权威用量快照 */
+  usageSession: "spcode:usage-session",
   usageAggregate: "spcode:usage-aggregate",
   quotaQuery: "spcode:quota-query",
   /** renderer -> main (invoke)：沙盒运行状态（是否真的启用内核边界/不可用原因） */
@@ -767,6 +852,8 @@ export interface AppSettings {
   memoryDistill: boolean;
   /** 模型行悬浮时显示配额卡片 */
   quickQuota: boolean;
+  /** 模型单价覆盖（provider/modelId → USD/1M token 四项费率），只影响新产生的用量 */
+  modelPricing: ModelPricingOverrides;
   /** 停用的供应商与单个模型（模型页开关） */
   disabledProviders: string[];
   disabledModels: string[];
@@ -943,6 +1030,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   desktopNotifications: true,
   memoryDistill: true,
   quickQuota: true,
+  modelPricing: {},
   disabledProviders: [],
   disabledModels: [],
   uiFontFile: "",

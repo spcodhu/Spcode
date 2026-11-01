@@ -100,4 +100,25 @@ describe("UsageLedger", () => {
     // 只有窗口内那条：10+50+80+20=160
     expect(ds?.tokens).toBe(160);
   });
+
+  it("sessionUsage：跨日按会话聚合，append 增加 revision 并保留未定价计数", () => {
+    const ledger = new UsageLedger(mkdtempSync(join(tmpdir(), "spcode-usage-session-")));
+    const dayMs = 86_400_000;
+    ledger.append(rec({ sessionId: "s1", timestamp: Date.now() - 3 * dayMs, input: 100 }));
+    ledger.append(rec({ sessionId: "s2", input: 999 }));
+    ledger.append(rec({ sessionId: "s1", input: 20, costBasis: "unpriced" }));
+
+    const first = ledger.sessionUsage("s1");
+    expect(first.revision).toBe(2);
+    expect(first.usage.count).toBe(2);
+    expect(first.usage.input).toBe(120);
+    expect(first.usage.unpricedCount).toBe(1);
+
+    ledger.append(rec({ sessionId: "s1", input: 5 }));
+    const next = ledger.sessionUsage("s1");
+    expect(next.revision).toBe(3);
+    expect(next.usage.count).toBe(3);
+    expect(next.usage.input).toBe(125);
+    expect(ledger.sessionUsage("missing")).toMatchObject({ revision: 0, usage: { count: 0 } });
+  });
 });

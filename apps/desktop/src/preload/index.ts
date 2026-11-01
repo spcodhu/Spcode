@@ -21,6 +21,7 @@ import {
   type ScheduleTaskInput,
   type SessionRegistryEntry,
   type SessionSearchResultItem,
+  type SessionUsageSnapshot,
   type UpdateState,
   type WebFetchConfig,
 } from "@spcode/shared";
@@ -48,6 +49,8 @@ export interface SpcodeApi {
   scheduleRunNow(id: string): Promise<string>;
   /** 用量聚合（按日×模型）与厂商配额 */
   usageSummary(days?: number): Promise<DailyUsage[]>;
+  /** 指定会话的跨日累计用量（含 revision，防止历史/实时快照竞态） */
+  usageSession(sessionId: string): Promise<SessionUsageSnapshot>;
   usageAggregate(range: "today" | "week" | "all"): Promise<{
     total: import("@spcode/shared").UsageAggregate;
     byModel: Record<string, import("@spcode/shared").UsageAggregate>;
@@ -94,7 +97,10 @@ export interface SpcodeApi {
   /** 解绑（吊销）已配对设备 */
   remoteUnpairDevice(deviceId: string): Promise<boolean>;
   /** 测试 relay 地址与访问密钥，不占用真实会话 channel */
-  remoteRelayTest(input: { url: string; accessKey?: string | null }): Promise<{ ok: true } | { ok: false; error: string }>;
+  remoteRelayTest(input: {
+    url: string;
+    accessKey?: string | null;
+  }): Promise<{ ok: true } | { ok: false; error: string }>;
   /** 飞书通道：解绑授权用户（open_id） */
   remoteFeishuUnbind(openId: string): Promise<boolean>;
   /** 更新：状态查询与订阅 / 手动下载 / 重启安装 / 忽略版本 */
@@ -147,6 +153,9 @@ const api: SpcodeApi = {
   },
   usageSummary(days) {
     return ipcRenderer.invoke(IPC.usageSummary, days);
+  },
+  usageSession(sessionId) {
+    return ipcRenderer.invoke(IPC.usageSession, sessionId);
   },
   usageAggregate(range) {
     return ipcRenderer.invoke(IPC.usageAggregate, range);

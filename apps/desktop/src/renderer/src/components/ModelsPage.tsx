@@ -1,4 +1,4 @@
-import type { AddCustomModelInput, CatalogModel, CatalogProvider } from "@spcode/shared";
+import type { AddCustomModelInput, CatalogModel, CatalogProvider, ModelPriceRates } from "@spcode/shared";
 import { validateModelInput } from "@spcode/shared";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -135,6 +135,7 @@ function ProviderRow({
       </span>
       <button
         type="button"
+        data-testid="provider-open"
         onClick={onOpen}
         className="min-w-0 flex-1 truncate text-left text-[14px] text-text-primary"
       >
@@ -184,6 +185,7 @@ function ProviderDetail({
   const { t } = useTranslation("settings");
   const [key, setKey] = useState("");
   const [saved, setSaved] = useState(false);
+  const [pricingFor, setPricingFor] = useState<string | null>(null);
 
   const saveKey = async () => {
     const k = key.trim();
@@ -245,43 +247,153 @@ function ProviderDetail({
           const k = `${m.provider}/${m.modelId}`;
           const enabled = !disabledModels.has(k);
           return (
-            <div key={k} className="flex items-center gap-3 rounded-xl border border-border bg-bg-elevated px-4 py-2.5">
-              <Icon name="cpu" size={14} className="shrink-0 text-text-tertiary" />
-              <span className="min-w-0 flex-1 truncate text-[13px] text-text-primary">{m.displayName}</span>
-              {m.source === "custom" && (
-                <span
-                  className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] text-text-secondary"
-                  title={m.removable ? undefined : t("models.sourceCustomFileHint")}
-                >
-                  {t("models.sourceCustom")}
-                </span>
-              )}
-              {m.reasoning && (
-                <span className="shrink-0 rounded-full bg-thinking/15 px-2 py-0.5 text-[11px] text-thinking">
-                  {t("models.reasoning")}
-                </span>
-              )}
-              {m.removable && (
+            <div key={k}>
+              <div className="flex items-center gap-3 rounded-xl border border-border bg-bg-elevated px-4 py-2.5">
+                <Icon name="cpu" size={14} className="shrink-0 text-text-tertiary" />
+                <span className="min-w-0 flex-1 truncate text-[13px] text-text-primary">{m.displayName}</span>
+                {m.source === "custom" && (
+                  <span
+                    className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] text-text-secondary"
+                    title={m.removable ? undefined : t("models.sourceCustomFileHint")}
+                  >
+                    {t("models.sourceCustom")}
+                  </span>
+                )}
+                {m.reasoning && (
+                  <span className="shrink-0 rounded-full bg-thinking/15 px-2 py-0.5 text-[11px] text-thinking">
+                    {t("models.reasoning")}
+                  </span>
+                )}
                 <button
                   type="button"
-                  onClick={() => void removeModel(m)}
-                  aria-label={t("models.delete", { name: m.displayName })}
-                  className="shrink-0 text-text-tertiary hover:text-danger"
+                  data-testid="model-pricing-toggle"
+                  data-model={k}
+                  aria-expanded={pricingFor === k}
+                  onClick={() => setPricingFor(pricingFor === k ? null : k)}
+                  className="shrink-0 whitespace-nowrap rounded-md px-2 py-1 text-[11px] text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
                 >
-                  <Icon name="trash" size={14} />
+                  {t("models.pricing")}
                 </button>
-              )}
-              <Switch
-                on={enabled}
-                onChange={(v) => onToggleModel(k, v)}
-                label={t("enableName", { name: m.displayName })}
-              />
+                {m.removable && (
+                  <button
+                    type="button"
+                    onClick={() => void removeModel(m)}
+                    aria-label={t("models.delete", { name: m.displayName })}
+                    className="shrink-0 text-text-tertiary hover:text-danger"
+                  >
+                    <Icon name="trash" size={14} />
+                  </button>
+                )}
+                <Switch
+                  on={enabled}
+                  onChange={(v) => onToggleModel(k, v)}
+                  label={t("enableName", { name: m.displayName })}
+                />
+              </div>
+              {pricingFor === k && <ModelPricingEditor key={k} model={m} modelKey={k} />}
             </div>
           );
         })}
       </div>
 
       <AddModelForm provider={provider.provider} onAdded={onChanged} />
+    </div>
+  );
+}
+
+/** 单模型四项费率：默认取目录价，覆盖只影响保存后的新用量。 */
+function ModelPricingEditor({ model, modelKey }: { model: CatalogModel; modelKey: string }) {
+  const { t } = useTranslation("settings");
+  const settings = useStore((s) => s.settings);
+  const saveSettings = useStore((s) => s.saveSettings);
+  const override = settings?.modelPricing?.[modelKey];
+  const toText = (rates: ModelPriceRates): Record<keyof ModelPriceRates, string> => ({
+    input: String(rates.input),
+    output: String(rates.output),
+    cacheRead: String(rates.cacheRead),
+    cacheWrite: String(rates.cacheWrite),
+  });
+  const [rates, setRates] = useState<Record<keyof ModelPriceRates, string>>(() => toText(override ?? model.cost));
+  const [invalid, setInvalid] = useState(false);
+  const fields = [
+    { key: "input", label: t("models.priceInput") },
+    { key: "output", label: t("models.priceOutput") },
+    { key: "cacheRead", label: t("models.priceCacheRead") },
+    { key: "cacheWrite", label: t("models.priceCacheWrite") },
+  ] as const;
+
+  const save = async () => {
+    const next = {} as ModelPriceRates;
+    for (const field of fields) {
+      const raw = rates[field.key].trim();
+      const value = Number(raw);
+      if (!raw || !Number.isFinite(value) || value < 0) {
+        setInvalid(true);
+        return;
+      }
+      next[field.key] = value;
+    }
+    setInvalid(false);
+    await saveSettings({ modelPricing: { ...(settings?.modelPricing ?? {}), [modelKey]: next } });
+  };
+
+  const reset = async () => {
+    const next = { ...(settings?.modelPricing ?? {}) };
+    delete next[modelKey];
+    await saveSettings({ modelPricing: next });
+    setRates(toText(model.cost));
+    setInvalid(false);
+  };
+
+  return (
+    <div data-testid="model-pricing-editor" className="mt-1 rounded-xl border border-border bg-bg-main px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-[12px] font-medium text-text-secondary">
+          {override
+            ? t("models.pricingCustom")
+            : model.priceKnown
+              ? t("models.pricingDefault")
+              : t("models.pricingUnpriced")}
+        </span>
+        {override && (
+          <button
+            type="button"
+            data-testid="model-pricing-reset"
+            onClick={() => void reset()}
+            className="text-[11px] text-text-tertiary hover:text-text-primary"
+          >
+            {t("models.pricingReset")}
+          </button>
+        )}
+      </div>
+      <p className="mt-1 text-[11px] leading-snug text-text-tertiary">{t("models.pricingDescription")}</p>
+      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {fields.map((field) => (
+          <label key={field.key} className="block">
+            <span className="mb-1 block text-[11px] text-text-tertiary">{field.label}</span>
+            <input
+              type="number"
+              min={0}
+              step="any"
+              value={rates[field.key]}
+              data-testid={`model-price-${field.key}`}
+              onChange={(e) => setRates((current) => ({ ...current, [field.key]: e.target.value }))}
+              className="mono w-full rounded-lg border border-border bg-bg-elevated px-2 py-1.5 text-[12px] outline-none focus:border-accent"
+            />
+          </label>
+        ))}
+      </div>
+      {invalid && <p className="mt-2 text-[11px] text-danger">{t("models.pricingInvalid")}</p>}
+      <div className="mt-3 flex justify-end">
+        <button
+          type="button"
+          data-testid="model-pricing-save"
+          onClick={() => void save()}
+          className="rounded-lg bg-accent px-3 py-1.5 text-[12px] text-on-accent hover:bg-accent-dim"
+        >
+          {t("models.pricingSave")}
+        </button>
+      </div>
     </div>
   );
 }
