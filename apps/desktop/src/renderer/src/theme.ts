@@ -69,9 +69,10 @@ export function validateGeneratedTheme(theme: CustomTheme): string[] {
 export function applyTheme(theme: CustomTheme | null, themeId = "spcode-light"): void {
   const root = document.documentElement;
   for (const key of THEME_TOKEN_KEYS) root.style.removeProperty(`--color-${toKebab(key)}`);
-  const builtInId = isBuiltInThemeId(themeId) ? themeId : "spcode-light";
-  const builtIn = BUILT_IN_THEMES[builtInId];
-  const base = theme?.base ?? builtIn.base;
+  const selectedId = isBuiltInThemeId(themeId) ? themeId : "spcode-light";
+  // 自定义 base 决定整套兜底色板：暗色局部覆盖绝不能叠在亮色默认令牌上。
+  const base = theme?.base ?? BUILT_IN_THEMES[selectedId].base;
+  const builtIn = BUILT_IN_THEMES[base === "dark" ? "spcode-dark" : "spcode-light"];
   root.dataset.themeBase = base;
   root.style.colorScheme = base;
   for (const [k, v] of Object.entries(builtIn.colors)) {

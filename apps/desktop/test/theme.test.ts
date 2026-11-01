@@ -35,8 +35,15 @@ describe("normalizeTheme", () => {
   it("AI 主题要求核心令牌与 WCAG AA 对比度，内置双主题均达标", () => {
     expect(BUILT_IN_THEMES["spcode-light"].colors.textPrimary).toBeTruthy();
     for (const theme of Object.values(BUILT_IN_THEMES)) {
-      expect(contrastRatio(theme.colors.textPrimary, theme.colors.bgMain)).toBeGreaterThanOrEqual(4.5);
-      expect(contrastRatio(theme.colors.onAccent, theme.colors.accent)).toBeGreaterThanOrEqual(4.5);
+      for (const [foreground, background] of [
+        [theme.colors.textPrimary, theme.colors.bgMain],
+        [theme.colors.textSecondary, theme.colors.bgMain],
+        [theme.colors.textTertiary, theme.colors.bgMain],
+        [theme.colors.textPrimary, theme.colors.bgElevated],
+        [theme.colors.onAccent, theme.colors.accent],
+      ]) {
+        expect(contrastRatio(foreground, background)).toBeGreaterThanOrEqual(4.5);
+      }
     }
     expect(
       validateGeneratedTheme({

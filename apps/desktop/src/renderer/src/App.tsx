@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChatView } from "./components/ChatView";
+import { Icon } from "./components/Icon";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ForkDialog } from "./components/ForkDialog";
 import { PlanPanel } from "./components/PlanPanel";
@@ -150,38 +151,72 @@ export default function App() {
 function EmptyHome() {
   const { t } = useTranslation("chat");
   const createSession = useStore((s) => s.createSession);
+  const openProject = async () => {
+    const dir = await window.spcode.pickDirectory();
+    if (dir) await createSession("project", dir);
+  };
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-6">
-      <div className="text-center">
-        <div className="mb-2 text-4xl">🐦</div>
-        <h1 data-testid="brand" className="text-xl font-semibold text-text-primary">
-          Spcod
-        </h1>
-        <p className="mt-1 text-sm text-text-secondary">{t("home.tagline")}</p>
-      </div>
-      <div className="flex gap-3">
-        <button
-          type="button"
-          onClick={() => void createSession("chat")}
-          className="rounded-lg border border-border bg-bg-elevated px-5 py-3 text-sm hover:bg-bg-hover"
-        >
-          {t("home.newChat")}
-          <div className="mt-1 text-xs text-text-tertiary">{t("home.chatHint")}</div>
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            void (async () => {
-              const dir = await window.spcode.pickDirectory();
-              if (dir) await createSession("project", dir);
-            })();
-          }}
-          className="rounded-lg border border-accent/40 bg-accent-soft px-5 py-3 text-sm text-accent hover:bg-accent/20"
-        >
-          {t("home.newProject")}
-          <div className="mt-1 text-xs text-text-tertiary">{t("home.projectHint")}</div>
-        </button>
+    <div className="relative flex h-full items-center justify-center overflow-hidden bg-bg-main px-6 py-10">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute left-1/2 top-1/2 h-[420px] w-[620px] -translate-x-1/2 -translate-y-1/2"
+        style={{ background: "radial-gradient(closest-side, var(--color-accent-soft), transparent 72%)" }}
+      />
+      <div className="relative w-full max-w-[560px]">
+        <div className="text-center">
+          <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-border bg-bg-elevated shadow-lg">
+            <Icon name="zap" size={23} className="text-accent" strokeWidth={1.8} />
+          </div>
+          <h1 data-testid="brand" className="text-[24px] font-semibold tracking-tight text-text-primary">
+            Spcod
+          </h1>
+          <p className="mt-2 text-[13px] leading-6 text-text-secondary">{t("home.tagline")}</p>
+        </div>
+
+        <div className="mt-8 grid gap-3 sm:grid-cols-2">
+          <HomeAction
+            icon="chat"
+            title={t("home.newChat")}
+            hint={t("home.chatHint")}
+            onClick={() => void createSession("chat")}
+          />
+          <HomeAction
+            icon="folder"
+            title={t("home.newProject")}
+            hint={t("home.projectHint")}
+            onClick={() => void openProject()}
+          />
+        </div>
       </div>
     </div>
+  );
+}
+
+function HomeAction({
+  icon,
+  title,
+  hint,
+  onClick,
+}: {
+  icon: "chat" | "folder";
+  title: string;
+  hint: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group flex min-h-[132px] flex-col rounded-2xl border border-border bg-bg-elevated/75 p-4 text-left shadow-sm transition-colors hover:border-border-strong hover:bg-bg-hover"
+    >
+      <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-accent-soft text-accent transition-colors group-hover:bg-accent group-hover:text-on-accent">
+        <Icon name={icon} size={16} strokeWidth={1.8} />
+      </span>
+      <span className="mt-4 text-[14px] font-medium text-text-primary">{title}</span>
+      <span className="mt-1 text-[12px] leading-5 text-text-tertiary">{hint}</span>
+      <span className="mt-auto flex justify-end pt-3 text-text-tertiary transition-colors group-hover:text-accent">
+        <Icon name="chevronRight" size={14} />
+      </span>
+    </button>
   );
 }

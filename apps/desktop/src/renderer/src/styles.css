@@ -15,7 +15,7 @@
 
 /* 默认亮色；暗色由 applyTheme 按设置注入完整色板。
    中性灰阶 + 黑白主操作，状态色只表达真实状态。 */
-@theme inline {
+@theme {
   --color-bg-root: #f7f7f5;
   --color-bg-sidebar: #f0f0ee;
   --color-bg-main: #ffffff;
@@ -26,7 +26,7 @@
   --color-border-strong: #cfcfca;
   --color-text-primary: #1c1c1c;
   --color-text-secondary: #616161;
-  --color-text-tertiary: #7a7a78;
+  --color-text-tertiary: #737371;
   --color-accent: #171717;
   --color-on-accent: #ffffff;
   --color-on-danger: #ffffff;

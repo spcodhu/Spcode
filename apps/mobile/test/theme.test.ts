@@ -20,8 +20,8 @@ describe("手机亮暗主题", () => {
     expect(localStorage.getItem("spcod-mobile-theme")).toBe("dark");
     expect(document.documentElement.dataset.themeBase).toBe("dark");
     expect(document.documentElement.style.colorScheme).toBe("dark");
-    expect(document.documentElement.style.getPropertyValue("--color-bg-root")).toBe("#121212");
-    expect(document.documentElement.style.getPropertyValue("--color-accent")).toBe("#F2F2F2");
+    expect(document.documentElement.style.getPropertyValue("--color-bg-root")).toBe("#101012");
+    expect(document.documentElement.style.getPropertyValue("--color-accent")).toBe("#F4F4F5");
 
     applyMobileTheme("light");
     expect(document.documentElement.style.getPropertyValue("--color-bg-root")).toBe("#F7F7F5");

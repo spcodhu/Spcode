@@ -7,7 +7,7 @@
 @source "../node_modules/@streamdown/math/dist/*.js";
 @source "../node_modules/@streamdown/mermaid/dist/*.js";
 
-@theme inline {
+@theme {
   --color-bg-root: #f7f7f5;
   --color-bg-sidebar: #f0f0ee;
   --color-bg-main: #ffffff;
@@ -18,7 +18,7 @@
   --color-border-strong: #cfcfca;
   --color-text-primary: #1c1c1c;
   --color-text-secondary: #616161;
-  --color-text-tertiary: #7a7a78;
+  --color-text-tertiary: #737371;
   --color-accent: #171717;
   --color-on-accent: #ffffff;
   --color-on-danger: #ffffff;
@@ -32,27 +32,27 @@
 }
 
 :root[data-theme-base="dark"] {
-  --color-bg-root: #121212;
-  --color-bg-sidebar: #181818;
-  --color-bg-main: #1f1f1f;
-  --color-bg-elevated: #262626;
-  --color-bg-hover: #2c2c2c;
-  --color-bg-active: #343434;
-  --color-border: #363636;
-  --color-border-strong: #4a4a4a;
-  --color-text-primary: #ececec;
-  --color-text-secondary: #a3a3a3;
-  --color-text-tertiary: #858585;
-  --color-accent: #f2f2f2;
-  --color-on-accent: #171717;
+  --color-bg-root: #101012;
+  --color-bg-sidebar: #161618;
+  --color-bg-main: #1b1b1e;
+  --color-bg-elevated: #232327;
+  --color-bg-hover: #2a2a2f;
+  --color-bg-active: #333339;
+  --color-border: #343439;
+  --color-border-strong: #4b4b52;
+  --color-text-primary: #f0f0f2;
+  --color-text-secondary: #b0b0b8;
+  --color-text-tertiary: #8e8e98;
+  --color-accent: #f4f4f5;
+  --color-on-accent: #18181a;
   --color-on-danger: #1b1012;
-  --color-accent-dim: #d4d4d4;
-  --color-accent-soft: rgba(255, 255, 255, 0.09);
-  --color-danger: #e5636f;
-  --color-warning: #d9a045;
-  --color-success: #5cb87a;
-  --color-user-bubble: #292929;
-  --color-thinking: #969696;
+  --color-accent-dim: #d6d6da;
+  --color-accent-soft: rgba(255, 255, 255, 0.08);
+  --color-danger: #ec6b78;
+  --color-warning: #dea74e;
+  --color-success: #63be84;
+  --color-user-bubble: #28282d;
+  --color-thinking: #9c9ca6;
 }
 
 :root {
