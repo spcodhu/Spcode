@@ -34,6 +34,7 @@ import type {
   RemoteStatus,
 } from "@spcode/shared";
 import type { Locale } from "@spcode/shared/i18n";
+import { networkProxyFingerprint } from "@spcode/shared/proxy";
 import { resolveRelayConfig } from "@spcode/shared/remote";
 import { historyToRemotePage } from "@spcode/shared/remote-history";
 import { RemoteEventAggregator } from "./aggregator.js";
@@ -113,6 +114,7 @@ export class RemoteServer {
   private activeConfigPort: number | null = null;
   private activeRelayUrl: string | null = null;
   private activeRelayAccessKey: string | null = null;
+  private activeProxyKey = "";
   /** tailscale serve 当前映射的 LAN 端口（0 = 未映射），避免重复执行 serve 命令 */
   private tailscaleServingPort = 0;
   /** 飞书机器人通道（M4）；生命周期独立于 remote.enabled 总开关 */
@@ -155,12 +157,14 @@ export class RemoteServer {
     const cfg = this.deps.settings.get().remote;
     const resolved = resolveRelayConfig(cfg);
     const relayUrl = normalizeRelayUrl(resolved.url);
+    const proxyKey = networkProxyFingerprint(this.deps.settings.get().proxy);
     if (
       cfg.enabled &&
       (!this.running ||
         this.activeConfigPort !== cfg.port ||
         this.activeRelayUrl !== relayUrl ||
-        this.activeRelayAccessKey !== resolved.accessKey)
+        this.activeRelayAccessKey !== resolved.accessKey ||
+        this.activeProxyKey !== proxyKey)
     ) {
       await this.stop();
       await this.start();
@@ -203,6 +207,7 @@ export class RemoteServer {
         this.relayTransport = new RelayTransport({
           url: relayUrl,
           accessKey: resolved.accessKey,
+          proxy: this.deps.settings.get().proxy,
           channelId: deriveChannelId(this.pairing.getIdentity().publicKey),
           log: (msg, extra) => console.warn(`[remote/relay] ${msg}`, extra ?? ""),
         });
@@ -244,6 +249,7 @@ export class RemoteServer {
     }
     this.activeRelayUrl = relayUrl;
     this.activeRelayAccessKey = resolved.accessKey;
+    this.activeProxyKey = networkProxyFingerprint(this.deps.settings.get().proxy);
     // 首次启用即生成 VAPID 密钥对（remote.hello 携带公钥供设备订阅推送）
     this.push.ensureVapid();
     this.running = true;
@@ -307,7 +313,9 @@ export class RemoteServer {
   private async syncFeishu(): Promise<void> {
     const feishu = this.deps.settings.get().remote.feishu;
     const configured = feishu?.enabled === true && !!feishu.appId && !!feishu.appSecret;
-    const key = configured ? `${feishu.appId}\n${feishu.appSecret}` : null;
+    const key = configured
+      ? `${feishu.appId}\n${feishu.appSecret}\n${networkProxyFingerprint(this.deps.settings.get().proxy)}`
+      : null;
     if (key && this.feishuChannel && this.activeFeishuKey === key) return;
     if (this.feishuChannel) {
       const ch = this.feishuChannel;
@@ -336,7 +344,10 @@ export class RemoteServer {
   }
 
   /** 设置页测试 relay：复用桌面身份签发票据，但不建立 host 长连接。 */
-  async testRelay(input: { url: string; accessKey?: string | null }): Promise<{ ok: true } | { ok: false; error: string }> {
+  async testRelay(input: {
+    url: string;
+    accessKey?: string | null;
+  }): Promise<{ ok: true } | { ok: false; error: string }> {
     return testRelayConnection({
       url: input.url,
       accessKey: input.accessKey,

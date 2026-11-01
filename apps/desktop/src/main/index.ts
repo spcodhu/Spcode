@@ -37,6 +37,7 @@ import { DraftsStore } from "./drafts-store.js";
 import { showImageContextMenu } from "./image-actions.js";
 import { Notifier } from "./notifier.js";
 import { readSessionPlan } from "./plan-file.js";
+import { applyNetworkProxy, registerNetworkProxyAuthentication } from "./proxy.js";
 import { QuotaService } from "./quota-service.js";
 import { RemoteServer } from "./remote/index.js";
 import { Scheduler } from "./scheduler.js";
@@ -645,7 +646,7 @@ function registerIpc(): void {
     settings.set({ ignoredUpdateVersion: version });
     ignoreVersion();
   });
-  ipcMain.handle(IPC.setSettings, (_e, patch: Partial<AppSettings>) => {
+  ipcMain.handle(IPC.setSettings, async (_e, patch: Partial<AppSettings>) => {
     // 掩码密钥还原（渲染层只见过掩码；评审 R3-C8）
     const next = settings.set(restoreMaskedSecrets(patch, settings.get()));
     if ("locale" in patch) {
@@ -681,6 +682,12 @@ function registerIpc(): void {
     // MCP 服务器配置实时下发宿主（对已创建会话不生效，新会话生效——工具列表创建时固定）
     if ("mcpServers" in patch) {
       bridge.push({ type: "mcp.setServers", payload: { servers: next.mcpServers } });
+    }
+    // 代理同时作用于主进程 Node、Chromium/updater 与 agent-host；远程长连接需重建
+    if ("proxy" in patch) {
+      await applyNetworkProxy(next.proxy);
+      bridge.push({ type: "proxy.setConfig", payload: { config: next.proxy } });
+      await remote.applySettings();
     }
     // 远程控制开关/端口变更：即时启停（改动最小的方式——由 IPC 层显式触发）
     if ("remote" in patch) {
@@ -816,12 +823,15 @@ if (!app.requestSingleInstanceLock()) {
     // dev 模式 Dock 图标运行时设置（打包版由 bundle 自带，无需也不该走这里）
     if (!backgroundE2E && process.platform === "darwin" && devIcon) app.dock?.setIcon(devIcon);
     registerIpc();
+    registerNetworkProxyAuthentication(() => settings.get().proxy);
+    await applyNetworkProxy(settings.get().proxy);
     watchSessionLifecycle();
     // 宿主每次 ready（含崩溃重启后）都重推一次运行时设置
     bridge.onEvent((event) => {
       if (event.type === "ready") {
         bridge.push({ type: "locale.set", payload: { locale: settings.get().locale } });
         bridge.push({ type: "memory.setDistillEnabled", payload: { enabled: settings.get().memoryDistill } });
+        bridge.push({ type: "proxy.setConfig", payload: { config: settings.get().proxy } });
         bridge.push({ type: "search.setAdvancedConfig", payload: { config: settings.get().advancedSearch } });
         bridge.push({ type: "webfetch.setConfig", payload: { config: settings.get().webFetch } });
         bridge.push({ type: "sandbox.setConfig", payload: { config: settings.get().sandbox } });

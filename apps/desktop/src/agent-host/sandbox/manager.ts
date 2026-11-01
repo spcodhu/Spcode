@@ -20,6 +20,7 @@ import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import { DEFAULT_SANDBOX_SETTINGS, type PermissionMode, type SandboxSettings } from "@spcode/shared";
 import { type LocalizedText, renderMessage } from "@spcode/shared/i18n";
 import { resolveSpcodeHome } from "@spcode/shared/node";
+import { sandboxParentProxy } from "../../network-proxy.js";
 import { buildSandboxRuntimeConfig } from "./config-builder.js";
 
 export type SandboxState =
@@ -226,6 +227,7 @@ class SandboxService {
         allowedDomains: [...settings.network.allowedDomains],
         deniedDomains: [...settings.network.deniedDomains],
         allowLocalBinding: settings.network.allowLocalBinding,
+        parentProxy: sandboxParentProxy(),
       },
       filesystem: {
         denyRead: [],

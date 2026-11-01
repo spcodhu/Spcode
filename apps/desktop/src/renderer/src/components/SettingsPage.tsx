@@ -16,6 +16,7 @@ import { resolveThemeBase } from "../theme";
 import { Icon } from "./Icon";
 import { McpPage } from "./McpPage";
 import { ModelsPage } from "./ModelsPage";
+import { NetworkProxySection } from "./NetworkProxySection";
 import { QuotaPage } from "./QuotaPage";
 import { RemotePage } from "./RemotePage";
 import { UsagePage } from "./UsagePage";
@@ -207,6 +208,9 @@ function GeneralPage() {
 
       <SectionTitle>{t("general.sandbox")}</SectionTitle>
       <SandboxSection />
+
+      <SectionTitle>{t("proxy.title")}</SectionTitle>
+      <NetworkProxySection />
 
       <SectionTitle>{t("general.search")}</SectionTitle>
       <AdvancedSearchSection />

@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
@@ -153,6 +153,49 @@ test.describe("Spcode 冒烟 E2E", () => {
     await window.getByTitle("设置", { exact: true }).click();
     await window.getByRole("button", { name: "通用" }).click();
     await expect(window.getByTestId("compaction-settings").getByRole("spinbutton").first()).toHaveValue("20480");
+
+    await app.close();
+  });
+
+  test("设置页：网络代理保存、密码掩码与关闭", async () => {
+    const spcodeHome = mkdtempSync(join(tmpdir(), "spcode-proxy-e2e-"));
+    const app = await launchApp({ spcodeHome });
+    const window = await app.firstWindow();
+
+    await window.getByTitle("设置", { exact: true }).click();
+    const section = window.getByTestId("settings-proxy");
+    await expect(section).toBeVisible();
+    await section.getByRole("switch", { name: "启用网络代理" }).click();
+    await window.getByTestId("settings-proxy-host").fill("127.0.0.1");
+    await window.getByTestId("settings-proxy-port").fill("18080");
+    await window.getByTestId("settings-proxy-username").fill("e2e-user");
+    await window.getByTestId("settings-proxy-password").fill("e2e-secret");
+    await window.getByTestId("settings-proxy-save").click();
+
+    await expect
+      .poll(() => {
+        const saved = JSON.parse(readFileSync(join(spcodeHome, "settings.json"), "utf8")) as {
+          proxy?: { enabled?: boolean; host?: string; port?: number; password?: string };
+        };
+        return saved.proxy;
+      })
+      .toEqual(expect.objectContaining({ enabled: true, host: "127.0.0.1", port: 18080, password: "e2e-secret" }));
+
+    // 重开后密码只回掩码；再次保存不会把掩码写成真实密码。
+    await window.getByTitle("关闭设置").click();
+    await window.getByTitle("设置", { exact: true }).click();
+    await expect(window.getByTestId("settings-proxy-password")).toHaveValue("••••••••");
+    const reopened = window.getByTestId("settings-proxy");
+    await reopened.getByRole("switch", { name: "启用网络代理" }).click();
+    await window.getByTestId("settings-proxy-save").click();
+    await expect
+      .poll(() => {
+        const saved = JSON.parse(readFileSync(join(spcodeHome, "settings.json"), "utf8")) as {
+          proxy: { enabled: boolean; password: string };
+        };
+        return saved.proxy;
+      })
+      .toEqual(expect.objectContaining({ enabled: false, password: "e2e-secret" }));
 
     await app.close();
   });

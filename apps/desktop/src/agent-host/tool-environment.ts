@@ -11,6 +11,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node
 import { homedir, tmpdir as osTmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import type { BashSpawnHook } from "@earendil-works/pi-coding-agent";
+import { applyNetworkProxyEnvironment } from "../network-proxy.js";
 
 export interface SessionToolEnvironment {
   pathKey: string;
@@ -111,7 +112,7 @@ export function createSessionToolEnvironment(opts: CreateSessionToolEnvironmentO
   mkdirSync(tmpdir, { recursive: true });
 
   const spawnHook: BashSpawnHook = (context) => {
-    const nextEnv = { ...context.env, [pathKey]: path, TMPDIR: tmpdir };
+    const nextEnv = applyNetworkProxyEnvironment({ ...context.env, [pathKey]: path, TMPDIR: tmpdir });
     if (isPackageManagerLifecycleCommand(context.command) && !nextEnv.CI) nextEnv.CI = "1";
     return { ...context, env: nextEnv };
   };

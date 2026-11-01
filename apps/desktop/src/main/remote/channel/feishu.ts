@@ -43,6 +43,9 @@ import type {
 import { validateQuestionAnswers } from "@spcode/shared";
 import { getLocale, renderMessage } from "@spcode/shared/i18n";
 import { readJsonFile, resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
+import type { NetworkProxySettings } from "@spcode/shared/proxy";
+import axios from "axios";
+import { createNodeProxyAgent } from "../../../network-proxy.js";
 import { RemoteEventAggregator } from "../aggregator.js";
 import { handleRemoteCommand, type RemoteHandlerDeps } from "../handlers.js";
 import type { BridgeEventSource } from "../index.js";
@@ -320,7 +323,7 @@ export class FeishuChannel {
     this.cfgAppId = cfg.appId;
     this.loadStore();
     this.state = "connecting";
-    this.api = this.deps.api ?? new LarkFeishuApi(cfg);
+    this.api = this.deps.api ?? new LarkFeishuApi(cfg, this.deps.settings.get().proxy);
     this.api.onMessage((msg) => void this.handleInbound(msg));
     this.api.onCardAction((action) => void this.handleCardAction(action));
     try {
@@ -868,9 +871,14 @@ export class LarkFeishuApi implements FeishuApi {
   private messageCb: ((msg: FeishuInboundMessage) => void) | null = null;
   private cardActionCb: ((action: FeishuCardAction) => void) | null = null;
 
-  constructor(cfg: { appId: string; appSecret: string }) {
-    this.client = new Lark.Client({ appId: cfg.appId, appSecret: cfg.appSecret });
-    this.wsClient = new Lark.WSClient({ appId: cfg.appId, appSecret: cfg.appSecret });
+  constructor(cfg: { appId: string; appSecret: string }, proxy?: NetworkProxySettings) {
+    const agent = proxy ? createNodeProxyAgent(proxy) : undefined;
+    const httpInstance = agent ? axios.create({ httpAgent: agent, httpsAgent: agent, proxy: false }) : undefined;
+    this.client = new Lark.Client({
+      ...cfg,
+      ...(httpInstance ? { httpInstance: httpInstance as unknown as Lark.HttpInstance } : {}),
+    });
+    this.wsClient = new Lark.WSClient({ ...cfg, ...(agent ? { agent } : {}) });
   }
 
   onMessage(cb: (msg: FeishuInboundMessage) => void): void {
@@ -922,9 +930,10 @@ export class LarkFeishuApi implements FeishuApi {
   }
 
   async stop(): Promise<void> {
-    // WSClient 无显式 close API（SDK 托管重连生命周期）；释放引用即可，进程退出时连接随进程关闭
     this.messageCb = null;
     this.cardActionCb = null;
+    // 代理/凭据变更会重建通道；必须真正关闭旧 WS，不能只释放引用。
+    this.wsClient.close({ force: true });
   }
 
   async sendText(openId: string, text: string): Promise<string> {

@@ -20,6 +20,7 @@ Renderer(React 19) ←IPC→ Main(Electron) ←结构化克隆→ AgentHost(util
 - **思考强度**：off ~ max 七档，引擎 compat 层翻译成各家 API 的真实参数
 - **外观**：默认中性亮色，另内置暗色；主题 JSON 导入 / AI 生成，本地字体导入，手机 PWA 独立亮暗开关
 - **远程控制**：手机 PWA + E2E，官方/自托管 relay 可选；独立开源服务 [spcod-relay](https://github.com/spcodhu/spcod-relay)
+- **网络代理**：设置页配置 HTTP / HTTPS / SOCKS5 代理与可选认证，覆盖 AI、搜索、网页抓取、更新和桌面远程通道；详见 [docs/network-proxy.md](docs/network-proxy.md)
 - **权限网关**：ask / act 双模式，危险命令（rm -rf、sudo、git reset --hard…）与对外动作（git push、发布…）永远确认
 - **命令沙盒**：bash 命令在 OS 级边界内执行（macOS Seatbelt / Linux bubblewrap），写入限工作目录、敏感路径禁读、网络按域名白名单放行；与沙盒根本冲突的命令（GUI 应用、钥匙串等）可经弹窗批准走「逃生舱」沙盒外重试，常用命令可沉淀为免审批规则；详见 [docs/sandbox.md](docs/sandbox.md)
 - **长程任务**：引擎自带自动压缩 / 溢出恢复 / 可中断重试，运行中可 steer 插话

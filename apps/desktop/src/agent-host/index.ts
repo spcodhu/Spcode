@@ -45,6 +45,7 @@ import {
 } from "@spcode/shared";
 import { getLocale, i18n, setLocale } from "@spcode/shared/i18n";
 import { resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
+import { configureNetworkProxy } from "../network-proxy.js";
 import { exportSessionContext } from "./export-context.js";
 import { HibernationManager } from "./hibernation.js";
 import { getMcpManager } from "./mcp.js";
@@ -491,6 +492,12 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
   }
   if (cmd.type === "search.setAdvancedConfig") {
     advancedSearchConfig = cmd.payload.config;
+    return;
+  }
+  if (cmd.type === "proxy.setConfig") {
+    configureNetworkProxy(cmd.payload.config);
+    // 已初始化的沙盒同步上游代理；Bash spawnHook 每次执行实时读取代理环境。
+    getSandboxService().configure(sandboxSettings);
     return;
   }
   if (cmd.type === "webfetch.setConfig") {

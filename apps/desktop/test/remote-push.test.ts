@@ -10,11 +10,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_SETTINGS, type HostCommand, type HostEvent, type ScheduleTask } from "@spcode/shared";
 import { setLocale } from "@spcode/shared/i18n";
+import { DEFAULT_NETWORK_PROXY_SETTINGS } from "@spcode/shared/proxy";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 
 const mocks = vi.hoisted(() => ({
-  sendNotification: vi.fn<(sub: unknown, payload?: string) => Promise<void>>(),
+  sendNotification: vi.fn<(sub: unknown, payload?: string, options?: { agent?: unknown }) => Promise<void>>(),
   generateVAPIDKeys: vi.fn(() => ({ publicKey: "BMockPub", privateKey: "MockPriv" })),
   setVapidDetails: vi.fn(),
 }));
@@ -37,6 +38,7 @@ import { LanTransport } from "../src/main/remote/transport/lan.js";
 import { TailscaleManager } from "../src/main/remote/transport/tailscale.js";
 import type { RegistryLike } from "../src/main/session-helpers.js";
 import type { SessionRegistryEntry } from "../src/main/session-registry.js";
+import { configureNetworkProxy } from "../src/network-proxy.js";
 
 const VALID_SUB = {
   endpoint: "https://push.example.com/sub/abc",
@@ -55,6 +57,7 @@ beforeEach(() => {
 
 afterEach(() => {
   setLocale("zh-CN");
+  configureNetworkProxy(DEFAULT_NETWORK_PROXY_SETTINGS);
   if (dir) rmSync(dir, { recursive: true, force: true });
   dir = "";
 });
@@ -146,6 +149,21 @@ describe("触发推送", () => {
       expect(payload).not.toContain("PRIVATE_TASK");
       expect(payload).not.toContain("/secret-project");
     }
+  });
+
+  it("启用应用代理后通过 Web Push agent 选项发送", async () => {
+    const push = new PushService({ baseDir: dir });
+    push.subscribe("dev-1", VALID_SUB);
+    configureNetworkProxy({
+      enabled: true,
+      protocol: "http",
+      host: "127.0.0.1",
+      port: 8080,
+      username: "u",
+      password: "p",
+    });
+    await push.notifyForHostEvent(permissionEvent, true);
+    expect(sendNotification.mock.calls[0]?.[2]?.agent).toBeDefined();
   });
 
   it("pushEnabled=false 时不发送", async () => {

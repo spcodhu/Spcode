@@ -449,6 +449,8 @@ export type HostCommand =
   /** AI 生成主题：可选指定模型与明暗基底（默认跟随当前主题） */
   | { id: string; type: "theme.generate"; payload: { description: string; model?: ModelRef; base?: "light" | "dark" } }
   | { type: "memory.setDistillEnabled"; payload: { enabled: boolean } }
+  /** 网络代理配置下发；主进程与宿主分别配置各自 Node 网络栈，活跃会话的新请求即时生效 */
+  | { type: "proxy.setConfig"; payload: { config: import("./proxy.js").NetworkProxySettings } }
   /** 高级搜索配置下发（设置页变更后推送；宿主就绪时重推） */
   | { type: "search.setAdvancedConfig"; payload: { config: AdvancedSearchConfig | null } }
   /** WebFetch 抓取后端配置下发（设置页变更后推送；宿主就绪时重推）。工具逐次调用实时读取，活跃会话即时生效 */
@@ -846,6 +848,7 @@ import type { RemoteSettings } from "./remote.js";
 export type { Locale } from "./i18n/types.js";
 
 import { getLocale, i18n } from "./i18n/index.js";
+import { DEFAULT_NETWORK_PROXY_SETTINGS } from "./proxy.js";
 
 export interface AppSettings {
   locale: import("./i18n/types.js").Locale;
@@ -884,6 +887,8 @@ export interface AppSettings {
   monoFontFile: string;
   /** 高级搜索（配置了才对会话生效；未配置时只用内置 Bing WebSearch） */
   advancedSearch: AdvancedSearchConfig | null;
+  /** 桌面端统一出站代理（AI、搜索、网页抓取、更新与远程通道） */
+  proxy: import("./proxy.js").NetworkProxySettings;
   /** WebFetch 抓取后端（null = 内置直连抓取；工具逐次调用实时读取，改配置对活跃会话即时生效） */
   webFetch: WebFetchConfig | null;
   /** 远程控制（手机 PWA）：局域网 HTTP+WS 服务开关/端口（null = 随机端口）与 relay 地址 */
@@ -1059,6 +1064,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   monoFontFile: "",
   advancedSearch: null,
   webFetch: null,
+  proxy: DEFAULT_NETWORK_PROXY_SETTINGS,
   sandbox: DEFAULT_SANDBOX_SETTINGS,
   compaction: DEFAULT_COMPACTION_SETTINGS,
   mcpServers: {},

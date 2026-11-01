@@ -16,6 +16,7 @@ import type { HostEvent, RemotePushSubscription } from "@spcode/shared";
 import { i18n } from "@spcode/shared/i18n";
 import { readJsonFile, resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
 import webpush from "web-push";
+import { createNodeProxyAgent } from "../../network-proxy.js";
 
 /** VAPID subject（contact）：项目仓库地址 */
 const VAPID_SUBJECT = "https://github.com/spcodhu/Spcode";
@@ -151,7 +152,12 @@ export class PushService {
     await Promise.allSettled(
       entries.map(async ([deviceId, sub]) => {
         try {
-          await webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, body);
+          const agent = createNodeProxyAgent();
+          await webpush.sendNotification(
+            { endpoint: sub.endpoint, keys: sub.keys },
+            body,
+            agent ? { agent: agent as unknown as import("node:https").Agent } : undefined,
+          );
         } catch (err) {
           const statusCode = (err as { statusCode?: unknown })?.statusCode;
           if (statusCode === 404 || statusCode === 410) {

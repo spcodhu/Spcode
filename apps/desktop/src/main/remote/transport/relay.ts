@@ -30,7 +30,9 @@
 import { randomUUID } from "node:crypto";
 import type { RemoteRelayState } from "@spcode/shared";
 import { deriveChannelId } from "@spcode/shared/crypto";
+import type { NetworkProxySettings } from "@spcode/shared/proxy";
 import WebSocket from "ws";
+import { createNodeProxyAgent } from "../../../network-proxy.js";
 import type { PeerConnection, RemoteTransport } from "./types.js";
 
 // channelId 推导已下沉 @spcode/shared/crypto（评审 R3-C12：双端同一份实现）
@@ -41,6 +43,8 @@ export interface RelayTransportOptions {
   url: string;
   /** 自托管可选访问密钥；有值时先经 HTTPS 换取单次 ticket。 */
   accessKey?: string | null;
+  /** 应用统一出站代理；HTTP(S) fetch 由全局 dispatcher 覆盖，WS 在此显式注入 agent。 */
+  proxy?: NetworkProxySettings;
   /** 测试注入 HTTP 实现；缺省全局 fetch。 */
   fetchImpl?: typeof fetch;
   /** 见 deriveChannelId */
@@ -277,7 +281,8 @@ export class RelayTransport implements RemoteTransport {
     const ticket = await issueHostTicket(this.opts);
     if (!this.started) return;
     const url = `${base}/channel/${this.opts.channelId}?role=host${ticket}`;
-    const ws = new WebSocket(url);
+    const agent = createNodeProxyAgent(this.opts.proxy) as unknown as import("http").Agent | undefined;
+    const ws = new WebSocket(url, { agent });
     this.ws = ws;
     this.state = "connecting";
 

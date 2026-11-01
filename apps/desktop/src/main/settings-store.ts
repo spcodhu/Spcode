@@ -18,6 +18,7 @@ import {
 } from "@spcode/shared";
 import { resolveLocale } from "@spcode/shared/i18n";
 import { readJsonFile, resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
+import { sanitizeNetworkProxySettings } from "@spcode/shared/proxy";
 
 /** 设置文件只需是普通对象（字段级宽松：合并到 DEFAULT_SETTINGS 之上，未知/多余字段原样保留） */
 function validateSettings(data: unknown): Partial<AppSettings> | null {
@@ -100,7 +101,15 @@ export function sanitizeAppSettings(input: Partial<AppSettings>): Partial<AppSet
     }
   }
   // 嵌套对象字段必须是普通对象（数组/标量剔除，交给 get() 的归一化补默认）
-  for (const k of ["remote", "sandbox", "advancedSearch", "defaultModel", "customTheme", "compaction"] as const) {
+  for (const k of [
+    "remote",
+    "sandbox",
+    "advancedSearch",
+    "defaultModel",
+    "customTheme",
+    "compaction",
+    "proxy",
+  ] as const) {
     const v = out[k];
     if (v !== undefined && v !== null && (typeof v !== "object" || Array.isArray(v))) delete out[k];
   }
@@ -180,6 +189,8 @@ export class SettingsStore {
         network: { ...DEFAULT_SETTINGS.sandbox.network, ...loadedSandboxNetwork },
         filesystem: { ...DEFAULT_SETTINGS.sandbox.filesystem, ...loadedSandboxFilesystem },
       },
+      // 代理：旧配置缺段时补默认；段内非法值逐项回落，enabled+无效地址不会发出代理请求
+      proxy: sanitizeNetworkProxySettings(loaded.proxy),
       // compaction：段缺失补默认；段内字段非法时回落出厂值（非法值会让引擎在 agent 循环里 throw）
       compaction: sanitizeCompactionSettings(loaded.compaction),
     };
@@ -190,6 +201,7 @@ export class SettingsStore {
     const next = { ...this.get(), ...sanitizeAppSettings(patch) };
     // 同上：写入前归一化，杜绝非法值落到盘上
     if ("compaction" in patch) next.compaction = sanitizeCompactionSettings(patch.compaction);
+    if ("proxy" in patch) next.proxy = sanitizeNetworkProxySettings(patch.proxy);
     writeJsonFileAtomic(this.file, next, { mode: 0o600 });
     this.cache = next;
     return next;
@@ -207,6 +219,7 @@ export function redactSettingsForRenderer(s: AppSettings): AppSettings {
       ? { ...s.advancedSearch, apiKey: s.advancedSearch.apiKey ? SECRET_MASK : "" }
       : null,
     webFetch: s.webFetch ? { ...s.webFetch, apiKey: s.webFetch.apiKey ? SECRET_MASK : "" } : null,
+    proxy: { ...s.proxy, password: s.proxy.password ? SECRET_MASK : "" },
     remote: {
       ...s.remote,
       relayAccessKey: s.remote.relayAccessKey ? SECRET_MASK : null,
@@ -223,6 +236,9 @@ export function restoreMaskedSecrets(patch: Partial<AppSettings>, current: AppSe
   }
   if (out.webFetch && out.webFetch.apiKey === SECRET_MASK) {
     out.webFetch = { ...out.webFetch, apiKey: current.webFetch?.apiKey ?? "" };
+  }
+  if (out.proxy && out.proxy.password === SECRET_MASK) {
+    out.proxy = { ...out.proxy, password: current.proxy.password };
   }
   if (out.remote?.feishu && out.remote.feishu.appSecret === SECRET_MASK) {
     out.remote = { ...out.remote, feishu: { ...out.remote.feishu, appSecret: current.remote.feishu.appSecret } };
