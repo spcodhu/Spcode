@@ -147,6 +147,29 @@ describe("RemoteEventAggregator", () => {
     ]);
   });
 
+  it("session.model 模型变化事件透传并先冲刷文本", () => {
+    const s = setup();
+    agg = s.agg;
+    s.agg.handle(textDelta("切换前正文"));
+    s.agg.handle({
+      type: "session.model",
+      sessionId: "s1",
+      model: { provider: "p", modelId: "m" },
+      thinkingLevel: "low",
+      supportedThinkingLevels: ["low"],
+    });
+    expect(s.events).toEqual([
+      { type: "session.output", sessionId: "s1", chunk: "切换前正文", kind: "text", seq: 0 },
+      {
+        type: "session.model",
+        sessionId: "s1",
+        model: { provider: "p", modelId: "m" },
+        thinkingLevel: "low",
+        supportedThinkingLevels: ["low"],
+      },
+    ]);
+  });
+
   it("history / plan / ready / response / host.error 不透传", () => {
     const s = setup();
     agg = s.agg;

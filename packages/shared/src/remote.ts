@@ -10,6 +10,7 @@
  */
 
 import type {
+  ModelInfo,
   ModelRef,
   PermissionRequest,
   QuestionRequest,
@@ -27,12 +28,14 @@ import type {
 /** 手机 → 桌面 */
 export type RemoteCommand =
   | { type: "session.list" }
+  | { type: "models.list" }
   /** 首次进入会话：按游标读取权威历史；before 缺省 = 最近一页 */
   | { type: "session.history"; sessionId: string; before?: number }
   | { type: "session.create"; mode: SessionMode; cwd?: string; prompt?: string; model?: ModelRef }
   /** 空闲 = 正常输入；运行中 = steer 插话（宿主侧无需特判） */
   | { type: "session.prompt"; sessionId: string; text: string }
   | { type: "session.abort"; sessionId: string }
+  | { type: "session.setModel"; sessionId: string; model: ModelRef }
   /** 订阅某会话事件流（M1：所有事件本就广播给全部已配对设备，返回 ok 即可） */
   | { type: "session.subscribe"; sessionId: string }
   | { type: "permission.reply"; requestId: string; approved: boolean }
@@ -83,6 +86,13 @@ export type RemoteEvent =
   | { type: "session.todo"; sessionId: string; todos: TodoItem[] }
   | { type: "session.usage"; sessionId: string; usage: UsageRecord }
   | { type: "session.renamed"; sessionId: string; title: string }
+  | {
+      type: "session.model";
+      sessionId: string;
+      model: ModelRef;
+      thinkingLevel: string;
+      supportedThinkingLevels?: string[];
+    }
   | { type: "session.planmode"; sessionId: string; enabled: boolean }
   /** 含 risk 级别；danger 级手机端必须强确认 UI */
   | { type: "permission.request"; request: PermissionRequest }

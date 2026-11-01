@@ -259,6 +259,13 @@ function TaskForm({
   ];
 
   const registrySessions = useStore((s) => s.registrySessions);
+  const models = useStore((s) => s.models) ?? [];
+  const settings = useStore((s) => s.settings);
+  const enabledModels = models.filter(
+    (model) =>
+      !(settings?.disabledProviders ?? []).includes(model.provider) &&
+      !(settings?.disabledModels ?? []).includes(`${model.provider}/${model.modelId}`),
+  );
   const weekdayOptions = [1, 2, 3, 4, 5, 6, 0].map((day) => ({
     value: String(day),
     label: new Intl.DateTimeFormat(getLocale(), { weekday: "short" }).format(new Date(2024, 0, 7 + day)),
@@ -267,6 +274,7 @@ function TaskForm({
   const [name, setName] = useState(task?.name ?? "");
   const [prompt, setPrompt] = useState(task?.prompt ?? "");
   const [targetKind, setTargetKind] = useState<string>(task?.target.kind === "project" ? task.target.cwd : "chat");
+  const [modelKey, setModelKey] = useState(task?.model ? `${task.model.provider}/${task.model.modelId}` : "");
   const [frequency, setFrequency] = useState<ScheduleFrequency>(task?.frequency ?? "daily");
   const [hour, setHour] = useState(String(task?.hour ?? 9));
   const [minute, setMinute] = useState(String(task?.minute ?? 0));
@@ -292,6 +300,17 @@ function TaskForm({
       ...[...cwds.entries()].map(([cwd, base]) => ({ value: cwd, label: t("schedule.project", { name: base }) })),
     ];
   }, [registrySessions, t]);
+
+  const modelOptions = useMemo(() => {
+    const options = enabledModels.map((model) => ({
+      value: `${model.provider}/${model.modelId}`,
+      label: `${model.provider} / ${model.displayName}`,
+    }));
+    if (task?.model && !options.some((option) => option.value === modelKey)) {
+      options.push({ value: modelKey, label: `${task.model.provider} / ${task.model.modelId}` });
+    }
+    return [{ value: "", label: t("schedule.defaultModel") }, ...options];
+  }, [enabledModels, modelKey, t, task]);
 
   const hourOptions = useMemo(
     () =>
@@ -330,6 +349,12 @@ function TaskForm({
       hour: Number(hour),
       minute: Number(minute),
       enabled: task?.enabled ?? true,
+      model: modelKey
+        ? {
+            provider: modelKey.slice(0, modelKey.indexOf("/")),
+            modelId: modelKey.slice(modelKey.indexOf("/") + 1),
+          }
+        : null,
     };
     if (frequency === "weekly") input.weekday = Number(weekday);
     if (frequency === "once") {
@@ -390,6 +415,10 @@ function TaskForm({
 
       <Field label={t("schedule.target")}>
         <Select value={targetKind} options={targetOptions} onChange={setTargetKind} />
+      </Field>
+
+      <Field label={t("nav.models")}>
+        <Select value={modelKey} options={modelOptions} onChange={setModelKey} />
       </Field>
 
       <Field label={t("schedule.frequency")}>

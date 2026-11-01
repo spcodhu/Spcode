@@ -10,12 +10,16 @@ import { useAppStore } from "../src/state/store";
 
 const mocks = vi.hoisted(() => ({
   sendPrompt: vi.fn(),
+  setSessionModel: vi.fn(),
+  refreshModels: vi.fn(),
   abortSession: vi.fn(),
   ensureSessionOutput: vi.fn(),
   retrySessionOutput: vi.fn(),
 }));
 vi.mock("../src/state/controller", () => ({
   sendPrompt: mocks.sendPrompt,
+  setSessionModel: mocks.setSessionModel,
+  refreshModels: mocks.refreshModels,
   abortSession: mocks.abortSession,
   ensureSessionOutput: mocks.ensureSessionOutput,
   retrySessionOutput: mocks.retrySessionOutput,
@@ -70,6 +74,24 @@ beforeEach(async () => {
   useAppStore.getState().setSessions([session("s1"), session("s2")]);
   useAppStore.getState().setConn("ready");
   mocks.sendPrompt.mockReset();
+  mocks.setSessionModel.mockReset().mockResolvedValue(undefined);
+  mocks.refreshModels.mockReset().mockResolvedValue([]);
+  useAppStore.getState().setModels(
+    [
+      {
+        provider: "p",
+        modelId: "new",
+        displayName: "New Model",
+        contextWindow: 1000,
+        maxTokens: 100,
+        thinkingLevels: [],
+        available: true,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        priceKnown: false,
+      },
+    ],
+    null,
+  );
   mocks.abortSession.mockReset();
   mocks.ensureSessionOutput.mockReset().mockResolvedValue(undefined);
   mocks.retrySessionOutput.mockReset().mockResolvedValue(undefined);
@@ -184,5 +206,14 @@ describe("会话输入草稿与发送失败", () => {
     expect(useAppStore.getState().inputDrafts.s1?.text).toBe("需要恢复的快照");
     await renderPage("s1");
     expect(input().value).toBe("需要恢复的快照");
+  });
+});
+
+describe("已有会话模型切换", () => {
+  it("从 PC 模型目录选择后调用 setSessionModel", async () => {
+    await renderPage("s1");
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="model-field"]')!.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-model="p/new"]')!.click());
+    expect(mocks.setSessionModel).toHaveBeenCalledWith("s1", { provider: "p", modelId: "new" });
   });
 });

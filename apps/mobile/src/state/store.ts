@@ -12,6 +12,8 @@
 
 import type {
   PermissionRequest,
+  ModelInfo,
+  ModelRef,
   QuestionRequest,
   RemoteHistoryChunk,
   RemoteHistoryPage,
@@ -73,6 +75,8 @@ interface AppState {
   setLocaleReady(ready: boolean): void;
   pairing: PairingRecord | null;
   sessions: Record<string, SessionView>;
+  models: ModelInfo[];
+  defaultModel: ModelRef | null;
   outputs: Record<string, OutputChunk[]>;
   outputSync: Record<string, OutputSyncState>;
   /** undefined = 尚未加载历史；null = 已加载且没有更早页 */
@@ -91,6 +95,7 @@ interface AppState {
   setConn(state: ConnectionState, detail?: ConnectionDetail): void;
   setPairing(record: PairingRecord | null): void;
   setSessions(metas: SessionMeta[]): void;
+  setModels(models: ModelInfo[], defaultModel: ModelRef | null): void;
   applySessionSnapshot(
     metas: RemoteSessionSnapshot[],
     pendingPermissions: PermissionRequest[],
@@ -125,6 +130,8 @@ const initialData = {
   themeBase: readMobileTheme(),
   pairing: null as PairingRecord | null,
   sessions: {} as Record<string, SessionView>,
+  models: [] as ModelInfo[],
+  defaultModel: null as ModelRef | null,
   outputs: {} as Record<string, OutputChunk[]>,
   outputSync: {} as Record<string, OutputSyncState>,
   historyCursors: {} as Record<string, number | null>,
@@ -249,6 +256,7 @@ export const useAppStore = create<AppState>((set) => ({
   setLocaleReady: (localeReady) => set({ localeReady }),
   setConn: (connState, detail) => set({ connState, connDetail: detail }),
   setPairing: (pairing) => set({ pairing }),
+  setModels: (models, defaultModel) => set({ models, defaultModel }),
 
   setSessions: (metas) =>
     set((s) => {

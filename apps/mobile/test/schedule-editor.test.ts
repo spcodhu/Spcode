@@ -8,8 +8,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ScheduleEditorSheet } from "../src/components/ScheduleEditor.js";
 import { useAppStore } from "../src/state/store";
 
-const state = vi.hoisted(() => ({ create: vi.fn(), update: vi.fn() }));
-vi.mock("../src/state/controller", () => ({ createSchedule: state.create, updateSchedule: state.update }));
+const state = vi.hoisted(() => ({ create: vi.fn(), update: vi.fn(), refreshModels: vi.fn() }));
+vi.mock("../src/state/controller", () => ({
+  createSchedule: state.create,
+  updateSchedule: state.update,
+  refreshModels: state.refreshModels,
+}));
 
 let appRoot: HTMLDivElement;
 let root: Root;
@@ -19,8 +23,25 @@ beforeEach(() => {
   setLocale("zh-CN");
   state.create.mockReset().mockResolvedValue(undefined);
   state.update.mockReset().mockResolvedValue(undefined);
+  state.refreshModels.mockReset().mockResolvedValue([]);
   useAppStore.getState().reset();
   useAppStore.getState().setConn("ready");
+  useAppStore.getState().setModels(
+    [
+      {
+        provider: "p",
+        modelId: "scheduled",
+        displayName: "Scheduled Model",
+        contextWindow: 1000,
+        maxTokens: 100,
+        thinkingLevels: [],
+        available: true,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        priceKnown: false,
+      },
+    ],
+    null,
+  );
   appRoot = document.createElement("div");
   appRoot.id = "root";
   document.body.append(appRoot);
@@ -84,6 +105,19 @@ describe("移动端定时任务编辑器", () => {
     expect(document.querySelector('[role="alert"]')?.textContent).toContain("请选择有效的执行时间");
     expect(state.update).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("定时任务可选择 PC 模型，也可保持跟随默认", async () => {
+    const value = task("daily");
+    await render(value);
+    expect(document.querySelector('[data-testid="model-option-default"]')).toBeNull();
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="model-field"]')!.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-model="p/scheduled"]')!.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="schedule-submit"]')!.click());
+    expect(state.update).toHaveBeenCalledWith(
+      value.id,
+      expect.objectContaining({ model: { provider: "p", modelId: "scheduled" } }),
+    );
   });
 
   it("项目目标从 PC 已有空间选择，不再要求手输目录", async () => {

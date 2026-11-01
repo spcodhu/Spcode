@@ -13,9 +13,11 @@ import {
   cleanSessionTitle,
   type HostCommand,
   type HostEvent,
+  type ModelInfo,
   type RemoteCommand,
   type ScheduleTask,
   type ScheduleTaskInput,
+  type SessionInfo,
   type SessionMode,
 } from "@spcode/shared";
 import { i18n } from "@spcode/shared/i18n";
@@ -64,6 +66,19 @@ export async function handleRemoteCommand(cmd: RemoteCommand, deps: RemoteHandle
   switch (cmd.type) {
     case "session.list":
       return { sessions: deps.registry.list() };
+    case "models.list": {
+      const settings = deps.settings.get();
+      const models = await deps.bridge.call<ModelInfo[]>(withId({ type: "models.list" }));
+      const disabledProviders = new Set(settings.disabledProviders);
+      const disabledModels = new Set(settings.disabledModels);
+      return {
+        models: (models ?? []).filter(
+          (model) =>
+            !disabledProviders.has(model.provider) && !disabledModels.has(`${model.provider}/${model.modelId}`),
+        ),
+        defaultModel: settings.defaultModel,
+      };
+    }
     case "session.history": {
       const entry = deps.registry.get(cmd.sessionId);
       if (!entry) throw new Error(i18n.t("integration:session.missing", { id: cmd.sessionId }));
@@ -95,6 +110,23 @@ export async function handleRemoteCommand(cmd: RemoteCommand, deps: RemoteHandle
     case "session.abort":
       await deps.bridge.call(withId({ type: "session.abort", payload: { sessionId: cmd.sessionId } }));
       return { ok: true };
+    case "session.setModel": {
+      const entry = deps.registry.get(cmd.sessionId);
+      if (!entry) throw new Error(i18n.t("integration:session.missing", { id: cmd.sessionId }));
+      const info = await deps.bridge.call<SessionInfo>(
+        withId({ type: "session.setModel", payload: { sessionId: cmd.sessionId, model: cmd.model } }),
+      );
+      const model = info.model ?? cmd.model;
+      deps.registry.patch(cmd.sessionId, { model, thinkingLevel: info.thinkingLevel });
+      deps.bridge.emitLocal?.({
+        type: "session.model",
+        sessionId: cmd.sessionId,
+        model,
+        thinkingLevel: info.thinkingLevel,
+        supportedThinkingLevels: info.supportedThinkingLevels ?? [],
+      });
+      return info;
+    }
     case "session.subscribe":
       // M1：所有 RemoteEvent 本就广播给全部已配对设备，订阅无需登记
       return { ok: true };

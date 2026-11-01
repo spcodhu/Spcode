@@ -63,6 +63,24 @@ beforeAll(async () => {
     async call(cmd: HostCommand & { id: string }) {
       bridgeCalls.push(cmd);
       if (cmd.type === "session.create") return { sessionId: cmd.payload.sessionId, sessionFile: null };
+      if (cmd.type === "models.list") {
+        return [
+          {
+            provider: "p",
+            modelId: "remote-model",
+            displayName: "Remote Model",
+            contextWindow: 1000,
+            maxTokens: 100,
+            thinkingLevels: [],
+            available: true,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            priceKnown: false,
+          },
+        ];
+      }
+      if (cmd.type === "session.setModel") {
+        return { model: cmd.payload.model, thinkingLevel: "low", supportedThinkingLevels: ["low"] };
+      }
       if (cmd.type === "session.history") {
         return {
           messages: [
@@ -310,6 +328,43 @@ describe("PWA ↔ 真实桌面 RemoteServer 全链路", () => {
       ]);
       expect(page.olderBefore).toBeNull();
       expect(page.outputSeq).toBe(-1);
+    } finally {
+      mobile.stop();
+    }
+  });
+
+  it("模型目录、空会话创建与已有会话模型切换通过真实远程协议", async () => {
+    const record = await pairWithQr(localQrPayload(), "模型控制测试机");
+    const mobile = new MobileTestClient(record);
+    mobile.start();
+    try {
+      await mobile.waitState("ready");
+      const catalog = await mobile.client.command<{ models: { modelId: string }[] }>({ type: "models.list" });
+      expect(catalog.models.map((model) => model.modelId)).toEqual(["remote-model"]);
+
+      const { sessionId } = await mobile.client.command<{ sessionId: string }>({
+        type: "session.create",
+        mode: "chat",
+        model: { provider: "p", modelId: "remote-model" },
+      });
+      const callsForSession = bridgeCalls.filter(
+        (command) =>
+          (command.type === "session.create" || command.type === "session.prompt") &&
+          command.payload.sessionId === sessionId,
+      );
+      expect(callsForSession.map((command) => command.type)).toEqual(["session.create"]);
+
+      await mobile.client.command({
+        type: "session.setModel",
+        sessionId,
+        model: { provider: "p", modelId: "remote-model" },
+      });
+      expect(registryEntries.get(sessionId)).toMatchObject({
+        model: { provider: "p", modelId: "remote-model" },
+        thinkingLevel: "low",
+      });
+      const modelEvent = await mobile.waitEvent((event) => event.type === "session.model" && event.sessionId === sessionId);
+      expect(modelEvent).toMatchObject({ thinkingLevel: "low" });
     } finally {
       mobile.stop();
     }

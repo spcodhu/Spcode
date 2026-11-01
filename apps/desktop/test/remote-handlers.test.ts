@@ -62,6 +62,27 @@ function makeDeps() {
             thinkingLevel: "high",
           };
         }
+        if (cmd.type === "models.list") {
+          const model = (provider: string, modelId: string) => ({
+            provider,
+            modelId,
+            displayName: modelId,
+            contextWindow: 1000,
+            maxTokens: 100,
+            thinkingLevels: [],
+            available: true,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            priceKnown: false,
+          });
+          return [model("p", "on"), model("p", "off"), model("blocked", "on")];
+        }
+        if (cmd.type === "session.setModel") {
+          return {
+            model: cmd.payload.model,
+            thinkingLevel: "low",
+            supportedThinkingLevels: ["low", "medium"],
+          };
+        }
         return { ok: true };
       },
       replyPermission: (requestId, approved, by) => permissionReplies.push({ requestId, approved, by }),
@@ -221,6 +242,22 @@ describe("session.history / prompt / abort / subscribe", () => {
     const r = (await handleRemoteCommand({ type: "session.list" }, d.deps)) as { sessions: unknown[] };
     expect(r.sessions).toEqual([]);
   });
+
+  it("models.list：只返回 PC 已配置且未停用的模型，并带默认模型", async () => {
+    const d = makeDeps();
+    d.deps.settings.get = () => ({
+      ...DEFAULT_SETTINGS,
+      defaultModel: { provider: "p", modelId: "on" },
+      disabledProviders: ["blocked"],
+      disabledModels: ["p/off"],
+    });
+    const result = (await handleRemoteCommand({ type: "models.list" }, d.deps)) as {
+      models: { provider: string; modelId: string }[];
+      defaultModel: unknown;
+    };
+    expect(result.models.map((model) => `${model.provider}/${model.modelId}`)).toEqual(["p/on"]);
+    expect(result.defaultModel).toEqual({ provider: "p", modelId: "on" });
+  });
 });
 
 describe("permission / question 回复", () => {
@@ -291,6 +328,44 @@ function seedEntry(registry: ReturnType<typeof makeRegistry>, id: string, title 
     updatedAt: 0,
   });
 }
+
+describe("session.setModel", () => {
+  it("切换已有会话模型，回写注册表并广播双端同步事件", async () => {
+    const { deps, registry, bridgeCalls, localEvents } = makeDeps();
+    seedEntry(registry, "s1");
+    await handleRemoteCommand(
+      { type: "session.setModel", sessionId: "s1", model: { provider: "p", modelId: "new" } },
+      deps,
+    );
+    expect(bridgeCalls[0]).toMatchObject({
+      type: "session.setModel",
+      payload: { sessionId: "s1", model: { provider: "p", modelId: "new" } },
+    });
+    expect(registry.entries.get("s1")).toMatchObject({
+      model: { provider: "p", modelId: "new" },
+      thinkingLevel: "low",
+    });
+    expect(localEvents).toEqual([
+      {
+        type: "session.model",
+        sessionId: "s1",
+        model: { provider: "p", modelId: "new" },
+        thinkingLevel: "low",
+        supportedThinkingLevels: ["low", "medium"],
+      },
+    ]);
+  });
+
+  it("会话不存在时拒绝切换", async () => {
+    const { deps } = makeDeps();
+    await expect(
+      handleRemoteCommand(
+        { type: "session.setModel", sessionId: "missing", model: { provider: "p", modelId: "new" } },
+        deps,
+      ),
+    ).rejects.toThrow("会话不存在");
+  });
+});
 
 describe("session.rename", () => {
   it("写注册表标题并广播 session.renamed（渲染进程与远程端借此同步）", async () => {

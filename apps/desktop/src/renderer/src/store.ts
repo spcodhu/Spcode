@@ -1634,6 +1634,21 @@ export const useStore = create<StoreState>((set, get) => ({
           return touchSession(s, event.sessionId, (draft) => {
             draft.permissionMode = event.mode;
           });
+        case "session.model": {
+          const withMeta = touchSession(s, event.sessionId, (draft) => {
+            draft.meta = { ...draft.meta, model: event.model, thinkingLevel: event.thinkingLevel };
+            draft.supportedThinkingLevels = event.supportedThinkingLevels;
+            draft.context = null;
+          });
+          return {
+            ...withMeta,
+            registrySessions: withMeta.registrySessions.map((entry) =>
+              entry.id === event.sessionId
+                ? { ...entry, model: event.model, thinkingLevel: event.thinkingLevel, updatedAt: Date.now() }
+                : entry,
+            ),
+          };
+        }
         case "session.renamed": {
           // AI 起的标题：更新会话元信息 + 侧栏注册表条目
           const withMeta = touchSession(s, event.sessionId, (draft) => {

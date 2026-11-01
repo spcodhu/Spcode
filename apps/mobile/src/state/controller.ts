@@ -4,12 +4,15 @@
  */
 
 import type {
+  ModelInfo,
+  ModelRef,
   QuestionAnswers,
   RemoteEvent as RemoteEventExt,
   RemoteHistoryPage,
   RelayMode,
   ScheduleTask,
   ScheduleTaskInput,
+  SessionInfo,
   SessionMode,
 } from "@spcode/shared";
 import { RemoteClient } from "../lib/client";
@@ -167,6 +170,9 @@ function handleEvent(event: RemoteEventExt): void {
       break;
     case "session.renamed":
       s.patchSession(event.sessionId, { title: event.title });
+      break;
+    case "session.model":
+      s.patchSession(event.sessionId, { model: event.model, thinkingLevel: event.thinkingLevel });
       break;
     case "permission.request":
       s.pushPermission(event.request);
@@ -340,12 +346,18 @@ export async function refreshSchedules(): Promise<void> {
   }
 }
 
-export async function createSession(input: { mode: SessionMode; prompt?: string; cwd?: string }): Promise<string> {
+export async function createSession(input: {
+  mode: SessionMode;
+  prompt?: string;
+  cwd?: string;
+  model?: ModelRef;
+}): Promise<string> {
   const data = await send<{ sessionId: string }>({
     type: "session.create",
     mode: input.mode,
     ...(input.prompt?.trim() ? { prompt: input.prompt.trim() } : {}),
     ...(input.mode === "project" && input.cwd ? { cwd: input.cwd } : {}),
+    ...(input.model ? { model: input.model } : {}),
   });
   useAppStore.getState().setRoute({ name: "session", id: data.sessionId });
   return data.sessionId;
@@ -365,6 +377,23 @@ export async function removeSession(sessionId: string): Promise<void> {
 
 export async function sendPrompt(sessionId: string, text: string): Promise<void> {
   await send({ type: "session.prompt", sessionId, text });
+}
+
+/** 打开模型选择器时按需拉取，避免旧桌面/瞬时失败拖慢整个会话快照。 */
+export async function refreshModels(): Promise<ModelInfo[]> {
+  const generation = clientGeneration;
+  const data = await send<{ models: ModelInfo[]; defaultModel: ModelRef | null }>({ type: "models.list" });
+  if (generation !== clientGeneration) return useAppStore.getState().models;
+  useAppStore.getState().setModels(data.models ?? [], data.defaultModel ?? null);
+  return data.models ?? [];
+}
+
+export async function setSessionModel(sessionId: string, model: ModelRef): Promise<void> {
+  const info = await send<SessionInfo>({ type: "session.setModel", sessionId, model });
+  useAppStore.getState().patchSession(sessionId, {
+    model: info.model ?? model,
+    thinkingLevel: info.thinkingLevel,
+  });
 }
 
 export async function abortSession(sessionId: string): Promise<void> {

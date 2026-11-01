@@ -4,10 +4,11 @@
  * 标题栏齿轮进设置（通知开关等）；长按标题区可解除配对。
  */
 
-import type { SessionMeta, SessionMode } from "@spcode/shared";
+import type { ModelRef, SessionMeta, SessionMode } from "@spcode/shared";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { collectProjectOptions, ProjectPicker } from "../components/ProjectPicker";
+import { ModelField } from "../components/ModelPickerSheet";
 import { SettingsSheet } from "../components/SettingsSheet";
 import { Sheet } from "../components/Sheet";
 import { errorText, formatDate } from "../lib/i18n";
@@ -25,6 +26,7 @@ function NewTaskSheet({ onClose }: { onClose: () => void }) {
   const sessions = useAppStore((s) => s.sessions);
   const projects = useMemo(() => collectProjectOptions(Object.values(sessions)), [sessions]);
   const [mode, setMode] = useState<SessionMode>("chat");
+  const [model, setModel] = useState<ModelRef | null>(null);
   const [cwd, setCwd] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -40,7 +42,11 @@ function NewTaskSheet({ onClose }: { onClose: () => void }) {
     setError(null);
     try {
       // 先进入空会话，首条指令在详情页输入；不再把 prompt 当作创建前置条件。
-      await createSession({ mode, cwd: mode === "project" ? cwd : undefined });
+      await createSession({
+        mode,
+        cwd: mode === "project" ? cwd : undefined,
+        ...(model ? { model } : {}),
+      });
       onClose();
     } catch (err) {
       setError(err);
@@ -85,6 +91,10 @@ function NewTaskSheet({ onClose }: { onClose: () => void }) {
             </button>
           ))}
         </fieldset>
+        <div>
+          <div className="mb-1.5 text-xs font-medium text-text-tertiary">{t("models.label")}</div>
+          <ModelField value={model} onChange={setModel} />
+        </div>
         {mode === "project" ? (
           <ProjectPicker projects={projects} value={cwd} onChange={setCwd} />
         ) : (

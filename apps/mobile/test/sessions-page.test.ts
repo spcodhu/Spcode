@@ -11,12 +11,14 @@ import { useAppStore } from "../src/state/store";
 
 const mocks = vi.hoisted(() => ({
   createSession: vi.fn(),
+  refreshModels: vi.fn(),
   removeSession: vi.fn(),
   renameSession: vi.fn(),
   unpair: vi.fn(),
 }));
 vi.mock("../src/state/controller", () => ({
   createSession: mocks.createSession,
+  refreshModels: mocks.refreshModels,
   removeSession: mocks.removeSession,
   renameSession: mocks.renameSession,
   unpair: mocks.unpair,
@@ -56,6 +58,23 @@ beforeEach(() => {
   useAppStore.getState().reset();
   useAppStore.getState().setConn("ready");
   mocks.createSession.mockReset().mockResolvedValue("new-session");
+  mocks.refreshModels.mockReset().mockResolvedValue([]);
+  useAppStore.getState().setModels(
+    [
+      {
+        provider: "p",
+        modelId: "custom",
+        displayName: "Custom Model",
+        contextWindow: 1000,
+        maxTokens: 100,
+        thinkingLevels: [],
+        available: true,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        priceKnown: false,
+      },
+    ],
+    { provider: "p", modelId: "custom" },
+  );
   mocks.removeSession.mockReset();
   mocks.renameSession.mockReset();
   mocks.unpair.mockReset();
@@ -99,6 +118,19 @@ describe("手机新建会话流程", () => {
     await act(async () => options[1]!.click());
     await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="new-session-submit"]')!.click());
     expect(mocks.createSession).toHaveBeenCalledWith({ mode: "project", cwd: "/code/beta" });
+  });
+
+  it("新建会话可选择 PC 已配置模型", async () => {
+    await renderPage();
+    await openNewTask();
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="model-field"]')!.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-model="p/custom"]')!.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="new-session-submit"]')!.click());
+    expect(mocks.createSession).toHaveBeenCalledWith({
+      mode: "chat",
+      cwd: undefined,
+      model: { provider: "p", modelId: "custom" },
+    });
   });
 
   it("没有 PC 项目时展示空态并禁止创建项目会话", async () => {

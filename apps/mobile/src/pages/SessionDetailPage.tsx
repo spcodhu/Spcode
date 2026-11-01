@@ -4,15 +4,18 @@
  */
 
 import { Markdown } from "@spcode/ui";
+import type { ModelRef } from "@spcode/shared";
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorText, formatNumber } from "../lib/i18n";
+import { ModelField } from "../components/ModelPickerSheet";
 import {
   abortSession,
   ensureSessionOutput,
   loadOlderSessionOutput,
   retrySessionOutput,
   sendPrompt,
+  setSessionModel,
 } from "../state/controller";
 import { useAppStore } from "../state/store";
 
@@ -332,6 +335,16 @@ export function SessionDetailPage({ sessionId }: { sessionId: string }) {
     }
   };
 
+  const changeModel = async (model: ModelRef | null) => {
+    if (!model) return;
+    setError(null);
+    try {
+      await setSessionModel(sessionId, model);
+    } catch (err) {
+      setError(err);
+    }
+  };
+
   return (
     <div className="flex h-full flex-col">
       <header className="flex shrink-0 items-start gap-2 border-b border-border px-3 py-3">
@@ -364,6 +377,9 @@ export function SessionDetailPage({ sessionId }: { sessionId: string }) {
                 {t(`status.${session.status}`)}
               </span>
             )}
+          </div>
+          <div className="mt-2 max-w-64">
+            <ModelField value={session?.model ?? null} inferDefault={false} onChange={(model) => void changeModel(model)} />
           </div>
         </div>
       </header>

@@ -55,6 +55,16 @@ export class RemoteEventAggregator {
         this.flush(event.sessionId);
         this.emit({ type: "session.renamed", sessionId: event.sessionId, title: event.title });
         break;
+      case "session.model":
+        this.flush(event.sessionId);
+        this.emit({
+          type: "session.model",
+          sessionId: event.sessionId,
+          model: event.model,
+          thinkingLevel: event.thinkingLevel,
+          supportedThinkingLevels: event.supportedThinkingLevels,
+        });
+        break;
       case "session.planmode":
         this.flush(event.sessionId);
         this.emit({ type: "session.planmode", sessionId: event.sessionId, enabled: event.enabled });

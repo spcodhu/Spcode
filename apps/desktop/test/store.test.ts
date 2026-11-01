@@ -292,6 +292,38 @@ describe("flattenSegments 时间线拍平", () => {
   });
 });
 
+describe("session.model 双端模型同步", () => {
+  it("更新当前会话与注册表，不重置消息", () => {
+    stubSpcodeApi();
+    seedSession("s-model");
+    useStore.setState((s) => ({
+      registrySessions: [
+        {
+          id: "s-model",
+          mode: "chat" as const,
+          cwd: "",
+          title: "模型会话",
+          model: null,
+          thinkingLevel: "medium",
+          sessionFile: null,
+          createdAt: 0,
+          updatedAt: 0,
+        },
+      ],
+    }));
+    useStore.getState().applyHostEvent({
+      type: "session.model",
+      sessionId: "s-model",
+      model: { provider: "p", modelId: "new" },
+      thinkingLevel: "low",
+      supportedThinkingLevels: ["low", "medium"],
+    });
+    expect(useStore.getState().sessions["s-model"]?.meta.model).toEqual({ provider: "p", modelId: "new" });
+    expect(useStore.getState().sessions["s-model"]?.supportedThinkingLevels).toEqual(["low", "medium"]);
+    expect(useStore.getState().registrySessions[0]?.model).toEqual({ provider: "p", modelId: "new" });
+  });
+});
+
 describe("session.renamed 标题更新", () => {
   it("同时更新会话元信息与侧栏注册表条目", () => {
     stubSpcodeApi();

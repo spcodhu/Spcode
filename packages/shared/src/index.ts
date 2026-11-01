@@ -494,6 +494,14 @@ export type HostEvent =
   | { type: "session.todo"; sessionId: string; todos: TodoItem[] }
   /** AI 通过 RenameSession 工具主动起的会话标题 */
   | { type: "session.renamed"; sessionId: string; title: string }
+  /** 手机端切换已有会话模型后，主进程广播权威模型与思考档位，双端同步 */
+  | {
+      type: "session.model";
+      sessionId: string;
+      model: ModelRef;
+      thinkingLevel: string;
+      supportedThinkingLevels: string[];
+    }
   /** 用户点击系统通知：渲染层定位到对应会话（不弹全局审批框） */
   | { type: "session.focus"; sessionId: string }
   /** 计划模式开关变化（用户在 Composer 切换 / ExitPlanMode 批准后关闭） */
@@ -605,6 +613,8 @@ export interface ScheduleTask {
   id: string;
   name: string;
   prompt: string;
+  /** 缺省/null = 触发时跟随 PC 默认模型；旧任务无此字段保持原行为 */
+  model?: ModelRef | null;
   target: ScheduleTarget;
   frequency: ScheduleFrequency;
   /** 0-23（once 不用） */

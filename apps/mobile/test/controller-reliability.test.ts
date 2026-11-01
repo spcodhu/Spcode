@@ -11,7 +11,9 @@ import {
   loadOlderSessionOutput,
   replyPermission,
   replyQuestion,
+  refreshModels,
   retrySessionOutput,
+  setSessionModel,
   unpair,
   updateRelayConfiguration,
 } from "../src/state/controller";
@@ -298,6 +300,49 @@ describe("权威快照与回复可靠性", () => {
       pendingQuestions: [],
     });
     expect(useAppStore.getState().sessions.s1?.status).toBe("idle");
+  });
+});
+
+describe("模型目录与已有会话切换", () => {
+  it("models.list 写入 store，setSessionModel 更新当前会话", async () => {
+    attachPairedRecord(record);
+    useAppStore.getState().setSessions([session]);
+    const model = {
+      provider: "p",
+      modelId: "new",
+      displayName: "New Model",
+      contextWindow: 1000,
+      maxTokens: 100,
+      thinkingLevels: [],
+      available: true,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      priceKnown: false,
+    };
+    mocks.command.mockImplementation(async (cmd) => {
+      if (cmd.type === "models.list") return { models: [model], defaultModel: model };
+      if (cmd.type === "session.setModel") {
+        return { model: cmd.model, thinkingLevel: "low", supportedThinkingLevels: ["low"] };
+      }
+      if (cmd.type === "session.list") return { sessions: [session] };
+      if (cmd.type === "schedule.list") return { tasks: [] };
+      return { ok: true };
+    });
+    await refreshModels();
+    expect(useAppStore.getState().models).toEqual([model]);
+    expect(useAppStore.getState().defaultModel).toEqual(model);
+
+    await setSessionModel("s1", { provider: "p", modelId: "new" });
+    expect(useAppStore.getState().sessions.s1).toMatchObject({
+      model: { provider: "p", modelId: "new" },
+      thinkingLevel: "low",
+    });
+    callback().onEvent({
+      type: "session.model",
+      sessionId: "s1",
+      model: { provider: "p", modelId: "other" },
+      thinkingLevel: "medium",
+    });
+    expect(useAppStore.getState().sessions.s1?.model).toEqual({ provider: "p", modelId: "other" });
   });
 });
 

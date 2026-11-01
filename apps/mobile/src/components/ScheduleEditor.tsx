@@ -4,13 +4,14 @@
  * 模式（聊天/项目 + cwd）。提交走 schedule.create / schedule.update。
  */
 
-import type { ScheduleFrequency, ScheduleTask, ScheduleTaskInput } from "@spcode/shared";
+import type { ModelRef, ScheduleFrequency, ScheduleTask, ScheduleTaskInput } from "@spcode/shared";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorText, formatWeekday, MobileError } from "../lib/i18n";
 import { createSchedule, updateSchedule } from "../state/controller";
 import { useAppStore } from "../state/store";
 import { collectProjectOptions, ProjectPicker } from "./ProjectPicker";
+import { ModelField } from "./ModelPickerSheet";
 import { Sheet } from "./Sheet";
 
 const FREQUENCIES = ["once", "hourly", "daily", "weekday", "weekly"] as const;
@@ -65,6 +66,7 @@ export function ScheduleEditorSheet({
   const [initialRunAtLocal] = useState(() => toLocalInputValue(task?.runAt ?? Date.now() + 3600_000));
   const [runAtLocal, setRunAtLocal] = useState(initialRunAtLocal);
   const [kind, setKind] = useState<"chat" | "project">(task?.target.kind ?? "chat");
+  const [model, setModel] = useState<ModelRef | null>(task?.model ?? null);
   const [cwd, setCwd] = useState(task?.target.kind === "project" ? task.target.cwd : "");
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
@@ -104,6 +106,7 @@ export function ScheduleEditorSheet({
       hour,
       minute: scheduledMinute,
       enabled: task?.enabled ?? true,
+      model,
     };
     if (frequency === "weekly") base.weekday = weekday;
     if (frequency === "once") {
@@ -257,6 +260,13 @@ export function ScheduleEditorSheet({
             </select>
           </label>
         )}
+
+        <div>
+          <div className="text-xs font-medium text-text-tertiary">{t("models.label")}</div>
+          <div className="mt-1.5">
+            <ModelField value={model} allowDefault onChange={setModel} />
+          </div>
+        </div>
 
         <div>
           <div className="text-xs font-medium text-text-tertiary">{t("schedule.mode")}</div>
