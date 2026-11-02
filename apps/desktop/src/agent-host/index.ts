@@ -475,6 +475,18 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
   }
   if (cmd.type === "sandbox.setConfig") {
     sandboxSettings = cmd.payload.config;
+    const sandbox = getSandboxService();
+    sandbox.configure(sandboxSettings);
+    const state = await sandbox.ensureReady();
+    // 活跃会话的权限菜单也跟随最新状态；执行器本身在每次调用时还会重读，事件只负责 UI 同步。
+    for (const sessionId of sessions.keys()) {
+      emit({
+        type: "session.sandbox",
+        sessionId,
+        sandbox:
+          state.state === "unavailable" ? { state: state.state, reason: state.reason } : { state: state.state },
+      });
+    }
     return;
   }
   if (cmd.type === "mcp.setServers") {

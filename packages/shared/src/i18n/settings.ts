@@ -160,9 +160,9 @@ export const zhCN = {
   "permissions.emptyProject": "暂无项目规则",
   "permissions.exact": "完全相同",
   "permissions.prefix": "同类前缀",
-  "sandbox.newSessions": "仅对新会话生效：",
-  "sandbox.newSessionsDescription":
-    "bash 工具在会话创建时就确定了（沙盒版或内置版），已打开的会话沿用创建时的工具集；改动后请新建或重新打开会话。",
+  "sandbox.hotUpdate": "对后续命令即时生效：",
+  "sandbox.hotUpdateDescription":
+    "已打开的会话无需新建或重开，切换后下一条 bash 命令即使用新配置；已经启动的子进程不会被中途改造。",
   "sandbox.unsupported": "当前平台暂不支持沙盒（Windows 支持规划中），命令仅靠审批网关约束。",
   "sandbox.disabledWarning": "沙盒已关闭：命令将以你的完整权限直接执行",
   "sandbox.disabledPlusModeWarning":
@@ -668,9 +668,9 @@ export const en = {
   "permissions.emptyProject": "No project rules yet",
   "permissions.exact": "Exact command",
   "permissions.prefix": "Command prefix",
-  "sandbox.newSessions": "Applies to new sessions only: ",
-  "sandbox.newSessionsDescription":
-    "The bash tool (sandboxed or built-in) is fixed when a session is created. Existing sessions keep their original tools; create or reopen a session after changing this setting.",
+  "sandbox.hotUpdate": "Applies to the next command:",
+  "sandbox.hotUpdateDescription":
+    "Existing sessions pick up changes on their next bash call, without being recreated or reopened. Commands already running are not modified.",
   "sandbox.unsupported":
     "Sandboxing is not supported on this platform yet (Windows support is planned). Commands are restricted only by the approval gateway.",
   "sandbox.disabledWarning": "Sandbox disabled: commands run with your full permissions",

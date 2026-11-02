@@ -237,8 +237,6 @@ export class SessionController {
     private readonly emitPlanMode: (enabled: boolean) => void,
     private readonly permissionModeRef: { current: PermissionMode },
     private readonly emitPermissionMode: (mode: PermissionMode) => void,
-    /** 会话创建时的沙盒状态（与 bash 工具注册同生命周期，中途不变） */
-    private readonly sandboxInfo: { state: string; reason?: string },
     private readonly titleCtx: {
       onRename?: (title: string) => void;
       /** 模型调用 RenameSession 后由工具回调置位（共享探针，创建时序早于 controller） */
@@ -277,10 +275,10 @@ export class SessionController {
     // 权限模式唯一事实源（Task 工具与网关都拿这个 ref；controller 构造前就需可读）
     const permissionModeRef: { current: PermissionMode } = { current: opts.permissionMode ?? DEFAULT_PERMISSION_MODE };
 
-    // 沙盒：下发设置并惰性初始化；active 时注册同名 bash 覆盖内置（pi 注册表 customTools 同名覆盖语义）
+    // 沙盒：下发设置并惰性初始化；执行器与权限网关会在后续每次调用时重读状态
     const sandbox = getSandboxService();
     if (opts.getSandboxSettings) sandbox.configure(opts.getSandboxSettings());
-    const sandboxState = await sandbox.ensureReady();
+    await sandbox.ensureReady();
 
     // 文件工具路径守卫（评审 R3-C3）：pi 内置 fs 工具不在 OS 沙盒内，这里是它们的边界。
     // 实时读设置（extraDenyRead/extraAllowWrite 热生效）；硬 deny 与沙盒 denyRead 同源。
@@ -306,9 +304,8 @@ export class SessionController {
       sessionManager: opts.sessionManager ?? (opts.sessionFile ? SessionManager.open(opts.sessionFile) : undefined),
       excludeTools: process.platform === "win32" ? [] : ["powershell"],
       customTools: [
-        // 所有会话统一注册 Bash：沙盒状态只决定执行路径，PATH/TMPDIR 等会话环境始终一致
+        // 所有会话统一注册动态 Bash：每条命令实时选择沙盒/本地路径，会话环境始终一致
         createSandboxedBashTool(cwd, {
-          sandboxEnabled: sandboxState.state === "active",
           allowBypass: true,
           sessionId: opts.sessionId,
           environment: toolEnvironment,
@@ -363,9 +360,6 @@ export class SessionController {
       opts.emitPlanMode,
       permissionModeRef,
       opts.emitPermissionMode ?? (() => {}),
-      sandboxState.state === "unavailable"
-        ? { state: sandboxState.state, reason: sandboxState.reason }
-        : { state: sandboxState.state },
       {
         onRename: opts.onRename,
         renamedByAgent: renameProbe,
@@ -440,7 +434,7 @@ export class SessionController {
       getPermissionMode: () => permissionModeRef.current,
       getFsPolicy,
       getSandboxSettings: opts.getSandboxSettings,
-      sandboxState,
+      getSandboxState: () => sandbox.ensureReady(),
       requestPermission: opts.requestPermission,
     });
 
@@ -449,13 +443,17 @@ export class SessionController {
 
   info(): SessionInfo {
     const model = this.session.model;
+    const sandbox = getSandboxService().status();
     return {
       sessionId: this.sessionId,
       sessionFile: this.sessionFile,
       planMode: this.planMode,
       running: this.isRunning(),
       permissionMode: this.permissionModeRef.current,
-      sandbox: this.sandboxInfo as SessionInfo["sandbox"],
+      sandbox:
+        sandbox.state === "unavailable"
+          ? { state: sandbox.state, reason: sandbox.reason }
+          : { state: sandbox.state },
       model: model ? { provider: model.provider, modelId: model.id } : null,
       thinkingLevel: this.session.thinkingLevel,
       supportedThinkingLevels: model ? getSupportedThinkingLevels(model as Model<never>) : [],

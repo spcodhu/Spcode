@@ -50,7 +50,8 @@ function makeGate(overrides?: {
     getPermissionMode: () => overrides?.permissionMode ?? "ask",
     getFsPolicy: () => policy,
     getSandboxSettings: () => ({ ...DEFAULT_SANDBOX_SETTINGS, ...overrides?.sandboxSettings }),
-    sandboxState: overrides?.sandboxState === "disabled" ? { state: "disabled" } : { state: "active" },
+    getSandboxState: async () =>
+      overrides?.sandboxState === "disabled" ? { state: "disabled" } : { state: "active" },
     requestPermission: async (req) => {
       requests.push(req);
       return req.args && typeof req.args === "object" && "__approve" in req.args;
@@ -162,6 +163,57 @@ describe("权限模式矩阵（宿主侧）", () => {
     const { gate, requests } = makeGate({ permissionMode: "auto", sandboxState: "disabled" });
     expect(await gate({ toolCall: { name: "bash", arguments: { command: "mkdir out" } } })).toBeUndefined();
     expect(requests).toHaveLength(0);
+  });
+
+  it("沙盒开关运行中切换：下一次 shell 调用按最新设置与状态裁决", async () => {
+    let settings = DEFAULT_SANDBOX_SETTINGS;
+    let state: "active" | "disabled" = "active";
+    const requests: PermissionRequest[] = [];
+    const gate = createBeforeToolCallGate({
+      sessionId: "s-hot",
+      isPlanMode: () => false,
+      getPermissionMode: () => "ask",
+      getFsPolicy: () => policy,
+      getSandboxSettings: () => settings,
+      getSandboxState: async () => ({ state }),
+      requestPermission: async (req) => {
+        requests.push(req);
+        return false;
+      },
+    });
+
+    await gate({ toolCall: { name: "bash", arguments: { command: "mkdir on" } } });
+    expect(requests.at(-1)?.sandboxed).toBe(true);
+
+    settings = { ...settings, enabled: false };
+    state = "disabled";
+    await gate({ toolCall: { name: "bash", arguments: { command: "mkdir off" } } });
+    expect(requests.at(-1)?.sandboxed).toBe(false);
+
+    settings = DEFAULT_SANDBOX_SETTINGS;
+    state = "active";
+    await gate({ toolCall: { name: "bash", arguments: { command: "mkdir again" } } });
+    expect(requests.at(-1)?.sandboxed).toBe(true);
+  });
+
+  it("仅在 shell 调用时解析沙盒状态（编辑工具不触发初始化）", async () => {
+    let calls = 0;
+    const gate = createBeforeToolCallGate({
+      sessionId: "s-lazy-state",
+      isPlanMode: () => false,
+      getPermissionMode: () => "ask",
+      getFsPolicy: () => policy,
+      getSandboxSettings: () => DEFAULT_SANDBOX_SETTINGS,
+      getSandboxState: async () => {
+        calls += 1;
+        return { state: "active" };
+      },
+      requestPermission: async () => false,
+    });
+    await gate({ toolCall: { name: "edit", arguments: { path: join(cwd, "a.ts"), oldText: "a", newText: "b" } } });
+    expect(calls).toBe(0);
+    await gate({ toolCall: { name: "bash", arguments: { command: "true" } } });
+    expect(calls).toBe(1);
   });
 
   it("总不询问：对外/危险/写全部免问，但逃生舱仍要问、凭据区仍硬拒", async () => {

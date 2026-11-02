@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
+import { DEFAULT_SANDBOX_SETTINGS } from "@spcode/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createSandboxedBashTool } from "../src/agent-host/sandbox/bash-tool.js";
 import { createSessionToolEnvironment } from "../src/agent-host/tool-environment.js";
@@ -72,12 +73,16 @@ describe("createSessionToolEnvironment", () => {
   });
 });
 
-describe("createSandboxedBashTool（sandboxEnabled=false）", () => {
+describe("createSandboxedBashTool（沙盒关闭）", () => {
   it("沙盒关闭时也经 spawnHook 使用同一份会话环境", async () => {
     installNvm("v22.22.2");
     const environment = createSessionToolEnvironment({ env: { PATH: "" }, homeDir: home, tmpdir: temp });
-    const tool = createSandboxedBashTool(root, { allowBypass: false, sandboxEnabled: false, environment });
-    expect(tool.description).not.toContain("OS-enforced sandbox");
+    const tool = createSandboxedBashTool(root, {
+      allowBypass: false,
+      environment,
+      getSettings: () => ({ ...DEFAULT_SANDBOX_SETTINGS, enabled: false }),
+    });
+    expect(tool.description).toContain("When the command sandbox is enabled");
     expect(tool.executionMode).toBe("parallel");
     expect(tool.promptGuidelines?.some((line) => line.includes("same tool-call batch"))).toBe(true);
 

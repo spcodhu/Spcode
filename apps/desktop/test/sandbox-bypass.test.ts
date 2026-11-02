@@ -11,9 +11,9 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_SANDBOX_SETTINGS, type SandboxSettings } from "@spcode/shared";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createSandboxedBashTool, matchesExcludedCommand } from "../src/agent-host/sandbox/bash-tool.js";
-import { resetSandboxServiceForTest } from "../src/agent-host/sandbox/manager.js";
+import { getSandboxService, resetSandboxServiceForTest, type SandboxState } from "../src/agent-host/sandbox/manager.js";
 
 interface ToolResultLike {
   content: { type: string; text?: string }[];
@@ -29,18 +29,37 @@ function makeSettings(over?: Partial<SandboxSettings>): SandboxSettings {
   };
 }
 
-function makeTool(opts: { allowBypass: boolean; settings?: SandboxSettings }) {
+function makeTool(opts: {
+  allowBypass: boolean;
+  settings?: SandboxSettings;
+  state?: SandboxState["state"];
+  wrapError?: Error;
+}) {
   resetSandboxServiceForTest();
   const cwd = mkdtempSync(join(tmpdir(), "spcode-bypass-test-"));
-  // 沙盒服务不 configure → status 恒 unavailable → wrap 必失败（fail-closed 路径）
-  return createSandboxedBashTool(cwd, {
+  const svc = getSandboxService();
+  vi.spyOn(svc, "ensureReady").mockResolvedValue(
+    (opts.state ?? "active") === "unavailable" ? { state: "unavailable", reason: "test unavailable" } : { state: opts.state ?? "active" },
+  );
+  const wrap = vi.spyOn(svc, "wrap").mockImplementation(async (command) => {
+    if (opts.wrapError) throw opts.wrapError;
+    return { command, commandId: "mock-command" };
+  });
+  vi.spyOn(svc, "violations").mockReturnValue([]);
+  const tool = createSandboxedBashTool(cwd, {
     allowBypass: opts.allowBypass,
     getSettings: () => opts.settings ?? makeSettings(),
   });
+  return { tool, wrap };
 }
 
+afterEach(() => {
+  vi.restoreAllMocks();
+  resetSandboxServiceForTest();
+});
+
 async function run(
-  tool: ReturnType<typeof makeTool>,
+  tool: ReturnType<typeof makeTool>["tool"],
   params: { command: string; dangerouslyDisableSandbox?: boolean; risk?: "write" | "outward" | "danger" },
 ): Promise<{ exitCode: number | null; text: string }> {
   try {
@@ -63,55 +82,62 @@ describe("matchesExcludedCommand", () => {
 
 describe("逃生舱参数暴露", () => {
   it("allowBypass=true 的工具有 dangerouslyDisableSandbox 参数", () => {
-    const tool = makeTool({ allowBypass: true });
+    const { tool } = makeTool({ allowBypass: true });
     expect(tool.parameters).toHaveProperty("properties.dangerouslyDisableSandbox");
     expect(tool.parameters).toHaveProperty("properties.risk");
   });
 
   it("allowBypass=false（子代理）的工具没有逃生舱参数", () => {
-    const tool = makeTool({ allowBypass: false });
+    const { tool } = makeTool({ allowBypass: false });
     expect(tool.parameters).not.toHaveProperty("properties.dangerouslyDisableSandbox");
   });
 });
 
 describe("执行路径", () => {
-  it("bypass=true → 不经沙盒直接执行（沙盒不可用也能跑通）", async () => {
-    const tool = makeTool({ allowBypass: true });
+  it("bypass=true → 不经沙盒直接执行", async () => {
+    const { tool, wrap } = makeTool({ allowBypass: true });
     const r = await run(tool, { command: "echo bypass-ok", dangerouslyDisableSandbox: true, risk: "write" });
     expect(r.text).toContain("bypass-ok");
-    expect(r.text).not.toContain("sandbox wrapping failed");
+    expect(wrap).not.toHaveBeenCalled();
   });
 
   it("excludedCommands 命中 → 不经沙盒直接执行", async () => {
-    const tool = makeTool({
+    const { tool, wrap } = makeTool({
       allowBypass: false,
       settings: makeSettings({ excludedCommands: ["echo excluded"] }),
     });
     const r = await run(tool, { command: "echo excluded" });
     expect(r.text).toContain("excluded");
+    expect(wrap).not.toHaveBeenCalled();
   });
 
-  it("excludedCommands 不适用复合命令（评审 R3-C5：首段命中不能让整条出沙盒）", async () => {
-    const tool = makeTool({
+  it("excludedCommands 不适用复合命令，仍整条进入沙盒路径", async () => {
+    const { tool, wrap } = makeTool({
       allowBypass: false,
       settings: makeSettings({ excludedCommands: ["echo excluded"] }),
     });
-    // 沙盒关闭 + 复合命令不命中白名单 → 走沙盒路径 fail-closed
     const r = await run(tool, { command: "echo excluded && echo done" });
-    expect(r.text).not.toContain("done");
-    expect(r.text).toContain("sandbox");
+    expect(r.text).toContain("done");
+    expect(wrap).toHaveBeenCalledTimes(1);
   });
 
-  it("普通命令在沙盒不可用时 fail-closed（exit 126，不裸跑）", async () => {
-    const tool = makeTool({ allowBypass: true });
+  it("沙盒不可用时退回本地执行（跨平台降级语义）", async () => {
+    const { tool, wrap } = makeTool({ allowBypass: true, state: "unavailable" });
+    const r = await run(tool, { command: "echo degraded" });
+    expect(r.text).toContain("degraded");
+    expect(wrap).not.toHaveBeenCalled();
+  });
+
+  it("沙盒包装失败 fail-closed（exit 126，不裸跑）", async () => {
+    const { tool } = makeTool({ allowBypass: true, wrapError: new Error("wrap exploded") });
     const r = await run(tool, { command: "echo should-not-run" });
     expect(r.text).toContain("sandbox wrapping failed");
     expect(r.text).not.toContain("should-not-run\n");
   });
 
-  it("bypass=false 的调用即使带 flag 字段也走沙盒路径（fail-closed）", async () => {
-    const tool = makeTool({ allowBypass: true });
-    const r = await run(tool, { command: "echo via-sandbox", dangerouslyDisableSandbox: false });
-    expect(r.text).toContain("sandbox wrapping failed");
+  it("bypass=false 的调用即使带 flag 字段也走沙盒路径", async () => {
+    const { tool, wrap } = makeTool({ allowBypass: true });
+    await run(tool, { command: "echo via-sandbox", dangerouslyDisableSandbox: false });
+    expect(wrap).toHaveBeenCalledTimes(1);
   });
 });

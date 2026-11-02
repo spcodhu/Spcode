@@ -455,13 +455,13 @@ export type HostCommand =
   | { type: "search.setAdvancedConfig"; payload: { config: AdvancedSearchConfig | null } }
   /** WebFetch 抓取后端配置下发（设置页变更后推送；宿主就绪时重推）。工具逐次调用实时读取，活跃会话即时生效 */
   | { type: "webfetch.setConfig"; payload: { config: WebFetchConfig | null } }
-  /** 沙盒设置下发（设置页变更后推送；宿主就绪时重推）。对已创建会话不生效，新会话生效 */
+  /** 沙盒设置下发（设置页变更后推送；宿主就绪时重推）。活跃会话的下一条命令即时生效 */
   | { type: "sandbox.setConfig"; payload: { config: SandboxSettings } }
   /** MCP 服务器配置下发（设置页变更后推送；宿主就绪时重推）。对已创建会话不生效，新会话生效 */
   | { type: "mcp.setServers"; payload: { servers: Record<string, McpServerConfig> } }
   /**
    * 压缩设置下发（设置页变更后推送；宿主就绪时重推）。
-   * 与沙盒不同：pi 引擎每次压缩判断都实时读 SettingsManager，活跃会话即时生效。
+   * 与沙盒执行器相同：每次调用都读取最新配置，活跃会话即时生效。
    */
   | { type: "compaction.setConfig"; payload: { config: CompactionSettings } }
   /** 模型单价覆盖下发；只影响下发后新产生的 usage，不回算历史账本 */
@@ -491,6 +491,12 @@ export type HostEvent =
   | { type: "session.usage.summary"; sessionId: string; snapshot: SessionUsageSnapshot }
   /** 引擎权威上下文占用；只由主会话投影驱动，辅助模型调用永不影响 */
   | { type: "session.context"; sessionId: string; snapshot: ContextUsageSnapshot }
+  /** 沙盒设置变化后的当前状态；renderer 更新活跃会话的权限菜单警示 */
+  | {
+      type: "session.sandbox";
+      sessionId: string;
+      sandbox: SessionInfo["sandbox"];
+    }
   | { type: "session.todo"; sessionId: string; todos: TodoItem[] }
   /** AI 通过 RenameSession 工具主动起的会话标题 */
   | { type: "session.renamed"; sessionId: string; title: string }

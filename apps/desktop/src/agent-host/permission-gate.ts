@@ -41,10 +41,10 @@ export interface PermissionGateDeps {
   getPermissionMode?: () => PermissionMode;
   /** 实时读取文件路径守卫策略（cwd/敏感清单） */
   getFsPolicy: () => FsGuardPolicy;
-  /** 实时读取沙盒设置（excludedCommands/allowUnsandboxedCommands 热生效） */
+  /** 实时读取沙盒设置（enabled/excludedCommands/allowUnsandboxedCommands 热生效） */
   getSandboxSettings?: () => SandboxSettings;
-  /** 会话创建时的沙盒状态（与 bash 工具注册同生命周期，中途不变） */
-  sandboxState: SandboxState;
+  /** 每次 shell 调用实时解析沙盒状态；开关与初始化结果均不绑定会话创建时刻 */
+  getSandboxState: () => Promise<SandboxState>;
   requestPermission: (req: PermissionRequest) => Promise<boolean>;
 }
 
@@ -95,13 +95,14 @@ export function createBeforeToolCallGate(deps: PermissionGateDeps) {
       return approved ? undefined : { block: true, reason: DENIED_BY_USER, reasonMessage: DENIED_MESSAGE };
     }
 
-    // 沙盒联动（创建时固定，与工具注册同生命周期）：
+    // 沙盒联动（每次 shell 调用实时读取设置与状态）：
     // - 仅 bash/powershell 受沙盒约束；edit/write 等进程内文件工具由上面的路径守卫约束
     // - excludedCommands（沙盒外白名单）命中的命令不经沙盒，卡片上不再标「沙盒内」
     // - 逃生舱（dangerouslyDisableSandbox=true）：三档模式都要弹窗；设置关闭则直接拒
-    const sandboxed = deps.sandboxState.state === "active";
     const isShellTool = toolName === "bash" || toolName === "powershell";
     const sandboxSettings = deps.getSandboxSettings?.();
+    const sandboxed =
+      isShellTool && sandboxSettings?.enabled !== false && (await deps.getSandboxState()).state === "active";
     const bypassRequested =
       isShellTool &&
       sandboxed &&

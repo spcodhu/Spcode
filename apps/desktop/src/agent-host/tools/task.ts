@@ -64,10 +64,10 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
     parameters: taskSchema,
     executionMode: "parallel",
     execute: async (_id, args: Params, signal) => {
-      // 子代理与主会话同一沙盒边界：服务是进程级单例，主会话创建时已 configure
+      // 子代理与主会话同一动态沙盒配置：服务是进程级单例，后续命令逐次重读设置
       const sandbox = getSandboxService();
       if (ctx.getSandboxSettings) sandbox.configure(ctx.getSandboxSettings());
-      const sandboxState = await sandbox.ensureReady();
+      await sandbox.ensureReady();
       // 文件路径守卫与主会话同策略（R3-C3/C4）：子会话注册守卫版 read/write/edit
       const getFsPolicy = (): FsGuardPolicy => {
         const sb = ctx.getSandboxSettings?.();
@@ -80,12 +80,12 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
       };
       const toolEnvironment = ctx.toolEnvironment ?? createSessionToolEnvironment();
       const customTools: ToolDefinition[] = [
-        // 子会话与主会话复用同一环境；沙盒状态只决定执行路径
+        // 子会话与主会话复用同一环境和动态沙盒配置
         createSandboxedBashTool(ctx.cwd, {
-          sandboxEnabled: sandboxState.state === "active",
           allowBypass: false,
           sessionId: ctx.sessionId,
           environment: toolEnvironment,
+          getSettings: ctx.getSandboxSettings,
         }),
         ...createGuardedFsTools(ctx.cwd, getFsPolicy),
         createFindToolWithFallback(ctx.cwd, toolEnvironment.path),
@@ -111,7 +111,7 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
         getPermissionMode: ctx.getPermissionMode,
         getFsPolicy,
         getSandboxSettings: ctx.getSandboxSettings,
-        sandboxState,
+        getSandboxState: () => sandbox.ensureReady(),
         requestPermission: ctx.requestPermission,
       });
       try {

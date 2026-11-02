@@ -667,7 +667,7 @@ function registerIpc(): void {
     if ("webFetch" in patch) {
       bridge.push({ type: "webfetch.setConfig", payload: { config: next.webFetch } });
     }
-    // 沙盒设置实时下发宿主（对已创建会话不生效，新会话生效——bash 工具注册在会话创建时固定）
+    // 沙盒设置实时下发宿主；活跃会话的下一条命令即时读取新配置
     if ("sandbox" in patch) {
       bridge.push({ type: "sandbox.setConfig", payload: { config: next.sandbox } });
     }

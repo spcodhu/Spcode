@@ -1628,6 +1628,10 @@ export const useStore = create<StoreState>((set, get) => ({
           return touchSession(s, event.sessionId, (draft) => {
             draft.context = event.snapshot;
           });
+        case "session.sandbox":
+          return touchSession(s, event.sessionId, (draft) => {
+            draft.sandbox = event.sandbox;
+          });
         case "session.history":
           return touchSession(s, event.sessionId, (draft) => {
             if (draft.messages.length === 0) {

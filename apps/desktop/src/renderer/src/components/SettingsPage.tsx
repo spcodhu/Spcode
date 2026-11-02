@@ -1107,10 +1107,8 @@ function ProjectPermissionRulesSection() {
  * 沙盒设置：真实运行状态 + 总开关/自动放行/逃生舱/本地端口/网络白名单/沙盒外白名单/额外路径。
  * 列表用「每行一条」的 textarea 编辑，失焦保存（空行与 # 注释行忽略）。
  *
- * 「启用命令沙盒」不是单纯的偏好开关：它决定会话创建时是否用沙盒版 bash 覆盖内置 bash，
- * 从而用内核边界（macOS Seatbelt / Linux bubblewrap）换取沙盒内写类命令免审批。
- * 工具集在会话创建时固定，所以开关只对新会话生效——这点必须在 UI 上写清，
- * 否则用户会以为“开了但没用”。
+ * 「启用命令沙盒」由动态 Bash 执行器逐次读取：活跃会话切换后，下一条命令即走新路径。
+ * 已经启动的子进程不会被中途改造；PATH/TMPDIR 等会话环境在两条路径间保持一致。
  */
 function SandboxSection() {
   const { t } = useTranslation("settings");
@@ -1147,8 +1145,8 @@ function SandboxSection() {
     <div className="space-y-3" data-testid="sandbox-settings">
       <SandboxStatusLine status={status} checking={checking} onRefresh={refreshStatus} />
       <div className="rounded-xl border border-border bg-bg-elevated px-4 py-2.5 text-[12px] leading-5 text-text-tertiary">
-        <span className="text-text-secondary">{t("sandbox.newSessions")}</span>
-        {t("sandbox.newSessionsDescription")}
+        <span className="text-text-secondary">{t("sandbox.hotUpdate")}</span>
+        {t("sandbox.hotUpdateDescription")}
       </div>
 
       {!platformSupported && (

@@ -1,6 +1,7 @@
 import { Agent, type AgentMessage } from "@earendil-works/pi-agent-core";
 import { type AssistantMessage, AssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { createBashToolDefinition, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { DEFAULT_SANDBOX_SETTINGS } from "@spcode/shared";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import { createSandboxedBashTool } from "../src/agent-host/sandbox/bash-tool.js";
@@ -70,7 +71,10 @@ describe("Agent tool error propagation", () => {
 
   it("同一批次的独立 Bash 调用真实并行", async () => {
     const makeTool = (name: string) => ({
-      ...createSandboxedBashTool(process.cwd(), { allowBypass: false, sandboxEnabled: false }),
+      ...createSandboxedBashTool(process.cwd(), {
+        allowBypass: false,
+        getSettings: () => ({ ...DEFAULT_SANDBOX_SETTINGS, enabled: false }),
+      }),
       name,
       label: name,
     });

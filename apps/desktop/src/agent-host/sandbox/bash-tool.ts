@@ -11,8 +11,10 @@
  * - 工具 schema 扩展 dangerouslyDisableSandbox?: boolean。为 true 时经一个独立的
  *   纯本地 ToolDefinition 执行（不经 wrap、不写违规归因）——是否批准由 beforeToolCall
  *   权限网关强制弹窗裁决，这里不重复问（双实例而非参数下传，避免并行调用串扰）。
- * - excludedCommands（设置页「沙盒外白名单」/权限卡「总允许」沉淀）前缀命中的命令
+ * - excludedCommands（设置页「沙盒外白名单」）前缀命中的命令
  *   直接裸跑，走普通权限流。
+ * - 沙盒总开关与运行状态在每次 execute 时实时读取；活跃会话切换设置后，
+ *   下一条命令即切换执行路径，已经启动的子进程不受影响。
  * - 子代理（Task）注册的版本 allowBypass=false：schema 里根本没有逃生舱参数——
  *   子会话不挂权限网关，开了就是无审批逃逸口。
  *
@@ -31,7 +33,7 @@ import type { SessionToolEnvironment } from "../tool-environment.js";
 import { getSandboxService, type SandboxViolation } from "./manager.js";
 
 const SANDBOX_DESCRIPTION_NOTE =
-  " Commands run inside an OS-enforced sandbox: writes are restricted to the working directory and system temp dirs, sensitive paths (~/.ssh, app credentials) are unreadable, and network access is limited to an allowlist of domains. If a command fails with EPERM / 'Operation not permitted' / 'Could not resolve host', it was blocked by the sandbox — do not retry blindly; report the restriction to the user.";
+  " When the command sandbox is enabled in Spcode settings, commands run inside an OS-enforced sandbox: writes are restricted to the working directory and system temp dirs, sensitive paths (~/.ssh, app credentials) are unreadable, and network access is limited to an allowlist of domains. When it is disabled or unavailable, commands run locally with the same environment. If a command fails with EPERM / 'Operation not permitted' / 'Could not resolve host', it was blocked by the sandbox — do not retry blindly; report the restriction to the user.";
 
 const BYPASS_DESCRIPTION_NOTE =
   " If a command is fundamentally incompatible with the sandbox (launching GUI/Electron apps, keychain or Mach service access, raw sockets), retry it with dangerouslyDisableSandbox=true — the user will be asked to approve running it outside the sandbox. Never use this to work around writable-path or credential restrictions.";
@@ -113,34 +115,18 @@ export function matchesExcludedCommand(command: string, rule: string): boolean {
 }
 
 export interface SandboxedBashToolOptions {
-  /** 是否实际经过 OS 沙盒；false 时走普通本地 Bash，但仍复用同一份会话环境 */
-  sandboxEnabled?: boolean;
   /** 每次新建会话/Task 时生成的统一环境 */
   environment?: SessionToolEnvironment;
   /** 是否暴露 dangerouslyDisableSandbox 逃生舱参数（子代理必须 false） */
   allowBypass: boolean;
   /** 命令归属的会话 id（网络域名询问按该会话的权限模式决定要不要打扰用户） */
   sessionId?: string;
-  /** 实时读取沙盒设置（excludedCommands/allowUnsandboxedCommands 热生效）；缺省用服务快照 */
+  /** 实时读取沙盒设置（enabled/excludedCommands/allowUnsandboxedCommands 均在下次调用生效）；缺省用服务快照 */
   getSettings?: () => SandboxSettings;
 }
 
 export function createSandboxedBashTool(cwd: string, opts: SandboxedBashToolOptions): ToolDefinition {
   const allowBypass = opts.allowBypass;
-  if (opts.sandboxEnabled === false) {
-    const definition = createBashToolDefinition(cwd, { spawnHook: opts.environment?.spawnHook });
-    return {
-      ...definition,
-      parameters: plainBashSchema,
-      executionMode: "parallel",
-      promptGuidelines: [...(definition.promptGuidelines ?? []), PARALLEL_GUIDELINE],
-      execute: (toolCallId: string, params: unknown, signal: AbortSignal | undefined, onUpdate: never, ctx: never) => {
-        const p = params as { command: string; timeout?: number };
-        return definition.execute(toolCallId, { command: p.command, timeout: p.timeout }, signal, onUpdate, ctx);
-      },
-    } as unknown as ToolDefinition;
-  }
-
   const sandbox = getSandboxService();
   const local = createLocalBashOperations();
   const getSettings = () => opts.getSettings?.() ?? sandbox.settingsSnapshot();
@@ -189,8 +175,8 @@ export function createSandboxedBashTool(cwd: string, opts: SandboxedBashToolOpti
     operations: sandboxedOps,
     spawnHook: opts.environment?.spawnHook,
   });
-  // 逃生舱执行路径：独立的纯本地定义（默认 local ops），与沙盒路径零共享状态
-  const unsandboxedDef = allowBypass ? createBashToolDefinition(cwd, { spawnHook: opts.environment?.spawnHook }) : null;
+  // 本地执行路径：沙盒关闭/不可用时使用；逃生舱仅在 active 且 allowBypass 时由网关批准后使用。
+  const localDef = createBashToolDefinition(cwd, { spawnHook: opts.environment?.spawnHook });
 
   // 泛型方差：createBashToolDefinition 返回的是参数特化的 ToolDefinition，
   // 与注册表要求的通用 ToolDefinition 不直接相容，这里断言收窄（运行时结构一致）
@@ -201,16 +187,25 @@ export function createSandboxedBashTool(cwd: string, opts: SandboxedBashToolOpti
     promptGuidelines: [
       ...(sandboxedDef.promptGuidelines ?? []),
       PARALLEL_GUIDELINE,
-      "Commands are sandboxed: filesystem writes outside the working directory and network access to non-allowlisted domains will be blocked by the OS.",
+      "When the sandbox is active: filesystem writes outside the working directory and network access to non-allowlisted domains are blocked by the OS.",
     ],
     parameters: allowBypass ? sandboxedBashSchema : plainBashSchema,
-    execute: (toolCallId: string, params: unknown, signal: AbortSignal | undefined, onUpdate: never, ctx: never) => {
+    execute: async (toolCallId: string, params: unknown, signal: AbortSignal | undefined, onUpdate: never, ctx: never) => {
       const p = params as { command: string; timeout?: number; dangerouslyDisableSandbox?: boolean };
-      if (p.dangerouslyDisableSandbox === true && unsandboxedDef) {
-        // 网关已批准（beforeToolCall 强制弹窗）；剥掉 flag 走纯本地执行
-        return unsandboxedDef.execute(toolCallId, { command: p.command, timeout: p.timeout }, signal, onUpdate, ctx);
+      const localParams = { command: p.command, timeout: p.timeout };
+      // 每次调用都读取最新开关与状态；活跃会话无需重建工具或重开会话。
+      if (!getSettings().enabled) {
+        return localDef.execute(toolCallId, localParams, signal, onUpdate, ctx);
       }
-      return sandboxedDef.execute(toolCallId, { command: p.command, timeout: p.timeout }, signal, onUpdate, ctx);
+      const state = await sandbox.ensureReady();
+      if (state.state !== "active") {
+        return localDef.execute(toolCallId, localParams, signal, onUpdate, ctx);
+      }
+      if (p.dangerouslyDisableSandbox === true && allowBypass) {
+        // 网关已批准（beforeToolCall 强制弹窗）；剥掉 flag 走纯本地执行
+        return localDef.execute(toolCallId, localParams, signal, onUpdate, ctx);
+      }
+      return sandboxedDef.execute(toolCallId, localParams, signal, onUpdate, ctx);
     },
   } as unknown as ToolDefinition;
 }

@@ -428,6 +428,21 @@ describe("session.usage 与账本快照", () => {
   });
 });
 
+describe("session.sandbox 运行状态热更新", () => {
+  it("设置切换后只更新对应会话的沙盒状态", () => {
+    stubSpcodeApi();
+    seedSession("s-sandbox");
+    seedSession("s-other");
+    useStore.getState().applyHostEvent({
+      type: "session.sandbox",
+      sessionId: "s-sandbox",
+      sandbox: { state: "disabled" },
+    });
+    expect(useStore.getState().sessions["s-sandbox"]?.sandbox).toEqual({ state: "disabled" });
+    expect(useStore.getState().sessions["s-other"]?.sandbox).toBeUndefined();
+  });
+});
+
 describe("session.context 引擎上下文快照", () => {
   it("只有独立 context 通道能更新圆环数据，辅助 usage 不覆盖，历史可恢复", () => {
     stubSpcodeApi();
