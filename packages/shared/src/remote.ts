@@ -62,6 +62,8 @@ export type RemoteSessionStatus = "running" | "idle" | "waiting_permission";
 /** 认证快照中的会话：注册表元数据 + 主进程事件镜像推导出的当前运行状态。 */
 export interface RemoteSessionSnapshot extends SessionMeta {
   status: RemoteSessionStatus;
+  /** 注册表持久化的最近一次 TodoWrite 清单；旧桌面可能不带此字段 */
+  todos?: TodoItem[];
 }
 
 /** 桌面 → 手机 */

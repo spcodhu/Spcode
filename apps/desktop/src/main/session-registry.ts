@@ -5,6 +5,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { SessionRegistryEntry } from "@spcode/shared";
+import { sanitizeTodoItems } from "@spcode/shared";
 import { isDefaultSessionTitle } from "@spcode/shared/i18n";
 import { readJsonFile, resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
 
@@ -37,10 +38,15 @@ export class SessionRegistry {
   list(): SessionRegistryEntry[] {
     if (this.entries) return this.entries;
     // 结构校验：坏文件先备份 .corrupt-<ts> 再按空表重建，不再静默清空（评审 P2-4）
-    this.entries = (readJsonFile(this.file, validateEntries) ?? []).map((entry) => ({
-      ...entry,
-      titleKind: entry.titleKind ?? (isDefaultSessionTitle(entry) ? "default" : "custom"),
-    }));
+    this.entries = (readJsonFile(this.file, validateEntries) ?? []).map((entry) => {
+      const todos = (entry as { todos?: unknown }).todos;
+      return {
+        ...entry,
+        titleKind: entry.titleKind ?? (isDefaultSessionTitle(entry) ? "default" : "custom"),
+        // 只清洗已存在的字段；旧注册表缺 todos 时保持缺省，渲染层统一回落空数组
+        ...(todos === undefined ? {} : { todos: sanitizeTodoItems(todos) }),
+      };
+    });
     return this.entries;
   }
 

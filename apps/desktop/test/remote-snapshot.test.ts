@@ -100,6 +100,17 @@ function decryptedEvents(peer: FakePeer, desktopPk: string, phoneSecret: string)
 }
 
 describe("RemoteRuntimeTracker", () => {
+  it("快照携带注册表中的 Todo 清单，供手机重连恢复进度", () => {
+    const tracker = new RemoteRuntimeTracker();
+    const todos = [
+      { content: "读取文件", status: "completed" as const },
+      { content: "修改代码", status: "in_progress" as const },
+    ];
+    expect(tracker.snapshot([{ ...meta, todos }])).toMatchObject({
+      sessions: [{ id: "s1", status: "idle", todos }],
+    });
+  });
+
   it("推导 running/waiting，结清请求并在 fatal/删除后清理陈旧状态", () => {
     const tracker = new RemoteRuntimeTracker();
     tracker.handle({ type: "session.event", sessionId: "s1", event: { type: "agent_start" } });

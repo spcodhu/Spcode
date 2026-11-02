@@ -7,6 +7,7 @@
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import type { HostCommand, HostEvent } from "@spcode/shared";
+import { sanitizeTodoItems } from "@spcode/shared";
 import { i18n, isDefaultSessionTitle, localizeDefaultTitle } from "@spcode/shared/i18n";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 import type { SessionRegistryEntry } from "./session-registry.js";
@@ -31,6 +32,12 @@ export interface LocalEventEmitter {
 /** 生命周期助手需要的宿主调用面（dispose 活跃会话实例） */
 export interface SessionDisposeBridge {
   call(cmd: HostCommand & { id: string }): Promise<unknown>;
+}
+
+/** TodoWrite 全量清单落进会话注册表；删除/不存在的会话静默忽略。 */
+export function recordSessionTodos(registry: RegistryLike, sessionId: string, todos: unknown): void {
+  if (!registry.get(sessionId)) return;
+  registry.patch(sessionId, { todos: sanitizeTodoItems(todos) });
 }
 
 /** 判断标题是否仍是出厂默认（「新聊天」/「新项目」/目录名），是则允许用首条用户消息兜底 */
@@ -119,6 +126,7 @@ export function buildForkRegistryEntry(
     model: payload.model ?? source.model,
     thinkingLevel: payload.thinkingLevel ?? source.thinkingLevel,
     sessionFile: null,
+    todos: source.todos ? [...source.todos] : [],
     planMode: payload.planMode ?? source.planMode ?? false,
     planFile: null,
     forkedFrom: source.id,

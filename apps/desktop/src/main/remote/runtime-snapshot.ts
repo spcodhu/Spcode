@@ -13,6 +13,7 @@ import type {
   RemoteSessionSnapshot,
   RemoteSessionStatus,
   SessionMeta,
+  TodoItem,
 } from "@spcode/shared";
 
 export interface RemoteRuntimeSnapshot {
@@ -65,7 +66,7 @@ export class RemoteRuntimeTracker {
   }
 
   /** 与最新注册表合并，并清掉已被远端删除会话的运行时残留。 */
-  snapshot(metas: SessionMeta[]): RemoteRuntimeSnapshot {
+  snapshot(metas: Array<SessionMeta & { todos?: TodoItem[] }>): RemoteRuntimeSnapshot {
     const ids = new Set(metas.map((meta) => meta.id));
     for (const id of this.running) {
       if (!ids.has(id)) this.running.delete(id);

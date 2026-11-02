@@ -131,6 +131,8 @@ export interface SessionMeta {
 export interface SessionRegistryEntry extends SessionMeta {
   /** pi 会话文件路径（用于恢复），创建后回填 */
   sessionFile: string | null;
+  /** 最近一次 TodoWrite 的全量清单（恢复会话时还原进度） */
+  todos?: TodoItem[];
   /** 计划模式状态（恢复会话时随 session.open 传给宿主） */
   planMode?: boolean;
   /** 权限模式（按会话生效；缺省/new 会话取 settings.permissionMode） */
@@ -319,6 +321,26 @@ export interface TodoItem {
   content: string;
   activeForm?: string;
   status: "pending" | "in_progress" | "completed";
+}
+
+/** 会话注册表/远程快照共用的 Todo 清洗：非法项剔除，存量坏数据不影响会话加载。 */
+export function sanitizeTodoItems(input: unknown): TodoItem[] {
+  if (!Array.isArray(input)) return [];
+  return input.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const value = item as { content?: unknown; activeForm?: unknown; status?: unknown };
+    if (typeof value.content !== "string" || !value.content.trim()) return [];
+    if (value.status !== "pending" && value.status !== "in_progress" && value.status !== "completed") return [];
+    return [
+      {
+        content: value.content,
+        ...(typeof value.activeForm === "string" && value.activeForm.trim()
+          ? { activeForm: value.activeForm }
+          : {}),
+        status: value.status,
+      },
+    ];
+  });
 }
 
 // ---------------------------------------------------------------------------

@@ -43,6 +43,10 @@ const source: SessionRegistryEntry = {
   model: { provider: "anthropic", modelId: "claude-sonnet-4-5" },
   thinkingLevel: "high",
   sessionFile: "/home/u/.spcode/agent/sessions/-tmp-proj/2026_src-1.jsonl",
+  todos: [
+    { content: "已完成步骤", status: "completed" },
+    { content: "进行中步骤", activeForm: "正在处理", status: "in_progress" },
+  ],
   planMode: true,
   planFile: "/home/u/.spcode/plans/src-1.md",
   createdAt: 1,
@@ -89,6 +93,8 @@ describe("buildForkRegistryEntry 新条目构造", () => {
     expect(e.cwd).toBe("/tmp/proj");
     expect(e.model).toEqual(source.model);
     expect(e.planMode).toBe(true);
+    expect(e.todos).toEqual(source.todos);
+    expect(e.todos).not.toBe(source.todos);
     expect(e.planFile).toBeNull();
     expect(e.sessionFile).toBeNull();
     expect(e.forkedFrom).toBe("src-1");

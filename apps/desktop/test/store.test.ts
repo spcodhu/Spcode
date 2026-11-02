@@ -428,6 +428,32 @@ describe("session.usage 与账本快照", () => {
   });
 });
 
+describe("session.todo 持久化镜像", () => {
+  it("实时清单同时更新当前会话与注册表，供 Fork/重开复用", () => {
+    stubSpcodeApi();
+    seedSession("s-todo-live");
+    useStore.setState({
+      registrySessions: [
+        {
+          id: "s-todo-live",
+          mode: "chat",
+          cwd: "",
+          title: "进度",
+          model: null,
+          thinkingLevel: "off",
+          sessionFile: "/tmp/s-todo-live.jsonl",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    });
+    const todos = [{ content: "继续实现", activeForm: "正在实现", status: "in_progress" as const }];
+    useStore.getState().applyHostEvent({ type: "session.todo", sessionId: "s-todo-live", todos });
+    expect(useStore.getState().sessions["s-todo-live"]?.todos).toEqual(todos);
+    expect(useStore.getState().registrySessions[0]?.todos).toEqual(todos);
+  });
+});
+
 describe("session.sandbox 运行状态热更新", () => {
   it("设置切换后只更新对应会话的沙盒状态", () => {
     stubSpcodeApi();

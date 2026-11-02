@@ -47,6 +47,7 @@ import {
   buildForkRegistryEntry,
   isDefaultTitle,
   prepareForkCommand,
+  recordSessionTodos,
   removeSession as removeSessionEverywhere,
 } from "./session-helpers.js";
 import { SessionRegistry } from "./session-registry.js";
@@ -245,6 +246,11 @@ function watchSessionLifecycle(): void {
     }
     if (event.type === "question.resolved") {
       notifier.resolveApproval(event.requestId);
+      return;
+    }
+    // TodoWrite 每次全量下发：同步落盘，冷启动/中断后据此恢复任务进度
+    if (event.type === "session.todo") {
+      recordSessionTodos(registry, event.sessionId, event.todos);
       return;
     }
     if (event.type === "session.event") {

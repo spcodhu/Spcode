@@ -269,7 +269,14 @@ export const useAppStore = create<AppState>((set) => ({
     set((s) => {
       const sessions: Record<string, SessionView> = {};
       for (const m of metas) sessions[m.id] = { ...m, status: m.status ?? "idle" };
-      return reconcileSessions(s, sessions, pendingPermissions, pendingQuestions);
+      const nextTodos = { ...s.todos };
+      for (const meta of metas) {
+        // 新桌面快照带注册表里的 Todo；旧桌面缺字段时保留本端已收到的实时数据
+        if (meta.todos === undefined) continue;
+        if (meta.todos.length > 0) nextTodos[meta.id] = meta.todos;
+        else delete nextTodos[meta.id];
+      }
+      return { ...reconcileSessions(s, sessions, pendingPermissions, pendingQuestions), todos: nextTodos };
     }),
 
   patchSession: (id, patch) =>

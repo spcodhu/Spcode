@@ -1144,7 +1144,7 @@ export const useStore = create<StoreState>((set, get) => ({
       lastUsage: null,
       context: null,
       supportedThinkingLevels: info.supportedThinkingLevels ?? [],
-      todos: [],
+      todos: entry.todos ?? [],
       planMode: info.planMode ?? entry.planMode ?? false,
       permissionMode: info.permissionMode ?? entry.permissionMode ?? get().settings?.permissionMode ?? "ask",
       sessionFile: info.sessionFile ?? entry.sessionFile,
@@ -1219,7 +1219,7 @@ export const useStore = create<StoreState>((set, get) => ({
       usage: { ...EMPTY_USAGE },
       lastUsage: null,
       supportedThinkingLevels: info.supportedThinkingLevels ?? [],
-      todos: [],
+      todos: source.todos ?? [],
       planMode,
       permissionMode,
       sessionFile: info.sessionFile ?? null,
@@ -1246,6 +1246,7 @@ export const useStore = create<StoreState>((set, get) => ({
             permissionMode,
             planFile: null,
             forkedFrom: sourceId,
+            todos: source.todos ?? [],
             createdAt: now,
             updatedAt: now,
           },
@@ -1640,10 +1641,17 @@ export const useStore = create<StoreState>((set, get) => ({
               draft.context = event.contextUsage ?? null;
             }
           });
-        case "session.todo":
-          return touchSession(s, event.sessionId, (draft) => {
+        case "session.todo": {
+          const withTodos = touchSession(s, event.sessionId, (draft) => {
             draft.todos = event.todos;
           });
+          return {
+            ...withTodos,
+            registrySessions: withTodos.registrySessions.map((entry) =>
+              entry.id === event.sessionId ? { ...entry, todos: event.todos } : entry,
+            ),
+          };
+        }
         case "session.planmode":
           // ExitPlanMode 批准后宿主也会推这个事件；与本地乐观更新幂等
           return touchSession(s, event.sessionId, (draft) => {
