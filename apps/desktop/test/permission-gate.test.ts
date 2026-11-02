@@ -50,8 +50,7 @@ function makeGate(overrides?: {
     getPermissionMode: () => overrides?.permissionMode ?? "ask",
     getFsPolicy: () => policy,
     getSandboxSettings: () => ({ ...DEFAULT_SANDBOX_SETTINGS, ...overrides?.sandboxSettings }),
-    getSandboxState: async () =>
-      overrides?.sandboxState === "disabled" ? { state: "disabled" } : { state: "active" },
+    getSandboxState: async () => (overrides?.sandboxState === "disabled" ? { state: "disabled" } : { state: "active" }),
     requestPermission: async (req) => {
       requests.push(req);
       return req.args && typeof req.args === "object" && "__approve" in req.args;

@@ -2,8 +2,9 @@
  * 双端统一的 Markdown 渲染：Streamdown + Shiki + KaTeX + Mermaid。
  * 数学与 Mermaid 按需加载；Plan 文件等桌面专有动作通过 renderPlanLink 适配。
  */
-import { createCodePlugin } from "@streamdown/code";
+
 import type { ThemeBase } from "@spcode/shared/theme";
+import { createCodePlugin } from "@streamdown/code";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";

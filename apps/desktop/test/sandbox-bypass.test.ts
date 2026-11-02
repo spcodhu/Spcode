@@ -39,7 +39,9 @@ function makeTool(opts: {
   const cwd = mkdtempSync(join(tmpdir(), "spcode-bypass-test-"));
   const svc = getSandboxService();
   vi.spyOn(svc, "ensureReady").mockResolvedValue(
-    (opts.state ?? "active") === "unavailable" ? { state: "unavailable", reason: "test unavailable" } : { state: opts.state ?? "active" },
+    (opts.state ?? "active") === "unavailable"
+      ? { state: "unavailable", reason: "test unavailable" }
+      : { state: opts.state ?? "active" },
   );
   const wrap = vi.spyOn(svc, "wrap").mockImplementation(async (command) => {
     if (opts.wrapError) throw opts.wrapError;

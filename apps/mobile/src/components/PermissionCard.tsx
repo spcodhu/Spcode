@@ -208,7 +208,9 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
     >
       <section className="rounded-2xl border border-border-strong bg-bg-elevated p-4">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="safe-break min-w-0 font-mono text-sm font-semibold text-text-primary">{request.toolName}</span>
+          <span className="safe-break min-w-0 font-mono text-sm font-semibold text-text-primary">
+            {request.toolName}
+          </span>
           <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] ${RISK_CLASS[request.risk]}`}>
             {t(`permission.${request.risk}`)}
           </span>

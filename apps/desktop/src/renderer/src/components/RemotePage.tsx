@@ -15,8 +15,8 @@ import type {
   RemoteSettings,
   RemoteStatus,
 } from "@spcode/shared";
-import { OFFICIAL_RELAY_URL } from "@spcode/shared/remote";
 import { getLocale } from "@spcode/shared/i18n";
+import { OFFICIAL_RELAY_URL } from "@spcode/shared/remote";
 import { useCallback, useEffect, useState } from "react";
 import QRCode from "react-qr-code";
 import { formatRelative, formatTime } from "../format";
@@ -363,7 +363,10 @@ export function RemotePage() {
             )}
           </div>
           {pairing?.containsRelayAccessKey && (
-            <div role="alert" className="mt-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[12px] leading-5 text-warning">
+            <div
+              role="alert"
+              className="mt-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[12px] leading-5 text-warning"
+            >
               {t("remote.relayQrSecretWarning")}
             </div>
           )}
@@ -469,7 +472,10 @@ export function RemotePage() {
               </div>
             )}
             {relayTestResult && (
-              <div role={relayTestResult.ok ? "status" : "alert"} className={`mt-2 text-[12px] ${relayTestResult.ok ? "text-success" : "text-danger"}`}>
+              <div
+                role={relayTestResult.ok ? "status" : "alert"}
+                className={`mt-2 text-[12px] ${relayTestResult.ok ? "text-success" : "text-danger"}`}
+              >
                 {relayTestResult.text}
               </div>
             )}

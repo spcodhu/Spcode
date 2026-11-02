@@ -325,7 +325,9 @@ export class RemoteClient {
     this.relay = isRelayHost(host);
     let ws: WebSocket;
     try {
-      ws = await connectWs(await connectUrlOf(host, this.record.desktopPk, this.record.deviceId, this.record.relayAccessKey));
+      ws = await connectWs(
+        await connectUrlOf(host, this.record.desktopPk, this.record.deviceId, this.record.relayAccessKey),
+      );
     } catch (err) {
       if (generation === this.generation) {
         this.scheduleReconnect(err instanceof Error ? err : new MobileError("error.connectionFailed"), generation);

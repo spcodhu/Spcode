@@ -50,10 +50,7 @@ export async function relayTicketQuery(
   accessKey?: string,
 ): Promise<string> {
   if (!accessKey) return "";
-  const base = host
-    .slice(RELAY_HOST_PREFIX.length)
-    .replace(/^ws/i, "http")
-    .replace(/\/+$/, "");
+  const base = host.slice(RELAY_HOST_PREFIX.length).replace(/^ws/i, "http").replace(/\/+$/, "");
   const response = await fetch(`${base}/v1/tickets`, {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${accessKey}` },

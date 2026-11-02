@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { DEFAULT_SETTINGS } from "@spcode/shared";
 import { OFFICIAL_RELAY_URL, resolveRelayConfig } from "@spcode/shared/remote";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SettingsStore } from "../src/main/settings-store.js";
 import { RelayTransport, testRelayConnection } from "../src/main/remote/transport/relay.js";
+import { SettingsStore } from "../src/main/settings-store.js";
 
 const dirs: string[] = [];
 afterEach(() => {

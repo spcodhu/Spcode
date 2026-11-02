@@ -451,9 +451,7 @@ export class SessionController {
       running: this.isRunning(),
       permissionMode: this.permissionModeRef.current,
       sandbox:
-        sandbox.state === "unavailable"
-          ? { state: sandbox.state, reason: sandbox.reason }
-          : { state: sandbox.state },
+        sandbox.state === "unavailable" ? { state: sandbox.state, reason: sandbox.reason } : { state: sandbox.state },
       model: model ? { provider: model.provider, modelId: model.id } : null,
       thinkingLevel: this.session.thinkingLevel,
       supportedThinkingLevels: model ? getSupportedThinkingLevels(model as Model<never>) : [],

@@ -5,8 +5,8 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { launchApp } from "./helpers";
 
 const SESSION_ID = "e2e-todo-persistence";

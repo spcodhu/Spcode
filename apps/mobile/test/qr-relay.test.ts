@@ -79,8 +79,15 @@ describe("relay 通道工具", () => {
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(String(url)).toBe("https://relay.example.com/v1/tickets");
     expect(init?.headers).toMatchObject({ authorization: "Bearer secret" });
-    expect(JSON.parse(String(init?.body))).toMatchObject({ channelId: deriveChannelId(pk), role: "device", deviceId: "phone" });
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 401 })));
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      channelId: deriveChannelId(pk),
+      role: "device",
+      deviceId: "phone",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(null, { status: 401 })),
+    );
     await expect(relayTicketQuery("relay+wss://relay.example.com", pk, "device", "phone", "bad")).rejects.toThrow(
       /密钥|无效/,
     );

@@ -190,7 +190,13 @@ export function createSandboxedBashTool(cwd: string, opts: SandboxedBashToolOpti
       "When the sandbox is active: filesystem writes outside the working directory and network access to non-allowlisted domains are blocked by the OS.",
     ],
     parameters: allowBypass ? sandboxedBashSchema : plainBashSchema,
-    execute: async (toolCallId: string, params: unknown, signal: AbortSignal | undefined, onUpdate: never, ctx: never) => {
+    execute: async (
+      toolCallId: string,
+      params: unknown,
+      signal: AbortSignal | undefined,
+      onUpdate: never,
+      ctx: never,
+    ) => {
       const p = params as { command: string; timeout?: number; dangerouslyDisableSandbox?: boolean };
       const localParams = { command: p.command, timeout: p.timeout };
       // 每次调用都读取最新开关与状态；活跃会话无需重建工具或重开会话。

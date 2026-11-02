@@ -7,9 +7,14 @@ import { getLocale } from "@spcode/shared/i18n";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorText } from "../lib/i18n";
-import { isRelayHost, OFFICIAL_RELAY_URL, RELAY_HOST_PREFIX } from "../lib/relay";
 import { isPushEnabledLocally, isPushSupported } from "../lib/push";
-import { disablePushNotifications, enablePushNotifications, probeRelayConfiguration, updateRelayConfiguration } from "../state/controller";
+import { isRelayHost, OFFICIAL_RELAY_URL, RELAY_HOST_PREFIX } from "../lib/relay";
+import {
+  disablePushNotifications,
+  enablePushNotifications,
+  probeRelayConfiguration,
+  updateRelayConfiguration,
+} from "../state/controller";
 import { useAppStore } from "../state/store";
 import { Sheet } from "./Sheet";
 
@@ -176,7 +181,9 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
                   aria-pressed={relayMode === mode}
                   onClick={() => setRelayMode(mode)}
                   className={`min-h-11 rounded-lg border px-2 py-2 text-xs ${
-                    relayMode === mode ? "border-accent bg-accent-soft text-accent" : "border-border text-text-secondary"
+                    relayMode === mode
+                      ? "border-accent bg-accent-soft text-accent"
+                      : "border-border text-text-secondary"
                   }`}
                 >
                   {t(`settings.relayMode.${mode}`)}
@@ -242,7 +249,11 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
                 {t("common.save")}
               </button>
             )}
-            {relayTestText && <div role="status" className="mt-2 text-xs text-success">{relayTestText}</div>}
+            {relayTestText && (
+              <div role="status" className="mt-2 text-xs text-success">
+                {relayTestText}
+              </div>
+            )}
           </div>
         )}
 

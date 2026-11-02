@@ -483,8 +483,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
       emit({
         type: "session.sandbox",
         sessionId,
-        sandbox:
-          state.state === "unavailable" ? { state: state.state, reason: state.reason } : { state: state.state },
+        sandbox: state.state === "unavailable" ? { state: state.state, reason: state.reason } : { state: state.state },
       });
     }
     return;

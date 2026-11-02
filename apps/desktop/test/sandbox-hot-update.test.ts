@@ -31,10 +31,7 @@ afterEach(() => {
   rmSync(cwd, { recursive: true, force: true });
 });
 
-async function run(
-  tool: ReturnType<typeof createSandboxedBashTool>,
-  command: string,
-): Promise<string> {
+async function run(tool: ReturnType<typeof createSandboxedBashTool>, command: string): Promise<string> {
   const result = await tool.execute("t1", { command }, undefined, undefined as never, undefined as never);
   return String(result.content?.[0]?.text ?? "");
 }
