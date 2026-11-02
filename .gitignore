@@ -5,6 +5,8 @@ out/
 *.log
 .DS_Store
 release/
+!/docs/assets/release/
+!/docs/assets/release/*
 coverage/
 .eslintcache
 *.tsbuildinfo
@@ -14,3 +16,5 @@ test-results/
 spcode-icon*.png
 ci-job.log
 /spcod-relay/
+/.release-work/
+/SPCOD_RELEASE_BLOG.md

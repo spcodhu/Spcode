@@ -1,0 +1,71 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="app.diagrams.net" agent="Spcod" version="30.2.6" name="permission-sandbox-zh">
+  <diagram id="permission-sandbox-zh" name="Page-1">
+    <mxGraphModel dx="0" dy="0" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1030" math="0" shadow="0" background="#F7F7F5">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="&lt;b&gt;工具执行、权限与沙盒&lt;/b&gt;" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;fontSize=30;fontColor=#202124;fontFamily=Helvetica;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="64" y="35" width="1200" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="审批策略与操作系统级命令边界分别生效" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;fontSize=16;fontColor=#6B7280;fontFamily=Helvetica;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="64" y="86" width="1300" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="inputs" value="&lt;div style=&quot;font-size:19px&quot;&gt;&lt;b&gt;指令来源&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#6B7280;margin-top:7px;line-height:1.45&quot;&gt;桌面会话 · 手机远程 · 定时任务&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#D7D9D6;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="64" y="190" width="270" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="controller" value="&lt;div style=&quot;font-size:19px&quot;&gt;&lt;b&gt;SessionController&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#6B7280;margin-top:7px;line-height:1.45&quot;&gt;解析工具调用&lt;br&gt;关联会话与项目规则&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#D7D9D6;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="410" y="190" width="290" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="gate" value="&lt;div style=&quot;font-size:19px&quot;&gt;&lt;b&gt;权限网关&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#6B7280;margin-top:7px;line-height:1.45&quot;&gt;总是询问 / 必要时询问 / 总不询问&lt;br&gt;沙盒外重试始终需要确认&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FBF2E5;strokeColor=#E5CBA9;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="790" y="175" width="390" height="145" as="geometry" />
+        </mxCell>
+        <mxCell id="tools" value="&lt;div style=&quot;font-size:19px&quot;&gt;&lt;b&gt;read / write / edit / Bash&lt;br&gt;Web / Todo / Task / MCP&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#6B7280;margin-top:7px;line-height:1.45&quot;&gt;read / write / edit / Bash&lt;br&gt;Web / Todo / Task / MCP&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#D7D9D6;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="1270" y="190" width="270" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="bash-band" value="BASH 命令执行路径" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#F0F2EF;strokeColor=#D7D9D6;strokeWidth=1;verticalAlign=top;align=left;spacingTop=18;spacingLeft=22;fontSize=16;fontStyle=1;fontColor=#6B7280;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="180" y="400" width="1240" height="390" as="geometry" />
+        </mxCell>
+        <mxCell id="sandbox" value="&lt;div style=&quot;font-size:22px&quot;&gt;&lt;b&gt;操作系统沙盒&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:16px;color:#6B7280;margin-top:7px;line-height:1.45&quot;&gt;macOS Seatbelt · Linux bubblewrap&lt;br&gt;工作目录写入 · 敏感路径保护&lt;br&gt;按域名控制网络访问&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#EAF3EF;strokeColor=#BCD4C8;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="480" width="340" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="denied" value="&lt;div style=&quot;font-size:20px&quot;&gt;&lt;b&gt;沙盒不兼容或被拒绝&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#6B7280;margin-top:7px;line-height:1.45&quot;&gt;GUI、钥匙串等系统能力&lt;br&gt;生成明确的审批请求&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#D7D9D6;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="635" y="480" width="330" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="outside" value="&lt;div style=&quot;font-size:20px&quot;&gt;&lt;b&gt;批准后沙盒外重试&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#6B7280;margin-top:7px;line-height:1.45&quot;&gt;每次均需明确确认&lt;br&gt;结果返回同一会话事件流&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#F9ECEB;strokeColor=#E3BBB8;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="220" y="480" width="330" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="events" value="&lt;div style=&quot;font-size:21px&quot;&gt;&lt;b&gt;Host Events&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:16px;color:#6B7280;margin-top:7px;line-height:1.45&quot;&gt;流式输出 · 工具结果 · 权限状态&lt;br&gt;桌面与配对手机同步呈现&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#D7D9D6;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="500" y="850" width="600" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="p1" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6B7280;strokeWidth=1.8;endArrow=classic;startArrow=none;endFill=1;startFill=1;fontSize=14;fontColor=#6B7280;fontFamily=Helvetica;labelBackgroundColor=#F7F7F5;dashed=0;" edge="1" parent="1" source="inputs" target="controller">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p2" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6B7280;strokeWidth=1.8;endArrow=classic;startArrow=none;endFill=1;startFill=1;fontSize=14;fontColor=#6B7280;fontFamily=Helvetica;labelBackgroundColor=#F7F7F5;dashed=0;" edge="1" parent="1" source="controller" target="gate">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p3" value="按策略放行或询问" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6B7280;strokeWidth=1.8;endArrow=classic;startArrow=none;endFill=1;startFill=1;fontSize=14;fontColor=#6B7280;fontFamily=Helvetica;labelBackgroundColor=#F7F7F5;dashed=0;" edge="1" parent="1" source="gate" target="tools">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p4" value="Bash" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2F6F5E;strokeWidth=1.8;endArrow=classic;startArrow=none;endFill=1;startFill=1;fontSize=14;fontColor=#6B7280;fontFamily=Helvetica;labelBackgroundColor=#F7F7F5;dashed=0;" edge="1" parent="1" source="tools" target="sandbox">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p5" value="无法执行" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#8A5A22;strokeWidth=1.8;endArrow=classic;startArrow=none;endFill=1;startFill=1;fontSize=14;fontColor=#6B7280;fontFamily=Helvetica;labelBackgroundColor=#F7F7F5;dashed=0;" edge="1" parent="1" source="sandbox" target="denied">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p6" value="用户批准" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#9B4B47;strokeWidth=1.8;endArrow=classic;startArrow=none;endFill=1;startFill=1;fontSize=14;fontColor=#6B7280;fontFamily=Helvetica;labelBackgroundColor=#F7F7F5;dashed=0;" edge="1" parent="1" source="denied" target="outside">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p7" value="执行结果" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2F6F5E;strokeWidth=1.8;endArrow=classic;startArrow=none;endFill=1;startFill=1;fontSize=14;fontColor=#6B7280;fontFamily=Helvetica;labelBackgroundColor=#F7F7F5;dashed=0;" edge="1" parent="1" source="sandbox" target="events">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="p8" value="执行结果" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6B7280;strokeWidth=1.8;endArrow=classic;startArrow=none;endFill=1;startFill=1;fontSize=14;fontColor=#6B7280;fontFamily=Helvetica;labelBackgroundColor=#F7F7F5;dashed=0;" edge="1" parent="1" source="outside" target="events">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="windows" value="Windows 暂不支持命令沙盒，当前使用审批网关。" style="text;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fontSize=15;fontColor=#6B7280;fontFamily=Helvetica;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="64" y="980" width="1472" height="28" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -1,0 +1,50 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="app.diagrams.net" agent="Spcod" version="30.2.6" name="self-hosted-remote-en">
+  <diagram id="self-hosted-remote-en" name="Page-1">
+    <mxGraphModel dx="0" dy="0" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="940" math="0" shadow="0" background="#F7F7F5">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="&lt;b&gt;Self-hosted remote control&lt;/b&gt;" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;fontSize=30;fontColor=#202124;fontFamily=Helvetica;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="64" y="35" width="1100" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="End-to-end encrypted PWA channel with ciphertext-only relay forwarding" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;fontSize=16;fontColor=#6B7280;fontFamily=Helvetica;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="64" y="86" width="1300" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="boundary" value="YOUR INFRASTRUCTURE" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#F1F3F0;strokeColor=#D7D9D6;strokeWidth=1;verticalAlign=top;align=left;spacingTop=18;spacingLeft=22;fontSize=16;fontStyle=1;fontColor=#6B7280;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="600" y="160" width="400" height="520" as="geometry" />
+        </mxCell>
+        <mxCell id="phone" value="&lt;div style=&quot;font-size:23px&quot;&gt;&lt;b&gt;Mobile PWA&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:17px;color:#6B7280;margin-top:7px;line-height:1.45&quot;&gt;Paired device&lt;br&gt;Plaintext rendered at this endpoint&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#ECF2F6;strokeColor=#B8CBD8;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="80" y="265" width="360" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="relay" value="&lt;div style=&quot;font-size:23px&quot;&gt;&lt;b&gt;spcod-relay&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#6B7280;margin-top:7px;line-height:1.45&quot;&gt;WebSocket ciphertext forwarding&lt;br&gt;Short-lived one-time tickets · Access key&lt;br&gt;Per-device offline queue · Heartbeats · Backpressure&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#D7D9D6;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="640" y="245" width="320" height="210" as="geometry" />
+        </mxCell>
+        <mxCell id="desktop" value="&lt;div style=&quot;font-size:23px&quot;&gt;&lt;b&gt;Spcod desktop&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:17px;color:#6B7280;margin-top:7px;line-height:1.45&quot;&gt;RemoteService · AgentBridge&lt;br&gt;Plaintext processed at this endpoint&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#EAF3EF;strokeColor=#BCD4C8;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="1160" y="265" width="360" height="170" as="geometry" />
+        </mxCell>
+        <mxCell id="phone-crypto" value="&lt;div style=&quot;font-size:18px&quot;&gt;&lt;b&gt;Endpoint cryptography&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:14px;color:#6B7280;margin-top:7px;line-height:1.45&quot;&gt;X25519 key exchange&lt;br&gt;NaCl box · XSalsa20-Poly1305&lt;br&gt;QR v3 + OTP · Monotonic sequence numbers&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#D7D9D6;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="80" y="510" width="360" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="desktop-crypto" value="&lt;div style=&quot;font-size:18px&quot;&gt;&lt;b&gt;Desktop capabilities&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:14px;color:#6B7280;margin-top:7px;line-height:1.45&quot;&gt;Project and model selection · Session resume&lt;br&gt;Reconnect catch-up · Remote approvals&lt;br&gt;Device management · Web Push&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#D7D9D6;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="1160" y="510" width="360" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="metadata" value="&lt;div style=&quot;font-size:17px&quot;&gt;&lt;b&gt;What the relay can see&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:14px;color:#6B7280;margin-top:7px;line-height:1.45&quot;&gt;Ciphertext plus metadata such as deviceId, connection time, and traffic&lt;br&gt;The offline queue is in memory and is not retained across restarts&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FBF2E5;strokeColor=#E5CBA9;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="510" y="735" width="580" height="105" as="geometry" />
+        </mxCell>
+        <mxCell id="r1" value="Encrypted messages" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#426580;strokeWidth=1.8;endArrow=classic;startArrow=classic;endFill=1;startFill=1;fontSize=14;fontColor=#6B7280;fontFamily=Helvetica;labelBackgroundColor=#F7F7F5;dashed=0;" edge="1" parent="1" source="phone" target="relay">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="r2" value="Encrypted messages" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#2F6F5E;strokeWidth=1.8;endArrow=classic;startArrow=classic;endFill=1;startFill=1;fontSize=14;fontColor=#6B7280;fontFamily=Helvetica;labelBackgroundColor=#F7F7F5;dashed=0;" edge="1" parent="1" source="relay" target="desktop">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="official" value="&lt;b&gt;Spcod official services are outside this data path&lt;/b&gt;" style="text;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fontSize=18;fontColor=#2F6F5E;fontFamily=Helvetica;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="64" y="875" width="1472" height="34" as="geometry" />
+        </mxCell>
+        <mxCell id="note" value="This diagram covers the PWA channel. Messages on the optional Feishu channel pass through Feishu in plaintext." style="text;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fontSize=13;fontColor=#6B7280;fontFamily=Helvetica;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="64" y="910" width="1472" height="24" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

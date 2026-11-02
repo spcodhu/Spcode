@@ -1,0 +1,82 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mxfile host="app.diagrams.net" agent="Spcod" version="30.2.6" name="architecture-zh">
+  <diagram id="architecture-zh" name="Page-1">
+    <mxGraphModel dx="0" dy="0" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1060" math="0" shadow="0" background="#F7F7F5">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="&lt;b&gt;Spcod 分层架构&lt;/b&gt;" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;fontSize=30;fontColor=#202124;fontFamily=Helvetica;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="64" y="35" width="1000" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="Electron 桌面端、独立 AgentHost 与可选远程端" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;fontSize=16;fontColor=#6B7280;fontFamily=Helvetica;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="64" y="86" width="1200" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="clients-band" value="交互层" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#EFEFEB;strokeColor=#D7D9D6;strokeWidth=1;verticalAlign=top;align=left;spacingTop=18;spacingLeft=22;fontSize=16;fontStyle=1;fontColor=#6B7280;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="64" y="145" width="1472" height="165" as="geometry" />
+        </mxCell>
+        <mxCell id="renderer" value="&lt;div style=&quot;font-size:19px&quot;&gt;&lt;b&gt;桌面 Renderer&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#6B7280;margin-top:7px;line-height:1.45&quot;&gt;React 19 · Zustand · Tailwind 4&lt;br&gt;会话 / 计划 / Git / 设置&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#D7D9D6;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="96" y="198" width="400" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="pwa" value="&lt;div style=&quot;font-size:19px&quot;&gt;&lt;b&gt;手机 PWA&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#6B7280;margin-top:7px;line-height:1.45&quot;&gt;配对设备 · 会话控制 · 权限批准&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#ECF2F6;strokeColor=#B8CBD8;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="1064" y="198" width="400" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="main-band" value="桌面主进程" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#EFEFEB;strokeColor=#D7D9D6;strokeWidth=1;verticalAlign=top;align=left;spacingTop=18;spacingLeft=22;fontSize=16;fontStyle=1;fontColor=#6B7280;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="64" y="340" width="1472" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="bridge" value="&lt;div style=&quot;font-size:19px&quot;&gt;&lt;b&gt;AgentBridge&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#6B7280;margin-top:7px;line-height:1.45&quot;&gt;IPC 路由 · 结构化事件&lt;br&gt;utilityProcess 生命周期&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#D7D9D6;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="96" y="397" width="330" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="services" value="&lt;div style=&quot;font-size:19px&quot;&gt;&lt;b&gt;桌面服务&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#6B7280;margin-top:7px;line-height:1.45&quot;&gt;项目 / 会话 / 定时任务&lt;br&gt;设置 / 用量 / 自动更新&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#D7D9D6;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="474" y="397" width="420" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="remote" value="&lt;div style=&quot;font-size:19px&quot;&gt;&lt;b&gt;远程服务&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#6B7280;margin-top:7px;line-height:1.45&quot;&gt;LAN · Relay · Tailscale&lt;br&gt;配对 / E2E / Web Push&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#ECF2F6;strokeColor=#B8CBD8;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="397" width="330" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="host-band" value="AGENTHOST · UTILITYPROCESS" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#EFEFEB;strokeColor=#D7D9D6;strokeWidth=1;verticalAlign=top;align=left;spacingTop=18;spacingLeft=22;fontSize=16;fontStyle=1;fontColor=#6B7280;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="64" y="560" width="1472" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="controller" value="&lt;div style=&quot;font-size:19px&quot;&gt;&lt;b&gt;SessionController&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#6B7280;margin-top:7px;line-height:1.45&quot;&gt;会话状态 · 中断与恢复&lt;br&gt;权限协调 · 事件分发&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#D7D9D6;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="96" y="617" width="380" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="pi" value="&lt;div style=&quot;font-size:19px&quot;&gt;&lt;b&gt;Pi Agent Runtime 0.87.1&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#6B7280;margin-top:7px;line-height:1.45&quot;&gt;模型适配 · 上下文压缩&lt;br&gt;流式执行 · 七档思考强度&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#EAF3EF;strokeColor=#BCD4C8;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="524" y="617" width="480" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="tools" value="&lt;div style=&quot;font-size:19px&quot;&gt;&lt;b&gt;工具与扩展&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#6B7280;margin-top:7px;line-height:1.45&quot;&gt;文件 / Bash / Web / Todo / Task&lt;br&gt;MCP · 记忆 · 沙盒&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#D7D9D6;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="1052" y="617" width="410" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="data-band" value="外部服务与本地数据" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;fillColor=#EFEFEB;strokeColor=#D7D9D6;strokeWidth=1;verticalAlign=top;align=left;spacingTop=18;spacingLeft=22;fontSize=16;fontStyle=1;fontColor=#6B7280;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="64" y="780" width="1472" height="190" as="geometry" />
+        </mxCell>
+        <mxCell id="models" value="&lt;div style=&quot;font-size:19px&quot;&gt;&lt;b&gt;模型 API&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#6B7280;margin-top:7px;line-height:1.45&quot;&gt;OpenAI / Anthropic / Gemini&lt;br&gt;自定义 OpenAI 兼容端点&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#D7D9D6;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="96" y="837" width="570" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="data" value="&lt;div style=&quot;font-size:19px&quot;&gt;&lt;b&gt;~/.spcode&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#6B7280;margin-top:7px;line-height:1.45&quot;&gt;设置 / 会话 / 计划 / 记忆&lt;br&gt;JSONL 用量流水 / 定时任务&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#D7D9D6;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="474" y="837" width="420" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" value="IPC" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6B7280;strokeWidth=1.8;endArrow=classic;startArrow=classic;endFill=1;startFill=1;fontSize=14;fontColor=#6B7280;fontFamily=Helvetica;labelBackgroundColor=#F7F7F5;dashed=0;" edge="1" parent="1" source="renderer" target="bridge">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" value="结构化克隆 / 类型化消息" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6B7280;strokeWidth=1.8;endArrow=classic;startArrow=classic;endFill=1;startFill=1;fontSize=14;fontColor=#6B7280;fontFamily=Helvetica;labelBackgroundColor=#F7F7F5;dashed=0;" edge="1" parent="1" source="bridge" target="controller">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" value="E2E 加密通道" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#426580;strokeWidth=1.8;endArrow=classic;startArrow=classic;endFill=1;startFill=1;fontSize=14;fontColor=#6B7280;fontFamily=Helvetica;labelBackgroundColor=#F7F7F5;dashed=0;" edge="1" parent="1" source="pwa" target="remote">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" value="HTTPS" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6B7280;strokeWidth=1.8;endArrow=classic;startArrow=classic;endFill=1;startFill=1;fontSize=14;fontColor=#6B7280;fontFamily=Helvetica;labelBackgroundColor=#F7F7F5;dashed=0;" edge="1" parent="1" source="pi" target="models">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="本地读写" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#6B7280;strokeWidth=1.8;endArrow=classic;startArrow=classic;endFill=1;startFill=1;fontSize=14;fontColor=#6B7280;fontFamily=Helvetica;labelBackgroundColor=#F7F7F5;dashed=0;" edge="1" parent="1" source="services" target="data">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="496" y="530" />
+              <mxPoint x="496" y="780" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="footnote" value="远程服务是可选组件；核心会话与工具执行保留在本机。" style="text;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fontSize=15;fontColor=#6B7280;fontFamily=Helvetica;spacing=0;" vertex="1" parent="1">
+          <mxGeometry x="64" y="995" width="1472" height="30" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
