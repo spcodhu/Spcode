@@ -69,6 +69,9 @@ pi beforeToolCall
 ```
 
 - 模式按会话存在宿主（`SessionController.permissionModeRef`），运行中切换立即生效。
+- 项目「总允许」写入 `~/.spcode/settings.json` 的 `projectPermissionRules`：普通命令记前缀；
+  复合命令按顶层 `&&`/`&`/`||`/`|`/换行拆分，每一段都被规则覆盖才自动放行；
+  danger 只接受整条 exact，换参数或换命令段都必须重新确认。
 - 主进程**不再读 `permissionMode`**：它拿不到会话级模式，只保留规则与 UI 传输职责。
 - 网络域名询问是进程级代理回调，按「当前在跑命令的会话」归因（`shouldAllowNetworkSilently`）；
   归因失败一律当需要问。

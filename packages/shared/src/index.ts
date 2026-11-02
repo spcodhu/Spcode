@@ -291,7 +291,9 @@ export {
   DEFAULT_PERMISSION_MODE,
   decidePermissionMatrix,
   deriveProjectPermissionRule,
+  deriveProjectPermissionRules,
   matchesProjectPermissionRule,
+  matchesProjectPermissionRules,
   normalizePermissionMode,
   normalizeProjectCwd,
   PERMISSION_MODES,
@@ -334,9 +336,7 @@ export function sanitizeTodoItems(input: unknown): TodoItem[] {
     return [
       {
         content: value.content,
-        ...(typeof value.activeForm === "string" && value.activeForm.trim()
-          ? { activeForm: value.activeForm }
-          : {}),
+        ...(typeof value.activeForm === "string" && value.activeForm.trim() ? { activeForm: value.activeForm } : {}),
         status: value.status,
       },
     ];

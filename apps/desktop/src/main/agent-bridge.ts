@@ -17,6 +17,7 @@ import {
   type HostEvent,
   IPC,
   matchesProjectPermissionRule,
+  matchesProjectPermissionRules,
   type PermissionRequest,
   type ProjectPermissionRule,
   type QuestionRequest,
@@ -79,11 +80,12 @@ export function decidePermission(
   const isShell = request.toolName === "bash" || request.toolName === "powershell";
   if (isShell) {
     const cmd = extractShellCommand(request.args);
-    // 项目规则：危险命令只接受 exact；任何前缀都不能覆盖危险变体。
+    // 项目规则：危险命令只接受 exact；普通复合命令要求每个命令段都被规则覆盖。
     if (
       cmd &&
-      projectRules.some(
-        (rule) => (request.risk !== "danger" || rule.match === "exact") && matchesProjectPermissionRule(cmd, rule),
+      matchesProjectPermissionRules(
+        cmd,
+        projectRules.filter((rule) => request.risk !== "danger" || rule.match === "exact"),
       )
     ) {
       return "auto-approve";

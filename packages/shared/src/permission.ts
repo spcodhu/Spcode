@@ -64,7 +64,7 @@ export function normalizeProjectCwd(cwd: string): string {
   return slashed.replace(/\/+$/, "") || "/";
 }
 
-const SHELL_METACHARS = /[;|&<>\n`$]/;
+const SHELL_UNSUPPORTED_PREFIX = /[<>`$]/;
 
 function shellCommand(args: unknown): string | null {
   if (!args || typeof args !== "object" || !("command" in args)) return null;
@@ -72,30 +72,123 @@ function shellCommand(args: unknown): string | null {
   return typeof command === "string" ? command : null;
 }
 
+interface ParsedShellCommand {
+  segments: string[];
+  /** 顶层存在 ; & | 或换行分隔符（引号内不算） */
+  compound: boolean;
+}
+
+/**
+ * 只做权限规则需要的保守分段：识别引号/转义，按顶层 ; & | 与换行切分。
+ * 命令替换、重定向等无法可靠证明语义的结构返回 null，调用方回退为整条 exact。
+ */
+function parseShellCommand(command: string): ParsedShellCommand | null {
+  if (SHELL_UNSUPPORTED_PREFIX.test(command)) return null;
+  const segments: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+  let compound = false;
+
+  for (const ch of command) {
+    if (escaped) {
+      current += ch;
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\" && quote !== "'") {
+      current += ch;
+      escaped = true;
+      continue;
+    }
+    if (quote) {
+      current += ch;
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === ";" || ch === "&" || ch === "|" || ch === "\n") {
+      compound = true;
+      const segment = current.trim();
+      if (segment) segments.push(segment);
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  if (quote || escaped) return null;
+  const tail = current.trim();
+  if (tail) segments.push(tail);
+  return segments.length > 0 ? { segments, compound } : null;
+}
+
+function normalizeCommand(command: string): string {
+  return command.trim().replace(/\s+/g, " ");
+}
+
+/** 普通命令记前两个 token 作为同类前缀；单个 token 命令记自身。 */
+function prefixRuleOf(segment: string): ProjectPermissionRule {
+  const tokens = normalizeCommand(segment).split(" ");
+  return { command: tokens.length >= 2 ? tokens.slice(0, 2).join(" ") : tokens[0]!, match: "prefix" };
+}
+
 /** 从真实待决请求生成项目规则；bypass 永不生成免审批规则。 */
+export function deriveProjectPermissionRules(
+  request: Pick<PermissionRequest, "toolName" | "args" | "risk" | "bypass" | "cwd">,
+): ProjectPermissionRule[] {
+  if (request.bypass || !normalizeProjectCwd(request.cwd ?? "")) return [];
+  const tool = request.toolName.toLowerCase();
+  if (tool !== "bash" && tool !== "powershell") return [];
+  const raw = shellCommand(request.args)?.trim();
+  if (!raw) return [];
+  // 危险命令只能逐字复用同一完整命令，绝不生成前缀
+  if (request.risk === "danger") return [{ command: raw, match: "exact" }];
+
+  const parsed = parseShellCommand(raw);
+  if (!parsed || (parsed.compound && parsed.segments.length < 2)) {
+    return [{ command: raw, match: "exact" }];
+  }
+  // 复合命令按段沉淀：git add x && git push y → git add + git push；
+  // 后续整链必须每段都有规则覆盖，绝不因首段命中而放行未知尾段。
+  const rules = parsed.segments.map(prefixRuleOf);
+  return [...new Map(rules.map((rule) => [`${rule.match}:${rule.command}`, rule])).values()];
+}
+
+/** 旧 API：单规则推导。新代码应使用 deriveProjectPermissionRules 以覆盖复合命令。 */
 export function deriveProjectPermissionRule(
   request: Pick<PermissionRequest, "toolName" | "args" | "risk" | "bypass" | "cwd">,
 ): ProjectPermissionRule | null {
-  if (request.bypass || !normalizeProjectCwd(request.cwd ?? "")) return null;
-  const tool = request.toolName.toLowerCase();
-  if (tool !== "bash" && tool !== "powershell") return null;
-  const raw = shellCommand(request.args)?.trim();
-  if (!raw) return null;
-  if (request.risk === "danger" || SHELL_METACHARS.test(raw)) return { command: raw, match: "exact" };
-  const normalized = raw.replace(/\s+/g, " ");
-  const tokens = normalized.split(" ");
-  return { command: tokens.length >= 2 ? tokens.slice(0, 2).join(" ") : normalized, match: "prefix" };
+  return deriveProjectPermissionRules(request)[0] ?? null;
 }
 
-/** 项目规则匹配：exact 要求 trim 后逐字相同；prefix 要求 token 边界且拒绝复合命令。 */
-export function matchesProjectPermissionRule(command: string, rule: ProjectPermissionRule): boolean {
+function matchesPrefix(command: string, prefix: string): boolean {
+  const cmd = normalizeCommand(command);
+  const normalizedPrefix = normalizeCommand(prefix);
+  if (!cmd || !normalizedPrefix) return false;
+  return cmd === normalizedPrefix || (cmd.startsWith(normalizedPrefix) && cmd[normalizedPrefix.length] === " ");
+}
+
+/** 项目规则匹配：exact 逐字相同；prefix 要求 token 边界。复合命令需每段都有规则。 */
+export function matchesProjectPermissionRules(command: string, rules: ProjectPermissionRule[]): boolean {
   const cmd = command.trim();
-  if (!cmd || !rule.command.trim()) return false;
-  if (rule.match === "exact") return cmd === rule.command;
-  if (SHELL_METACHARS.test(command)) return false;
-  const normalized = cmd.replace(/\s+/g, " ");
-  const prefix = rule.command.trim().replace(/\s+/g, " ");
-  return normalized === prefix || (normalized.startsWith(prefix) && normalized[prefix.length] === " ");
+  if (!cmd || rules.length === 0) return false;
+  // 旧版已保存的整条 exact 规则继续有效（不自动扩成前缀）
+  if (rules.some((rule) => rule.match === "exact" && cmd === rule.command.trim())) return true;
+
+  const parsed = parseShellCommand(cmd);
+  if (!parsed) return false;
+  return parsed.segments.every((segment) =>
+    rules.some((rule) => rule.match === "prefix" && matchesPrefix(segment, rule.command)),
+  );
+}
+
+/** 单规则匹配（旧全局规则兼容）；复合命令同样要求所有命令段被该规则覆盖。 */
+export function matchesProjectPermissionRule(command: string, rule: ProjectPermissionRule): boolean {
+  return matchesProjectPermissionRules(command, [rule]);
 }
 
 /** 逃生舱被设置关闭（sandbox.allowUnsandboxedCommands=false）时的规范拒绝原因 */

@@ -1,4 +1,4 @@
-import { deriveProjectPermissionRule } from "@spcode/shared";
+import { deriveProjectPermissionRules } from "@spcode/shared";
 import { useTranslation } from "react-i18next";
 import { useStore } from "../store";
 import { DiffReplace } from "./DiffBlock";
@@ -6,7 +6,8 @@ import { DiffReplace } from "./DiffBlock";
 /**
  * 权限批准卡：拒绝 / 允许 / 总允许（Finch 式规则沉淀）。
  *
- * - 「总允许」由主进程按当前项目沉淀：普通命令记前缀，危险/复合命令只记完整命令。
+ * - 「总允许」由主进程按当前项目沉淀：普通命令记前缀；复合命令逐段记前缀，
+ *   整条命令的所有段都命中才放行；危险命令只记完整 exact。
  * - bypass 沙盒外执行不生成免审批规则，仍然逐次确认。
  * - 仅 bash/powershell 支持「总允许」；edit/write/network 只支持单次批准。
  */
@@ -21,7 +22,7 @@ export function PermissionInline({ sessionId }: { sessionId: string }) {
   const danger = request.risk === "danger";
   const outward = request.risk === "outward";
   const bypass = request.bypass === true;
-  const rule = deriveProjectPermissionRule(request);
+  const rules = deriveProjectPermissionRules(request);
 
   const title = t("permission.shortTitle");
   const severe = danger || outward || bypass;
@@ -80,14 +81,18 @@ export function PermissionInline({ sessionId }: { sessionId: string }) {
             >
               {t("permission.deny")}
             </button>
-            {rule && (
+            {rules.length > 0 && (
               <button
                 type="button"
                 data-testid="permission-allow-always"
                 onClick={allowAlways}
-                title={t(rule.match === "exact" ? "permission.alwaysExactHint" : "permission.alwaysHint", {
-                  rule: rule.command,
-                })}
+                title={
+                  rules.length === 1
+                    ? t(rules[0]!.match === "exact" ? "permission.alwaysExactHint" : "permission.alwaysHint", {
+                        rule: rules[0]!.command,
+                      })
+                    : t("permission.alwaysCompoundHint", { rules: rules.map((item) => item.command).join("、") })
+                }
                 className="rounded-md border border-border px-4 py-1.5 text-xs text-text-secondary hover:bg-bg-hover"
               >
                 {t("permission.always")}

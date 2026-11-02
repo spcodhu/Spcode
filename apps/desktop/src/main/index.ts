@@ -12,7 +12,7 @@ import {
   baseName,
   type ComposerDraft,
   cleanSessionTitle,
-  deriveProjectPermissionRule,
+  deriveProjectPermissionRules,
   type HostCommand,
   type HostCommandInput,
   type HostEvent,
@@ -459,16 +459,16 @@ function registerIpc(): void {
     (_e, payload: { requestId: string; approved: boolean; rememberProject?: boolean }) => {
       if (payload.approved && payload.rememberProject) {
         const request = bridge.getPendingPermission(payload.requestId);
-        const rule = request ? deriveProjectPermissionRule(request) : null;
+        const derived = request ? deriveProjectPermissionRules(request) : [];
         const cwd = normalizeProjectCwd(request?.cwd ?? "");
-        if (rule && cwd) {
+        if (derived.length > 0 && cwd) {
           const current = settings.get().projectPermissionRules;
-          const rules = current[cwd] ?? [];
-          const exists = rules.some((r) => r.command === rule.command && r.match === rule.match);
-          if (!exists) {
-            // 主进程同步落盘后再批准：当前与后续会话共用同一项目规则，且无渲染层保存竞态。
-            settings.set({ projectPermissionRules: { ...current, [cwd]: [...rules, rule] } });
+          const rules = [...(current[cwd] ?? [])];
+          for (const rule of derived) {
+            if (!rules.some((r) => r.command === rule.command && r.match === rule.match)) rules.push(rule);
           }
+          // 主进程同步落盘后再批准：当前与后续会话共用同一项目规则，且无渲染层保存竞态。
+          settings.set({ projectPermissionRules: { ...current, [cwd]: rules } });
         }
       }
       bridge.replyPermission(payload.requestId, payload.approved);

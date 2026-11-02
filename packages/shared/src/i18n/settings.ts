@@ -156,7 +156,8 @@ export const zhCN = {
   "permissions.description": "旧版本沉淀的全局命令前缀；仅普通写入/对外命令可命中，危险命令仍会询问",
   "permissions.empty": "暂无全局规则",
   "permissions.projectRules": "项目免审批规则",
-  "permissions.projectDescription": "权限卡点「总允许」后仅记住当前项目；危险与复合命令按完整命令精确匹配",
+  "permissions.projectDescription":
+    "权限卡点「总允许」后仅记住当前项目；普通命令记前缀，复合命令按命令段分别记录且需全部命中，危险命令要求完整命令完全相同",
   "permissions.emptyProject": "暂无项目规则",
   "permissions.exact": "完全相同",
   "permissions.prefix": "同类前缀",
@@ -664,7 +665,7 @@ export const en = {
   "permissions.empty": "No global rules yet",
   "permissions.projectRules": "Project approval exemptions",
   "permissions.projectDescription":
-    "“Always allow” applies only to this project. Dangerous and compound commands are matched exactly.",
+    "“Always allow” applies only to this project. Ordinary commands remember a prefix; compound commands record each segment and require all of them to match. Dangerous commands require an exact command.",
   "permissions.emptyProject": "No project rules yet",
   "permissions.exact": "Exact command",
   "permissions.prefix": "Command prefix",

@@ -84,7 +84,10 @@ describe("会话内嵌权限卡", () => {
 
     state.pending = [request("compound", "s1", "pnpm build && pnpm test")];
     await render("s1");
-    expect(container.querySelector('[data-testid="permission-allow-always"]')).not.toBeNull();
+    const always = container.querySelector<HTMLButtonElement>('[data-testid="permission-allow-always"]')!;
+    expect(always).not.toBeNull();
+    expect(always.title).toContain("pnpm build");
+    expect(always.title).toContain("pnpm test");
 
     state.pending = [{ ...request("bypass", "s1", "open ."), bypass: true }];
     await render("s1");
