@@ -70,9 +70,13 @@ async function assertRestored(window: Page) {
   await window.locator("div.group", { hasText: TITLE }).first().click();
   const drawer = window.getByTestId("work-drawer-toggle");
   await expect(drawer).toContainText("1/3", { timeout: 15000 });
-  await expect(window.getByText("已完成的阶段", { exact: true })).toBeVisible();
-  await expect(window.getByText("正在恢复任务", { exact: true })).toBeVisible();
-  await expect(window.getByText("等待开始的任务", { exact: true })).toBeVisible();
+  const tasks = window.getByTestId("work-task");
+  await expect(tasks).toHaveCount(3);
+  await expect(tasks.nth(0)).toContainText("已完成的阶段");
+  await expect(tasks.nth(1)).toHaveAttribute("data-status", "in_progress");
+  await expect(tasks.nth(1)).toContainText("正在恢复任务");
+  await expect(tasks.nth(2)).toHaveAttribute("data-status", "pending");
+  await expect(tasks.nth(2)).toContainText("等待开始的任务");
 }
 
 test("Todo 进度在应用重启后仍可恢复", async () => {

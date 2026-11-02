@@ -136,7 +136,7 @@ function TaskRow({ todo }: { todo: TodoItem }) {
   const isDone = todo.status === "completed";
   const isCurrent = todo.status === "in_progress";
   return (
-    <div className="flex items-start gap-2.5 py-[3px]">
+    <div className="flex items-start gap-2.5 py-[3px]" data-testid="work-task" data-status={todo.status}>
       <span
         title={t(isDone ? "work.completed" : isCurrent ? "work.inProgress" : "work.pending")}
         className={`mt-[2px] flex h-4 w-4 shrink-0 items-center justify-center rounded-full border ${
