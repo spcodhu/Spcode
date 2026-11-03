@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_SETTINGS } from "@spcode/shared";
-import { OFFICIAL_RELAY_URL, resolveRelayConfig } from "@spcode/shared/remote";
+import { OFFICIAL_MOBILE_URL, OFFICIAL_RELAY_URL, resolveRelayConfig } from "@spcode/shared/remote";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { RelayTransport, testRelayConnection } from "../src/main/remote/transport/relay.js";
 import { SettingsStore } from "../src/main/settings-store.js";
@@ -21,6 +21,11 @@ function settingsHome(remote: unknown): string {
 }
 
 describe("relay 配置迁移", () => {
+  it("官方 relay 与手机端入口使用当前官方域名", () => {
+    expect(OFFICIAL_RELAY_URL).toBe("wss://spcod-relay.hlt.cab");
+    expect(OFFICIAL_MOBILE_URL).toBe("https://spcod-relay.hlt.cab/");
+  });
+
   it("新安装默认官方 relay；旧自定义地址保留 custom，旧 null 保持 LAN-only", () => {
     expect(DEFAULT_SETTINGS.remote.relayMode).toBe("official");
     expect(resolveRelayConfig(DEFAULT_SETTINGS.remote).url).toBe(OFFICIAL_RELAY_URL);

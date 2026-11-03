@@ -369,7 +369,7 @@ describe("relay 配置更新", () => {
     useAppStore.getState().setRoute({ name: "session", id: "s1" });
     useAppStore.getState().appendOutput("s1", "正文", "text", 0);
     await updateRelayConfiguration("official", "", "");
-    expect(useAppStore.getState().pairing?.hosts).toContain("relay+wss://relay.spcode.dev");
+    expect(useAppStore.getState().pairing?.hosts).toContain("relay+wss://spcod-relay.hlt.cab");
     expect(useAppStore.getState().pairing?.relayAccessKey).toBeUndefined();
 
     await updateRelayConfiguration("custom", "wss://relay.example.com/", "new-secret");

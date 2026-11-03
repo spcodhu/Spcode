@@ -249,8 +249,8 @@ export interface RemoteOutputChunk {
 }
 
 /** 设置项：远程控制开关、监听端口与 relay 地址 */
-export const OFFICIAL_RELAY_URL = "wss://relay.spcode.dev";
-export const OFFICIAL_MOBILE_URL = "https://relay.spcode.dev/";
+export const OFFICIAL_RELAY_URL = "wss://spcod-relay.hlt.cab";
+export const OFFICIAL_MOBILE_URL = "https://spcod-relay.hlt.cab/";
 export type RelayMode = "official" | "custom" | "disabled";
 
 export interface RemoteSettings {

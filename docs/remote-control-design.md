@@ -228,14 +228,14 @@ const remote = new RemoteServer({ settings, bridge, scheduler, registry });
 - 离线队列：每 channel 最多缓存 N 条（如 1000 条 / 72h TTL），对方上线后按序补投；
 - **零持久化明文、零账号体系**——channel 标识就是公钥哈希；
 - 配置：`PORT`、队列上限、TTL；单文件 Docker 镜像 + `docker run` 一键自托管；
-- 官方托管一个免费社区 relay（域名如 `relay.spcode.dev`），并在 README 显著位置写明"relay 只见密文，欢迎自托管"。
+- 官方托管一个免费社区 relay（`spcod-relay.hlt.cab`），并在 README 显著位置写明"relay 只见密文，欢迎自托管"。
 
 ### 4.6 手机端 PWA 实现
 
 - 技术栈：Vite + React + Tailwind（复用 packages/shared 的类型），构建为纯静态文件。源码放 `apps/mobile/`（monorepo 新 package）。
 - 分发方式（三层，由简到繁）：
   1. **局域网**：`http://<电脑局域网IP>:<port>`（harness 内嵌静态服务 + mDNS），同 Wi-Fi 零配置；
-  2. **relay 托管**：`https://relay.spcode.dev/app/` 打开 PWA，扫码配对后走加密通道；
+  2. **relay 托管**：`https://spcod-relay.hlt.cab/app/` 打开 PWA，扫码配对后走加密通道；
   3. **用户自托管 relay**：同上，relay 地址在配对 QR 里携带。
 - 核心界面（一期）：会话列表（状态徽章）→ 会话详情（输出流 + 输入框 + 中断按钮 + todo 进度）；权限批准卡（全屏强提醒）；定时任务列表/新建/启停；配对与设备管理。
 - iOS 限制如实告知：PWA 须"添加到主屏幕"才有 Web Push；后台被杀后靠推送唤醒 + 打开时补拉离线队列。
