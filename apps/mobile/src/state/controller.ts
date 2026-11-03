@@ -39,6 +39,7 @@ interface OutputRequest {
 }
 const outputRequests = new Map<string, OutputRequest>();
 const olderOutputRequests = new Map<string, OutputRequest>();
+const LEGACY_OFFICIAL_RELAY_HOST = `${RELAY_HOST_PREFIX}wss://relay.spcode.dev`;
 
 export function getClient(): RemoteClient | null {
   return client;
@@ -57,6 +58,21 @@ export async function boot(): Promise<void> {
   if (!record) {
     store.setRoute({ name: "pair" });
     return;
+  }
+  // 无密钥的旧官方地址按历史 official 配置自动迁移，避免老配对升级后仍连旧域名。
+  // 带访问密钥的记录可能属于自托管，即使碰巧使用旧域名也不改动。
+  if (!record.relayAccessKey && record.hosts.includes(LEGACY_OFFICIAL_RELAY_HOST)) {
+    record = {
+      ...record,
+      hosts: record.hosts.map((host) =>
+        host === LEGACY_OFFICIAL_RELAY_HOST ? `${RELAY_HOST_PREFIX}${OFFICIAL_RELAY_URL}` : host,
+      ),
+    };
+    try {
+      await savePairing(record);
+    } catch {
+      // 存储失败不阻塞本次启动；下次启动仍会重试迁移。
+    }
   }
   store.setPairing(record);
   // 常规启动仍进列表；若调用方在 cold boot 前已恢复某个详情路由，则保留 sessionId 供 ready 补拉。

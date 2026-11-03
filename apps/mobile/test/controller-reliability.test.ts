@@ -364,6 +364,25 @@ describe("空会话创建", () => {
 });
 
 describe("relay 配置更新", () => {
+  it("冷启动自动迁移旧官方 relay，并保留局域网地址与设备身份", async () => {
+    const legacy = { ...record, hosts: ["http://localhost", "relay+wss://relay.spcode.dev"] };
+    mocks.loadPairing.mockResolvedValueOnce(legacy);
+    await boot();
+
+    const migrated = { ...legacy, hosts: ["http://localhost", "relay+wss://spcod-relay.hlt.cab"] };
+    expect(mocks.savePairing).toHaveBeenCalledWith(migrated);
+    expect(useAppStore.getState().pairing).toEqual(migrated);
+  });
+
+  it("带访问密钥的旧域名记录按自托管配置保留", async () => {
+    const custom = { ...record, hosts: ["relay+wss://relay.spcode.dev"], relayAccessKey: "secret" };
+    mocks.loadPairing.mockResolvedValueOnce(custom);
+    await boot();
+
+    expect(mocks.savePairing).not.toHaveBeenCalled();
+    expect(useAppStore.getState().pairing).toEqual(custom);
+  });
+
   it("官方/自托管/局域网切换保留设备身份、路由与输出缓存", async () => {
     attachPairedRecord({ ...record, relayAccessKey: "old" });
     useAppStore.getState().setRoute({ name: "session", id: "s1" });
