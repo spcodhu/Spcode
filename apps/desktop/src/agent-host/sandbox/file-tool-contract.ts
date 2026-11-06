@@ -148,7 +148,7 @@ export function createContractFileTools(cwd: string): ToolDefinition[] {
   const write: ToolDefinition = {
     ...writeBase,
     description: `${writeBase.description} ${READ_REQUIREMENT} New files can be written directly.`,
-    promptGuidelines: [...(writeBase.promptGuidelines ?? []), `${READ_REQUIREMENT} New files can be written directly.`],,
+    promptGuidelines: [...(writeBase.promptGuidelines ?? []), `${READ_REQUIREMENT} New files can be written directly.`],
     execute: async (toolCallId, params, signal, onUpdate, ctx) => {
       const input = params as { path: string };
       // 与 pi 当前会话口径一致；正常 AgentSession 的 ctx.cwd 即创建时的 cwd。
