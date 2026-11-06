@@ -19,15 +19,14 @@
  */
 import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, resolve } from "node:path";
-import {
-  createEditToolDefinition,
-  createReadToolDefinition,
-  createWriteToolDefinition,
-  type ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import { dirname, resolve } from "node:path";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { LocalizedText } from "@spcode/shared/i18n";
 import { isPathInside } from "./config-builder.js";
+import { createContractFileTools } from "./file-tool-contract.js";
+import { resolveFsPath } from "./fs-path.js";
+
+export { resolveFsPath };
 
 export interface FsGuardPolicy {
   /** 会话工作目录（项目目录或 chat 的 scratch） */
@@ -64,15 +63,6 @@ function hardDenyPaths(policy: FsGuardPolicy): string[] {
 
 function join3(...parts: string[]): string {
   return resolve(...parts);
-}
-
-/** 与 pi resolveToCwd 同口径的路径归一：去 @ 前缀、~ 展开、相对 cwd 解析、NFC 归一 */
-export function resolveFsPath(cwd: string, rawPath: string): string {
-  let p = rawPath.trim();
-  if (p.startsWith("@")) p = p.slice(1);
-  if (p === "~") p = homedir();
-  else if (p.startsWith("~/") || p.startsWith("~\\")) p = join3(homedir(), p.slice(2));
-  return (isAbsolute(p) ? resolve(p) : resolve(cwd, p)).normalize("NFC");
 }
 
 /** 符号链接真实路径：存在取自身 realpath，不存在取最近存在父目录的 realpath 再拼回 */
@@ -204,9 +194,5 @@ function wrapFsTool(def: ToolDefinition, getPolicy: () => FsGuardPolicy): ToolDe
  * grep/find/ls 只在网关层判定（它们的路径是搜索根，敏感性低一档，硬兜底收益小）。
  */
 export function createGuardedFsTools(cwd: string, getPolicy: () => FsGuardPolicy): ToolDefinition[] {
-  return [
-    wrapFsTool(createReadToolDefinition(cwd) as ToolDefinition, getPolicy),
-    wrapFsTool(createWriteToolDefinition(cwd) as ToolDefinition, getPolicy),
-    wrapFsTool(createEditToolDefinition(cwd) as ToolDefinition, getPolicy),
-  ];
+  return createContractFileTools(cwd).map((tool) => wrapFsTool(tool, getPolicy));
 }
