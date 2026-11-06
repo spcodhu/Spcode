@@ -4,7 +4,7 @@
 
 An Agentic Code desktop workspace powered by [Pi](https://github.com/earendil-works/pi). Spcod brings project sessions, tool execution, planning, permission approvals, and remote control into one desktop interface for macOS and Windows.
 
-[Download](https://github.com/spcodhu/Spcode/releases) · [Self-hosted relay](https://github.com/spcodhu/spcod-relay) · [Remote control design](docs/remote-control-design.md)
+[Download](https://github.com/spcodhu/Spcode/releases) · [Remote connection guide](docs/remote-connection.en.md) · [Self-hosted relay](https://github.com/spcodhu/spcod-relay) · [Remote control design](docs/remote-control-design.md)
 
 ![Spcod desktop workspace](docs/assets/release/desktop-home-en.png)
 
@@ -47,12 +47,14 @@ pnpm dev
 
 ## Self-hosted remote control
 
+See the [remote connection guide](docs/remote-connection.en.md) for complete LAN and public-network instructions.
+
 ![Self-hosted remote control](docs/assets/release/self-hosted-remote-en.png)
 
 1. Deploy [spcod-relay](https://github.com/spcodhu/spcod-relay) on your own server with Docker or Node.js 22.19+.
 2. For public deployments, enable TLS through a reverse proxy to obtain a `wss://` URL. Setting `RELAY_ACCESS_KEY` is recommended.
 3. On the desktop, open **Settings → Remote control**, enable the service, select **Self-hosted**, and enter the relay URL and access key.
-4. Generate a pairing code, scan the QR code with your phone, and enter the OTP. Select **LAN only** for devices on the same network.
+4. Generate a pairing code, then scan it or paste the full pairing code in the mobile PWA. The 8-digit OTP is embedded in the code and cannot be used alone for manual pairing. Select **LAN only** for devices on the same network.
 
 The relay forwards ciphertext and can see metadata such as deviceId, connection time, and traffic. Its offline queue is held in memory and cleared on restart. See the [self-hosting guide](https://github.com/spcodhu/spcod-relay/blob/master/docs/SELF_HOSTING.md) for full configuration.
 
@@ -102,6 +104,7 @@ E2E tests use a temporary `SPCODE_HOME` and an isolated Electron data directory.
 
 ## Documentation
 
+- [Remote connection guide: LAN and public networks](docs/remote-connection.en.md)（[中文](docs/remote-connection.md)）
 - [Remote control design](docs/remote-control-design.md)
 - [Remote security checklist](docs/remote-security-checklist.md)
 - [Permission modes](docs/permission-modes.md)

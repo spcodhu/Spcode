@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio" version="30.2.6">
+  <diagram name="LAN">
+    <mxGraphModel dx="1400" dy="700" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="2" value="LAN remote connection" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;fontSize=30;fontStyle=1;fontColor=#202124;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="60" y="30" width="1280" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="3" value="The phone connects directly to the desktop without a public relay" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;fontSize=17;fontColor=#6B7280;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="60" y="85" width="1280" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="4" value="Same LAN / Wi-Fi" style="swimlane;startSize=46;rounded=1;arcSize=2;html=1;whiteSpace=wrap;fillColor=#F7F7F5;strokeColor=#D7D9D6;fontColor=#4B5563;fontSize=16;fontStyle=1;fontFamily=Helvetica;verticalAlign=top;spacingTop=10;pointerEvents=0;" vertex="1" parent="1">
+          <mxGeometry x="60" y="150" width="1280" height="330" as="geometry" />
+        </mxCell>
+        <mxCell id="5" value="&lt;div style=&quot;font-size:23px&quot;&gt;&lt;b&gt;Mobile PWA&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#526172;margin-top:8px&quot;&gt;Safari / Chrome&lt;br&gt;Scan or paste the full pairing code&lt;/div&gt;" style="rounded=1;arcSize=3;whiteSpace=wrap;html=1;fillColor=#EAF1F8;strokeColor=#426580;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="4">
+          <mxGeometry x="100" y="95" width="300" height="135" as="geometry" />
+        </mxCell>
+        <mxCell id="6" value="&lt;div style=&quot;font-size:23px&quot;&gt;&lt;b&gt;Desktop Spcod&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#385B4D;margin-top:8px&quot;&gt;Settings → Remote control&lt;br&gt;http://desktop-IP:port&lt;/div&gt;" style="rounded=1;arcSize=3;whiteSpace=wrap;html=1;fillColor=#E7F1EC;strokeColor=#2F6F5E;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="4">
+          <mxGeometry x="880" y="95" width="300" height="135" as="geometry" />
+        </mxCell>
+        <mxCell id="7" value="HTTP PWA loading + end-to-end encrypted WebSocket" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=classic;startFill=1;endArrow=classic;endFill=1;strokeColor=#426580;strokeWidth=2;fontSize=16;fontColor=#374151;fontFamily=Helvetica;labelBackgroundColor=#F7F7F5;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="5" target="6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="8" value="The desktop generates the pairing code and transfers it out of band; the saved identity reconnects automatically" style="text;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fontSize=15;fontColor=#6B7280;fontFamily=Helvetica;" vertex="1" parent="4">
+          <mxGeometry x="260" y="260" width="760" height="45" as="geometry" />
+        </mxCell>
+        <mxCell id="9" value="Select “LAN only” to disable the public relay; both devices must be able to reach each other" style="text;html=1;whiteSpace=wrap;align=center;verticalAlign=middle;fontSize=16;fontColor=#4B5563;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="180" y="515" width="1040" height="45" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

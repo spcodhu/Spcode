@@ -4,7 +4,7 @@
 
 以 [Pi](https://github.com/earendil-works/pi) 为引擎的 Agentic Code 桌面工作台。Spcod 将项目会话、工具执行、计划、权限审批和远程控制整合到同一套桌面界面中，支持 macOS 和 Windows。
 
-[下载安装包](https://github.com/spcodhu/Spcode/releases) · [自托管 relay](https://github.com/spcodhu/spcod-relay) · [远程控制设计](docs/remote-control-design.md)
+[下载安装包](https://github.com/spcodhu/Spcode/releases) · [远程连接教程](docs/remote-connection.md) · [自托管 relay](https://github.com/spcodhu/spcod-relay) · [远程控制设计](docs/remote-control-design.md)
 
 ![Spcod 桌面工作台](docs/assets/release/desktop-home-zh.png)
 
@@ -47,12 +47,14 @@ pnpm dev
 
 ## 自托管远程控制
 
+完整的局域网与公网连接步骤见 [远程连接教程](docs/remote-connection.md)。
+
 ![自托管远程控制链路](docs/assets/release/self-hosted-remote-zh.png)
 
 1. 在自己的服务器部署 [spcod-relay](https://github.com/spcodhu/spcod-relay)，支持 Docker 和 Node.js 22.19+。
 2. 公网部署时通过反向代理启用 TLS，得到 `wss://` 地址，并建议配置 `RELAY_ACCESS_KEY`。
 3. 在桌面端打开「设置 → 远程控制」，启用服务并选择「自托管」，填写 relay 地址和访问密钥。
-4. 生成配对码，用手机扫描二维码并输入 OTP。只在同一网络使用时可以选择「仅局域网」。
+4. 生成配对码，用手机 PWA 扫码或粘贴完整配对码。8 位 OTP 已包含在配对码中，不能单独用于手动配对；只在同一网络使用时可以选择「仅局域网」。
 
 relay 只转发密文，可见 deviceId、连接时间和流量等元数据。离线队列保存在内存中，重启后不保留。完整配置见 [自托管指南](https://github.com/spcodhu/spcod-relay/blob/master/docs/SELF_HOSTING.md)。
 
@@ -102,6 +104,7 @@ E2E 使用临时 `SPCODE_HOME` 和独立 Electron 数据目录，不读写真实
 
 ## 文档
 
+- [远程连接教程：局域网与公网](docs/remote-connection.md)（[English](docs/remote-connection.en.md)）
 - [远程控制设计](docs/remote-control-design.md)
 - [远程安全检查清单](docs/remote-security-checklist.md)
 - [权限模式](docs/permission-modes.md)

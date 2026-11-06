@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio" version="30.2.6">
+  <diagram name="Public relay">
+    <mxGraphModel dx="1400" dy="760" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="2" value="Public relay remote connection" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;fontSize=30;fontStyle=1;fontColor=#202124;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="60" y="30" width="1280" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="3" value="The phone and desktop connect outbound to the same relay; no public IP or port forwarding is needed" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;fontSize=17;fontColor=#6B7280;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="60" y="85" width="1280" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="4" value="&lt;div style=&quot;font-size:18px&quot;&gt;&lt;b&gt;Static PWA source&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:14px;color:#725A32;margin-top:7px&quot;&gt;Desktop LAN address&lt;br&gt;or your own HTTPS hosting&lt;/div&gt;" style="rounded=1;arcSize=3;whiteSpace=wrap;html=1;fillColor=#FBF2E5;strokeColor=#C5A477;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=10;" vertex="1" parent="1">
+          <mxGeometry x="60" y="155" width="300" height="115" as="geometry" />
+        </mxCell>
+        <mxCell id="5" value="&lt;div style=&quot;font-size:23px&quot;&gt;&lt;b&gt;Mobile PWA&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#526172;margin-top:8px&quot;&gt;Cellular / another Wi-Fi&lt;br&gt;Stores device keys and pairing&lt;/div&gt;" style="rounded=1;arcSize=3;whiteSpace=wrap;html=1;fillColor=#EAF1F8;strokeColor=#426580;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="60" y="340" width="300" height="135" as="geometry" />
+        </mxCell>
+        <mxCell id="6" value="&lt;div style=&quot;font-size:23px&quot;&gt;&lt;b&gt;Official / self-hosted relay&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#526172;margin-top:8px&quot;&gt;Routes and queues ciphertext only&lt;br&gt;Cannot read prompts or sessions&lt;/div&gt;" style="rounded=1;arcSize=3;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="540" y="340" width="320" height="135" as="geometry" />
+        </mxCell>
+        <mxCell id="7" value="&lt;div style=&quot;font-size:23px&quot;&gt;&lt;b&gt;Desktop Spcod&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#385B4D;margin-top:8px&quot;&gt;Stays running and online&lt;br&gt;Connects outbound to the relay&lt;/div&gt;" style="rounded=1;arcSize=3;whiteSpace=wrap;html=1;fillColor=#E7F1EC;strokeColor=#2F6F5E;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="1040" y="340" width="300" height="135" as="geometry" />
+        </mxCell>
+        <mxCell id="8" value="Load application" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;endArrow=classic;endFill=1;strokeColor=#C5A477;strokeWidth=1.8;fontSize=14;fontColor=#725A32;fontFamily=Helvetica;labelBackgroundColor=#FFFFFF;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="4" target="5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="9" value="WSS ciphertext" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=classic;startFill=1;endArrow=classic;endFill=1;strokeColor=#426580;strokeWidth=2;fontSize=16;fontColor=#374151;fontFamily=Helvetica;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="5" target="6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="10" value="WSS ciphertext" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;startArrow=classic;startFill=1;endArrow=classic;endFill=1;strokeColor=#2F6F5E;strokeWidth=2;fontSize=16;fontColor=#374151;fontFamily=Helvetica;labelBackgroundColor=#FFFFFF;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="6" target="7">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="11" value="&lt;div&gt;&lt;b&gt;Pairing is transferred out of band; the relay cannot decrypt business traffic&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;margin-top:7px&quot;&gt;The relay sees channel IDs, deviceId, timing, and traffic metadata; its offline queue is memory-only&lt;/div&gt;" style="rounded=1;arcSize=2;whiteSpace=wrap;html=1;fillColor=#F7F7F5;strokeColor=#D7D9D6;fontColor=#4B5563;fontSize=15;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">
+          <mxGeometry x="240" y="555" width="920" height="90" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
