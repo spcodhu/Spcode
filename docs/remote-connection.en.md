@@ -195,30 +195,20 @@ CORS_ALLOWED_ORIGINS=https://spcod-relay.hlt.cab
 
 Run `./deploy.sh` again after changing this setting.
 
-#### 4. Optional: self-host the mobile PWA as well
+#### 4. Deploy the PWA in the same Docker image
 
-If you want your own domain to serve the mobile page too, the simplest option is to serve it from the same origin as your relay:
+The `spcod-relay` Docker image builds both the relay and mobile PWA, then places the PWA in `/app/public`. You do not need to install pnpm on your workstation, build the mobile client manually, upload a directory, or edit Compose.
 
-1. Build the mobile client from the Spcod harness source directory:
+Initial deployment and later updates use the same commands:
 
-   ```bash
-   pnpm install --frozen-lockfile
-   pnpm --filter @spcode/mobile build
-   ```
+```bash
+git pull
+./deploy.sh
+```
 
-   The output is written to `apps/mobile/dist/`.
+The script rebuilds the image, starts the services, and checks both relay health and the embedded pairing page. Open `https://relay.example.com/` after deployment to access the mobile pairing page. No additional CORS configuration is needed when the PWA and relay share an origin.
 
-2. Upload that directory to the server, make the directory and its files readable by the container's `node` user, and add a read-only mount to the `relay` service in `spcod-relay/deploy/docker-compose.yml`:
-
-   ```yaml
-   services:
-     relay:
-       volumes:
-         - /absolute/path/mobile-dist:/app/public:ro
-   ```
-
-3. Run `./deploy.sh` again from the relay project, then open `https://relay.example.com/`. It should show the mobile pairing page instead of the “PWA is not hosted” notice.
-4. Pair through this HTTPS address and keep using the same entry point. No additional CORS configuration is needed when the PWA and relay share an origin. Browser mixed-content rules may prevent the HTTPS page from using an HTTP LAN address in the pairing payload; falling back to the WSS relay is expected and does not affect public use.
+The PWA source is pinned to an explicit Spcod commit through `SPCOD_PWA_REF` in the relay repository's `Dockerfile`. To release a newer PWA, maintainers update that commit and push the relay repository. Official and self-hosted relays then update through the same `git pull && ./deploy.sh` path.
 
 If the PWA is hosted on another HTTPS domain, put its complete origin in `deploy/relay.env` and redeploy:
 
@@ -226,7 +216,7 @@ If the PWA is hosted on another HTTPS domain, put its complete origin in `deploy
 CORS_ALLOWED_ORIGINS=https://app.example.com
 ```
 
-Do not use a path or wildcard. Changing the PWA domain creates a new origin. Existing pairing records are not copied across origins, so pair again at the new entry point.
+Do not use a path or wildcard. Changing the PWA domain creates a new origin. Existing pairing records are not copied across origins, so pair again at the new entry point. Browser mixed-content rules may prevent the HTTPS page from using an HTTP LAN address in the pairing payload; falling back to the WSS relay is expected and does not affect public use.
 
 ### Public-network troubleshooting
 

@@ -195,30 +195,20 @@ CORS_ALLOWED_ORIGINS=https://spcod-relay.hlt.cab
 
 修改后重新运行 `./deploy.sh`。
 
-#### 4. 可选：把手机 PWA 也完全自托管
+#### 4. PWA 随 Docker 镜像一键部署
 
-如果希望自己的域名同时提供手机页面，最简单的是让 PWA 与你的 relay 同源：
+`spcod-relay` 的 Docker 镜像会同时构建 relay 和手机 PWA，并把 PWA 放入 `/app/public`。不需要在本机安装 pnpm、构建手机端、上传目录或手工修改 Compose。
 
-1. 在 Spcod harness 源码目录构建手机端：
+首次部署和后续更新都使用同一套命令：
 
-   ```bash
-   pnpm install --frozen-lockfile
-   pnpm --filter @spcode/mobile build
-   ```
+```bash
+git pull
+./deploy.sh
+```
 
-   构建产物位于 `apps/mobile/dist/`。
+脚本会重建镜像、启动服务，并同时检查 relay 健康状态和内置配对页。部署后直接打开 `https://relay.example.com/`，即可看到手机配对页；PWA 与 relay 同源时无需额外配置 CORS。
 
-2. 把该目录上传到服务器，确保容器内的 `node` 用户可以读取目录及其中文件，并在 `spcod-relay/deploy/docker-compose.yml` 的 `relay` 服务中添加只读挂载：
-
-   ```yaml
-   services:
-     relay:
-       volumes:
-         - /绝对路径/mobile-dist:/app/public:ro
-   ```
-
-3. 在 relay 项目目录重新运行 `./deploy.sh`，然后打开 `https://relay.example.com/`。此时应显示手机配对页，而不是“未托管手机端 PWA”。
-4. 使用这个 HTTPS 地址完成配对，并在以后保持同一入口。PWA 与 relay 同源时无需额外配置 CORS。HTTPS 页面可能因浏览器混合内容限制而无法直连配对码中的 HTTP 局域网地址，此时回退到 WSS relay 即可，不影响公网使用。
+PWA 源码由 relay 仓库 `Dockerfile` 中的 `SPCOD_PWA_REF` 固定到明确的 Spcod 提交。维护者需要升级 PWA 时更新该提交并推送 relay 仓库，官方中继和自托管用户随后都通过同一条 `git pull && ./deploy.sh` 路径更新。
 
 如果把 PWA 托管在其他 HTTPS 域名，在 `deploy/relay.env` 中配置完整 origin，再重新部署：
 
@@ -226,7 +216,7 @@ CORS_ALLOWED_ORIGINS=https://spcod-relay.hlt.cab
 CORS_ALLOWED_ORIGINS=https://app.example.com
 ```
 
-不要填写路径或通配符。更换 PWA 域名会产生新的 origin，旧配对记录不会自动跨域复制，需要在新入口重新配对。
+不要填写路径或通配符。更换 PWA 域名会产生新的 origin，旧配对记录不会自动跨域复制，需要在新入口重新配对。HTTPS 页面可能因浏览器混合内容限制而无法直连配对码中的 HTTP 局域网地址，此时回退到 WSS relay 即可，不影响公网使用。
 
 ### 公网故障排查
 
