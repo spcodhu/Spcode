@@ -271,7 +271,7 @@ export class RelayTransport implements RemoteTransport {
       const status = error instanceof RelayHttpError ? error.status : 0;
       const authFailed = status === 401 || status === 403;
       this.state = authFailed ? "auth_failed" : "error";
-      this.log("relay 连接失败", { status, authFailed });
+      this.log("relay 连接失败", { status, authFailed, anonymous: !this.opts.accessKey });
       if (!authFailed) this.scheduleReconnect();
     });
   }
@@ -285,6 +285,22 @@ export class RelayTransport implements RemoteTransport {
     const ws = new WebSocket(url, { agent });
     this.ws = ws;
     this.state = "connecting";
+    let handshakeStatus = 0;
+
+    // ws 在握手收到非 101 时走 unexpected-response，而不是普通 HTTP catch；
+    // 官方匿名客户端遇到 401/403 也必须进入 auth_failed，不能当成断线无限重连。
+    ws.on("unexpected-response", (_request, response) => {
+      if (this.ws !== ws) {
+        response.resume();
+        return;
+      }
+      handshakeStatus = response.statusCode ?? 0;
+      const authFailed = handshakeStatus === 401 || handshakeStatus === 403;
+      this.state = authFailed ? "auth_failed" : "error";
+      this.log("relay 连接失败", { status: handshakeStatus, authFailed, anonymous: !this.opts.accessKey });
+      response.resume();
+      ws.terminate();
+    });
 
     ws.on("open", () => {
       if (this.ws !== ws) return;
@@ -309,10 +325,11 @@ export class RelayTransport implements RemoteTransport {
     const onDown = () => {
       if (this.ws !== ws) return;
       this.ws = null;
-      this.state = "connecting";
+      const authFailed = handshakeStatus === 401 || handshakeStatus === 403;
+      this.state = authFailed ? "auth_failed" : "connecting";
       ws.removeAllListeners();
       ws.on("error", () => {}); // 同上：残余 error 兜底
-      this.scheduleReconnect();
+      if (!authFailed) this.scheduleReconnect();
     };
     ws.on("close", onDown);
     ws.on("error", (err) => {
