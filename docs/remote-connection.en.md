@@ -208,6 +208,8 @@ git pull
 
 The script rebuilds the image, starts the services, and checks both relay health and the embedded pairing page. Open `https://relay.example.com/` after deployment to access the mobile pairing page. No additional CORS configuration is needed when the PWA and relay share an origin.
 
+The first build downloads the Node base image, the pinned Spcod source archive, and mobile dependencies; later builds reuse image layers and pnpm/corepack caches. If Docker Hub or npm is slow from the server, set `NODE_IMAGE` and `NPM_REGISTRY` in `deploy/relay.env`. See the [deployment guide](https://github.com/spcodhu/spcod-relay/blob/master/docs/DEPLOYMENT.en.md#5-configuration-and-updates) for cache and mirror instructions. Do not use `docker builder prune` or `--no-cache` during ordinary updates, or dependencies will be downloaded again.
+
 The PWA source is pinned to an explicit Spcod commit through `SPCOD_PWA_REF` in the relay repository's `Dockerfile`. To release a newer PWA, maintainers update that commit and push the relay repository. Official and self-hosted relays then update through the same `git pull && ./deploy.sh` path.
 
 If the PWA is hosted on another HTTPS domain, put its complete origin in `deploy/relay.env` and redeploy:

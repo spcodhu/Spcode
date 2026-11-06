@@ -208,6 +208,8 @@ git pull
 
 脚本会重建镜像、启动服务，并同时检查 relay 健康状态和内置配对页。部署后直接打开 `https://relay.example.com/`，即可看到手机配对页；PWA 与 relay 同源时无需额外配置 CORS。
 
+首次构建会下载 Node 基础镜像、固定提交的 Spcod 源码和手机端依赖；后续构建会复用镜像层及 pnpm/corepack 缓存。若服务器访问 Docker Hub 或 npm 较慢，可在 `deploy/relay.env` 中设置 `NODE_IMAGE` 与 `NPM_REGISTRY`，具体缓存与镜像加速方法见 [部署教程](https://github.com/spcodhu/spcod-relay/blob/master/docs/DEPLOYMENT.md#5-配置与更新)。不要在正常更新时使用 `docker builder prune` 或 `--no-cache`，否则会重新下载依赖。
+
 PWA 源码由 relay 仓库 `Dockerfile` 中的 `SPCOD_PWA_REF` 固定到明确的 Spcod 提交。维护者需要升级 PWA 时更新该提交并推送 relay 仓库，官方中继和自托管用户随后都通过同一条 `git pull && ./deploy.sh` 路径更新。
 
 如果把 PWA 托管在其他 HTTPS 域名，在 `deploy/relay.env` 中配置完整 origin，再重新部署：
