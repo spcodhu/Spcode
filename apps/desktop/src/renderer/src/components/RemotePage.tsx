@@ -16,7 +16,7 @@ import type {
   RemoteStatus,
 } from "@spcode/shared";
 import { getLocale } from "@spcode/shared/i18n";
-import { OFFICIAL_RELAY_URL } from "@spcode/shared/remote";
+import { OFFICIAL_MOBILE_URL, OFFICIAL_RELAY_URL } from "@spcode/shared/remote";
 import { useCallback, useEffect, useState } from "react";
 import QRCode from "react-qr-code";
 import { formatRelative, formatTime } from "../format";
@@ -182,6 +182,7 @@ export function RemotePage() {
 
   const pairing = status?.pairing ?? null;
   const expired = pairing ? pairing.expiresAt <= now : false;
+  const lanUrls = status?.urls.filter((url) => url.startsWith("http://")) ?? [];
 
   // 飞书通道（M4）：独立于 remote.enabled，默认关闭；appSecret 不回传（configured 标记）
   const feishuCfg = remoteCfg?.feishu ?? null;
@@ -225,12 +226,60 @@ export function RemotePage() {
       <div className="mb-3 rounded-xl border border-border bg-bg-elevated px-4 py-3" data-testid="remote-phone-guide">
         <div className="text-[13px] font-medium text-text-secondary">{t("remote.phoneGuide")}</div>
         <p className="mt-2 text-[12px] leading-5 text-text-tertiary">{t("remote.phoneGuide.summary")}</p>
+        <div className="mt-3 space-y-2">
+          <details className="rounded-lg border border-border px-3 py-2" data-testid="remote-guide-lan">
+            <summary className="flex cursor-pointer select-none flex-col gap-1 text-[12px] font-medium text-text-secondary">
+              <span>{t("remote.guide.lan.title")}</span>
+              <span className="mono break-all text-[11px] font-normal text-text-tertiary">
+                {lanUrls[0] ?? t("remote.guide.lan.addressPending")}
+              </span>
+            </summary>
+            <div className="mt-3 border-t border-border pt-3">
+              <div className="mb-2 text-[12px] text-text-tertiary">{t("remote.guide.addressLabel")}</div>
+              {lanUrls.length > 0 ? (
+                <div className="space-y-1.5" data-testid="remote-guide-lan-address">
+                  {lanUrls.map((url) => (
+                    <CopyRow key={url} text={url} />
+                  ))}
+                </div>
+              ) : (
+                <div className="mono text-[12px] text-text-tertiary" data-testid="remote-guide-lan-address">
+                  {t("remote.guide.lan.addressPending")}
+                </div>
+              )}
+              <ol className="mt-3 list-decimal space-y-1.5 pl-5 text-[12px] leading-5 text-text-tertiary">
+                <li>{t("remote.guide.lan.enable")}</li>
+                <li>{t("remote.guide.lan.open")}</li>
+                <li>{t("remote.guide.lan.pair")}</li>
+              </ol>
+              <p className="mt-2 text-[12px] leading-5 text-text-tertiary">{t("remote.guide.lan.note")}</p>
+            </div>
+          </details>
+          <details className="rounded-lg border border-border px-3 py-2" data-testid="remote-guide-public">
+            <summary className="flex cursor-pointer select-none flex-col gap-1 text-[12px] font-medium text-text-secondary">
+              <span>{t("remote.guide.public.title")}</span>
+              <span className="mono break-all text-[11px] font-normal text-text-tertiary">{OFFICIAL_MOBILE_URL}</span>
+            </summary>
+            <div className="mt-3 border-t border-border pt-3">
+              <div className="mb-2 text-[12px] text-text-tertiary">{t("remote.guide.addressLabel")}</div>
+              <div data-testid="remote-guide-public-address">
+                <CopyRow text={OFFICIAL_MOBILE_URL} />
+              </div>
+              <ol className="mt-3 list-decimal space-y-1.5 pl-5 text-[12px] leading-5 text-text-tertiary">
+                <li>{t("remote.guide.public.enable")}</li>
+                <li>{t("remote.guide.public.open")}</li>
+                <li>{t("remote.guide.public.pair")}</li>
+              </ol>
+              <p className="mt-2 text-[12px] leading-5 text-text-tertiary">{t("remote.guide.public.note")}</p>
+            </div>
+          </details>
+        </div>
         <a
           href={REMOTE_GUIDE_URLS[getLocale()]}
           target="_blank"
           rel="noopener noreferrer"
           data-testid="remote-full-guide"
-          className="mt-2 inline-flex items-center gap-1.5 text-[12px] font-medium text-accent hover:text-accent-dim"
+          className="mt-3 inline-flex items-center gap-1.5 text-[12px] font-medium text-accent hover:text-accent-dim"
         >
           {t("remote.phoneGuide.link")}
           <Icon name="link" size={13} />
@@ -290,11 +339,11 @@ export function RemotePage() {
           {/* 监听地址 */}
           <SectionTitle>{t("remote.addresses")}</SectionTitle>
           <div className="rounded-xl border border-border bg-bg-elevated px-4 py-3" data-testid="remote-urls">
-            {status.urls.length === 0 ? (
+            {lanUrls.length === 0 ? (
               <div className="text-[13px] text-text-tertiary">{t("remote.loadingAddresses")}</div>
             ) : (
               <div className="space-y-1.5">
-                {status.urls.map((url) => (
+                {lanUrls.map((url) => (
                   <CopyRow key={url} text={url} />
                 ))}
               </div>

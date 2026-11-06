@@ -212,6 +212,16 @@ test.describe("Spcode 冒烟 E2E", () => {
     await window.getByRole("button", { name: "远程控制" }).click();
     await expect(window.getByRole("heading", { name: "远程控制" })).toBeVisible();
 
+    // 两种网络环境各有独立折叠流程与地址；公网流程不要求先加入局域网
+    const lanGuide = window.getByTestId("remote-guide-lan");
+    const publicGuide = window.getByTestId("remote-guide-public");
+    await lanGuide.locator("summary").click();
+    await expect(window.getByTestId("remote-guide-lan-address")).toContainText("http://");
+    await publicGuide.locator("summary").click();
+    await expect(window.getByTestId("remote-guide-public-address")).toContainText("https://spcod-relay.hlt.cab/");
+    await publicGuide.locator("summary").click();
+    await expect(publicGuide).not.toHaveAttribute("open", "");
+
     // 默认关闭：功能简介可见，开关可点（锚定 role/aria-label 与 data-testid）
     const toggle = window.getByRole("switch", { name: "启用远程控制" });
     await expect(toggle).toBeVisible();
@@ -221,6 +231,8 @@ test.describe("Spcode 冒烟 E2E", () => {
     await toggle.click();
     await expect(window.getByTestId("remote-urls")).toBeVisible({ timeout: 10000 });
     await expect(window.getByTestId("remote-pairing")).toBeVisible();
+    await expect(window.getByTestId("remote-guide-lan-address")).toContainText(/http:\/\/\d+/);
+    await expect(window.getByTestId("remote-guide-lan-address")).not.toContainText("relay+");
 
     // 生成配对码：出现 QR 与 8 位 OTP（开启时可能已自动生成，按钮文案两种都匹配）
     await window.getByRole("button", { name: /配对码/ }).click();

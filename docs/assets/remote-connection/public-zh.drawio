@@ -11,7 +11,7 @@
         <mxCell id="3" value="手机与电脑分别主动连接同一个 relay，无需公网 IP 或路由器端口映射" style="text;html=1;whiteSpace=wrap;align=left;verticalAlign=middle;fontSize=17;fontColor=#6B7280;fontFamily=Helvetica;" vertex="1" parent="1">
           <mxGeometry x="60" y="85" width="1280" height="35" as="geometry" />
         </mxCell>
-        <mxCell id="4" value="&lt;div style=&quot;font-size:18px&quot;&gt;&lt;b&gt;PWA 静态页面来源&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:14px;color:#725A32;margin-top:7px&quot;&gt;桌面局域网地址&lt;br&gt;或自行托管的 HTTPS 入口&lt;/div&gt;" style="rounded=1;arcSize=3;whiteSpace=wrap;html=1;fillColor=#FBF2E5;strokeColor=#C5A477;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=10;" vertex="1" parent="1">
+        <mxCell id="4" value="&lt;div style=&quot;font-size:18px&quot;&gt;&lt;b&gt;PWA 静态页面来源&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:14px;color:#725A32;margin-top:7px&quot;&gt;官方 HTTPS PWA&lt;br&gt;或自托管 HTTPS 入口&lt;/div&gt;" style="rounded=1;arcSize=3;whiteSpace=wrap;html=1;fillColor=#FBF2E5;strokeColor=#C5A477;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=10;" vertex="1" parent="1">
           <mxGeometry x="60" y="155" width="300" height="115" as="geometry" />
         </mxCell>
         <mxCell id="5" value="&lt;div style=&quot;font-size:23px&quot;&gt;&lt;b&gt;手机 PWA&lt;/b&gt;&lt;/div&gt;&lt;div style=&quot;font-size:15px;color:#526172;margin-top:8px&quot;&gt;蜂窝网络 / 其他 Wi-Fi&lt;br&gt;持有设备密钥与配对记录&lt;/div&gt;" style="rounded=1;arcSize=3;whiteSpace=wrap;html=1;fillColor=#EAF1F8;strokeColor=#426580;strokeWidth=1.5;fontColor=#202124;fontFamily=Helvetica;align=center;verticalAlign=middle;spacing=12;" vertex="1" parent="1">

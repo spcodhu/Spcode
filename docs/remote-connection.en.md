@@ -37,6 +37,10 @@ In every mode, Spcod must remain running and online on the desktop. A relay does
 
 LAN mode does not connect to a public relay. The phone accesses an address provided directly by the desktop, making it suitable for a shared home or office network.
 
+### How it works: the desktop serves both the page and direct channel
+
+The desktop uses one port for two capabilities: HTTP serves the static mobile PWA, while the `/ws` WebSocket endpoint carries pairing and business messages. The pairing code contains the desktop public key, available addresses, and a one-time OTP. The phone generates its own key pair during pairing, and subsequent business messages are end-to-end encrypted between the two devices. No public server participates in this workflow.
+
 ### 1. Put the phone and desktop on the same LAN
 
 Connect the phone to the same Wi-Fi or LAN as the desktop. Guest Wi-Fi, enterprise client isolation, and router AP isolation can block device-to-device access. Use a public relay if those restrictions cannot be changed.
@@ -97,18 +101,15 @@ Do not send only the 8-digit OTP to the phone. Manual pairing requires the compl
 
 In public mode, both the desktop and phone make outbound connections to the same relay. Neither the desktop nor the phone needs a public IP address or router port forwarding. The pairing payload contains available LAN addresses and the relay channel; the phone prefers direct connections and falls back to the relay.
 
-### Understand the difference between the PWA and relay
+### How it works: public PWA hosting and the encrypted relay have separate roles
 
-- **The PWA is the mobile interface and encryption client**. It must be loaded from an HTTP/HTTPS address.
-- **The relay forwards encrypted traffic**. It is not the desktop and does not automatically provide the mobile application.
-
-> **Current limitation: the official `spcod-relay.hlt.cab` instance runs only the relay and does not host the mobile PWA.** Opening `https://spcod-relay.hlt.cab/` or `/app/` currently displays a “does not host the mobile PWA” notice rather than a pairing page.
->
-> With the official relay, the simplest current path is to load the desktop-hosted PWA over LAN and pair while the payload includes the relay channel. To open the PWA for the first time while away from the LAN, or reopen it reliably after closing it, host an HTTPS PWA entry point as described below and pair through that entry point.
+- **The public PWA address**, `https://spcod-relay.hlt.cab/`, loads the pairing page and encryption client directly on the phone. It is not the desktop address and does not require the phone to join the LAN first.
+- **The relay address**, `wss://spcod-relay.hlt.cab`, forwards ciphertext. The desktop and phone each make an outbound connection to the same relay channel, so the desktop needs neither a public IP nor router port forwarding.
+- **The pairing code** contains the desktop public key, a one-time OTP, and a `relay+wss://…` channel. The phone generates its own key pair and protects the pairing request with an OTP-derived key; the plaintext OTP does not pass through the relay. After pairing, both devices save the device identity and use X25519 with NaCl box for end-to-end encrypted business traffic.
 
 ### Option A: Use the official relay without deploying a server
 
-The official relay is `wss://spcod-relay.hlt.cab`. No account or access key is required.
+The official PWA is `https://spcod-relay.hlt.cab/` and the official relay is `wss://spcod-relay.hlt.cab`. No account or access key is required.
 
 #### 1. Enable the official relay on the desktop
 
@@ -119,32 +120,31 @@ The official relay is `wss://spcod-relay.hlt.cab`. No account or access key is r
 
 New installations default to the official relay. An older installation configured as **LAN only** retains that setting after an upgrade, so switch it to **Official relay** manually. At the same mobile origin, an old official pairing without an access key migrates automatically to the current official address during a cold start, without another QR scan.
 
-#### 2. Open the mobile PWA
+#### 2. Open the public PWA directly on the phone
 
-Choose according to whether you already have a public PWA entry point:
+The phone can use cellular data or another Wi-Fi network; it does not need to share the desktop's network. Open this address directly in its browser:
 
-- **No public PWA entry point (the current official-relay path)**: first connect the phone and desktop to the same LAN. Open a desktop **Listening address** on the phone and wait for the PWA to load, then pair. Keep the page open when leaving the LAN. Without another HTTPS PWA entry point, do not expect the original LAN URL to reopen over a public network.
-- **Your own hosted HTTPS PWA**: open that address directly. Static PWA hosting and relay forwarding can be deployed separately, but a self-hosted relay may require the PWA origin in its allowlist; see option B.
+```text
+https://spcod-relay.hlt.cab/
+```
 
-#### 3. Pair with the public channel included
+The **Connect to Spcod on desktop** pairing page should appear. This public address distributes only the static mobile client. Hosting the PWA does not turn your session content into plaintext.
+
+#### 3. Pair directly in the public PWA
 
 1. Keep the desktop at **Official relay → Connected**.
 2. Generate a pairing code under **Pair a new device**.
-3. Scan it on the phone, or paste the full payload and tap **Connect with pairing code**.
-4. Wait for the session list to appear and verify that the phone is listed as a paired desktop device.
+3. Tap **Scan to pair** on the phone and scan the desktop QR code. If the camera is unavailable, click **Copy full pairing code** on the desktop, transfer the entire `spcode-remote://pair?…` value through a trusted channel, paste it on the phone, and tap **Connect with pairing code**.
+4. Wait for the session list to appear and verify that the phone appears under **Paired devices** on the desktop.
 
-The payload now contains both LAN addresses and `relay+wss://spcod-relay.hlt.cab`. Even if the initial pairing runs over LAN, the saved payload allows later relay reconnection as long as it was generated in official-relay mode.
+The entire pairing exchange can run over the public relay. **There is no need to join the LAN first or switch networks after pairing.**
 
-#### 4. Verify the public connection
+#### 4. Verify and reconnect later
 
 1. Keep the desktop and Spcod running, with the relay state **Connected**.
-2. Switch the phone from Wi-Fi to cellular data or another network.
-3. In the already loaded PWA, wait for automatic reconnection and verify that the session list refreshes or an existing session opens.
-4. If the page was closed and its only entry point was the desktop's LAN HTTP address, return to the LAN to reopen it or configure a public HTTPS PWA. This is a PWA hosting issue, not a lost relay pairing.
-
-#### 5. Change relays later
-
-In a paired PWA, open **Settings → Relay server** and choose **Official / Self-hosted / LAN only**. Saving rebuilds the connection without actively unpairing the device; the device identity and existing page data are retained.
+2. Refresh the session list or open an existing session in the public PWA.
+3. After closing the page, reopen `https://spcod-relay.hlt.cab/` in the same browser. The saved device identity authenticates automatically without another pairing.
+4. In a paired PWA, open **Settings → Relay server** and choose **Official / Self-hosted / LAN only**. Saving rebuilds the connection without actively unpairing the device; the device identity and existing page data are retained.
 
 ### Option B: Use a self-hosted relay
 
@@ -182,16 +182,22 @@ See the [spcod-relay deployment guide](https://github.com/spcodhu/spcod-relay/bl
 
 > A self-hosted pairing payload includes the relay access key. If the desktop warns that the QR code contains this key, do not share the QR code, screenshots, or full payload in group chats or public channels.
 
-#### 3. Pair a phone or change an existing pairing
+#### 3. Open the public PWA and pair, or change an existing pairing
 
-- **New device**: generate the payload while the desktop is connected to the self-hosted relay, then scan or paste it on the phone. The relay URL and access key are included automatically.
+- **New device**: first open `https://spcod-relay.hlt.cab/` or your own HTTPS PWA on the phone. Generate the payload while the desktop is connected to the self-hosted relay, then scan or paste it on the phone. The relay URL and access key are included automatically.
 - **Existing paired device**: open **Settings → Relay server → Self-hosted** in the mobile PWA. Enter the same `wss://` URL and access key, then tap **Test connection** and **Save**. This does not unpair the device.
 
-The desktop and phone must use the same relay instance. A different URL, access key, or origin allowlist will prevent the connection.
+The desktop and phone must use the same relay instance. A different URL, access key, or origin allowlist will prevent the connection. When using the official PWA with your self-hosted relay, add the complete official PWA origin to `deploy/relay.env` on your server:
 
-#### 4. Host the PWA for first-time or repeated public access
+```dotenv
+CORS_ALLOWED_ORIGINS=https://spcod-relay.hlt.cab
+```
 
-To remove the requirement to load the desktop PWA over LAN first, host the mobile static application separately. The simplest option is to serve it from the same origin as your relay:
+Run `./deploy.sh` again after changing this setting.
+
+#### 4. Optional: self-host the mobile PWA as well
+
+If you want your own domain to serve the mobile page too, the simplest option is to serve it from the same origin as your relay:
 
 1. Build the mobile client from the Spcod harness source directory:
 
@@ -234,7 +240,7 @@ Do not use a path or wildcard. Changing the PWA domain creates a new origin. Exi
 | Pairing is locked | The failure limit was reached. Wait for the 10-minute lockout to end, then generate a new payload and pair again. |
 | The phone says the desktop is too old | Upgrade desktop Spcod and reconnect; do not clear the pairing first. |
 | Public access fails but Wi-Fi works | Check that the desktop relay is connected, the saved payload includes a relay channel, and the phone is not set to **LAN only** mode. |
-| The page cannot reopen after being closed off-LAN | The original address may only be the desktop-hosted LAN PWA. Use a publicly accessible HTTPS PWA; the official relay does not currently host it. |
+| The page cannot reopen after being closed off-LAN | Reopen the same public HTTPS PWA address in the same browser. If it displays a “does not host the mobile PWA” notice, static hosting has not been deployed on that instance; this is not a pairing-code problem. |
 | Offline messages disappear after a relay restart | The relay queue is memory-only and is cleared on restart. Clients reconcile through authoritative snapshots and backfill after reconnecting, but the relay is not a persistent message database. |
 
 ## Security and privacy boundaries
