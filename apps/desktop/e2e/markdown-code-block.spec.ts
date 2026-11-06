@@ -56,7 +56,7 @@ function seed(home: string): void {
   );
 }
 
-test("代码块复制按钮与语言标签在标题栏内垂直居中", async ({}, testInfo) => {
+test("代码块复制按钮与语言标签在标题栏内垂直居中", async () => {
   const app = await launchApp({ seed });
   const window = await app.firstWindow();
   await window.setViewportSize({ width: 1280, height: 840 });
@@ -65,7 +65,7 @@ test("代码块复制按钮与语言标签在标题栏内垂直居中", async ({
   const codeBlock = window.locator('[data-streamdown="code-block"]');
   const copyButton = window.locator('[data-streamdown="code-block-copy-button"]');
   await expect(copyButton).toBeVisible({ timeout: 15000 });
-  await codeBlock.screenshot({ path: testInfo.outputPath("code-block.png") });
+  await codeBlock.screenshot({ path: test.info().outputPath("code-block.png") });
 
   const label = window.locator('[data-streamdown="code-block-header"] span');
   const labelBox = await label.boundingBox();
