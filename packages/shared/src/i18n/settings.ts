@@ -284,7 +284,7 @@ export const zhCN = {
   "quota.resetTime": "额度重置时间",
   "remote.unpairConfirm": "确定解除与「{{name}}」的配对吗？该设备将无法再连接本机。",
   "remote.unbindConfirm": "确定解绑飞书用户「{{name}}」吗？该用户将无法再通过机器人控制本机。",
-  "remote.description": "用手机浏览器配对后，可在局域网内远程查看会话、批准权限请求",
+  "remote.description": "用手机查看会话、回复提问和批准权限请求，支持局域网直连与公网中继",
   "remote.enable": "启用远程控制",
   "remote.listening": "本机正在监听局域网连接",
   "remote.enableDescription": "开启后，用手机浏览器打开监听地址并完成配对",
@@ -297,16 +297,9 @@ export const zhCN = {
   "remote.pwaDevMissingDescription":
     "开发环境请在项目根目录执行 pnpm --filter @spcode/mobile build，然后重启远程控制。",
   "remote.pwaPackagedMissingDescription": "安装包资源缺失或损坏，请重新安装完整的 Spcod 安装包。",
-  "remote.phoneGuide": "手机连接教程（无需安装 App）",
-  "remote.phoneGuide.enable": "在电脑上启用远程控制。",
-  "remote.phoneGuide.network": "让 iPhone、Android 等手机与电脑连接同一局域网。",
-  "remote.phoneGuide.browser": "用手机浏览器打开下方监听地址，进入 Spcod PWA。",
-  "remote.phoneGuide.pair": "生成配对码后扫码；摄像头不可用时，复制完整配对码到手机粘贴。",
-  "remote.phoneGuide.control": "配对成功后即可查看会话、发送指令、回复提问和处理权限请求。",
-  "remote.phoneGuide.httpNote":
-    "普通局域网 HTTP 可完成基本远程控制；摄像头、Web Push 和添加到主屏幕等能力可能受浏览器与安全上下文限制。",
-  "remote.phoneGuide.persistence":
-    "同一浏览器、同一地址与端口且未清除站点数据时，配对可长期复用；更换 origin、浏览器或清除站点数据后需重新配对。",
+  "remote.phoneGuide": "手机连接说明（无需安装 App）",
+  "remote.phoneGuide.summary": "同一局域网可直连；跨网络可用官方或自托管中继。手机扫码或粘贴完整配对码即可配对。",
+  "remote.phoneGuide.link": "在 GitHub 查看完整教程",
   "remote.addresses": "监听地址",
   "remote.loadingAddresses": "监听地址获取中…",
   "remote.sameNetwork": "手机需与电脑连接同一局域网",
@@ -801,7 +794,7 @@ export const en = {
   "remote.unbindConfirm":
     "Unbind Feishu user “{{name}}”? They will no longer be able to control this computer through the bot.",
   "remote.description":
-    "Pair in a phone browser to view sessions and approve permission requests over your local network",
+    "View sessions, answer questions, and approve permission requests from your phone over LAN or a public relay",
   "remote.enable": "Enable remote control",
   "remote.listening": "Listening for local network connections",
   "remote.enableDescription": "Enable, then open the listening address in a phone browser to pair",
@@ -817,17 +810,9 @@ export const en = {
   "remote.pwaPackagedMissingDescription":
     "The installation resource is missing or damaged. Reinstall the complete Spcod package.",
   "remote.phoneGuide": "Phone connection guide (no app installation needed)",
-  "remote.phoneGuide.enable": "Enable Remote Control on this computer.",
-  "remote.phoneGuide.network": "Connect your iPhone, Android phone, or other phone to the same local network.",
-  "remote.phoneGuide.browser": "Open a listening address below in the phone browser to load the Spcod PWA.",
-  "remote.phoneGuide.pair":
-    "Generate a pairing code and scan it. If the camera is unavailable, copy the full pairing code and paste it on your phone.",
-  "remote.phoneGuide.control":
-    "Once paired, view sessions, send prompts, answer questions, and handle permission requests.",
-  "remote.phoneGuide.httpNote":
-    "Basic remote control works over local HTTP. Camera access, Web Push, and home-screen installation may depend on browser and secure-context support.",
-  "remote.phoneGuide.persistence":
-    "Pairing persists in the same browser at the same address and port unless site data is cleared. A different origin or browser, or cleared site data, requires pairing again.",
+  "remote.phoneGuide.summary":
+    "Connect directly on the same LAN or through an official or self-hosted relay across networks. Pair by scanning or pasting the full pairing code.",
+  "remote.phoneGuide.link": "View the full guide on GitHub",
   "remote.addresses": "Listening addresses",
   "remote.loadingAddresses": "Getting listening addresses…",
   "remote.sameNetwork": "Your phone and computer must be on the same local network",

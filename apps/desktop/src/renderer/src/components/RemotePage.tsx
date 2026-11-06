@@ -24,6 +24,11 @@ import { useStore } from "../store";
 import { Icon } from "./Icon";
 import { Switch } from "./ui/Switch";
 
+const REMOTE_GUIDE_URLS = {
+  "zh-CN": "https://github.com/spcodhu/Spcode/blob/master/docs/remote-connection.md",
+  en: "https://github.com/spcodhu/Spcode/blob/master/docs/remote-connection.en.md",
+} as const;
+
 export function RemotePage() {
   const { t } = useTranslation("settings");
   const [status, setStatus] = useState<RemoteStatus | null>(null);
@@ -217,25 +222,20 @@ export function RemotePage() {
         </div>
       )}
 
-      <details
-        className="mb-3 rounded-xl border border-border bg-bg-elevated px-4 py-3"
-        data-testid="remote-phone-guide"
-      >
-        <summary className="cursor-pointer select-none text-[13px] font-medium text-text-secondary">
-          {t("remote.phoneGuide")}
-        </summary>
-        <ol className="mt-3 list-decimal space-y-1.5 pl-5 text-[12px] leading-5 text-text-tertiary">
-          <li>{t("remote.phoneGuide.enable")}</li>
-          <li>{t("remote.phoneGuide.network")}</li>
-          <li>{t("remote.phoneGuide.browser")}</li>
-          <li>{t("remote.phoneGuide.pair")}</li>
-          <li>{t("remote.phoneGuide.control")}</li>
-        </ol>
-        <p className="mt-3 border-t border-border pt-3 text-[12px] leading-5 text-text-tertiary">
-          {t("remote.phoneGuide.httpNote")}
-        </p>
-        <p className="mt-2 text-[12px] leading-5 text-text-tertiary">{t("remote.phoneGuide.persistence")}</p>
-      </details>
+      <div className="mb-3 rounded-xl border border-border bg-bg-elevated px-4 py-3" data-testid="remote-phone-guide">
+        <div className="text-[13px] font-medium text-text-secondary">{t("remote.phoneGuide")}</div>
+        <p className="mt-2 text-[12px] leading-5 text-text-tertiary">{t("remote.phoneGuide.summary")}</p>
+        <a
+          href={REMOTE_GUIDE_URLS[getLocale()]}
+          target="_blank"
+          rel="noopener noreferrer"
+          data-testid="remote-full-guide"
+          className="mt-2 inline-flex items-center gap-1.5 text-[12px] font-medium text-accent hover:text-accent-dim"
+        >
+          {t("remote.phoneGuide.link")}
+          <Icon name="link" size={13} />
+        </a>
+      </div>
 
       {/* 总开关 */}
       <div className="flex items-center justify-between rounded-xl border border-border bg-bg-elevated px-4 py-3">

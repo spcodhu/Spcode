@@ -12,6 +12,30 @@ async function chooseLanguage(page: Page, locale: "zh-CN" | "en") {
   await expect(page.locator("html")).toHaveAttribute("lang", locale);
 }
 
+for (const locale of ["zh-CN", "en"] as const) {
+  test(`remote connection guide opens the ${locale} GitHub document`, async () => {
+    const app = await launchApp({
+      seed: (home) => writeFileSync(join(home, "settings.json"), JSON.stringify({ locale })),
+    });
+    try {
+      const page = await app.firstWindow();
+      await expect(page.getByTestId("brand")).toBeVisible({ timeout: 15000 });
+      await page.keyboard.press("Meta+Comma");
+      await page.getByTestId("settings-nav-remote").click();
+      const guide = page.getByTestId("remote-full-guide");
+      await expect(guide).toBeVisible();
+      await expect(guide).toHaveAttribute(
+        "href",
+        `https://github.com/spcodhu/Spcode/blob/master/docs/remote-connection${locale === "en" ? ".en" : ""}.md`,
+      );
+      await expect(guide).toHaveAttribute("target", "_blank");
+      await expect(guide).toHaveAttribute("rel", /noopener/);
+    } finally {
+      await app.close();
+    }
+  });
+}
+
 test("language selector updates all settings pages and survives restart", async () => {
   const home = mkdtempSync(join(tmpdir(), "spcode-locale-e2e-"));
   let app = await launchApp({ spcodeHome: home });
