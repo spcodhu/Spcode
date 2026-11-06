@@ -18,6 +18,7 @@ import { createBeforeToolCallGate } from "../permission-gate.js";
 import { createSandboxedBashTool } from "../sandbox/bash-tool.js";
 import { createGuardedFsTools, type FsGuardPolicy } from "../sandbox/fs-guard.js";
 import { getSandboxService } from "../sandbox/manager.js";
+import { createManagedPowerShellTool } from "../sandbox/powershell-tool.js";
 import type { SessionToolEnvironment } from "../tool-environment.js";
 import { createSessionToolEnvironment } from "../tool-environment.js";
 
@@ -101,6 +102,9 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
           environment: toolEnvironment,
           getSettings: ctx.getSandboxSettings,
         }),
+        ...(process.platform === "win32"
+          ? [createManagedPowerShellTool(ctx.cwd, { environment: toolEnvironment })]
+          : []),
         ...createGuardedFsTools(ctx.cwd, getFsPolicy, toolEnvironment.path),
         // 子会话深度 +1；达到上限后子会话不再拿到 Task（评审 P2-5：让条件与头注释同口径）
         ...(ctx.depth + 1 < MAX_TASK_DEPTH ? [createTaskTool({ ...ctx, depth: ctx.depth + 1 })] : []),

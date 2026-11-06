@@ -31,6 +31,7 @@ import type { SandboxSettings } from "@spcode/shared";
 import { Type } from "typebox";
 import type { SessionToolEnvironment } from "../tool-environment.js";
 import { getSandboxService, type SandboxViolation } from "./manager.js";
+import { effectiveShellTimeout, SHELL_TIMEOUT_DESCRIPTION_NOTE, shellTimeoutField } from "./shell-contract.js";
 
 const SANDBOX_DESCRIPTION_NOTE =
   " When the command sandbox is enabled in Spcode settings, commands run inside an OS-enforced sandbox: writes are restricted to the working directory and system temp dirs, sensitive paths (~/.ssh, app credentials) are unreadable, and network access is limited to an allowlist of domains. When it is disabled or unavailable, commands run locally with the same environment. If a command fails with EPERM / 'Operation not permitted' / 'Could not resolve host', it was blocked by the sandbox — do not retry blindly; report the restriction to the user.";
@@ -84,14 +85,14 @@ const riskProperty = {
 
 const plainBashSchema = Type.Object({
   command: Type.String({ description: "Shell command to execute" }),
-  timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (optional, no default timeout)" })),
+  timeout: shellTimeoutField,
   ...riskProperty,
 });
 
 /** 逃生舱开放时的扩展 schema（bypass 参数描述即模型的使用契约） */
 const sandboxedBashSchema = Type.Object({
   command: Type.String({ description: "Shell command to execute" }),
-  timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (optional, no default timeout)" })),
+  timeout: shellTimeoutField,
   dangerouslyDisableSandbox: Type.Optional(
     Type.Boolean({
       description:
@@ -115,6 +116,8 @@ export function matchesExcludedCommand(command: string, rule: string): boolean {
 }
 
 export interface SandboxedBashToolOptions {
+  /** 测试或嵌入方自定义本地执行后端；缺省保持 pi 原生执行。 */
+  localOperations?: BashOperations;
   /** 每次新建会话/Task 时生成的统一环境 */
   environment?: SessionToolEnvironment;
   /** 是否暴露 dangerouslyDisableSandbox 逃生舱参数（子代理必须 false） */
@@ -128,7 +131,7 @@ export interface SandboxedBashToolOptions {
 export function createSandboxedBashTool(cwd: string, opts: SandboxedBashToolOptions): ToolDefinition {
   const allowBypass = opts.allowBypass;
   const sandbox = getSandboxService();
-  const local = createLocalBashOperations();
+  const local = opts.localOperations ?? createLocalBashOperations();
   const getSettings = () => opts.getSettings?.() ?? sandbox.settingsSnapshot();
 
   const sandboxedOps: BashOperations = {
@@ -176,14 +179,18 @@ export function createSandboxedBashTool(cwd: string, opts: SandboxedBashToolOpti
     spawnHook: opts.environment?.spawnHook,
   });
   // 本地执行路径：沙盒关闭/不可用时使用；逃生舱仅在 active 且 allowBypass 时由网关批准后使用。
-  const localDef = createBashToolDefinition(cwd, { spawnHook: opts.environment?.spawnHook });
+  const localDef = createBashToolDefinition(cwd, { spawnHook: opts.environment?.spawnHook, operations: local });
 
   // 泛型方差：createBashToolDefinition 返回的是参数特化的 ToolDefinition，
   // 与注册表要求的通用 ToolDefinition 不直接相容，这里断言收窄（运行时结构一致）
   return {
     ...sandboxedDef,
     executionMode: "parallel",
-    description: sandboxedDef.description + SANDBOX_DESCRIPTION_NOTE + (allowBypass ? BYPASS_DESCRIPTION_NOTE : ""),
+    description:
+      sandboxedDef.description +
+      SHELL_TIMEOUT_DESCRIPTION_NOTE +
+      SANDBOX_DESCRIPTION_NOTE +
+      (allowBypass ? BYPASS_DESCRIPTION_NOTE : ""),
     promptGuidelines: [
       ...(sandboxedDef.promptGuidelines ?? []),
       PARALLEL_GUIDELINE,
@@ -198,7 +205,7 @@ export function createSandboxedBashTool(cwd: string, opts: SandboxedBashToolOpti
       ctx: never,
     ) => {
       const p = params as { command: string; timeout?: number; dangerouslyDisableSandbox?: boolean };
-      const localParams = { command: p.command, timeout: p.timeout };
+      const localParams = { command: p.command, timeout: effectiveShellTimeout(p.timeout) };
       // 每次调用都读取最新开关与状态；活跃会话无需重建工具或重开会话。
       if (!getSettings().enabled) {
         return localDef.execute(toolCallId, localParams, signal, onUpdate, ctx);
