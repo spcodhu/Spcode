@@ -77,6 +77,31 @@ describe("RemoteEventAggregator", () => {
     expect(s.events[1]).toMatchObject({ chunk: "思考", kind: "thinking", seq: 1 });
   });
 
+  it("用户 message_end 先冲刷助手缓冲，再以完整 user chunk 进入同一 seq 序列", () => {
+    const s = setup();
+    agg = s.agg;
+    s.agg.handle(textDelta("上一条回答"));
+    s.agg.handle({
+      type: "session.event",
+      sessionId: "s1",
+      event: {
+        type: "message_end",
+        message: {
+          role: "user",
+          content: [
+            { type: "text", text: "来自手机的提示词" },
+            { type: "image", data: "不传输" },
+          ],
+          timestamp: 123,
+        },
+      },
+    });
+    expect(s.events).toEqual([
+      { type: "session.output", sessionId: "s1", chunk: "上一条回答", kind: "text", seq: 0 },
+      { type: "session.output", sessionId: "s1", chunk: "来自手机的提示词", kind: "user", seq: 1 },
+    ]);
+  });
+
   it("agent_start / agent_settled 映射为 session.status，并先冲刷挂起文本", async () => {
     const s = setup();
     agg = s.agg;

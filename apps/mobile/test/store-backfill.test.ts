@@ -28,6 +28,38 @@ describe("appendOutput / mergeBackfill", () => {
     expect(getOutputMaxSeq(S)).toBe(1);
   });
 
+  it("用户提示词保持独立气泡，实时/backfill/历史高水位不会重复或合并", () => {
+    const s = useAppStore.getState();
+    s.appendOutput(S, "第一条手机提示词", "user", 0);
+    s.appendOutput(S, "助手回答", "text", 1);
+    s.appendOutput(S, "第二条手机提示词", "user", 2);
+    s.appendOutput(S, "第三条手机提示词", "user", 3);
+    expect(useAppStore.getState().outputs[S]?.map((c) => [c.kind, c.chunk])).toEqual([
+      ["user", "第一条手机提示词"],
+      ["text", "助手回答"],
+      ["user", "第二条手机提示词"],
+      ["user", "第三条手机提示词"],
+    ]);
+
+    s.mergeBackfill(S, [{ seq: 2, kind: "user", chunk: "第二条手机提示词" }]);
+    expect(useAppStore.getState().outputs[S]).toHaveLength(4);
+    s.replaceHistory(S, {
+      chunks: [
+        { kind: "user", chunk: "第一条手机提示词" },
+        { kind: "text", chunk: "助手回答" },
+        { kind: "user", chunk: "第二条手机提示词" },
+      ],
+      olderBefore: null,
+      outputSeq: 2,
+    });
+    expect(useAppStore.getState().outputs[S]?.map((c) => [c.kind, c.chunk])).toEqual([
+      ["user", "第一条手机提示词"],
+      ["text", "助手回答"],
+      ["user", "第二条手机提示词"],
+      ["user", "第三条手机提示词"],
+    ]);
+  });
+
   it("seq 跳号插缺口标记；backfill 补齐后标记消除", () => {
     const s = useAppStore.getState();
     s.appendOutput(S, "A", "text", 0);

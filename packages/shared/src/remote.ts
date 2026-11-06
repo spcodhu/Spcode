@@ -82,8 +82,8 @@ export type RemoteEvent =
       pendingQuestions: QuestionRequest[];
     }
   | { type: "session.status"; sessionId: string; status: RemoteSessionStatus }
-  /** 节流聚合（约 400ms 窗口）后的输出增量；seq 每会话单调递增 */
-  | { type: "session.output"; sessionId: string; chunk: string; seq: number; kind?: "text" | "thinking" }
+  /** 节流聚合（约 400ms）后的助手输出，或按完整消息即时下发的用户输入；seq 共用同一单调序列 */
+  | { type: "session.output"; sessionId: string; chunk: string; seq: number; kind?: "user" | "text" | "thinking" }
   | { type: "session.todo"; sessionId: string; todos: TodoItem[] }
   | { type: "session.usage"; sessionId: string; usage: UsageRecord }
   | { type: "session.renamed"; sessionId: string; title: string }
@@ -241,10 +241,10 @@ export interface RemoteHistoryPage {
   outputSeq: number;
 }
 
-/** 断线补拉的输出 chunk（session.output 的持久化形态） */
+/** 断线补拉的输出 chunk（session.output 的缓冲形态；user 为完整提示词，text/thinking 为助手增量） */
 export interface RemoteOutputChunk {
   seq: number;
-  kind: "text" | "thinking";
+  kind: "user" | "text" | "thinking";
   chunk: string;
 }
 

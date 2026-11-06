@@ -438,6 +438,52 @@ describe("PWA ↔ 真实桌面 RemoteServer 全链路", () => {
 // ---------------------------------------------------------------------------
 
 describe("断线补拉：session.output.since ↔ session.output.backfill", () => {
+  it("手机提示词以 user 类型实时到达，离线期间的后继提示词也可补拉", async () => {
+    const record = await pairWithQr(localQrPayload(), "用户历史补拉机");
+    const mobile = new MobileTestClient(record);
+    const sessionId = "mobile-user-history";
+    const emitUser = (text: string) => {
+      for (const listener of bridgeListeners) {
+        listener({
+          type: "session.event",
+          sessionId,
+          event: {
+            type: "message_end",
+            message: { role: "user", content: [{ type: "text", text }], timestamp: Date.now() },
+          },
+        });
+      }
+    };
+    mobile.start();
+    try {
+      await mobile.waitState("ready");
+      emitUser("第一条手机提示词");
+      const live = await mobile.waitEvent(
+        (e) => e.type === "session.output" && e.sessionId === sessionId && e.kind === "user",
+      );
+      expect(live).toMatchObject({ type: "session.output", chunk: "第一条手机提示词", kind: "user", seq: 0 });
+    } finally {
+      mobile.stop();
+    }
+
+    emitUser("离线时的第二条手机提示词");
+    const reconnected = new MobileTestClient(record);
+    reconnected.start();
+    try {
+      await reconnected.waitState("ready");
+      await reconnected.client.command({ type: "session.output.since", sessionId, afterSeq: 0 });
+      const backfill = await reconnected.waitEvent(
+        (e) => e.type === "session.output.backfill" && e.sessionId === sessionId,
+      );
+      expect(backfill).toMatchObject({
+        type: "session.output.backfill",
+        chunks: [{ seq: 1, kind: "user", chunk: "离线时的第二条手机提示词" }],
+      });
+    } finally {
+      reconnected.stop();
+    }
+  });
+
   it("离线期间的输出 chunk 可按 afterSeq 补拉（升序、只含 > afterSeq）", async () => {
     const record = await pairWithQr(localQrPayload(), "补拉测试机");
     const mobile = new MobileTestClient(record);

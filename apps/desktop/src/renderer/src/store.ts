@@ -81,6 +81,8 @@ export interface ChatMessage {
   /** 用户消息携带的文件附件元信息（MD 输入模式；内容已拼进发送文本，这里仅存展示信息） */
   files?: { name: string; size: number }[];
   streaming: boolean;
+  /** 桌面 Composer 的乐观消息：等待引擎 message_end(role=user) 对账，避免本地发送重复显示。 */
+  optimistic?: boolean;
   /**
    * 通知类消息的负载（role === "notice" 时存在）。
    * compaction：一次上下文压缩的分隔线（tokensBefore→tokensAfter，summary 可展开）。
@@ -627,6 +629,36 @@ export function applySessionEvent(session: SessionState, event: Record<string, u
         errorMessage?: string;
         timestamp?: number;
       };
+      if (msg.role === "user") {
+        const segments = contentToSegments(msg.content);
+        const text = segments
+          .filter((s): s is Extract<Segment, { kind: "text" }> => s.kind === "text")
+          .map((s) => s.text)
+          .join("\n\n");
+        let optimistic: ChatMessage | undefined;
+        for (let i = session.messages.length - 1; i >= 0; i--) {
+          const candidate = session.messages[i]!;
+          if (candidate.role === "user" && candidate.optimistic && messageText(candidate) === text) {
+            optimistic = candidate;
+            break;
+          }
+        }
+        if (optimistic) {
+          // 保留本地附件和稳定的消息 id，只认领引擎权威时间戳并清除乐观标记。
+          if (typeof msg.timestamp === "number") optimistic.timestamp = msg.timestamp;
+          delete optimistic.optimistic;
+        } else if (text) {
+          // 手机 / 飞书 / 定时任务等入口绕过 Composer，必须由引擎事件补齐 PC 历史。
+          session.messages.push({
+            id: nextMsgId(),
+            role: "user",
+            timestamp: msg.timestamp ?? Date.now(),
+            segments,
+            streaming: false,
+          });
+        }
+        break;
+      }
       if (msg.role === "assistant") {
         const cur = ensureStreamingMessage(session);
         if (typeof msg.timestamp === "number") cur.timestamp = msg.timestamp;
@@ -1320,6 +1352,7 @@ export const useStore = create<StoreState>((set, get) => ({
           ...(images?.length ? { images } : {}),
           ...(files?.length ? { files } : {}),
           streaming: false,
+          optimistic: true,
         });
         if (!running) {
           // 立即创建 assistant 流式占位：加载动画随点击发送同时出现，

@@ -1,8 +1,8 @@
 /**
  * 事件聚合器：bridge 的全量 HostEvent → 远程协议 RemoteEvent。
  *
- * - session.event（pi 原生流式事件，token 级）不原样透传：
- *   text_delta / thinking_delta 按 400ms 窗口聚合成 session.output（每会话单调 seq）；
+ * - session.event（pi 原生流式事件）按需转成远程输出：
+ *   text_delta / thinking_delta 按 400ms 窗口聚合；message_end(role=user) 以完整 user chunk 即时下发；
  *   agent_start / agent_settled 映射为 session.status（running / idle）。
  * - todo / usage / renamed / planmode 等结构化事件直接映射；
  *   permission.request / question.request 原样透传（含 risk 级别）；
@@ -11,6 +11,7 @@
  */
 
 import type { HostEvent, RemoteEvent } from "@spcode/shared";
+import { historyToRemoteChunks } from "@spcode/shared/remote-history";
 
 const DEFAULT_WINDOW_MS = 400;
 
@@ -109,6 +110,21 @@ export class RemoteEventAggregator {
       assistantMessageEvent?: { type?: string; delta?: string };
     } | null;
     if (!e || typeof e.type !== "string") return;
+    if (e.type === "message_end") {
+      const message = (e as { message?: unknown }).message;
+      if ((message as { role?: unknown } | null)?.role === "user") {
+        // 与历史读取共用文本提取；join("") 还原历史分页器的 8KB 安全切片，不产生额外换行。
+        const text = historyToRemoteChunks([message])
+          .filter((chunk) => chunk.kind === "user")
+          .map((chunk) => chunk.chunk)
+          .join("");
+        if (text) {
+          this.flush(sessionId);
+          this.emitChunk(sessionId, "user", text);
+        }
+      }
+      return;
+    }
     if (e.type === "message_update" && e.assistantMessageEvent) {
       const ame = e.assistantMessageEvent;
       if (ame.type === "text_delta" && ame.delta) this.append(sessionId, "text", ame.delta);
@@ -145,9 +161,14 @@ export class RemoteEventAggregator {
     if (!buf) return;
     clearTimeout(buf.timer);
     this.pending.delete(sessionId);
+    this.emitChunk(sessionId, buf.kind, buf.text);
+  }
+
+  /** 用户完整消息与助手增量共享同一 seq，确保实时、离线补拉和历史高水位能对齐。 */
+  private emitChunk(sessionId: string, kind: "user" | ChunkKind, text: string): void {
     const seq = this.seqs.get(sessionId) ?? 0;
     this.seqs.set(sessionId, seq + 1);
-    this.emit({ type: "session.output", sessionId, chunk: buf.text, kind: buf.kind, seq });
+    this.emit({ type: "session.output", sessionId, chunk: text, kind, seq });
   }
 
   flushAll(): void {

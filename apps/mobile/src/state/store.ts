@@ -103,7 +103,7 @@ interface AppState {
   ): void;
   patchSession(id: string, patch: Partial<SessionView>): void;
   removeSession(id: string): void;
-  appendOutput(sessionId: string, chunk: string, kind: "text" | "thinking", seq: number): void;
+  appendOutput(sessionId: string, chunk: string, kind: RemoteOutputChunk["kind"], seq: number): void;
   mergeBackfill(sessionId: string, chunks: RemoteOutputChunk[]): void;
   replaceHistory(sessionId: string, page: RemoteHistoryPage): void;
   prependHistory(sessionId: string, chunks: RemoteHistoryChunk[], olderBefore: number | null): void;
@@ -152,7 +152,7 @@ interface OutputTrack {
   /** 历史已覆盖的实时 seq 上限；小于等于它的实时帧一律视为重复 */
   historyThroughSeq: number;
   /** seq → 原始 chunk（实时与 backfill 共用，backfill 据此精确补缺口） */
-  raw: Map<number, { kind: "text" | "thinking"; chunk: string }>;
+  raw: Map<number, { kind: RemoteOutputChunk["kind"]; chunk: string }>;
   /** 已收到的最大 seq（session.output.since 的 afterSeq 依据） */
   maxSeq: number;
 }
@@ -179,7 +179,7 @@ function trimRaw(t: OutputTrack): void {
   t.raw = new Map(sorted.slice(sorted.length - MAX_CHUNKS));
 }
 
-/** 由历史基线 + 实时 raw 推导渲染列表：seq 跳号插缺口，相邻同 kind 合并。 */
+/** 由历史基线 + 实时 raw 推导渲染列表：seq 跳号插缺口，相邻助手同类段合并；用户消息始终独立。 */
 function buildView(t: OutputTrack): OutputChunk[] {
   const seqs = [...t.raw.keys()].sort((a, b) => a - b);
   const view: OutputChunk[] = t.history.map((chunk) => ({ ...chunk, id: chunkIdCounter++ }));
@@ -188,7 +188,7 @@ function buildView(t: OutputTrack): OutputChunk[] {
     if (seq > prev + 1) view.push({ id: chunkIdCounter++, chunk: "", kind: "text", gap: true });
     const c = t.raw.get(seq)!;
     const last = view[view.length - 1];
-    if (last && !last.gap && last.kind === c.kind) {
+    if (last && !last.gap && last.kind === c.kind && c.kind !== "user") {
       view[view.length - 1] = { ...last, chunk: last.chunk + c.chunk };
     } else {
       view.push({ id: chunkIdCounter++, chunk: c.chunk, kind: c.kind });
@@ -308,8 +308,8 @@ export const useAppStore = create<AppState>((set) => ({
         next.push({ id: chunkIdCounter++, chunk: "", kind: "text", gap: true }); // 头部截断
       }
       const last = next[next.length - 1];
-      if (last && !last.gap && last.kind === kind) {
-        next[next.length - 1] = { ...last, chunk: last.chunk + chunk }; // 同 kind 合并
+      if (last && !last.gap && last.kind === kind && kind !== "user") {
+        next[next.length - 1] = { ...last, chunk: last.chunk + chunk }; // 助手增量按 kind 合并，user 不合并
       } else {
         next.push({ id: chunkIdCounter++, chunk, kind });
       }

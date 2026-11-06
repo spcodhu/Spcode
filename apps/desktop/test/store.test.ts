@@ -159,6 +159,57 @@ describe("store.init 宿主事件订阅", () => {
   });
 });
 
+describe("用户消息的引擎权威对账", () => {
+  it("远程 message_end(role=user) 会进入 PC 当前历史", () => {
+    stubSpcodeApi();
+    seedSession("s-remote-user");
+    useStore.getState().applyHostEvent({
+      type: "session.event",
+      sessionId: "s-remote-user",
+      event: {
+        type: "message_end",
+        message: {
+          role: "user",
+          content: [{ type: "text", text: "手机发来的提示词" }],
+          timestamp: 123,
+        },
+      },
+    } as never);
+    const messages = useStore.getState().sessions["s-remote-user"]?.messages ?? [];
+    expect(messages).toHaveLength(1);
+    expect(messages[0]).toMatchObject({ role: "user", timestamp: 123, streaming: false });
+    expect(messageText(messages[0]!)).toBe("手机发来的提示词");
+  });
+
+  it("Composer 乐观消息与引擎事件去重；连续两次相同文本仍各保留一条", async () => {
+    stubSpcodeApi();
+    seedSession("s-user-reconcile");
+    const event = (timestamp: number) =>
+      useStore.getState().applyHostEvent({
+        type: "session.event",
+        sessionId: "s-user-reconcile",
+        event: {
+          type: "message_end",
+          message: { role: "user", content: [{ type: "text", text: "相同文本" }], timestamp },
+        },
+      } as never);
+
+    await useStore.getState().sendPrompt("相同文本");
+    event(100);
+    let users = useStore.getState().sessions["s-user-reconcile"]?.messages.filter((m) => m.role === "user") ?? [];
+    expect(users).toHaveLength(1);
+    expect(users[0]).toMatchObject({ timestamp: 100 });
+    expect(users[0]?.optimistic).toBeUndefined();
+
+    await useStore.getState().sendPrompt("相同文本");
+    event(200);
+    users = useStore.getState().sessions["s-user-reconcile"]?.messages.filter((m) => m.role === "user") ?? [];
+    expect(users).toHaveLength(2);
+    expect(users.map((m) => m.timestamp)).toEqual([100, 200]);
+    expect(users.every((m) => !m.optimistic)).toBe(true);
+  });
+});
+
 describe("sendPrompt 流式占位与收尾", () => {
   it("发送后立即创建 assistant 流式占位消息（加载动画不等首个 delta）", async () => {
     stubSpcodeApi();
