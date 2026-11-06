@@ -10,11 +10,13 @@ import { join } from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { writeFileAtomic } from "@spcode/shared/node";
 import { type Static, Type } from "typebox";
+import { STRICT_PREFER_TOOL_SAMPLING } from "./tool-schema.js";
 
 const writePlanSchema = Type.Object({
   content: Type.String({
     description:
       "The complete plan in Markdown in the current UI language unless explicitly requested otherwise, written in full (no truncation)",
+    minLength: 1,
   }),
 });
 
@@ -32,6 +34,7 @@ export function createWritePlanTool(opts: {
       "Save the complete plan to this session's PLAN.md. Call this once the plan is ready, then end the turn with only a brief summary and the returned plan: link. Do not repeat the plan text and do not ask for execution approval.",
     promptSnippet: "Save the plan and finish with a summary plus a plan: file link",
     parameters: writePlanSchema,
+    constrainedSampling: STRICT_PREFER_TOOL_SAMPLING,
     execute: async (_id, args: Params) => {
       const content = args.content.trim();
       if (!content) {

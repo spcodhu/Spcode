@@ -4,6 +4,7 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { formatQuestionAnswer, type QuestionRequest, validateQuestionAnswers } from "@spcode/shared";
 import { Type } from "typebox";
 import type { QuestionAnswerer } from "./ask-user.js";
+import { STRICT_PREFER_TOOL_SAMPLING } from "./tool-schema.js";
 
 export const EXIT_PLAN_QUESTION = "The plan is ready. Start executing?";
 export const EXIT_PLAN_APPROVE_LABEL = "Start executing";
@@ -24,6 +25,7 @@ export function createExitPlanModeTool(opts: {
       "Call when the plan is complete and saved via WritePlan, or when the user asks to start executing. Shows the user an approval card; on approval, plan mode is disabled and full tools are restored so you can start executing immediately. Do NOT call this before the plan is ready.",
     promptSnippet: "Request user approval to exit plan mode and start executing",
     parameters: exitPlanSchema,
+    constrainedSampling: STRICT_PREFER_TOOL_SAMPLING,
     execute: async () => {
       if (!opts.isPlanMode()) {
         return {

@@ -21,6 +21,7 @@ import { getSandboxService } from "../sandbox/manager.js";
 import { createManagedPowerShellTool } from "../sandbox/powershell-tool.js";
 import type { SessionToolEnvironment } from "../tool-environment.js";
 import { createSessionToolEnvironment } from "../tool-environment.js";
+import { STRICT_PREFER_TOOL_SAMPLING } from "./tool-schema.js";
 
 /** 可获得 Task 工具的会话深度上限：0=主会话、1=子代理可嵌套，2 起不再提供 */
 const MAX_TASK_DEPTH = 2;
@@ -44,8 +45,9 @@ const taskSchema = Type.Object({
   description: Type.String({
     description:
       "Short task title (3-8 words) shown to the user, in the current UI language unless explicitly requested otherwise",
+    minLength: 1,
   }),
-  prompt: Type.String({ description: "Complete, self-contained instructions for the subagent" }),
+  prompt: Type.String({ description: "Complete, self-contained instructions for the subagent", minLength: 1 }),
 });
 
 type Params = Static<typeof taskSchema>;
@@ -77,6 +79,7 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
       "Spawn a subagent with an isolated context to handle a focused subtask (e.g. reading many files, exploratory search, self-testing). The subagent runs autonomously and only its final conclusion returns to you. Give it complete, self-contained instructions — it cannot see this conversation.",
     promptSnippet: "Delegate focused subtasks to an isolated subagent",
     parameters: taskSchema,
+    constrainedSampling: STRICT_PREFER_TOOL_SAMPLING,
     executionMode: "parallel",
     execute: async (_id, args: Params, signal) => {
       // 子代理与主会话同一动态沙盒配置：服务是进程级单例，后续命令逐次重读设置

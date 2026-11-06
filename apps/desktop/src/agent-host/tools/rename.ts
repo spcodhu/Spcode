@@ -6,11 +6,13 @@
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { getLocale } from "@spcode/shared/i18n";
 import { type Static, Type } from "typebox";
+import { STRICT_PREFER_TOOL_SAMPLING } from "./tool-schema.js";
 
 const schema = Type.Object({
   title: Type.String({
     description:
       "Short session title in the current UI language, max 30 Chinese or 60 English characters; honor an explicitly requested title language",
+    minLength: 1,
   }),
 });
 
@@ -24,6 +26,7 @@ export function createRenameSessionTool(onRename: (title: string) => void): Tool
       "Set a short descriptive title for the current session (shown in the sidebar). Call once, early in the conversation, as soon as you understand what the user wants. Use the current UI language, not the input language, unless the user explicitly requests another title language. Do not call again afterwards.",
     promptSnippet: "Name the current session once you understand the task",
     parameters: schema,
+    constrainedSampling: STRICT_PREFER_TOOL_SAMPLING,
     execute: async (_id, args: Params) => {
       const title = (args.title ?? "")
         .replace(/\s+/g, " ")

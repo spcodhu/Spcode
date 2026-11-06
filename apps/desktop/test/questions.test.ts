@@ -5,7 +5,7 @@ import {
   type QuestionRequest,
   validateQuestionAnswers,
 } from "@spcode/shared";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createAskUserQuestionTool } from "../src/agent-host/tools/ask-user.js";
 
 const request: QuestionRequest = {
@@ -111,5 +111,34 @@ describe("AskUserQuestion", () => {
     const result = await tool.execute("t", { questions: [{ question: "Test" }] }, undefined as never);
     expect(result.content).toEqual([{ type: "text", text: "User dismissed the question without answering." }]);
     expect(result.details).toMatchObject({ presentation: { key: "questions:ask.dismissed" } });
+  });
+
+  it("拒绝空问题与非法选项数量，且不得触发提问副作用", async () => {
+    const invalidInputs = [
+      { questions: [] },
+      { questions: [{ question: "   " }] },
+      { questions: [{ question: "Q", header: " " }] },
+      { questions: [{ question: "Q", options: [{ label: "Only one" }] }] },
+      {
+        questions: [
+          {
+            question: "Q",
+            options: Array.from({ length: 5 }, (_, index) => ({ label: `Option ${index}` })),
+          },
+        ],
+      },
+      { questions: [{ question: "Q", options: [{ label: "A" }, { label: " " }] }] },
+    ];
+    for (const input of invalidInputs) {
+      const ask = vi.fn(async () => ({}));
+      const tool = createAskUserQuestionTool("s1", ask);
+      const result = await tool.execute("invalid", input as never, undefined as never);
+      expect(result.isError).toBe(true);
+      expect(ask).not.toHaveBeenCalled();
+    }
+    const tool = createAskUserQuestionTool("s1", async () => ({}));
+    expect(tool.constrainedSampling).toEqual({ type: "json_schema", strict: "prefer" });
+    expect(JSON.stringify(tool.parameters)).toContain('"minItems":2');
+    expect(JSON.stringify(tool.parameters)).toContain('"maxItems":4');
   });
 });

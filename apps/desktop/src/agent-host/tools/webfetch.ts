@@ -11,13 +11,16 @@ import { executeFetch, isWebFetchReady } from "@spcode/shared/web-fetch";
 import TurndownService from "turndown";
 import { type Static, Type } from "typebox";
 import { fetchPublic } from "./ssrf.js";
+import { STRICT_PREFER_TOOL_SAMPLING } from "./tool-schema.js";
 
 const schema = Type.Object({
-  url: Type.String({ description: "Absolute URL to fetch (http/https only)" }),
+  url: Type.String({ description: "Absolute URL to fetch (http/https only)", minLength: 1 }),
   prompt: Type.Optional(
     Type.String({ description: "What you are looking for; used to keep the most relevant sections" }),
   ),
-  timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (default 30)" })),
+  timeout: Type.Optional(
+    Type.Number({ description: "Timeout in seconds (default 30)", minimum: 5, maximum: 90, default: 30 }),
+  ),
 });
 
 type Params = Static<typeof schema>;
@@ -176,6 +179,7 @@ export function createWebFetchTool(getBackend?: () => WebFetchConfig | null): To
       "Fetch a public URL and return its main article text converted to Markdown. Supports an optional prompt to keep only the most relevant sections. Results are cached for 5 minutes. Use after WebSearch to read the full article.",
     promptSnippet: "Fetch a URL and convert to Markdown (5-min cache)",
     parameters: schema,
+    constrainedSampling: STRICT_PREFER_TOOL_SAMPLING,
     execute: async (_id, args: Params, signal) => {
       const url = (args.url ?? "").trim();
       if (!/^https?:\/\//i.test(url)) {

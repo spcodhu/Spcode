@@ -10,11 +10,21 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import TurndownService from "turndown";
 import { type Static, Type } from "typebox";
 import { fetchPublic } from "./ssrf.js";
+import { STRICT_PREFER_TOOL_SAMPLING } from "./tool-schema.js";
 
 const schema = Type.Object({
-  query: Type.String({ description: "Search query (natural language, in any script)" }),
-  numResults: Type.Optional(Type.Number({ description: "Number of results to return (default 10, max 10)" })),
-  timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (default 20)" })),
+  query: Type.String({ description: "Search query (natural language, in any script)", minLength: 1 }),
+  numResults: Type.Optional(
+    Type.Integer({
+      description: "Number of results to return (default 10, max 10)",
+      minimum: 1,
+      maximum: 10,
+      default: 10,
+    }),
+  ),
+  timeout: Type.Optional(
+    Type.Number({ description: "Timeout in seconds (default 20)", minimum: 5, maximum: 60, default: 20 }),
+  ),
 });
 
 type Params = Static<typeof schema>;
@@ -126,6 +136,7 @@ export function createWebSearchTool(): ToolDefinition {
       "Run a web search via Bing and return up to 10 results with short snippets. Pick one result and call WebFetch to read the full article. Use when the answer depends on current/external knowledge.",
     promptSnippet: "Search the web via Bing (titles + snippets), then WebFetch the best hit",
     parameters: schema,
+    constrainedSampling: STRICT_PREFER_TOOL_SAMPLING,
     execute: async (_id, args: Params, signal) => {
       const query = (args.query ?? "").trim();
       if (!query) {

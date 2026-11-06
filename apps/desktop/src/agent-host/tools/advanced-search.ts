@@ -10,11 +10,21 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { AdvancedSearchConfig } from "@spcode/shared";
 import { executeSearch, isAdvancedSearchReady } from "@spcode/shared/advanced-search";
 import { type Static, Type } from "typebox";
+import { STRICT_PREFER_TOOL_SAMPLING } from "./tool-schema.js";
 
 const schema = Type.Object({
-  query: Type.String({ description: "Search query (natural language, in any script)" }),
-  numResults: Type.Optional(Type.Number({ description: "Number of results to return (default 10, max 20)" })),
-  timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (default 20)" })),
+  query: Type.String({ description: "Search query (natural language, in any script)", minLength: 1 }),
+  numResults: Type.Optional(
+    Type.Integer({
+      description: "Number of results to return (default 10, max 20)",
+      minimum: 1,
+      maximum: 20,
+      default: 10,
+    }),
+  ),
+  timeout: Type.Optional(
+    Type.Number({ description: "Timeout in seconds (default 20)", minimum: 5, maximum: 60, default: 20 }),
+  ),
 });
 
 type Params = Static<typeof schema>;
@@ -32,6 +42,7 @@ export function createAdvancedSearchTool(getConfig: () => AdvancedSearchConfig |
     promptSnippet:
       "High-precision multi-source search API; prefer over WebSearch for cross-source or time-sensitive queries",
     parameters: schema,
+    constrainedSampling: STRICT_PREFER_TOOL_SAMPLING,
     execute: async (_id, args: Params, signal) => {
       const query = (args.query ?? "").trim();
       if (!query) {
