@@ -26,23 +26,33 @@ afterAll(() => {
 describe("isPlanModeSafeCommand:bash 只读白名单", () => {
   it("放行常见只读命令", () => {
     for (const cmd of [
-      "ls -la",
-      "cat package.json",
+      "pwd",
+      "echo research",
       "git status",
       "git log --oneline -20",
       "git diff HEAD~1",
       "git stash list",
       "git config --get user.name",
-      "git config -l",
-      "rg TODO src/",
-      "find . -name '*.ts'",
-      "cat a.txt | grep foo",
-      "ls && pwd",
       "npm list",
       "pnpm outdated",
-      "jq '.name' package.json",
+      "true",
     ]) {
       expect(isPlanModeSafeCommand(cmd), cmd).toBe(true);
+    }
+  });
+
+  it("任意文件读取改用受守卫的专用工具，不经 Shell 白名单绕过路径策略", () => {
+    for (const cmd of [
+      "cat ~/.ssh/id_ed25519",
+      "head ~/.aws/credentials",
+      "rg secret ~/.gnupg",
+      "find ~/.ssh -type f",
+      "ls ~/.aws",
+      "jq '.identity' ~/.spcode/agent/auth.json",
+      "sort ~/.netrc",
+      "diff ~/.ssh/id_ed25519 /dev/null",
+    ]) {
+      expect(isPlanModeSafeCommand(cmd), cmd).toBe(false);
     }
   });
 
@@ -342,7 +352,7 @@ describe("SessionController 计划模式集成", () => {
     // 门禁:写工具兜底拦截(带引导文案),bash 白名单放行/拦截,WritePlan 放行
     expect((await gate(ctl, "edit", { path: "a" }))?.block).toBe(true);
     expect((await gate(ctl, "edit", { path: "a" }))?.reason).toContain("WritePlan");
-    expect(await gate(ctl, "bash", { command: "ls -la" })).toBeUndefined();
+    expect(await gate(ctl, "bash", { command: "git status" })).toBeUndefined();
     expect((await gate(ctl, "bash", { command: "npm install" }))?.block).toBe(true);
     expect((await gate(ctl, "bash", { command: "rm -rf /" }))?.block).toBe(true);
     expect(await gate(ctl, "WritePlan", { content: "x" })).toBeUndefined();

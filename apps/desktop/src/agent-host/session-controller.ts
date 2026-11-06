@@ -55,7 +55,6 @@ import { getSandboxService } from "./sandbox/manager.js";
 import { createSessionToolEnvironment } from "./tool-environment.js";
 import { createAdvancedSearchTool } from "./tools/advanced-search.js";
 import { createAskUserQuestionTool } from "./tools/ask-user.js";
-import { createFindToolWithFallback } from "./tools/find-fallback.js";
 import { createRenameSessionTool } from "./tools/rename.js";
 import { createTaskTool } from "./tools/task.js";
 import { createTodoWriteTool } from "./tools/todowrite.js";
@@ -311,9 +310,8 @@ export class SessionController {
           environment: toolEnvironment,
           getSettings: opts.getSandboxSettings,
         }),
-        // 路径守卫版 read/write/edit：同名覆盖内置（进程内 fs 不受 OS 沙盒约束，这里是边界）
-        ...createGuardedFsTools(cwd, getFsPolicy),
-        createFindToolWithFallback(cwd, toolEnvironment.path),
+        // 六个路径守卫版 FS 工具：同名覆盖 pi 内置（进程内 fs 不受 OS 沙盒约束）
+        ...createGuardedFsTools(cwd, getFsPolicy, toolEnvironment.path),
         // MCP 工具（R3-F3）：配置下发后新会话生效；mcp__server__tool 经权限网关（默认 write 风险）
         ...(opts.getMcpTools?.() ?? []),
         createWebSearchTool(),

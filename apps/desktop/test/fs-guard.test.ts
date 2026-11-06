@@ -161,4 +161,18 @@ describe("守卫工具包装层", () => {
     )) as { content: { text?: string }[] };
     expect(JSON.stringify(ok.content)).toContain("hello-guard");
   });
+
+  it("grep/find/ls 也有执行层 hard-deny，不依赖网关先拦截", async () => {
+    const tools = createGuardedFsTools(cwd, () => policy);
+    for (const name of ["grep", "find", "ls"]) {
+      const tool = tools.find((candidate) => candidate.name === name)!;
+      const args = name === "grep" ? { pattern: "x", path: "~/.aws" } : { pattern: "*", path: "~/.aws" };
+      const result = (await tool.execute("deny", args as never, undefined, undefined, {} as never)) as {
+        isError?: boolean;
+        content: { text: string }[];
+      };
+      expect(result.isError, name).toBe(true);
+      expect(result.content[0]?.text, name).toContain("path policy");
+    }
+  });
 });

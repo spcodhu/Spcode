@@ -20,8 +20,9 @@
 import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { createGrepToolDefinition, createLsToolDefinition, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { LocalizedText } from "@spcode/shared/i18n";
+import { createFindToolWithFallback } from "../tools/find-fallback.js";
 import { isPathInside } from "./config-builder.js";
 import { createContractFileTools } from "./file-tool-contract.js";
 import { resolveFsPath } from "./fs-path.js";
@@ -190,9 +191,14 @@ function wrapFsTool(def: ToolDefinition, getPolicy: () => FsGuardPolicy): ToolDe
 }
 
 /**
- * read/write/edit 的守卫版本（同名覆盖 pi 内置，customTools 注册语义）。
- * grep/find/ls 只在网关层判定（它们的路径是搜索根，敏感性低一档，硬兜底收益小）。
+ * 六个文件工具的守卫版本（同名覆盖 pi 内置，customTools 注册语义）。
+ * 除网关外，执行层也统一 hard-deny，避免计划模式/未来调用链绕过敏感路径。
  */
-export function createGuardedFsTools(cwd: string, getPolicy: () => FsGuardPolicy): ToolDefinition[] {
-  return createContractFileTools(cwd).map((tool) => wrapFsTool(tool, getPolicy));
+export function createGuardedFsTools(cwd: string, getPolicy: () => FsGuardPolicy, pathEnv?: string): ToolDefinition[] {
+  return [
+    ...createContractFileTools(cwd),
+    createGrepToolDefinition(cwd) as ToolDefinition,
+    createFindToolWithFallback(cwd, pathEnv),
+    createLsToolDefinition(cwd) as ToolDefinition,
+  ].map((tool) => wrapFsTool(tool, getPolicy));
 }

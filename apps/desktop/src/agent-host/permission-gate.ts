@@ -56,8 +56,31 @@ export function createBeforeToolCallGate(deps: PermissionGateDeps) {
     const toolName = ctx.toolCall.name.toLowerCase();
     const mode: PermissionMode = deps.getPermissionMode?.() ?? "ask";
 
+    // 文件路径守卫必须先于计划模式的 readonly 快路径：只读不等于可以读凭据区。
+    // deny 硬拦（三档都不放开）；prompt 按 danger 级风险参与权限矩阵。
+    const fsPolicy = deps.getFsPolicy();
+    const fsVerdict = judgeFsToolCall(ctx.toolCall.name, ctx.toolCall.arguments, fsPolicy);
+    if (fsVerdict?.action === "deny") {
+      return { block: true, reason: `Spcode path policy: ${fsVerdict.reason}`, reasonMessage: fsVerdict.reasonMessage };
+    }
+    if (fsVerdict?.action === "prompt") {
+      if (decidePermissionMatrix({ risk: "danger", mode }).action !== "allow") {
+        const approved = await deps.requestPermission({
+          requestId: randomUUID(),
+          sessionId: deps.sessionId,
+          toolName: ctx.toolCall.name,
+          args: ctx.toolCall.arguments,
+          risk: "danger",
+          cwd: fsPolicy.cwd,
+          sandboxed: false,
+        });
+        if (!approved) return { block: true, reason: DENIED_BY_USER, reasonMessage: DENIED_MESSAGE };
+      }
+      // 已获路径许可后仍需经过计划模式的写操作硬闸，不能直接 return。
+    }
+
     // 计划模式门禁（实时读取，运行中切换也立即生效），三档模式下都是硬闸：
-    // bash 走只读白名单；写类调用本不该出现在计划工具集里，兜底拦截
+    // bash 走只读白名单；写类调用本不该出现在计划工具集里，兜底拦截。
     if (deps.isPlanMode()) {
       if (toolName === "bash" || toolName === "powershell") {
         const cmd = extractCommand(ctx.toolCall.arguments);
@@ -73,27 +96,7 @@ export function createBeforeToolCallGate(deps: PermissionGateDeps) {
       }
       return undefined;
     }
-
-    // 文件路径守卫（R3-C3）：deny 硬拦（三档都不放开，凭据区是底线）；
-    // prompt 按 danger 级风险参与矩阵——「总不询问」档自动放行，「总是/必要时」弹窗。
-    const fsPolicy = deps.getFsPolicy();
-    const fsVerdict = judgeFsToolCall(ctx.toolCall.name, ctx.toolCall.arguments, fsPolicy);
-    if (fsVerdict?.action === "deny") {
-      return { block: true, reason: `Spcode path policy: ${fsVerdict.reason}`, reasonMessage: fsVerdict.reasonMessage };
-    }
-    if (fsVerdict?.action === "prompt") {
-      if (decidePermissionMatrix({ risk: "danger", mode }).action === "allow") return undefined;
-      const approved = await deps.requestPermission({
-        requestId: randomUUID(),
-        sessionId: deps.sessionId,
-        toolName: ctx.toolCall.name,
-        args: ctx.toolCall.arguments,
-        risk: "danger",
-        cwd: fsPolicy.cwd,
-        sandboxed: false,
-      });
-      return approved ? undefined : { block: true, reason: DENIED_BY_USER, reasonMessage: DENIED_MESSAGE };
-    }
+    if (fsVerdict?.action === "prompt") return undefined;
 
     // 沙盒联动（每次 shell 调用实时读取设置与状态）：
     // - 仅 bash/powershell 受沙盒约束；edit/write 等进程内文件工具由上面的路径守卫约束

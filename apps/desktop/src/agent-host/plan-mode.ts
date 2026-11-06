@@ -61,7 +61,7 @@ The user manually disabled plan mode. All tools have been restored.`;
 
 /** 计划态下 bash 被拒绝时的提示 */
 export const PLAN_MODE_BASH_BLOCK_REASON =
-  "Plan mode is read-only: this command is not on the read-only allowlist. Continue research with read-only commands (cat/grep/find/ls/git status, etc.); when the plan is ready, save it with WritePlan and end the turn with a file link. The user will start execution from the plan panel.";
+  "Plan mode is read-only: this command is not on the read-only allowlist. Use the guarded read/grep/find/ls tools for file inspection. Read-only shell commands such as pwd, git status/log/diff, and package metadata queries remain available. When the plan is ready, save it with WritePlan and end the turn with a file link.";
 
 /** 计划态下漏网写调用被拒绝时的提示 */
 export const PLAN_MODE_WRITE_BLOCK_REASON =
@@ -71,26 +71,10 @@ export const PLAN_MODE_WRITE_BLOCK_REASON =
 // bash 只读白名单
 // ---------------------------------------------------------------------------
 
-/** 直接只读的命令(首词命中即该段安全)。
- *  注意:env/less/more 不在列——env 能执行任意程序(env rm -rf x 逃逸),
- *  less/more 支持 !cmd 交互执行;读环境变量请用 printenv。 */
+/** 不接收任意文件内容的直接只读命令；文件查看统一走带路径守卫的 read/grep/find/ls。
+ *  注意:env/less/more 不在列——env 能执行任意程序，less/more 支持 !cmd 交互执行。 */
 const SAFE_BINARIES = new Set([
-  "cat",
-  "head",
-  "tail",
-  "grep",
-  "egrep",
-  "fgrep",
-  "rg",
-  "ag",
-  "find",
-  "fd",
-  "ls",
   "pwd",
-  "tree",
-  "wc",
-  "file",
-  "stat",
   "echo",
   "printf",
   "printenv",
@@ -101,20 +85,8 @@ const SAFE_BINARIES = new Set([
   "uname",
   "uptime",
   "hostname",
-  "sort",
-  "uniq",
-  "comm",
-  "diff",
-  "cut",
-  "tr",
-  "jq",
-  "yq",
-  "du",
-  "df",
   "basename",
   "dirname",
-  "realpath",
-  "readlink",
   "cd",
   "true",
 ]);
@@ -155,21 +127,8 @@ const SAFE_PKG_SUBCOMMANDS = new Set([
   "audit",
 ]);
 
-/** 段分隔符:管道、与或、分号、换行（评审 R3-C5：换行不分段则 "cat a\nrm -rf x" 首词 cat 即放行整串） */
+/** 段分隔符:管道、与或、分号、换行（换行不分段则 "pwd\nrm -rf x" 首词 pwd 即放行整串） */
 const SEGMENT_SPLIT = /\|\||&&|[|;\n]/;
-
-/** find 的这些旗标能删文件/执行命令/写文件,命中即不安全 */
-const DANGEROUS_FIND_FLAGS = new Set([
-  "-delete",
-  "-exec",
-  "-execdir",
-  "-ok",
-  "-okdir",
-  "-fls",
-  "-fprintf",
-  "-fprint",
-  "-fprint0",
-]);
 
 /**
  * 计划态 bash 命令安全性判定。
@@ -189,9 +148,7 @@ export function isPlanModeSafeCommand(command: string): boolean {
     const tokens = segment.trim().split(/\s+/).filter(Boolean);
     if (tokens.length === 0) continue;
     const bin = tokens[0]!;
-    // 白名单内命令的危险旗标特例
-    if (bin === "find" && tokens.some((t) => DANGEROUS_FIND_FLAGS.has(t))) return false;
-    if (bin === "sort" && tokens.some((t) => t === "-o" || t.startsWith("--output"))) return false;
+    // 白名单命令均不接受任意文件内容；文件读取由受守卫的专用工具承担。
     if (SAFE_BINARIES.has(bin)) continue;
     if (bin === "git") {
       // 跳过全局旗标(-C/-c/--git-dir 等),取第一个非旗标词当子命令

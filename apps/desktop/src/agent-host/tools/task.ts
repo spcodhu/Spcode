@@ -20,7 +20,6 @@ import { createGuardedFsTools, type FsGuardPolicy } from "../sandbox/fs-guard.js
 import { getSandboxService } from "../sandbox/manager.js";
 import type { SessionToolEnvironment } from "../tool-environment.js";
 import { createSessionToolEnvironment } from "../tool-environment.js";
-import { createFindToolWithFallback } from "./find-fallback.js";
 
 /** 可获得 Task 工具的会话深度上限：0=主会话、1=子代理可嵌套，2 起不再提供 */
 const MAX_TASK_DEPTH = 2;
@@ -87,8 +86,7 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
           environment: toolEnvironment,
           getSettings: ctx.getSandboxSettings,
         }),
-        ...createGuardedFsTools(ctx.cwd, getFsPolicy),
-        createFindToolWithFallback(ctx.cwd, toolEnvironment.path),
+        ...createGuardedFsTools(ctx.cwd, getFsPolicy, toolEnvironment.path),
         // 子会话深度 +1；达到上限后子会话不再拿到 Task（评审 P2-5：让条件与头注释同口径）
         ...(ctx.depth + 1 < MAX_TASK_DEPTH ? [createTaskTool({ ...ctx, depth: ctx.depth + 1 })] : []),
       ];

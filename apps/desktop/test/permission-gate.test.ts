@@ -99,6 +99,30 @@ describe("计划模式门禁", () => {
     expect(v?.block).toBe(true);
     expect(requests).toHaveLength(0);
   });
+
+  it("计划模式仍先执行敏感路径判定，只读工具和 prompt 均不绕过", async () => {
+    const { gate, requests } = makeGate({ planMode: true });
+    for (const name of ["read", "grep", "find", "ls"]) {
+      const verdict = await gate({ toolCall: { name, arguments: { path: "~/.ssh" } } });
+      expect(verdict?.block, name).toBe(true);
+      expect(verdict?.reason, name).toContain("path policy");
+    }
+    expect(requests).toHaveLength(0);
+
+    const prompt = await gate({
+      toolCall: { name: "read", arguments: { path: join(spcodeHome, "MEMORY.md") } },
+    });
+    expect(prompt?.block).toBe(true);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.risk).toBe("danger");
+  });
+
+  it("计划模式在总不询问档仍硬拒凭据区读取", async () => {
+    const { gate, requests } = makeGate({ planMode: true, permissionMode: "never" });
+    const verdict = await gate({ toolCall: { name: "grep", arguments: { pattern: "x", path: "~/.aws" } } });
+    expect(verdict?.block).toBe(true);
+    expect(requests).toHaveLength(0);
+  });
 });
 
 describe("拦下原因的可本地化文案", () => {
