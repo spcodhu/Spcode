@@ -24,6 +24,21 @@ import { createSessionToolEnvironment } from "../tool-environment.js";
 /** 可获得 Task 工具的会话深度上限：0=主会话、1=子代理可嵌套，2 起不再提供 */
 const MAX_TASK_DEPTH = 2;
 
+/** Task 子代理只继承基础执行/检索面；MCP/Web/Todo 等主会话控制工具不透传。 */
+export function taskSessionToolNames(depth: number): string[] {
+  return [
+    "read",
+    "bash",
+    "powershell",
+    "edit",
+    "write",
+    "grep",
+    "find",
+    "ls",
+    ...(depth + 1 < MAX_TASK_DEPTH ? ["Task"] : []),
+  ];
+}
+
 const taskSchema = Type.Object({
   description: Type.String({
     description:
@@ -101,6 +116,7 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
         excludeTools: process.platform === "win32" ? [] : ["powershell"],
         customTools: customTools.length > 0 ? customTools : undefined,
       });
+      session.setActiveToolsByName(taskSessionToolNames(ctx.depth));
       installLanguagePolicy(session.agent);
       // 权限网关（R3-C4）：子代理与主会话同一裁决链（计划模式例外——计划模式下 Task 不挂载）
       session.agent.beforeToolCall = createBeforeToolCallGate({

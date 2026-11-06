@@ -232,6 +232,7 @@ export class SessionController {
     readonly sessionFile: string | null,
     private readonly session: AgentSession,
     private readonly runtime: ModelRuntime,
+    private readonly normalModeTools: string[],
     private readonly emitEvent: (e: AgentSessionEvent) => void,
     private readonly emitPlanMode: (enabled: boolean) => void,
     private readonly permissionModeRef: { current: PermissionMode },
@@ -291,6 +292,9 @@ export class SessionController {
       };
     };
 
+    const mcpTools = opts.getMcpTools?.() ?? [];
+    const normalModeTools = [...new Set([...NORMAL_MODE_TOOLS, ...mcpTools.map((tool) => tool.name)])];
+
     const { session } = await createAgentSession({
       cwd,
       agentDir: opts.agentDir,
@@ -313,7 +317,7 @@ export class SessionController {
         // 六个路径守卫版 FS 工具：同名覆盖 pi 内置（进程内 fs 不受 OS 沙盒约束）
         ...createGuardedFsTools(cwd, getFsPolicy, toolEnvironment.path),
         // MCP 工具（R3-F3）：配置下发后新会话生效；mcp__server__tool 经权限网关（默认 write 风险）
-        ...(opts.getMcpTools?.() ?? []),
+        ...mcpTools,
         createWebSearchTool(),
         // 高级搜索：仅当用户在设置页配置了完整可用的搜索 API 才注册，
         // 没配置时工具列表里根本没有它（模型无从误调）。配置变更对己创建会话不生效，新会话生效。
@@ -354,6 +358,7 @@ export class SessionController {
       session.sessionFile ?? null,
       session,
       opts.modelRuntime,
+      normalModeTools,
       opts.emitEvent,
       opts.emitPlanMode,
       permissionModeRef,
@@ -370,7 +375,7 @@ export class SessionController {
     // 初始工具集：正常态摘除 WritePlan；恢复的计划态会话重注一次落盘即结束约定。
     const initialPlanMode = opts.planMode === true;
     ctl.planMode = initialPlanMode;
-    session.setActiveToolsByName(initialPlanMode ? PLAN_MODE_TOOLS : NORMAL_MODE_TOOLS);
+    session.setActiveToolsByName(initialPlanMode ? PLAN_MODE_TOOLS : ctl.normalModeTools);
     if (initialPlanMode) {
       await session.sendCustomMessage({
         customType: PLAN_MODE_CUSTOM_TYPE,
@@ -468,7 +473,7 @@ export class SessionController {
   private async applyPlanMode(enabled: boolean): Promise<void> {
     if (this.planMode === enabled) return;
     this.planMode = enabled;
-    this.session.setActiveToolsByName(enabled ? PLAN_MODE_TOOLS : NORMAL_MODE_TOOLS);
+    this.session.setActiveToolsByName(enabled ? PLAN_MODE_TOOLS : this.normalModeTools);
     await this.session.sendCustomMessage({
       customType: PLAN_MODE_CUSTOM_TYPE,
       content: enabled ? PLAN_MODE_ON_MESSAGE : PLAN_MODE_OFF_MESSAGE,

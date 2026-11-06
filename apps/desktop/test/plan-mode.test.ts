@@ -330,7 +330,7 @@ describe("SessionController 计划模式集成", () => {
     const tools = ctl.session.getActiveToolNames();
     expect(tools).not.toContain("WritePlan");
     expect(tools).not.toContain("ExitPlanMode");
-    for (const expected of ["read", "bash", "edit", "write", "TodoWrite", "Task"]) {
+    for (const expected of ["read", "bash", "edit", "write", "grep", "find", "ls", "TodoWrite", "Task"]) {
       expect(tools, `正常态缺少 ${expected}`).toContain(expected);
     }
     expect(ctl.info().planMode).toBe(false);
@@ -361,7 +361,7 @@ describe("SessionController 计划模式集成", () => {
     // 批准后退计划态:工具集恢复,门禁回到权限流程(mock 全批 → 全放行)
     await ctl.setPlanMode(false);
     const restored = ctl.session.getActiveToolNames();
-    for (const expected of ["edit", "write", "TodoWrite", "Task"]) {
+    for (const expected of ["edit", "write", "grep", "find", "ls", "TodoWrite", "Task"]) {
       expect(restored, `恢复后缺少 ${expected}`).toContain(expected);
     }
     expect(restored).not.toContain("WritePlan");
