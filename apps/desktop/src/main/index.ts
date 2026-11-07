@@ -36,6 +36,7 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { AgentBridge } from "./agent-bridge.js";
 import { DraftsStore } from "./drafts-store.js";
 import { showImageContextMenu } from "./image-actions.js";
+import { LoginItemService } from "./login-item.js";
 import { Notifier } from "./notifier.js";
 import { readSessionPlan } from "./plan-file.js";
 import { applyNetworkProxy, registerNetworkProxyAuthentication } from "./proxy.js";
@@ -122,6 +123,7 @@ const devIconPath = join(__dirname, "../../build/icon.png");
 const devIcon = !app.isPackaged && existsSync(devIconPath) ? devIconPath : undefined;
 
 const settings = new SettingsStore();
+const loginItems = new LoginItemService();
 setLocale(settings.get().locale);
 const draftsStore = new DraftsStore();
 const registry = new SessionRegistry();
@@ -624,6 +626,8 @@ function registerIpc(): void {
   });
 
   ipcMain.handle(IPC.getSettings, () => redactSettingsForRenderer(settings.get()));
+  ipcMain.handle(IPC.autoLaunchStatus, () => loginItems.status());
+  ipcMain.handle(IPC.autoLaunchSetEnabled, (_e, enabled: boolean) => loginItems.setEnabled(enabled === true));
   ipcMain.handle(IPC.planRead, (_e, path: string) => readSessionPlan(String(path)));
   ipcMain.handle(IPC.getAppVersion, () => app.getVersion());
   ipcMain.handle(IPC.windowChromeGet, () => windowChromeOf(mainWindow));

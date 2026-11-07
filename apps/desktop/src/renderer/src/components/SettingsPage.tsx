@@ -1,6 +1,7 @@
 import type {
   AdvancedSearchConfig,
   AdvancedSearchProtocol,
+  AutoLaunchStatus,
   PermissionMode,
   SandboxStatusReport,
   WebFetchConfig,
@@ -218,6 +219,8 @@ function GeneralPage() {
       <SectionTitle>{t("general.webFetch")}</SectionTitle>
       <WebFetchSection />
 
+      <AutoLaunchSection />
+
       <SectionTitle>{t("general.autoUpdate")}</SectionTitle>
       <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-bg-elevated px-4 py-3">
         <div>
@@ -243,6 +246,84 @@ function GeneralPage() {
           onChange={(v) => void saveSettings({ betaUpdates: v })}
           label={t("general.betaUpdates")}
         />
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 开机自动启动（Windows/macOS）：直接设置并回读系统登录项
+// ---------------------------------------------------------------------------
+
+function AutoLaunchSection() {
+  const { t } = useTranslation("settings");
+  const [status, setStatus] = useState<AutoLaunchStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      setStatus(await window.spcode.autoLaunchStatus());
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (status?.reason === "unsupported-platform") return null;
+  const change = async (enabled: boolean) => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setStatus(await window.spcode.autoLaunchSetEnabled(enabled));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const displayError = status?.error ?? error;
+
+  return (
+    <div data-testid="settings-auto-launch">
+      <SectionTitle>{t("general.autoLaunch")}</SectionTitle>
+      <div className="rounded-xl border border-border bg-bg-elevated px-4 py-3">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <div className="text-[14px] text-text-primary">{t("general.autoLaunchTitle")}</div>
+            <div className="mt-0.5 text-[12px] text-text-tertiary">{t("general.autoLaunchDescription")}</div>
+          </div>
+          <Switch
+            on={status?.openAtLogin ?? false}
+            onChange={(value) => void change(value)}
+            disabled={!status?.supported || busy || !!displayError}
+            label={t("general.autoLaunchTitle")}
+          />
+        </div>
+        {status?.reason === "not-packaged" && (
+          <div className="mt-2 text-[12px] text-text-tertiary">{t("general.autoLaunchPackagedOnly")}</div>
+        )}
+        {status?.macStatus === "requires-approval" && (
+          <div className="mt-2 rounded-lg bg-warning/10 px-3 py-2 text-[12px] text-warning" data-testid="auto-launch-approval">
+            {t("general.autoLaunchApproval")}
+          </div>
+        )}
+        {status?.windowsDeactivated && (
+          <div className="mt-2 rounded-lg bg-warning/10 px-3 py-2 text-[12px] text-warning" data-testid="auto-launch-deactivated">
+            {t("general.autoLaunchWindowsDeactivated")}
+          </div>
+        )}
+        {displayError && (
+          <div role="alert" className="mt-2 text-[12px] text-danger" data-testid="auto-launch-error">
+            {t("general.autoLaunchFailed", { error: displayError })}
+            <button type="button" onClick={() => void load()} className="ml-2 text-accent underline">
+              {t("retry")}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

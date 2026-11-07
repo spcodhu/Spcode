@@ -812,6 +812,17 @@ export interface WindowChromeState {
   fullScreen: boolean;
 }
 
+/** 操作系统登录项的真实状态；不以本地 JSON 代替 OS 状态。 */
+export interface AutoLaunchStatus {
+  supported: boolean;
+  openAtLogin: boolean;
+  macStatus?: "not-registered" | "enabled" | "requires-approval" | "not-found";
+  /** Windows 注册项存在，但被任务管理器/系统设置停用 */
+  windowsDeactivated?: boolean;
+  reason?: "unsupported-platform" | "not-packaged";
+  error?: string;
+}
+
 export const IPC = {
   /** renderer -> main (invoke)，payload 为 HostCommand（id 由 main 补发也可） */
   hostCommand: "spcode:host-command",
@@ -851,6 +862,9 @@ export const IPC = {
   /** renderer -> main (invoke)：读取/写入应用设置 */
   getSettings: "spcode:get-settings",
   setSettings: "spcode:set-settings",
+  /** Windows/macOS 开机启动：读取与设置系统登录项 */
+  autoLaunchStatus: "spcode:auto-launch-status",
+  autoLaunchSetEnabled: "spcode:auto-launch-set-enabled",
   /** 应用版本号（设置页更新通道开关展示默认值用） */
   getAppVersion: "spcode:get-app-version",
   /** renderer -> main (invoke)：高级搜索配置测试连接（发真实请求验证） */

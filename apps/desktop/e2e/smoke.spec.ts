@@ -75,6 +75,38 @@ test.describe("Spcode 冒烟 E2E", () => {
     await app.close();
   });
 
+  test("设置页：开机启动开关调用系统登录项并回读", async () => {
+    const app = await launchApp();
+    // 不触碰开发者/CI 的真实登录项：打包判定与 OS API 都替换为内存实现。
+    await app.evaluate(({ app }) => {
+      Object.defineProperty(app, "isPackaged", { configurable: true, value: true });
+      let openAtLogin = false;
+      app.getLoginItemSettings = () => ({
+        openAtLogin,
+        wasOpenedAtLogin: false,
+        wasOpenedAsHidden: false,
+        restoreState: false,
+        status: openAtLogin ? "enabled" : "not-registered",
+        executableWillLaunchAtLogin: openAtLogin,
+        launchItems: [],
+      });
+      app.setLoginItemSettings = ({ openAtLogin: enabled }) => {
+        openAtLogin = enabled;
+      };
+    });
+    const window = await app.firstWindow();
+    await window.getByTitle("设置", { exact: true }).click();
+    const section = window.getByTestId("settings-auto-launch");
+    const toggle = section.getByRole("switch", { name: "登录时启动 Spcod" });
+    await expect(toggle).toBeEnabled();
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
+    await app.close();
+  });
+
   test("设置页：沙盒分区——开关与列表编辑器", async () => {
     const app = await launchApp();
     const window = await app.firstWindow();

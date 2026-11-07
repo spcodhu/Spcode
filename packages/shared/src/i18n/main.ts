@@ -14,6 +14,7 @@ export const zhCN = {
   "scheduler.invalidPermission": "任务权限模式无效，请重新选择",
   "scheduler.invalidRetry": "定时重试需要会话、原指令或图片，以及有效时间",
   "runRetry.dispatchFailed": "定时重试派发失败：{{error}}",
+  "autoLaunch.unavailable": "开机自动启动仅在 Windows/macOS 安装包中可用",
   "pairing.unnamedDevice": "未命名设备",
   "permission.planBash":
     "计划模式为只读：此命令不在只读白名单中。请继续使用只读命令（cat/grep/find/ls/git status 等）调研；计划就绪后调用 WritePlan 落盘并以文件链接结束，用户会在右侧阅读面板决定是否执行。",
@@ -90,6 +91,7 @@ export const en = {
   "scheduler.invalidPermission": "The task permission mode is invalid. Select it again.",
   "scheduler.invalidRetry": "A scheduled retry needs a session, original text or images, and a valid time",
   "runRetry.dispatchFailed": "Could not dispatch the scheduled retry: {{error}}",
+  "autoLaunch.unavailable": "Launch at login is only available in packaged Windows/macOS apps",
   "pairing.unnamedDevice": "Unnamed device",
   "permission.planBash":
     "Plan mode is read-only: this command is not on the read-only allowlist. Continue with read-only commands (cat/grep/find/ls/git status, etc.); when ready, save via WritePlan and finish with a file link. The user decides whether to execute from the plan panel.",

@@ -70,7 +70,17 @@ beforeEach(() => {
   getAppVersion = vi.fn().mockResolvedValue("0.0.0-test");
   Object.defineProperty(window, "spcode", {
     configurable: true,
-    value: { quotaQuery, remoteStatus: remoteStatusQuery, command, getAppVersion },
+    value: {
+      quotaQuery,
+      remoteStatus: remoteStatusQuery,
+      command,
+      getAppVersion,
+      autoLaunchStatus: vi.fn().mockResolvedValue({
+        supported: false,
+        openAtLogin: false,
+        reason: "unsupported-platform",
+      }),
+    },
   });
   mount = document.createElement("div");
   document.body.append(mount);
@@ -205,6 +215,24 @@ describe("远程控制状态读取", () => {
     expect(textarea.value).toBe(payload);
     expect(textarea.readOnly).toBe(true);
     expect(container.querySelector('[role="alert"]')?.textContent).toContain("复制失败");
+  });
+});
+
+describe("开机自动启动", () => {
+  it("开关直接调用系统设置，并展示 macOS 待批准状态", async () => {
+    const autoLaunchStatus = vi.fn().mockResolvedValue({ supported: true, openAtLogin: false, macStatus: "not-registered" });
+    const autoLaunchSetEnabled = vi.fn().mockResolvedValue({
+      supported: true,
+      openAtLogin: true,
+      macStatus: "requires-approval",
+    });
+    Object.assign(window.spcode, { autoLaunchStatus, autoLaunchSetEnabled });
+    await render(createElement(SettingsPage, { onClose: vi.fn() }));
+    const toggle = element("settings-auto-launch").querySelector<HTMLButtonElement>('[role="switch"]')!;
+    expect(toggle.disabled).toBe(false);
+    await act(async () => toggle.click());
+    expect(autoLaunchSetEnabled).toHaveBeenCalledWith(true);
+    expect(element("auto-launch-approval").textContent).toContain("系统设置");
   });
 });
 

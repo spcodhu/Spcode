@@ -5,6 +5,7 @@
 import {
   type AdvancedSearchConfig,
   type AppSettings,
+  type AutoLaunchStatus,
   type ComposerDraft,
   type DailyUsage,
   type HostCommandInput,
@@ -88,6 +89,9 @@ export interface SpcodeApi {
   onWindowChromeChanged(cb: (state: WindowChromeState) => void): () => void;
   readPlanFile(path: string): Promise<string>;
   setSettings(patch: Partial<AppSettings>): Promise<AppSettings>;
+  /** Windows/macOS 系统登录项真实状态与一键设置 */
+  autoLaunchStatus(): Promise<AutoLaunchStatus>;
+  autoLaunchSetEnabled(enabled: boolean): Promise<AutoLaunchStatus>;
   /** 应用版本号（设置页更新通道开关展示默认值用） */
   getAppVersion(): Promise<string>;
   /** 高级搜索「测试连接」：主进程发真实请求验证配置 */
@@ -234,6 +238,12 @@ const api: SpcodeApi = {
   },
   setSettings(patch) {
     return ipcRenderer.invoke(IPC.setSettings, patch);
+  },
+  autoLaunchStatus() {
+    return ipcRenderer.invoke(IPC.autoLaunchStatus);
+  },
+  autoLaunchSetEnabled(enabled) {
+    return ipcRenderer.invoke(IPC.autoLaunchSetEnabled, enabled);
   },
   searchTest(config) {
     return ipcRenderer.invoke(IPC.searchTest, config);
