@@ -65,7 +65,8 @@ export function ScheduleEditorSheet({
   const [weekday, setWeekday] = useState(task?.weekday ?? 1);
   const [initialRunAtLocal] = useState(() => toLocalInputValue(task?.runAt ?? Date.now() + 3600_000));
   const [runAtLocal, setRunAtLocal] = useState(initialRunAtLocal);
-  const [kind, setKind] = useState<"chat" | "project">(task?.target.kind ?? "chat");
+  const [kind, setKind] = useState<"chat" | "project" | "session">(task?.target.kind ?? "chat");
+  const [sessionId, setSessionId] = useState(task?.target.kind === "session" ? task.target.sessionId : "");
   const [model, setModel] = useState<ModelRef | null>(task?.model ?? null);
   const [cwd, setCwd] = useState(task?.target.kind === "project" ? task.target.cwd : "");
   const [busy, setBusy] = useState(false);
@@ -88,6 +89,7 @@ export function ScheduleEditorSheet({
     if (!trimmedName) return new MobileError("schedule.nameRequired");
     if (!trimmedPrompt && !task?.images?.length) return new MobileError("schedule.promptRequired");
     if (kind === "project" && !cwd.trim()) return new MobileError("schedule.cwdRequired");
+    if (kind === "session" && !sessionId.trim()) return new MobileError("schedule.sessionRequired");
 
     let hour = task?.hour ?? 9;
     let scheduledMinute = frequency === "hourly" ? minute : (task?.minute ?? 0);
@@ -98,11 +100,17 @@ export function ScheduleEditorSheet({
       scheduledMinute = parsed.minute;
     }
 
+    const target: ScheduleTaskInput["target"] =
+      kind === "project"
+        ? { kind: "project", cwd: cwd.trim() }
+        : kind === "session"
+          ? { kind: "session", sessionId: sessionId.trim() }
+          : { kind: "chat" };
     const base: ScheduleTaskInput = {
       name: trimmedName,
       prompt: trimmedPrompt,
       ...(task?.images ? { images: task.images } : {}),
-      target: kind === "project" ? { kind: "project", cwd: cwd.trim() } : { kind: "chat" },
+      target,
       frequency,
       hour,
       minute: scheduledMinute,
@@ -262,29 +270,35 @@ export function ScheduleEditorSheet({
           </label>
         )}
 
-        <div>
-          <div className="text-xs font-medium text-text-tertiary">{t("models.label")}</div>
-          <div className="mt-1.5">
-            <ModelField value={model} allowDefault onChange={setModel} />
+        {kind !== "session" && (
+          <div>
+            <div className="text-xs font-medium text-text-tertiary">{t("models.label")}</div>
+            <div className="mt-1.5">
+              <ModelField value={model} allowDefault onChange={setModel} />
+            </div>
           </div>
-        </div>
+        )}
 
         <div>
           <div className="text-xs font-medium text-text-tertiary">{t("schedule.mode")}</div>
-          <fieldset className="mt-1.5 flex gap-2" aria-label={t("schedule.mode")}>
-            {(["chat", "project"] as const).map((k) => (
+          <fieldset className="mt-1.5 grid grid-cols-3 gap-2" aria-label={t("schedule.mode")}>
+            {(["chat", "project", "session"] as const).map((k) => (
               <button
                 key={k}
                 type="button"
                 aria-pressed={kind === k}
                 onClick={() => setKind(k)}
-                className={`min-h-11 flex-1 rounded-xl border px-3 py-2.5 text-sm transition-colors ${
+                className={`min-h-11 rounded-xl border px-2 py-2.5 text-sm transition-colors ${
                   kind === k
                     ? "border-accent bg-accent-soft text-accent"
                     : "border-border-strong bg-bg-elevated text-text-secondary"
                 }`}
               >
-                {k === "chat" ? t("common.chatSession") : t("common.projectSession")}
+                {k === "chat"
+                  ? t("common.chatSession")
+                  : k === "project"
+                    ? t("common.projectSession")
+                    : t("schedule.existingSession")}
               </button>
             ))}
           </fieldset>
@@ -292,6 +306,26 @@ export function ScheduleEditorSheet({
             <div className="mt-2">
               <ProjectPicker projects={projects} value={cwd} onChange={setCwd} />
             </div>
+          )}
+          {kind === "session" && (
+            <select
+              value={sessionId}
+              onChange={(event) => setSessionId(event.target.value)}
+              aria-label={t("schedule.existingSession")}
+              className={`${FIELD_CLASS} mt-2`}
+            >
+              <option value="">{t("schedule.selectSession")}</option>
+              {task?.target.kind === "session" && !sessions[task.target.sessionId] && (
+                <option value={task.target.sessionId}>{t("schedule.missingSession")}</option>
+              )}
+              {Object.values(sessions)
+                .sort((a, b) => b.updatedAt - a.updatedAt)
+                .map((session) => (
+                  <option key={session.id} value={session.id}>
+                    {session.title}
+                  </option>
+                ))}
+            </select>
           )}
         </div>
 

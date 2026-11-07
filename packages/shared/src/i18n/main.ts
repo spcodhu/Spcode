@@ -10,6 +10,7 @@ export const zhCN = {
   "push.invalidSubscription": "非法的推送订阅（需要 endpoint / keys.p256dh / keys.auth）",
   "scheduler.notFound": "任务不存在：{{id}}",
   "scheduler.invalidImages": "任务图片无效或超过 10MB，请重新选择",
+  "scheduler.invalidTarget": "任务执行目标无效，请重新选择",
   "pairing.unnamedDevice": "未命名设备",
   "permission.planBash":
     "计划模式为只读：此命令不在只读白名单中。请继续使用只读命令（cat/grep/find/ls/git status 等）调研；计划就绪后调用 WritePlan 落盘并以文件链接结束，用户会在右侧阅读面板决定是否执行。",
@@ -82,6 +83,7 @@ export const en = {
   "push.invalidSubscription": "Invalid push subscription (requires endpoint / keys.p256dh / keys.auth)",
   "scheduler.notFound": "Task not found: {{id}}",
   "scheduler.invalidImages": "A task image is invalid or exceeds 10MB. Select it again.",
+  "scheduler.invalidTarget": "The task target is invalid. Select it again.",
   "pairing.unnamedDevice": "Unnamed device",
   "permission.planBash":
     "Plan mode is read-only: this command is not on the read-only allowlist. Continue with read-only commands (cat/grep/find/ls/git status, etc.); when ready, save via WritePlan and finish with a file link. The user decides whether to execute from the plan panel.",

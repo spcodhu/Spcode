@@ -634,8 +634,11 @@ export interface DailyUsage {
 
 export type ScheduleFrequency = "once" | "hourly" | "daily" | "weekday" | "weekly";
 
-/** 触发目标：新建聊天会话 / 在指定项目目录下新建项目会话 */
-export type ScheduleTarget = { kind: "chat" } | { kind: "project"; cwd: string };
+/** 触发目标：新建聊天/项目会话，或复用指定已有会话 */
+export type ScheduleTarget =
+  | { kind: "chat" }
+  | { kind: "project"; cwd: string }
+  | { kind: "session"; sessionId: string };
 
 export interface ScheduleTask {
   id: string;

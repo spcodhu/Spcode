@@ -31,6 +31,15 @@ function validImages(images: unknown): boolean {
   }
 }
 
+function validTarget(target: unknown): boolean {
+  if (!target || typeof target !== "object") return false;
+  const value = target as Record<string, unknown>;
+  if (value.kind === "chat") return true;
+  if (value.kind === "project") return typeof value.cwd === "string" && !!value.cwd.trim();
+  if (value.kind === "session") return typeof value.sessionId === "string" && !!value.sessionId.trim();
+  return false;
+}
+
 function assertValidImages(images: unknown): void {
   if (!validImages(images)) throw new Error(i18n.t("main:scheduler.invalidImages"));
 }
@@ -43,7 +52,7 @@ function validateTasks(data: unknown): ScheduleTask[] | null {
     if (!t || typeof t !== "object") return null;
     const r = t as Record<string, unknown>;
     if (typeof r.id !== "string" || typeof r.name !== "string" || typeof r.prompt !== "string") return null;
-    if (!validImages(r.images)) return null;
+    if (!validImages(r.images) || !validTarget(r.target)) return null;
     if (typeof r.frequency !== "string" || !FREQUENCIES.has(r.frequency)) return null;
     if (typeof r.hour !== "number" || typeof r.minute !== "number" || typeof r.enabled !== "boolean") return null;
     // 值域（评审 R3-C14：minute=999 会进位错乱、weekday=7 会显示「每周undefined」）
@@ -121,6 +130,7 @@ export class Scheduler {
 
   create(input: ScheduleTaskInput): ScheduleTask {
     assertValidImages(input.images);
+    if (!validTarget(input.target)) throw new Error(i18n.t("main:scheduler.invalidTarget"));
     const task: ScheduleTask = { ...input, id: randomUUID(), createdAt: this.opts.now?.() ?? Date.now() };
     const list = this.list();
     list.unshift(task);
@@ -130,6 +140,9 @@ export class Scheduler {
 
   update(id: string, patch: Partial<ScheduleTaskInput>): ScheduleTask | null {
     if (Object.hasOwn(patch, "images")) assertValidImages(patch.images);
+    if (Object.hasOwn(patch, "target") && !validTarget(patch.target)) {
+      throw new Error(i18n.t("main:scheduler.invalidTarget"));
+    }
     const list = this.list();
     const idx = list.findIndex((t) => t.id === id);
     const cur = idx >= 0 ? list[idx] : undefined;

@@ -41,6 +41,7 @@ import { applyNetworkProxy, registerNetworkProxyAuthentication } from "./proxy.j
 import { QuotaService } from "./quota-service.js";
 import { RemoteServer } from "./remote/index.js";
 import { Scheduler } from "./scheduler.js";
+import { runScheduledTask } from "./schedule-runner.js";
 import { type GitBaseline, gitBaseline, gitDiff, gitStashPush, gitStatusPorcelain, hasChanges } from "./session-git.js";
 import {
   backfillSessionFile,
@@ -304,43 +305,7 @@ const scheduler = new Scheduler({
 });
 
 async function fireScheduledTask(task: ScheduleTask): Promise<string> {
-  const sessionId = randomUUID();
-  const mode: SessionMode = task.target.kind === "project" ? "project" : "chat";
-  const cwd = task.target.kind === "project" ? task.target.cwd : "";
-  const now = Date.now();
-  registry.upsert({
-    id: sessionId,
-    mode,
-    cwd,
-    title: task.name,
-    titleKind: "custom",
-    model: task.model ?? settings.get().defaultModel,
-    thinkingLevel: settings.get().defaultThinkingLevel,
-    sessionFile: null,
-    createdAt: now,
-    updatedAt: now,
-  });
-  // 走与用户手动创建相同的 session.create 链路，但关闭标题自动化（标题 = 任务名）
-  const createCmd = AgentBridge.withId({
-    type: "session.create",
-    payload: {
-      sessionId,
-      mode,
-      cwd,
-      model: task.model ?? settings.get().defaultModel ?? undefined,
-      thinkingLevel: settings.get().defaultThinkingLevel,
-      noTitleAutomation: true,
-    },
-  });
-  const info = await bridge.call(createCmd);
-  backfillSessionFile(createCmd, info, registry);
-  await bridge.call(
-    AgentBridge.withId({
-      type: "session.prompt",
-      payload: { sessionId, text: task.prompt, ...(task.images?.length ? { images: task.images } : {}) },
-    }),
-  );
-  return sessionId;
+  return runScheduledTask(task, { registry, bridge, settings });
 }
 
 // ---------------------------------------------------------------------------

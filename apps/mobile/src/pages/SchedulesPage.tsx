@@ -14,6 +14,7 @@ import { useAppStore } from "../state/store";
 export function SchedulesPage() {
   const { t: tr } = useTranslation("mobile");
   const schedules = useAppStore((s) => s.schedules);
+  const sessions = useAppStore((s) => s.sessions);
   const connState = useAppStore((s) => s.connState);
   const setRoute = useAppStore((s) => s.setRoute);
   const pendingRef = useRef(new Set<string>());
@@ -96,7 +97,11 @@ export function SchedulesPage() {
                     <h2 className="truncate text-sm font-medium text-text-primary">{task.name}</h2>
                     <div className="safe-break mt-1 text-xs leading-5 text-text-tertiary">
                       {describeMobileSchedule(task)} ·{" "}
-                      {task.target.kind === "project" ? task.target.cwd : tr("common.chatSession")}
+                      {task.target.kind === "project"
+                        ? task.target.cwd
+                        : task.target.kind === "session"
+                          ? (sessions[task.target.sessionId]?.title ?? tr("schedule.missingSession"))
+                          : tr("common.chatSession")}
                     </div>
                     {describeNextScheduleRun(task, now) && (
                       <div className="mt-1 text-xs leading-5 text-accent" data-testid={`schedule-next-${task.id}`}>

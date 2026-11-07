@@ -148,4 +148,27 @@ describe("移动端定时任务编辑器", () => {
       expect.objectContaining({ target: { kind: "project", cwd: "/code/demo" } }),
     );
   });
+
+  it("已有会话目标可编辑保留，不被静默改成新聊天", async () => {
+    useAppStore.getState().setSessions([
+      {
+        id: "existing",
+        mode: "project",
+        cwd: "/code/demo",
+        title: "已有会话",
+        model: null,
+        thinkingLevel: "medium",
+        createdAt: 1,
+        updatedAt: 2,
+      },
+    ]);
+    const value = { ...task("daily"), target: { kind: "session" as const, sessionId: "existing" } };
+    await render(value);
+    expect(document.querySelector<HTMLSelectElement>('select[aria-label="已有会话"]')?.value).toBe("existing");
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="schedule-submit"]')!.click());
+    expect(state.update).toHaveBeenCalledWith(
+      value.id,
+      expect.objectContaining({ target: { kind: "session", sessionId: "existing" } }),
+    );
+  });
 });

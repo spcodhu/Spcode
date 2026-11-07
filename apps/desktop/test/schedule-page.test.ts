@@ -126,6 +126,49 @@ describe("定时任务页", () => {
     expect(scheduleCreate).toHaveBeenCalledWith(expect.objectContaining({ prompt: "", images: [image] }));
   });
 
+  it("可以把已有会话选为执行目标并提交 sessionId", async () => {
+    const scheduleCreate = vi.fn().mockResolvedValue(task("created", "复用会话"));
+    Object.assign(window.spcode, { scheduleCreate, pickImages: vi.fn().mockResolvedValue([]) });
+    store.registrySessions = [
+      {
+        id: "existing",
+        title: "修复问题",
+        mode: "project",
+        cwd: "/code/demo",
+        sessionFile: "/tmp/existing.jsonl",
+      },
+    ];
+    scheduleList.mockResolvedValue([]);
+    await render();
+    await act(async () =>
+      [...document.querySelectorAll<HTMLButtonElement>("button")]
+        .find((button) => button.textContent?.includes("新建任务"))!
+        .click(),
+    );
+    const name = document.querySelector<HTMLInputElement>('input[placeholder="如：每日晨报"]')!;
+    const prompt = element<HTMLTextAreaElement>("schedule-prompt");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(name, "复用会话");
+      name.dispatchEvent(new Event("input", { bubbles: true }));
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(prompt, "继续处理");
+      prompt.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await click("schedule-target");
+    await act(async () =>
+      [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')]
+        .find((button) => button.textContent?.includes("修复问题"))!
+        .click(),
+    );
+    await act(async () =>
+      [...document.querySelectorAll<HTMLButtonElement>("button")]
+        .find((button) => button.textContent?.includes("创建任务"))!
+        .click(),
+    );
+    expect(scheduleCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ target: { kind: "session", sessionId: "existing" } }),
+    );
+  });
+
   it("A/B 任务立即运行分别维护 pending，单个完成不会解除另一个任务", async () => {
     const first = deferred<string>();
     const second = deferred<string>();

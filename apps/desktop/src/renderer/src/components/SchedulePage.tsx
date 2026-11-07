@@ -25,6 +25,7 @@ import { Switch } from "./ui/Switch";
  */
 export function SchedulePage({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation("settings");
+  const registrySessions = useStore((s) => s.registrySessions);
   const [tasks, setTasks] = useState<ScheduleTask[] | null>(null);
   const [editing, setEditing] = useState<ScheduleTask | "new" | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -182,7 +183,16 @@ export function SchedulePage({ onClose }: { onClose: () => void }) {
                       {describeSchedule(item)} ·{" "}
                       {item.target.kind === "project"
                         ? t("schedule.project", { name: baseName(item.target.cwd) })
-                        : t("schedule.chat")}
+                        : item.target.kind === "session"
+                          ? t("schedule.session", {
+                              name:
+                                registrySessions.find(
+                                  (session) =>
+                                    session.id === (item.target.kind === "session" ? item.target.sessionId : ""),
+                                )?.title ??
+                                (item.target.kind === "session" ? item.target.sessionId : ""),
+                            })
+                          : t("schedule.chat")}
                       {item.lastStatus === "ok" && item.lastRunAt
                         ? t("schedule.lastRun", { time: formatRelative(item.lastRunAt) })
                         : ""}
@@ -304,7 +314,13 @@ function TaskForm({
   const [prompt, setPrompt] = useState(task?.prompt ?? "");
   const [images, setImages] = useState<ImageAttachment[]>(task?.images ?? []);
   const [previewIdx, setPreviewIdx] = useState<number | null>(null);
-  const [targetKind, setTargetKind] = useState<string>(task?.target.kind === "project" ? task.target.cwd : "chat");
+  const [targetKind, setTargetKind] = useState<string>(
+    task?.target.kind === "project"
+      ? task.target.cwd
+      : task?.target.kind === "session"
+        ? `session:${task.target.sessionId}`
+        : "chat",
+  );
   const [modelKey, setModelKey] = useState(task?.model ? `${task.model.provider}/${task.model.modelId}` : "");
   const [frequency, setFrequency] = useState<ScheduleFrequency>(task?.frequency ?? "daily");
   const [hour, setHour] = useState(String(task?.hour ?? 9));
@@ -340,17 +356,32 @@ function TaskForm({
     );
   };
 
-  // 目标候选：新聊天 + 已有项目空间的目录
+  // 目标候选：新聊天、新项目会话，以及可跨重启恢复的已有会话
   const targetOptions = useMemo(() => {
     const cwds = new Map<string, string>();
     for (const r of registrySessions) {
       if (r.mode === "project" && r.cwd) cwds.set(r.cwd, baseName(r.cwd));
     }
-    return [
+    const options: { value: string; label: string }[] = [
       { value: "chat", label: t("schedule.chat") },
-      ...[...cwds.entries()].map(([cwd, base]) => ({ value: cwd, label: t("schedule.project", { name: base }) })),
+      ...[...cwds.entries()].map(([cwd, base]) => ({
+        value: cwd,
+        label: t("schedule.newProject", { name: base }),
+      })),
+      ...registrySessions
+        .filter((session) => !!session.sessionFile)
+        .map((session) => ({
+          value: `session:${session.id}`,
+          label: t("schedule.session", {
+            name: `${session.title}${session.cwd ? ` · ${baseName(session.cwd)}` : ""}`,
+          }),
+        })),
     ];
-  }, [registrySessions, t]);
+    if (task?.target.kind === "session" && !options.some((option) => option.value === targetKind)) {
+      options.push({ value: targetKind, label: t("schedule.missingSession") });
+    }
+    return options;
+  }, [registrySessions, t, task, targetKind]);
 
   const modelOptions = useMemo(() => {
     const options = enabledModels.map((model) => ({
@@ -391,7 +422,11 @@ function TaskForm({
     if (!trimmedName) return setError(t("schedule.missingName"));
     if (!trimmedPrompt && images.length === 0) return setError(t("schedule.missingPrompt"));
 
-    const target: ScheduleTarget = targetKind === "chat" ? { kind: "chat" } : { kind: "project", cwd: targetKind };
+    const target: ScheduleTarget = targetKind.startsWith("session:")
+      ? { kind: "session", sessionId: targetKind.slice("session:".length) }
+      : targetKind === "chat"
+        ? { kind: "chat" }
+        : { kind: "project", cwd: targetKind };
     const input: ScheduleTaskInput = {
       name: trimmedName,
       prompt: trimmedPrompt,
@@ -515,12 +550,17 @@ function TaskForm({
       </Field>
 
       <Field label={t("schedule.target")}>
-        <Select value={targetKind} options={targetOptions} onChange={setTargetKind} />
+        <Select value={targetKind} options={targetOptions} onChange={setTargetKind} testId="schedule-target" />
+        {targetKind.startsWith("session:") && (
+          <div className="mt-1.5 text-[11px] leading-4 text-text-tertiary">{t("schedule.sessionHint")}</div>
+        )}
       </Field>
 
-      <Field label={t("nav.models")}>
-        <Select value={modelKey} options={modelOptions} onChange={setModelKey} />
-      </Field>
+      {!targetKind.startsWith("session:") && (
+        <Field label={t("nav.models")}>
+          <Select value={modelKey} options={modelOptions} onChange={setModelKey} />
+        </Field>
+      )}
 
       <Field label={t("schedule.frequency")}>
         <Select value={frequency} options={FREQ_OPTIONS} onChange={(v) => setFrequency(v as ScheduleFrequency)} />
