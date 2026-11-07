@@ -1,11 +1,20 @@
-import type { ScheduleFrequency, ScheduleTarget, ScheduleTask, ScheduleTaskInput } from "@spcode/shared";
+import type {
+  ImageAttachment,
+  ScheduleFrequency,
+  ScheduleTarget,
+  ScheduleTask,
+  ScheduleTaskInput,
+} from "@spcode/shared";
 import { baseName, describeNextScheduleRun, describeSchedule, nextScheduleRunAt } from "@spcode/shared";
 import { getLocale } from "@spcode/shared/i18n";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { formatRelative } from "../format";
+import { openImageContextMenu } from "../image-actions";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
+import { ImageLightbox } from "./ImageLightbox";
+import { fileToAttachment } from "./MdEditor";
 import { Modal } from "./ui/Modal";
 import { Select } from "./ui/Select";
 import { Switch } from "./ui/Switch";
@@ -293,6 +302,8 @@ function TaskForm({
 
   const [name, setName] = useState(task?.name ?? "");
   const [prompt, setPrompt] = useState(task?.prompt ?? "");
+  const [images, setImages] = useState<ImageAttachment[]>(task?.images ?? []);
+  const [previewIdx, setPreviewIdx] = useState<number | null>(null);
   const [targetKind, setTargetKind] = useState<string>(task?.target.kind === "project" ? task.target.cwd : "chat");
   const [modelKey, setModelKey] = useState(task?.model ? `${task.model.provider}/${task.model.modelId}` : "");
   const [frequency, setFrequency] = useState<ScheduleFrequency>(task?.frequency ?? "daily");
@@ -308,6 +319,26 @@ function TaskForm({
   });
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const pickImages = async () => {
+    try {
+      const picked = await window.spcode.pickImages();
+      if (picked.length) setImages((current) => [...current, ...picked]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const pasteImages = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(event.clipboardData?.items ?? [])
+      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => !!file && file.size <= 10 * 1024 * 1024);
+    if (!files.length) return;
+    event.preventDefault();
+    void Promise.all(files.map((file, index) => fileToAttachment(file, index))).then((picked) =>
+      setImages((current) => [...current, ...picked]),
+    );
+  };
 
   // 目标候选：新聊天 + 已有项目空间的目录
   const targetOptions = useMemo(() => {
@@ -358,12 +389,13 @@ function TaskForm({
     const trimmedName = name.trim();
     const trimmedPrompt = prompt.trim();
     if (!trimmedName) return setError(t("schedule.missingName"));
-    if (!trimmedPrompt) return setError(t("schedule.missingPrompt"));
+    if (!trimmedPrompt && images.length === 0) return setError(t("schedule.missingPrompt"));
 
     const target: ScheduleTarget = targetKind === "chat" ? { kind: "chat" } : { kind: "project", cwd: targetKind };
     const input: ScheduleTaskInput = {
       name: trimmedName,
       prompt: trimmedPrompt,
+      images,
       target,
       frequency,
       hour: Number(hour),
@@ -424,13 +456,62 @@ function TaskForm({
       </Field>
 
       <Field label={t("schedule.prompt")}>
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder={t("schedule.promptPlaceholder")}
-          rows={4}
-          className="w-full resize-y rounded-lg border border-border bg-bg-elevated px-3 py-2 text-[13px] leading-5 outline-none focus:border-accent/50"
-        />
+        <div className="rounded-lg border border-border bg-bg-elevated focus-within:border-accent/50">
+          {images.length > 0 && (
+            <div className="flex flex-wrap gap-2 px-3 pt-3">
+              {images.map((image, index) => (
+                <div key={`${image.name}-${index}-${image.data.length}`} className="group/chip relative">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewIdx(index)}
+                    title={t("schedule.previewImage", { name: image.name })}
+                  >
+                    <img
+                      src={`data:${image.mimeType};base64,${image.data}`}
+                      alt={image.name}
+                      data-testid="schedule-image"
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        void openImageContextMenu(image);
+                      }}
+                      className="h-14 w-14 rounded-lg border border-border object-cover"
+                    />
+                  </button>
+                  <button
+                    type="button"
+                    data-testid={`schedule-remove-image-${index}`}
+                    onClick={() => setImages((current) => current.filter((_, i) => i !== index))}
+                    title={t("schedule.removeImage", { name: image.name })}
+                    className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-bg-active text-text-tertiary opacity-0 transition-opacity hover:text-text-primary group-hover/chip:opacity-100 focus:opacity-100"
+                  >
+                    <Icon name="x" size={10} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            onPaste={pasteImages}
+            placeholder={t("schedule.promptPlaceholder")}
+            data-testid="schedule-prompt"
+            rows={4}
+            className="w-full resize-y rounded-lg bg-transparent px-3 py-2 text-[13px] leading-5 outline-none"
+          />
+          <div className="flex items-center justify-between border-t border-border px-3 py-2">
+            <span className="text-[11px] text-text-tertiary">{t("schedule.imageHint")}</span>
+            <button
+              type="button"
+              data-testid="schedule-add-image"
+              onClick={() => void pickImages()}
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-[12px] text-text-secondary hover:bg-bg-hover"
+            >
+              <Icon name="image" size={13} />
+              {t("schedule.addImage")}
+            </button>
+          </div>
+        </div>
       </Field>
 
       <Field label={t("schedule.target")}>
@@ -489,6 +570,14 @@ function TaskForm({
           {saving ? t("saving") : task ? t("schedule.saveChanges") : t("schedule.create")}
         </button>
       </div>
+      {previewIdx !== null && (
+        <ImageLightbox
+          images={images}
+          index={previewIdx}
+          onClose={() => setPreviewIdx(null)}
+          onNavigate={setPreviewIdx}
+        />
+      )}
     </div>
   );
 }

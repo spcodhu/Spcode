@@ -86,7 +86,7 @@ export function ScheduleEditorSheet({
     const trimmedName = name.trim();
     const trimmedPrompt = prompt.trim();
     if (!trimmedName) return new MobileError("schedule.nameRequired");
-    if (!trimmedPrompt) return new MobileError("schedule.promptRequired");
+    if (!trimmedPrompt && !task?.images?.length) return new MobileError("schedule.promptRequired");
     if (kind === "project" && !cwd.trim()) return new MobileError("schedule.cwdRequired");
 
     let hour = task?.hour ?? 9;
@@ -101,6 +101,7 @@ export function ScheduleEditorSheet({
     const base: ScheduleTaskInput = {
       name: trimmedName,
       prompt: trimmedPrompt,
+      ...(task?.images ? { images: task.images } : {}),
       target: kind === "project" ? { kind: "project", cwd: cwd.trim() } : { kind: "chat" },
       frequency,
       hour,

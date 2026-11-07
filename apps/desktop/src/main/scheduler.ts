@@ -15,9 +15,25 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import type { ScheduleTask, ScheduleTaskInput } from "@spcode/shared";
+import type { ImageAttachment, ScheduleTask, ScheduleTaskInput } from "@spcode/shared";
 import { i18n } from "@spcode/shared/i18n";
 import { readJsonFile, resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
+import { decodeImageAttachment } from "./image-file.js";
+
+function validImages(images: unknown): boolean {
+  if (images === undefined) return true;
+  if (!Array.isArray(images)) return false;
+  try {
+    for (const image of images) decodeImageAttachment(image as ImageAttachment);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function assertValidImages(images: unknown): void {
+  if (!validImages(images)) throw new Error(i18n.t("main:scheduler.invalidImages"));
+}
 
 /** 任务条目的最低结构要求：关键字段类型正确 + 值域合法（hour 0-23 / minute 0-59 / weekday 0-6）即收 */
 function validateTasks(data: unknown): ScheduleTask[] | null {
@@ -27,6 +43,7 @@ function validateTasks(data: unknown): ScheduleTask[] | null {
     if (!t || typeof t !== "object") return null;
     const r = t as Record<string, unknown>;
     if (typeof r.id !== "string" || typeof r.name !== "string" || typeof r.prompt !== "string") return null;
+    if (!validImages(r.images)) return null;
     if (typeof r.frequency !== "string" || !FREQUENCIES.has(r.frequency)) return null;
     if (typeof r.hour !== "number" || typeof r.minute !== "number" || typeof r.enabled !== "boolean") return null;
     // 值域（评审 R3-C14：minute=999 会进位错乱、weekday=7 会显示「每周undefined」）
@@ -103,6 +120,7 @@ export class Scheduler {
   }
 
   create(input: ScheduleTaskInput): ScheduleTask {
+    assertValidImages(input.images);
     const task: ScheduleTask = { ...input, id: randomUUID(), createdAt: this.opts.now?.() ?? Date.now() };
     const list = this.list();
     list.unshift(task);
@@ -111,6 +129,7 @@ export class Scheduler {
   }
 
   update(id: string, patch: Partial<ScheduleTaskInput>): ScheduleTask | null {
+    if (Object.hasOwn(patch, "images")) assertValidImages(patch.images);
     const list = this.list();
     const idx = list.findIndex((t) => t.id === id);
     const cur = idx >= 0 ? list[idx] : undefined;

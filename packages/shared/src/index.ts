@@ -641,6 +641,8 @@ export interface ScheduleTask {
   id: string;
   name: string;
   prompt: string;
+  /** 每次触发随指令发送的图片；旧任务缺省为无附件 */
+  images?: ImageAttachment[];
   /** 缺省/null = 触发时跟随 PC 默认模型；旧任务无此字段保持原行为 */
   model?: ModelRef | null;
   target: ScheduleTarget;

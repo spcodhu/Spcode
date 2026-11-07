@@ -334,7 +334,12 @@ async function fireScheduledTask(task: ScheduleTask): Promise<string> {
   });
   const info = await bridge.call(createCmd);
   backfillSessionFile(createCmd, info, registry);
-  await bridge.call(AgentBridge.withId({ type: "session.prompt", payload: { sessionId, text: task.prompt } }));
+  await bridge.call(
+    AgentBridge.withId({
+      type: "session.prompt",
+      payload: { sessionId, text: task.prompt, ...(task.images?.length ? { images: task.images } : {}) },
+    }),
+  );
   return sessionId;
 }
 

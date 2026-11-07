@@ -254,9 +254,15 @@ describe("Scheduler.tick", () => {
       async () => "s",
       () => MON,
     );
+    const image = {
+      name: "pixel.png",
+      mimeType: "image/png",
+      data: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString("base64"),
+    };
     const t = sched.create({
       name: "A",
       prompt: "p",
+      images: [image],
       target: { kind: "chat" },
       frequency: "daily",
       hour: 9,
@@ -267,8 +273,46 @@ describe("Scheduler.tick", () => {
     const reloaded = new Scheduler({ file, fire: async () => "s" });
     expect(reloaded.list()[0].name).toBe("B");
     expect(reloaded.list()[0].enabled).toBe(false);
+    expect(reloaded.list()[0].images).toEqual([image]);
     reloaded.remove(t.id);
     expect(new Scheduler({ file, fire: async () => "s" }).list()).toHaveLength(0);
+  });
+
+  it("拒绝非法图片，也不让部分更新清除已有附件", () => {
+    const { sched } = setup(
+      async () => "s",
+      () => MON,
+    );
+    const image = {
+      name: "pixel.png",
+      mimeType: "image/png",
+      data: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString("base64"),
+    };
+    const t = sched.create({
+      name: "图片",
+      prompt: "",
+      images: [image],
+      target: { kind: "chat" },
+      frequency: "daily",
+      hour: 9,
+      minute: 0,
+      enabled: true,
+    });
+    sched.update(t.id, { name: "新名称" });
+    expect(sched.list()[0]?.images).toEqual([image]);
+    expect(() => sched.update(t.id, { images: [{ ...image, data: "not-base64" }] })).toThrow();
+    expect(() =>
+      sched.create({
+        name: "坏图",
+        prompt: "",
+        images: [{ ...image, mimeType: "image/svg+xml" }],
+        target: { kind: "chat" },
+        frequency: "daily",
+        hour: 9,
+        minute: 0,
+        enabled: true,
+      }),
+    ).toThrow();
   });
 });
 

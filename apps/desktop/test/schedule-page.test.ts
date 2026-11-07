@@ -96,6 +96,36 @@ describe("定时任务页", () => {
     expect(element("schedule-next-next").title).toContain(String(new Date(runAt).getFullYear()));
   });
 
+  it("预置提示词支持添加和移除图片，图片也可独立作为任务内容", async () => {
+    const scheduleCreate = vi.fn().mockResolvedValue(task("created", "图片任务"));
+    const image = { name: "pixel.png", mimeType: "image/png", data: "aGVsbG8=" };
+    const pickImages = vi.fn().mockResolvedValue([image]);
+    Object.assign(window.spcode, { scheduleCreate, pickImages });
+    scheduleList.mockResolvedValue([]);
+    await render();
+    await act(async () =>
+      [...document.querySelectorAll<HTMLButtonElement>("button")]
+        .find((button) => button.textContent?.includes("新建任务"))!
+        .click(),
+    );
+    const name = document.querySelector<HTMLInputElement>('input[placeholder="如：每日晨报"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(name, "图片任务");
+      name.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await click("schedule-add-image");
+    expect(document.querySelectorAll('[data-testid="schedule-image"]')).toHaveLength(1);
+    await click("schedule-remove-image-0");
+    expect(document.querySelectorAll('[data-testid="schedule-image"]')).toHaveLength(0);
+    await click("schedule-add-image");
+    await act(async () =>
+      [...document.querySelectorAll<HTMLButtonElement>("button")]
+        .find((button) => button.textContent?.includes("创建任务"))!
+        .click(),
+    );
+    expect(scheduleCreate).toHaveBeenCalledWith(expect.objectContaining({ prompt: "", images: [image] }));
+  });
+
   it("A/B 任务立即运行分别维护 pending，单个完成不会解除另一个任务", async () => {
     const first = deferred<string>();
     const second = deferred<string>();
