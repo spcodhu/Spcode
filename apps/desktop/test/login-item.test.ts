@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("electron", () => ({ app: {} }));
 
-import { LoginItemService, type LoginItemAdapter } from "../src/main/login-item.js";
+import { type LoginItemAdapter, LoginItemService } from "../src/main/login-item.js";
 
 const setLoginItemSettings = vi.fn();
 let snapshot = {

@@ -43,8 +43,8 @@ import { applyNetworkProxy, registerNetworkProxyAuthentication } from "./proxy.j
 import { QuotaService } from "./quota-service.js";
 import { RemoteServer } from "./remote/index.js";
 import { RunRetryScheduler } from "./run-retry.js";
-import { Scheduler } from "./scheduler.js";
 import { runScheduledRetry, runScheduledTask } from "./schedule-runner.js";
+import { Scheduler } from "./scheduler.js";
 import { type GitBaseline, gitBaseline, gitDiff, gitStashPush, gitStatusPorcelain, hasChanges } from "./session-git.js";
 import {
   backfillSessionFile,

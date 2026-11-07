@@ -220,7 +220,9 @@ describe("远程控制状态读取", () => {
 
 describe("开机自动启动", () => {
   it("开关直接调用系统设置，并展示 macOS 待批准状态", async () => {
-    const autoLaunchStatus = vi.fn().mockResolvedValue({ supported: true, openAtLogin: false, macStatus: "not-registered" });
+    const autoLaunchStatus = vi
+      .fn()
+      .mockResolvedValue({ supported: true, openAtLogin: false, macStatus: "not-registered" });
     const autoLaunchSetEnabled = vi.fn().mockResolvedValue({
       supported: true,
       openAtLogin: true,

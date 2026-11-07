@@ -6,7 +6,13 @@ import type {
   ScheduleTask,
   ScheduleTaskInput,
 } from "@spcode/shared";
-import { baseName, DEFAULT_SCHEDULE_PERMISSION_MODE, describeNextScheduleRun, describeSchedule, nextScheduleRunAt } from "@spcode/shared";
+import {
+  baseName,
+  DEFAULT_SCHEDULE_PERMISSION_MODE,
+  describeNextScheduleRun,
+  describeSchedule,
+  nextScheduleRunAt,
+} from "@spcode/shared";
 import { getLocale } from "@spcode/shared/i18n";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -190,8 +196,7 @@ export function SchedulePage({ onClose }: { onClose: () => void }) {
                                 registrySessions.find(
                                   (session) =>
                                     session.id === (item.target.kind === "session" ? item.target.sessionId : ""),
-                                )?.title ??
-                                (item.target.kind === "session" ? item.target.sessionId : ""),
+                                )?.title ?? (item.target.kind === "session" ? item.target.sessionId : ""),
                             })
                           : t("schedule.chat")}
                       {item.lastStatus === "ok" && item.lastRunAt
@@ -500,7 +505,10 @@ function TaskForm({
           {images.length > 0 && (
             <div className="flex flex-wrap gap-2 px-3 pt-3">
               {images.map((image, index) => (
-                <div key={`${image.name}-${index}-${image.data.length}`} className="group/chip relative">
+                <div
+                  key={`${image.name}-${image.data.length}-${image.data.slice(-16)}`}
+                  className="group/chip relative"
+                >
                   <button
                     type="button"
                     onClick={() => setPreviewIdx(index)}

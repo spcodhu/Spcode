@@ -98,9 +98,7 @@ describe("下一次执行时间", () => {
     expect(nextScheduleRunAt(t, before)).toBe(new Date(2026, 8, 28, 10, 30).getTime());
     const due = new Date(2026, 8, 28, 10, 45).getTime();
     expect(nextScheduleRunAt(t, due)).toBe(due);
-    expect(nextScheduleRunAt({ ...t, lastRunAt: due }, due)).toBe(
-      new Date(2026, 8, 28, 11, 30).getTime(),
-    );
+    expect(nextScheduleRunAt({ ...t, lastRunAt: due }, due)).toBe(new Date(2026, 8, 28, 11, 30).getTime());
     expect(describeNextScheduleRun({ ...t, lastRunAt: due }, due)).toContain("下次执行");
   });
 

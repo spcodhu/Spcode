@@ -52,7 +52,7 @@ function setup(entries: SessionRegistryEntry[] = [], running = false) {
     },
   };
   const bridge: ScheduleRunnerDeps["bridge"] = {
-    call: async <T,>(cmd: Extract<HostCommand, { id: string }>): Promise<T> => {
+    call: async <T>(cmd: Extract<HostCommand, { id: string }>): Promise<T> => {
       calls.push(cmd);
       return { ...info(cmd.payload.sessionId), running } as T;
     },
@@ -95,11 +95,7 @@ describe("定时任务执行器", () => {
       deps,
     );
     expect(result).toBe("existing");
-    expect(calls.map((call) => call.type)).toEqual([
-      "session.activate",
-      "session.setPermissionMode",
-      "session.prompt",
-    ]);
+    expect(calls.map((call) => call.type)).toEqual(["session.activate", "session.setPermissionMode", "session.prompt"]);
     expect(calls[0]).toMatchObject({
       payload: {
         sessionId: "existing",

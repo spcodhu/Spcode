@@ -363,7 +363,8 @@ export const en = {
   "schedule.permissionAsk": "Always ask",
   "schedule.permissionAuto": "Ask when needed",
   "schedule.permissionNever": "Never ask (default)",
-  "schedule.permissionHint": "Sandbox settings follow the desktop global configuration and hot-update for subsequent commands",
+  "schedule.permissionHint":
+    "Sandbox settings follow the desktop global configuration and hot-update for subsequent commands",
   "schedule.nameRequired": "Enter a task name.",
   "schedule.promptRequired": "Enter the task instructions (prompt).",
   "schedule.cwdRequired": "Select an existing project for project mode.",

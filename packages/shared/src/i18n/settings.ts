@@ -598,9 +598,11 @@ export const en = {
   "general.autoLaunch": "Launch at login",
   "general.autoLaunchTitle": "Start Spcod when you log in",
   "general.autoLaunchDescription": "Configures the Windows/macOS login item directly and reads back the actual state",
-  "general.autoLaunchPackagedOnly": "Development mode never registers Electron itself; this switch is available in installed builds",
+  "general.autoLaunchPackagedOnly":
+    "Development mode never registers Electron itself; this switch is available in installed builds",
   "general.autoLaunchApproval": "Approve Spcod in macOS System Settings → General → Login Items & Extensions",
-  "general.autoLaunchWindowsDeactivated": "Windows has disabled this startup item. Enable Spcod in Task Manager → Startup apps",
+  "general.autoLaunchWindowsDeactivated":
+    "Windows has disabled this startup item. Enable Spcod in Task Manager → Startup apps",
   "general.autoLaunchFailed": "Could not read or change launch at login: {{error}}",
   "general.autoUpdate": "Automatic updates",
   "general.checkUpdates": "Check for updates on startup",
@@ -985,9 +987,11 @@ export const en = {
   "schedule.newProject": "New project session · {{name}}",
   "schedule.session": "Existing session · {{name}}",
   "schedule.missingSession": "Deleted or unavailable session",
-  "schedule.sessionHint": "Uses this session's context and model with the task's permission mode; if it is running, the instruction is added as a steer",
+  "schedule.sessionHint":
+    "Uses this session's context and model with the task's permission mode; if it is running, the instruction is added as a steer",
   "schedule.permissionMode": "Permission mode at launch",
-  "schedule.permissionModeHint": "Defaults to Never ask. Sandbox settings always follow global settings and hot-update for subsequent commands",
+  "schedule.permissionModeHint":
+    "Defaults to Never ask. Sandbox settings always follow global settings and hot-update for subsequent commands",
   "schedule.lastRun": " · Last run {{time}}",
   "schedule.lastError": " · Last run failed: {{error}}",
   "schedule.runOnce": "Run once now",

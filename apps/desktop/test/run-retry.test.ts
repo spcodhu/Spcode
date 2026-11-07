@@ -24,7 +24,10 @@ function input(runAt: number) {
 describe("会话错误定时重试", () => {
   it("持久化精确时间；同会话新选择替换旧选择，取消可落盘", () => {
     const now = 1_000_000;
-    const { scheduler, file } = setup(async () => true, () => now);
+    const { scheduler, file } = setup(
+      async () => true,
+      () => now,
+    );
     scheduler.schedule(input(now + 3_600_000));
     const replacement = scheduler.schedule(input(now + 7_200_000));
     expect(scheduler.list()).toHaveLength(1);
@@ -68,7 +71,10 @@ describe("会话错误定时重试", () => {
   it("宿主派发失败最多补派三次，最终错误不伪装成功", async () => {
     let now = 1_000_000;
     const error = new Error("host offline");
-    const { scheduler, onError } = setup(async () => Promise.reject(error), () => now);
+    const { scheduler, onError } = setup(
+      async () => Promise.reject(error),
+      () => now,
+    );
     scheduler.schedule(input(now));
     await scheduler.tick();
     expect(scheduler.list()[0]).toMatchObject({ dispatchAttempts: 1, runAt: now + 60_000 });
@@ -82,7 +88,10 @@ describe("会话错误定时重试", () => {
   });
 
   it("拒绝没有内容或图片损坏的重试", () => {
-    const { scheduler } = setup(async () => true, () => 1_000_000);
+    const { scheduler } = setup(
+      async () => true,
+      () => 1_000_000,
+    );
     expect(() => scheduler.schedule({ sessionId: "s1", text: "", runAt: 1 })).toThrow();
     expect(() =>
       scheduler.schedule({

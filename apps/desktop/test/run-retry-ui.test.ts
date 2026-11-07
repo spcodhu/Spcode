@@ -85,15 +85,12 @@ afterEach(async () => {
 
 async function render(errorId?: string) {
   const current = useStore.getState().sessions.s1!;
-  const error = current.messages.find((message) => message.notice?.kind === "runError" && message.id === errorId) ??
+  const error =
+    current.messages.find((message) => message.notice?.kind === "runError" && message.id === errorId) ??
     current.messages.find((message) => message.notice?.kind === "runError")!;
   await act(async () =>
     root.render(
-      createElement(
-        I18nextProvider,
-        { i18n },
-        createElement(NoticeItem, { message: error, sessionId: "s1" }),
-      ),
+      createElement(I18nextProvider, { i18n }, createElement(NoticeItem, { message: error, sessionId: "s1" })),
     ),
   );
 }

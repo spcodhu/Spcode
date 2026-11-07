@@ -556,7 +556,8 @@ export const en = {
   "message.manualCompactedRange": "Context manually compacted · {{before}} → {{after}}",
   "message.retryExhausted": "Still unsuccessful after {{count}} automatic retries",
   "message.scheduleRetry": "Schedule retry",
-  "message.retryDescription": "Resend the previous instruction at the selected time, with the engine's normal maximum of 3 automatic retries. Postponed while the session is busy.",
+  "message.retryDescription":
+    "Resend the previous instruction at the selected time, with the engine's normal maximum of 3 automatic retries. Postponed while the session is busy.",
   "message.retryIn1Hour": "In 1 hour",
   "message.retryIn3Hours": "In 3 hours",
   "message.retryExactTime": "Choose an exact retry time",

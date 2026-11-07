@@ -124,7 +124,10 @@ export class RunRetryScheduler {
 
   start(): void {
     if (this.timer) return;
-    this.timer = setInterval(() => void this.tick().catch((error) => console.warn("[run-retry] tick 失败", error)), TICK_MS);
+    this.timer = setInterval(
+      () => void this.tick().catch((error) => console.warn("[run-retry] tick 失败", error)),
+      TICK_MS,
+    );
     void this.tick().catch((error) => console.warn("[run-retry] tick 失败", error));
   }
 

@@ -284,9 +284,7 @@ function RunErrorCard({ message, sessionId }: { message: ChatMessage; sessionId:
   const { t } = useTranslation("chat");
   const { t: errorT } = useTranslation("errors");
   const session = useStore((state) => state.sessions[sessionId]);
-  const scheduled = useStore((state) =>
-    (state.runRetries ?? []).find((retry) => retry.sessionId === sessionId),
-  );
+  const scheduled = useStore((state) => (state.runRetries ?? []).find((retry) => retry.sessionId === sessionId));
   const scheduleRunRetry = useStore((state) => state.scheduleRunRetry);
   const cancelRunRetry = useStore((state) => state.cancelRunRetry);
   const [open, setOpen] = useState(false);

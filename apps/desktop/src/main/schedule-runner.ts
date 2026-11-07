@@ -70,9 +70,7 @@ async function runInExistingSession(task: ScheduleTask, sessionId: string, deps:
   const info = await activateExistingSession(sessionId, deps);
   const permissionMode = task.permissionMode ?? DEFAULT_SCHEDULE_PERMISSION_MODE;
   if (info.permissionMode !== permissionMode) {
-    await deps.bridge.call(
-      withId({ type: "session.setPermissionMode", payload: { sessionId, mode: permissionMode } }),
-    );
+    await deps.bridge.call(withId({ type: "session.setPermissionMode", payload: { sessionId, mode: permissionMode } }));
   }
   await promptSession(sessionId, task.prompt, task.images, deps);
   return sessionId;

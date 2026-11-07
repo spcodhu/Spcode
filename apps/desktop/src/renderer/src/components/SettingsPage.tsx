@@ -307,12 +307,18 @@ function AutoLaunchSection() {
           <div className="mt-2 text-[12px] text-text-tertiary">{t("general.autoLaunchPackagedOnly")}</div>
         )}
         {status?.macStatus === "requires-approval" && (
-          <div className="mt-2 rounded-lg bg-warning/10 px-3 py-2 text-[12px] text-warning" data-testid="auto-launch-approval">
+          <div
+            className="mt-2 rounded-lg bg-warning/10 px-3 py-2 text-[12px] text-warning"
+            data-testid="auto-launch-approval"
+          >
             {t("general.autoLaunchApproval")}
           </div>
         )}
         {status?.windowsDeactivated && (
-          <div className="mt-2 rounded-lg bg-warning/10 px-3 py-2 text-[12px] text-warning" data-testid="auto-launch-deactivated">
+          <div
+            className="mt-2 rounded-lg bg-warning/10 px-3 py-2 text-[12px] text-warning"
+            data-testid="auto-launch-deactivated"
+          >
             {t("general.autoLaunchWindowsDeactivated")}
           </div>
         )}
