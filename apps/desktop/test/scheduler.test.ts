@@ -6,6 +6,7 @@ import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { ScheduleTask } from "@spcode/shared";
+import { describeNextScheduleRun, nextScheduleRunAt } from "@spcode/shared";
 import { setLocale } from "@spcode/shared/i18n";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { isDue, Scheduler } from "../src/main/scheduler.js";
@@ -87,6 +88,38 @@ describe("isDue 到点判定", () => {
 
   it("disabled 永不触发", () => {
     expect(isDue(makeTask({ enabled: false }), MON)).toBe(false);
+  });
+});
+
+describe("下一次执行时间", () => {
+  it("每小时任务显示本小时或下一小时，已到点待 tick 时显示即将执行", () => {
+    const t = makeTask({ frequency: "hourly", minute: 30 });
+    const before = new Date(2026, 8, 28, 10, 15).getTime();
+    expect(nextScheduleRunAt(t, before)).toBe(new Date(2026, 8, 28, 10, 30).getTime());
+    const due = new Date(2026, 8, 28, 10, 45).getTime();
+    expect(nextScheduleRunAt(t, due)).toBe(due);
+    expect(nextScheduleRunAt({ ...t, lastRunAt: due }, due)).toBe(
+      new Date(2026, 8, 28, 11, 30).getTime(),
+    );
+    expect(describeNextScheduleRun({ ...t, lastRunAt: due }, due)).toContain("下次执行");
+  });
+
+  it("每日/工作日/每周跳过不符合条件的日期", () => {
+    const daily = makeTask({ hour: 9, minute: 0, lastRunAt: MON });
+    expect(nextScheduleRunAt(daily, MON)).toBe(new Date(2026, 8, 29, 9, 0).getTime());
+    const weekday = makeTask({ frequency: "weekday", hour: 9, minute: 0 });
+    expect(nextScheduleRunAt(weekday, SAT)).toBe(new Date(2026, 9, 5, 9, 0).getTime());
+    const weekly = makeTask({ frequency: "weekly", weekday: 1, hour: 9, minute: 0 });
+    expect(nextScheduleRunAt(weekly, MON)).toBe(MON); // 到点待补跑 = 当前时刻
+    expect(nextScheduleRunAt({ ...weekly, lastRunAt: MON }, MON)).toBe(new Date(2026, 9, 5, 9, 0).getTime());
+  });
+
+  it("单次与停用任务没有误导性的后续时间", () => {
+    const once = makeTask({ frequency: "once", runAt: MON + 3 * 3_600_000 });
+    expect(nextScheduleRunAt(once, MON)).toBe(MON + 3 * 3_600_000);
+    expect(describeNextScheduleRun(once, MON)).toMatch(/3\s*小时后/);
+    expect(nextScheduleRunAt({ ...once, enabled: false }, MON)).toBeNull();
+    expect(nextScheduleRunAt({ ...once, lastRunAt: once.runAt }, MON)).toBeNull();
   });
 });
 

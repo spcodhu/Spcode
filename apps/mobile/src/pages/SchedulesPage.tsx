@@ -3,7 +3,8 @@
  */
 
 import type { ScheduleTask } from "@spcode/shared";
-import { useRef, useState } from "react";
+import { describeNextScheduleRun, nextScheduleRunAt } from "@spcode/shared";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ScheduleEditorSheet } from "../components/ScheduleEditor";
 import { describeMobileSchedule, errorText, formatDate } from "../lib/i18n";
@@ -21,6 +22,11 @@ export function SchedulesPage() {
   /** undefined = 关闭；null = 新建；否则编辑该任务 */
   const [editing, setEditing] = useState<ScheduleTask | null | undefined>(undefined);
   const [error, setError] = useState<unknown>(null);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const markPending = (id: string, pending: boolean) => {
     if (pending) pendingRef.current.add(id);
@@ -92,6 +98,11 @@ export function SchedulesPage() {
                       {describeMobileSchedule(task)} ·{" "}
                       {task.target.kind === "project" ? task.target.cwd : tr("common.chatSession")}
                     </div>
+                    {describeNextScheduleRun(task, now) && (
+                      <div className="mt-1 text-xs leading-5 text-accent" data-testid={`schedule-next-${task.id}`}>
+                        {describeNextScheduleRun(task, now)} · {formatDate(nextScheduleRunAt(task, now)!)}
+                      </div>
+                    )}
                     {task.lastRunAt && (
                       <div className="safe-break mt-1 text-[11px] leading-5 text-text-tertiary">
                         {tr("schedules.lastRun", { time: formatDate(task.lastRunAt) })}

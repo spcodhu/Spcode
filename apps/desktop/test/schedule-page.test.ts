@@ -86,6 +86,16 @@ async function click(id: string) {
 }
 
 describe("定时任务页", () => {
+  it("列表显示下一次执行的相对时间和精确时间", async () => {
+    const runAt = Date.now() + 3 * 3_600_000;
+    scheduleList.mockResolvedValue([
+      { ...task("next", "三小时后任务"), frequency: "once", runAt },
+    ]);
+    await render();
+    expect(element("schedule-next-next").textContent).toMatch(/3\s*小时后/);
+    expect(element("schedule-next-next").title).toContain(String(new Date(runAt).getFullYear()));
+  });
+
   it("A/B 任务立即运行分别维护 pending，单个完成不会解除另一个任务", async () => {
     const first = deferred<string>();
     const second = deferred<string>();

@@ -1,5 +1,5 @@
 import type { ScheduleFrequency, ScheduleTarget, ScheduleTask, ScheduleTaskInput } from "@spcode/shared";
-import { baseName, describeSchedule } from "@spcode/shared";
+import { baseName, describeNextScheduleRun, describeSchedule, nextScheduleRunAt } from "@spcode/shared";
 import { getLocale } from "@spcode/shared/i18n";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -23,6 +23,11 @@ export function SchedulePage({ onClose }: { onClose: () => void }) {
   const [runErrors, setRunErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -149,6 +154,21 @@ export function SchedulePage({ onClose }: { onClose: () => void }) {
                   />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[14px] text-text-primary">{item.name}</div>
+                    {describeNextScheduleRun(item, now) && (
+                      <div
+                        data-testid={`schedule-next-${item.id}`}
+                        title={new Intl.DateTimeFormat(getLocale(), {
+                          year: "numeric",
+                          month: "numeric",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        }).format(nextScheduleRunAt(item, now)!)}
+                        className="mt-1 text-[12px] font-medium text-accent"
+                      >
+                        {describeNextScheduleRun(item, now)}
+                      </div>
+                    )}
                     <div className="mt-0.5 text-[12px] text-text-tertiary">
                       {describeSchedule(item)} ·{" "}
                       {item.target.kind === "project"

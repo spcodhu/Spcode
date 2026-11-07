@@ -663,6 +663,65 @@ export interface ScheduleTask {
 /** 新建/编辑定时任务的输入（id/运行状态由系统维护） */
 export type ScheduleTaskInput = Omit<ScheduleTask, "id" | "createdAt" | "lastRunAt" | "lastStatus" | "lastError">;
 
+/**
+ * 下一次实际触发时间（本地时间）。已到点但尚未被 tick 占位时返回 now，
+ * 表示“即将补跑”；停用、已完成的一次性任务返回 null。
+ */
+export function nextScheduleRunAt(task: ScheduleTask, nowMs = Date.now()): number | null {
+  if (!task.enabled) return null;
+  const now = new Date(nowMs);
+  const last = task.lastRunAt ?? 0;
+
+  if (task.frequency === "once") {
+    if (!task.runAt || !Number.isFinite(task.runAt) || last >= task.runAt) return null;
+    return task.runAt > nowMs ? task.runAt : nowMs;
+  }
+
+  if (task.frequency === "hourly") {
+    const slot = new Date(now);
+    slot.setMinutes(task.minute, 0, 0);
+    slot.setMilliseconds(0);
+    if (nowMs >= slot.getTime() && last < slot.getTime()) return nowMs;
+    if (slot.getTime() > nowMs) return slot.getTime();
+    slot.setHours(slot.getHours() + 1);
+    return slot.getTime();
+  }
+
+  for (let offset = 0; offset <= 7; offset++) {
+    const slot = new Date(now);
+    slot.setDate(now.getDate() + offset);
+    slot.setHours(task.hour, task.minute, 0, 0);
+    const day = slot.getDay();
+    if (task.frequency === "weekday" && (day === 0 || day === 6)) continue;
+    if (task.frequency === "weekly" && day !== (task.weekday ?? 1)) continue;
+    if (slot.getTime() > nowMs) return slot.getTime();
+    if (offset === 0 && last < slot.getTime()) return nowMs;
+  }
+  return null;
+}
+
+/** 列表用相对时间：例如“下次执行：3 小时后”；精确时间由 UI 的 title/次级文本补充。 */
+export function describeNextScheduleRun(task: ScheduleTask, nowMs = Date.now()): string | null {
+  const next = nextScheduleRunAt(task, nowMs);
+  if (next === null) return null;
+  const diff = Math.max(0, next - nowMs);
+  const relative = new Intl.RelativeTimeFormat(getLocale(), { numeric: "always" });
+  let time: string;
+  if (diff < 60_000) time = i18n.t("common:schedule.imminent");
+  else if (diff < 3_600_000) time = relative.format(Math.max(1, Math.round(diff / 60_000)), "minute");
+  else if (diff < 86_400_000) time = relative.format(Math.round(diff / 3_600_000), "hour");
+  else if (diff < 7 * 86_400_000) time = relative.format(Math.round(diff / 86_400_000), "day");
+  else {
+    time = new Intl.DateTimeFormat(getLocale(), {
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(next);
+  }
+  return i18n.t("common:schedule.nextRun", { time });
+}
+
 /** 人性化周期描述（UI 与通知同口径——评审 P2-5：收敛原 scheduler/SchedulePage 双实现） */
 export function describeSchedule(task: ScheduleTask): string {
   const hm = `${String(task.hour).padStart(2, "0")}:${String(task.minute).padStart(2, "0")}`;
