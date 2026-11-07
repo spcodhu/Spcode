@@ -11,6 +11,7 @@ import { useAppStore } from "../src/state/store";
 const mocks = vi.hoisted(() => ({
   sendPrompt: vi.fn(),
   setSessionModel: vi.fn(),
+  setSessionThinkingLevel: vi.fn(),
   refreshModels: vi.fn(),
   abortSession: vi.fn(),
   ensureSessionOutput: vi.fn(),
@@ -19,6 +20,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../src/state/controller", () => ({
   sendPrompt: mocks.sendPrompt,
   setSessionModel: mocks.setSessionModel,
+  setSessionThinkingLevel: mocks.setSessionThinkingLevel,
   refreshModels: mocks.refreshModels,
   abortSession: mocks.abortSession,
   ensureSessionOutput: mocks.ensureSessionOutput,
@@ -75,6 +77,7 @@ beforeEach(async () => {
   useAppStore.getState().setConn("ready");
   mocks.sendPrompt.mockReset();
   mocks.setSessionModel.mockReset().mockResolvedValue(undefined);
+  mocks.setSessionThinkingLevel.mockReset().mockResolvedValue(undefined);
   mocks.refreshModels.mockReset().mockResolvedValue([]);
   useAppStore.getState().setModels(
     [
@@ -84,7 +87,7 @@ beforeEach(async () => {
         displayName: "New Model",
         contextWindow: 1000,
         maxTokens: 100,
-        thinkingLevels: [],
+        thinkingLevels: ["low", "medium", "high"],
         available: true,
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         priceKnown: false,
@@ -209,11 +212,77 @@ describe("会话输入草稿与发送失败", () => {
   });
 });
 
-describe("已有会话模型切换", () => {
-  it("从 PC 模型目录选择后调用 setSessionModel", async () => {
+describe("已有会话设置", () => {
+  it("模型入口收进右上角设置，从 PC 模型目录选择后调用 setSessionModel", async () => {
     await renderPage("s1");
+    expect(document.querySelector('[data-testid="model-field"]')).toBeNull();
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="session-settings"]')!.click());
     await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="model-field"]')!.click());
     await act(async () => document.querySelector<HTMLButtonElement>('[data-model="p/new"]')!.click());
     expect(mocks.setSessionModel).toHaveBeenCalledWith("s1", { provider: "p", modelId: "new" });
+  });
+
+  it("设置面板可切换当前会话思考强度", async () => {
+    useAppStore.getState().patchSession("s1", { supportedThinkingLevels: ["low", "medium", "high"] });
+    await renderPage("s1");
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="session-settings"]')!.click());
+    await act(async () =>
+      document.querySelector<HTMLButtonElement>('[data-testid="thinking-level"][data-level="high"]')!.click(),
+    );
+    expect(mocks.setSessionThinkingLevel).toHaveBeenCalledWith("s1", "high");
+  });
+});
+
+describe("与桌面共用的运行进度", () => {
+  it("运行中展示活动组、工具参数和当前工具进度", async () => {
+    await renderPage("s1");
+    await act(async () => {
+      useAppStore.getState().setOutputSync("s1", { status: "loaded" });
+      useAppStore.getState().patchSession("s1", { status: "running", runStartedAt: Date.now() });
+      useAppStore.getState().appendOutput("s1", "先检查", "thinking", 0);
+      useAppStore.getState().appendOutput("s1", "", "tool", 1, {
+        id: "tool-live",
+        name: "bash",
+        args: { command: "pnpm test" },
+        status: "running",
+        output: "",
+      });
+    });
+    expect(document.querySelector('[data-testid="run-activity"]')?.getAttribute("data-state")).toBe("running");
+    expect(document.querySelector('[data-testid="run-tool-step"]')?.getAttribute("data-status")).toBe("running");
+    expect(document.querySelector('[data-testid="run-progress"]')?.getAttribute("data-kind")).toBe("tool");
+    expect(document.querySelector('[data-testid="run-progress"]')?.textContent).toContain("pnpm test");
+  });
+
+  it("结束后与 PC 一样折叠过程，保留总结并显示成功/失败图标", async () => {
+    await renderPage("s1");
+    await act(async () => {
+      useAppStore.getState().replaceHistory("s1", {
+        chunks: [
+          { kind: "user", chunk: "执行检查" },
+          { kind: "thinking", chunk: "先看实现" },
+          {
+            kind: "tool",
+            chunk: "",
+            tool: { id: "read-ok", name: "read", args: { path: "a.ts" }, status: "done", output: "ok" },
+          },
+          { kind: "text", chunk: "继续验证" },
+          {
+            kind: "tool",
+            chunk: "",
+            tool: { id: "test-bad", name: "bash", args: { command: "pnpm test" }, status: "error", output: "failed" },
+          },
+          { kind: "text", chunk: "最终总结" },
+        ],
+        olderBefore: null,
+        outputSeq: -1,
+      });
+    });
+    expect(document.querySelector('[data-testid="run-process-header"]')?.textContent).toContain("其中 1 次失败");
+    expect(document.querySelectorAll('[data-testid="run-tool-step"]')).toHaveLength(2);
+    expect(document.querySelector('[data-testid="run-tool-step"][data-status="done"] .bg-success')).not.toBeNull();
+    expect(document.querySelector('[data-testid="run-tool-step"][data-status="error"] .bg-danger')).not.toBeNull();
+    expect(document.body.textContent).toContain("最终总结");
+    expect(document.body.textContent).not.toContain("展开思考过程");
   });
 });

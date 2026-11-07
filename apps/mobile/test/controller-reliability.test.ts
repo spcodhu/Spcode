@@ -14,6 +14,7 @@ import {
   replyQuestion,
   retrySessionOutput,
   setSessionModel,
+  setSessionThinkingLevel,
   unpair,
   updateRelayConfiguration,
 } from "../src/state/controller";
@@ -323,6 +324,13 @@ describe("模型目录与已有会话切换", () => {
       if (cmd.type === "session.setModel") {
         return { model: cmd.model, thinkingLevel: "low", supportedThinkingLevels: ["low"] };
       }
+      if (cmd.type === "session.setThinkingLevel") {
+        return {
+          model: { provider: "p", modelId: "new" },
+          thinkingLevel: cmd.level,
+          supportedThinkingLevels: ["low", "high"],
+        };
+      }
       if (cmd.type === "session.list") return { sessions: [session] };
       if (cmd.type === "schedule.list") return { tasks: [] };
       return { ok: true };
@@ -343,6 +351,14 @@ describe("模型目录与已有会话切换", () => {
       thinkingLevel: "medium",
     });
     expect(useAppStore.getState().sessions.s1?.model).toEqual({ provider: "p", modelId: "other" });
+
+    await setSessionThinkingLevel("s1", "high");
+    expect(mocks.command).toHaveBeenCalledWith({ type: "session.setThinkingLevel", sessionId: "s1", level: "high" });
+    expect(useAppStore.getState().sessions.s1).toMatchObject({
+      model: { provider: "p", modelId: "new" },
+      thinkingLevel: "high",
+      supportedThinkingLevels: ["low", "high"],
+    });
   });
 });
 

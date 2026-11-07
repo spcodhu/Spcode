@@ -4,36 +4,9 @@
  * - renderReplace：权限卡里 edit 参数的 oldText→newText 精确替换视图（edit 的语义就是精确替换，
  *   不需要跑 LCS——红块是将被删掉的原样文本，绿块是替换后的新文本）。
  */
-import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
-/** unified patch 行分类 */
-function patchLineClass(line: string): string {
-  if (line.startsWith("+++") || line.startsWith("---")) return "text-text-tertiary";
-  if (line.startsWith("@@")) return "text-accent/80";
-  if (line.startsWith("+")) return "text-success bg-success/10";
-  if (line.startsWith("-")) return "text-danger bg-danger/10";
-  return "text-text-tertiary";
-}
-
-/** 渲染 unified patch（过长截断） */
-export function DiffPatch({ patch, maxChars = 6000 }: { patch: string; maxChars?: number }) {
-  const { t } = useTranslation("chat");
-  const lines = useMemo(() => patch.slice(0, maxChars).split("\n"), [patch, maxChars]);
-  return (
-    <div className="overflow-x-auto rounded-lg border border-border bg-bg-root/60">
-      <pre className="mono px-3 py-2 text-[12px] leading-5">
-        {lines.map((line, i) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: diff 行是静态快照，永不重排
-          <div key={i} className={patchLineClass(line)}>
-            {line || " "}
-          </div>
-        ))}
-        {patch.length > maxChars && <div className="text-text-tertiary">{t("diff.truncated")}</div>}
-      </pre>
-    </div>
-  );
-}
+export { DiffPatch } from "@spcode/ui";
 
 /** 权限卡用：edit 参数的 oldText → newText 精确替换块 */
 export function DiffReplace({

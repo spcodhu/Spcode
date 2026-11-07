@@ -79,7 +79,14 @@ beforeAll(async () => {
         ];
       }
       if (cmd.type === "session.setModel") {
-        return { model: cmd.payload.model, thinkingLevel: "low", supportedThinkingLevels: ["low"] };
+        return { model: cmd.payload.model, thinkingLevel: "low", supportedThinkingLevels: ["low", "high"] };
+      }
+      if (cmd.type === "session.setThinkingLevel") {
+        return {
+          model: { provider: "p", modelId: "remote-model" },
+          thinkingLevel: cmd.payload.level,
+          supportedThinkingLevels: ["low", "high"],
+        };
       }
       if (cmd.type === "session.history") {
         return {
@@ -367,6 +374,13 @@ describe("PWA ↔ 真实桌面 RemoteServer 全链路", () => {
         (event) => event.type === "session.model" && event.sessionId === sessionId,
       );
       expect(modelEvent).toMatchObject({ thinkingLevel: "low" });
+
+      await mobile.client.command({ type: "session.setThinkingLevel", sessionId, level: "high" });
+      expect(registryEntries.get(sessionId)?.thinkingLevel).toBe("high");
+      const thinkingEvent = await mobile.waitEvent(
+        (event) => event.type === "session.model" && event.sessionId === sessionId && event.thinkingLevel === "high",
+      );
+      expect(thinkingEvent).toMatchObject({ supportedThinkingLevels: ["low", "high"] });
     } finally {
       mobile.stop();
     }

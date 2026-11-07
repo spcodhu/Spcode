@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 const bytes = (text: string) => new TextEncoder().encode(text).length;
 
 describe("手机历史转换", () => {
-  it("保持用户、thinking、正文、错误与压缩摘要顺序，忽略工具和图片载荷", () => {
+  it("保持用户、thinking、工具、正文、错误与压缩摘要顺序，忽略图片载荷", () => {
     const chunks = historyToRemoteChunks([
       { role: "user", content: [{ type: "text", text: "原始问题 {{keep}}" }] },
       {
@@ -30,9 +30,50 @@ describe("手机历史转换", () => {
     expect(chunks).toEqual([
       { kind: "user", chunk: "原始问题 {{keep}}" },
       { kind: "thinking", chunk: "先分析" },
+      {
+        kind: "tool",
+        chunk: "",
+        tool: {
+          id: "t1",
+          name: "bash",
+          args: { command: "secret" },
+          status: "done",
+          output: "很大的工具结果",
+        },
+      },
       { kind: "text", chunk: "原始回答" },
       { kind: "notice", chunk: "原始错误" },
       { kind: "notice", chunk: "原始压缩摘要" },
+    ]);
+  });
+
+  it("工具失败状态与 unified patch 随历史恢复", () => {
+    const chunks = historyToRemoteChunks([
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", id: "edit-1", name: "edit", arguments: { path: "a.ts" } }],
+      },
+      {
+        role: "toolResult",
+        toolCallId: "edit-1",
+        content: [{ type: "text", text: "invalid oldText" }],
+        isError: true,
+        details: { patch: "@@ -1 +1 @@\n-old\n+new" },
+      },
+    ]);
+    expect(chunks).toEqual([
+      {
+        kind: "tool",
+        chunk: "",
+        tool: {
+          id: "edit-1",
+          name: "edit",
+          args: { path: "a.ts" },
+          status: "error",
+          output: "invalid oldText",
+          patch: "@@ -1 +1 @@\n-old\n+new",
+        },
+      },
     ]);
   });
 

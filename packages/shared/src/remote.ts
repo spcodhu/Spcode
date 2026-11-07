@@ -35,6 +35,7 @@ export type RemoteCommand =
   | { type: "session.prompt"; sessionId: string; text: string }
   | { type: "session.abort"; sessionId: string }
   | { type: "session.setModel"; sessionId: string; model: ModelRef }
+  | { type: "session.setThinkingLevel"; sessionId: string; level: string }
   /** 订阅某会话事件流（M1：所有事件本就广播给全部已配对设备，返回 ok 即可） */
   | { type: "session.subscribe"; sessionId: string }
   | { type: "permission.reply"; requestId: string; approved: boolean }
@@ -82,15 +83,22 @@ export type RemoteEvent =
       pendingQuestions: QuestionRequest[];
     }
   | { type: "session.status"; sessionId: string; status: RemoteSessionStatus }
-  /** 节流聚合（约 400ms）后的助手输出，或按完整消息即时下发的用户输入；seq 共用同一单调序列 */
-  | { type: "session.output"; sessionId: string; chunk: string; seq: number; kind?: "user" | "text" | "thinking" }
+  /** 节流聚合（约 400ms）后的助手输出、完整用户输入，或工具调用的最新状态快照；seq 共用同一单调序列 */
+  | {
+      type: "session.output";
+      sessionId: string;
+      chunk: string;
+      seq: number;
+      kind?: "user" | "text" | "thinking" | "tool";
+      tool?: RemoteToolCall;
+    }
   | { type: "session.todo"; sessionId: string; todos: TodoItem[] }
   | { type: "session.usage"; sessionId: string; usage: UsageRecord }
   | { type: "session.renamed"; sessionId: string; title: string }
   | {
       type: "session.model";
       sessionId: string;
-      model: ModelRef;
+      model: ModelRef | null;
       thinkingLevel: string;
       supportedThinkingLevels?: string[];
     }
@@ -227,10 +235,22 @@ export interface PairedDevice {
   lastInSeq?: number;
 }
 
-/** 手机历史页中的文本块；与实时 RemoteOutputChunk 分开，不占用实时 seq。 */
+/** 工具调用的可序列化快照；同一 tool id 的后续事件覆盖此前状态。 */
+export interface RemoteToolCall {
+  id: string;
+  name: string;
+  args: unknown;
+  status: "running" | "done" | "error";
+  output: string;
+  /** edit/write 的 unified patch，双端共用 DiffPatch 渲染 */
+  patch?: string;
+}
+
+/** 手机历史页中的输出块；工具块以 tool 为权威数据，chunk 固定为空串。 */
 export interface RemoteHistoryChunk {
-  kind: "user" | "text" | "thinking" | "notice";
+  kind: "user" | "text" | "thinking" | "notice" | "tool";
   chunk: string;
+  tool?: RemoteToolCall;
 }
 
 export interface RemoteHistoryPage {
@@ -241,11 +261,12 @@ export interface RemoteHistoryPage {
   outputSeq: number;
 }
 
-/** 断线补拉的输出 chunk（session.output 的缓冲形态；user 为完整提示词，text/thinking 为助手增量） */
+/** 断线补拉的输出 chunk（工具块携带同一 tool id 的最新快照，客户端按 id 覆盖去重） */
 export interface RemoteOutputChunk {
   seq: number;
-  kind: "user" | "text" | "thinking";
+  kind: "user" | "text" | "thinking" | "tool";
   chunk: string;
+  tool?: RemoteToolCall;
 }
 
 /** 设置项：远程控制开关、监听端口与 relay 地址 */

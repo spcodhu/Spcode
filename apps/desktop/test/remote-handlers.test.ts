@@ -83,6 +83,13 @@ function makeDeps() {
             supportedThinkingLevels: ["low", "medium"],
           };
         }
+        if (cmd.type === "session.setThinkingLevel") {
+          return {
+            model: { provider: "p", modelId: "on" },
+            thinkingLevel: cmd.payload.level,
+            supportedThinkingLevels: ["low", "medium", "high"],
+          };
+        }
         return { ok: true };
       },
       replyPermission: (requestId, approved, by) => permissionReplies.push({ requestId, approved, by }),
@@ -364,6 +371,32 @@ describe("session.setModel", () => {
         deps,
       ),
     ).rejects.toThrow("会话不存在");
+  });
+});
+
+describe("session.setThinkingLevel", () => {
+  it("切换思考强度，回写注册表并广播权威模型状态", async () => {
+    const { deps, registry, bridgeCalls, localEvents } = makeDeps();
+    seedEntry(registry, "s1");
+    const info = await handleRemoteCommand({ type: "session.setThinkingLevel", sessionId: "s1", level: "high" }, deps);
+    expect(info).toMatchObject({ thinkingLevel: "high" });
+    expect(bridgeCalls[0]).toMatchObject({
+      type: "session.setThinkingLevel",
+      payload: { sessionId: "s1", level: "high" },
+    });
+    expect(registry.entries.get("s1")).toMatchObject({
+      model: { provider: "p", modelId: "on" },
+      thinkingLevel: "high",
+    });
+    expect(localEvents).toEqual([
+      {
+        type: "session.model",
+        sessionId: "s1",
+        model: { provider: "p", modelId: "on" },
+        thinkingLevel: "high",
+        supportedThinkingLevels: ["low", "medium", "high"],
+      },
+    ]);
   });
 });
 

@@ -2,6 +2,7 @@
 @import "katex/dist/katex.min.css";
 @import "@spcode/ui/markdown.css";
 
+@source "../../../packages/ui/src";
 @source "../node_modules/streamdown/dist/*.js";
 @source "../node_modules/@streamdown/code/dist/*.js";
 @source "../node_modules/@streamdown/math/dist/*.js";
@@ -127,6 +128,64 @@ button:disabled {
 .safe-break {
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+code,
+pre,
+.mono {
+  font-family: var(--mono-font);
+}
+
+/* 与桌面一致的折叠动画和进行中流光。 */
+.collapse-grid {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.25s ease;
+}
+.collapse-grid[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+.collapse-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+.thinking-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--color-text-tertiary) 25%,
+    var(--color-text-primary) 50%,
+    var(--color-text-tertiary) 75%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: thinking-shimmer 1.6s linear infinite;
+}
+@keyframes thinking-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* 悬浮输入区：高度随内容增长，最大四行半，焦点反馈放在整个胶囊上。 */
+.mobile-composer {
+  box-shadow: 0 4px 20px rgb(0 0 0 / 6%);
+  transition: border-color 0.15s ease;
+}
+.mobile-composer:focus-within {
+  border-color: var(--color-border-strong);
+}
+.mobile-composer-input {
+  field-sizing: content;
+  max-height: 8rem;
+}
+.mobile-composer-input,
+.mobile-composer-input:focus-visible {
+  outline: none;
 }
 
 /* Dialog / Sheet：正文独立滚动，标题与操作区保持可见。 */
@@ -268,5 +327,10 @@ button:disabled {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+  .thinking-shimmer {
+    animation: none;
+    background: none;
+    color: var(--color-text-secondary);
   }
 }

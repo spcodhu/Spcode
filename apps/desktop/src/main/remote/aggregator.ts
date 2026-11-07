@@ -10,8 +10,8 @@
  * - 非文本事件到达前先 flush 挂起的文本缓冲，保证事件时序。
  */
 
-import type { HostEvent, RemoteEvent } from "@spcode/shared";
-import { historyToRemoteChunks } from "@spcode/shared/remote-history";
+import type { HostEvent, RemoteEvent, RemoteToolCall } from "@spcode/shared";
+import { historyToRemoteChunks, remoteToolPatch, remoteToolResultText } from "@spcode/shared/remote-history";
 
 const DEFAULT_WINDOW_MS = 400;
 
@@ -32,6 +32,7 @@ export class RemoteEventAggregator {
   private readonly windowMs: number;
   private readonly emit: (event: RemoteEvent) => void;
   private readonly pending = new Map<string, PendingChunk>();
+  private readonly tools = new Map<string, Map<string, RemoteToolCall>>();
   private readonly seqs = new Map<string, number>();
 
   constructor(opts: RemoteEventAggregatorOptions) {
@@ -131,6 +132,45 @@ export class RemoteEventAggregator {
       else if (ame.type === "thinking_delta" && ame.delta) this.append(sessionId, "thinking", ame.delta);
       return;
     }
+    if (e.type === "tool_execution_start") {
+      const toolCallId = (e as { toolCallId?: unknown }).toolCallId;
+      const toolName = (e as { toolName?: unknown }).toolName;
+      if (typeof toolCallId !== "string" || typeof toolName !== "string") return;
+      this.flush(sessionId);
+      const tool: RemoteToolCall = {
+        id: toolCallId,
+        name: toolName,
+        args: (e as { args?: unknown }).args,
+        status: "running",
+        output: "",
+      };
+      let calls = this.tools.get(sessionId);
+      if (!calls) {
+        calls = new Map();
+        this.tools.set(sessionId, calls);
+      }
+      calls.set(toolCallId, tool);
+      this.emitTool(sessionId, tool);
+      return;
+    }
+    if (e.type === "tool_execution_update" || e.type === "tool_execution_end") {
+      const toolCallId = (e as { toolCallId?: unknown }).toolCallId;
+      if (typeof toolCallId !== "string") return;
+      const current = this.tools.get(sessionId)?.get(toolCallId);
+      if (!current) return;
+      this.flush(sessionId);
+      if (e.type === "tool_execution_update") {
+        current.output = remoteToolResultText((e as { partialResult?: unknown }).partialResult);
+      } else {
+        const result = (e as { result?: unknown }).result;
+        current.status = (e as { isError?: unknown }).isError === true ? "error" : "done";
+        current.output = remoteToolResultText(result);
+        const patch = remoteToolPatch(result);
+        if (patch) current.patch = patch;
+      }
+      this.emitTool(sessionId, current);
+      return;
+    }
     if (e.type === "agent_start") {
       this.flush(sessionId);
       this.emit({ type: "session.status", sessionId, status: "running" });
@@ -169,6 +209,13 @@ export class RemoteEventAggregator {
     const seq = this.seqs.get(sessionId) ?? 0;
     this.seqs.set(sessionId, seq + 1);
     this.emit({ type: "session.output", sessionId, chunk: text, kind, seq });
+  }
+
+  /** 工具快照共享输出 seq；移动端按 tool.id 覆盖此前快照，断线补拉也走同一逻辑。 */
+  private emitTool(sessionId: string, tool: RemoteToolCall): void {
+    const seq = this.seqs.get(sessionId) ?? 0;
+    this.seqs.set(sessionId, seq + 1);
+    this.emit({ type: "session.output", sessionId, chunk: "", kind: "tool", tool: { ...tool }, seq });
   }
 
   flushAll(): void {

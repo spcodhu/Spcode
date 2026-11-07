@@ -28,6 +28,31 @@ describe("appendOutput / mergeBackfill", () => {
     expect(getOutputMaxSeq(S)).toBe(1);
   });
 
+  it("工具开始/更新/结束按 id 原位更新；backfill 重放也只保留一步", () => {
+    const s = useAppStore.getState();
+    const base = { id: "tool-1", name: "bash", args: { command: "pnpm test" } };
+    s.appendOutput(S, "", "tool", 0, { ...base, status: "running", output: "" });
+    s.appendOutput(S, "正文", "text", 1);
+    s.appendOutput(S, "", "tool", 2, { ...base, status: "error", output: "失败" });
+    expect(useAppStore.getState().outputs[S]?.map((chunk) => [chunk.kind, chunk.tool?.status])).toEqual([
+      ["tool", "error"],
+      ["text", undefined],
+    ]);
+
+    s.reset();
+    useAppStore.getState().mergeBackfill(S, [
+      { seq: 0, kind: "tool", chunk: "", tool: { ...base, status: "running", output: "" } },
+      { seq: 1, kind: "text", chunk: "正文" },
+      { seq: 2, kind: "tool", chunk: "", tool: { ...base, status: "done", output: "通过" } },
+    ]);
+    expect(useAppStore.getState().outputs[S]?.filter((chunk) => chunk.kind === "tool")).toHaveLength(1);
+    expect(useAppStore.getState().outputs[S]?.[0]?.tool).toMatchObject({
+      id: "tool-1",
+      status: "done",
+      output: "通过",
+    });
+  });
+
   it("用户提示词保持独立气泡，实时/backfill/历史高水位不会重复或合并", () => {
     const s = useAppStore.getState();
     s.appendOutput(S, "第一条手机提示词", "user", 0);

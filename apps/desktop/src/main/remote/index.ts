@@ -688,7 +688,12 @@ export class RemoteServer {
   /** 聚合器出口：session.output 先落补拉环形缓冲再广播 */
   private emitRemote(event: RemoteEvent): void {
     if (event.type === "session.output") {
-      this.outputLog.append(event.sessionId, { seq: event.seq, kind: event.kind ?? "text", chunk: event.chunk });
+      this.outputLog.append(event.sessionId, {
+        seq: event.seq,
+        kind: event.kind ?? "text",
+        chunk: event.chunk,
+        ...(event.tool ? { tool: event.tool } : {}),
+      });
     }
     this.broadcast(event);
   }

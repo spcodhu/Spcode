@@ -171,11 +171,24 @@ function handleEvent(event: RemoteEventExt): void {
     case "session.snapshot":
       s.applySessionSnapshot(event.sessions, event.pendingPermissions ?? [], event.pendingQuestions ?? []);
       break;
-    case "session.status":
-      s.patchSession(event.sessionId, { status: event.status, updatedAt: Date.now() });
+    case "session.status": {
+      const previous = s.sessions[event.sessionId];
+      s.patchSession(event.sessionId, {
+        status: event.status,
+        updatedAt: Date.now(),
+        ...(event.status !== "idle"
+          ? {
+              runStartedAt:
+                previous?.status === "running" || previous?.status === "waiting_permission"
+                  ? (previous.runStartedAt ?? Date.now())
+                  : Date.now(),
+            }
+          : { runStartedAt: undefined }),
+      });
       break;
+    }
     case "session.output":
-      s.appendOutput(event.sessionId, event.chunk, event.kind ?? "text", event.seq);
+      s.appendOutput(event.sessionId, event.chunk, event.kind ?? "text", event.seq, event.tool);
       break;
     case "session.output.backfill":
       // 断线补拉结果：按 seq 合并进输出流（补齐即消除缺口标记）
@@ -188,7 +201,11 @@ function handleEvent(event: RemoteEventExt): void {
       s.patchSession(event.sessionId, { title: event.title });
       break;
     case "session.model":
-      s.patchSession(event.sessionId, { model: event.model, thinkingLevel: event.thinkingLevel });
+      s.patchSession(event.sessionId, {
+        model: event.model,
+        thinkingLevel: event.thinkingLevel,
+        supportedThinkingLevels: event.supportedThinkingLevels,
+      });
       break;
     case "permission.request":
       s.pushPermission(event.request);
@@ -409,6 +426,16 @@ export async function setSessionModel(sessionId: string, model: ModelRef): Promi
   useAppStore.getState().patchSession(sessionId, {
     model: info.model ?? model,
     thinkingLevel: info.thinkingLevel,
+    supportedThinkingLevels: info.supportedThinkingLevels,
+  });
+}
+
+export async function setSessionThinkingLevel(sessionId: string, level: string): Promise<void> {
+  const info = await send<SessionInfo>({ type: "session.setThinkingLevel", sessionId, level });
+  useAppStore.getState().patchSession(sessionId, {
+    model: info.model,
+    thinkingLevel: info.thinkingLevel,
+    supportedThinkingLevels: info.supportedThinkingLevels,
   });
 }
 

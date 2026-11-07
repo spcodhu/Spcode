@@ -19,6 +19,7 @@ import type {
   RemoteHistoryPage,
   RemoteOutputChunk,
   RemoteSessionSnapshot,
+  RemoteToolCall,
   ScheduleTask,
   SessionMeta,
   TodoItem,
@@ -37,13 +38,16 @@ export interface OutputChunk {
   /** 列表渲染 key（自增，分配后不变） */
   id: number;
   chunk: string;
-  kind: "user" | "text" | "thinking" | "notice";
+  kind: RemoteHistoryChunk["kind"];
+  tool?: RemoteToolCall;
   /** seq 缺口标记（断线期间 / 桌面缓冲截断导致未同步的输出） */
   gap?: boolean;
 }
 
 export interface SessionView extends SessionMeta {
   status: SessionStatus;
+  supportedThinkingLevels?: string[];
+  runStartedAt?: number;
 }
 
 export type OutputSyncState = { status: "loading" } | { status: "loaded" } | { status: "error"; error: unknown };
@@ -103,7 +107,13 @@ interface AppState {
   ): void;
   patchSession(id: string, patch: Partial<SessionView>): void;
   removeSession(id: string): void;
-  appendOutput(sessionId: string, chunk: string, kind: RemoteOutputChunk["kind"], seq: number): void;
+  appendOutput(
+    sessionId: string,
+    chunk: string,
+    kind: RemoteOutputChunk["kind"],
+    seq: number,
+    tool?: RemoteToolCall,
+  ): void;
   mergeBackfill(sessionId: string, chunks: RemoteOutputChunk[]): void;
   replaceHistory(sessionId: string, page: RemoteHistoryPage): void;
   prependHistory(sessionId: string, chunks: RemoteHistoryChunk[], olderBefore: number | null): void;
@@ -152,7 +162,7 @@ interface OutputTrack {
   /** 历史已覆盖的实时 seq 上限；小于等于它的实时帧一律视为重复 */
   historyThroughSeq: number;
   /** seq → 原始 chunk（实时与 backfill 共用，backfill 据此精确补缺口） */
-  raw: Map<number, { kind: RemoteOutputChunk["kind"]; chunk: string }>;
+  raw: Map<number, Omit<RemoteOutputChunk, "seq">>;
   /** 已收到的最大 seq（session.output.since 的 afterSeq 依据） */
   maxSeq: number;
 }
@@ -179,7 +189,27 @@ function trimRaw(t: OutputTrack): void {
   t.raw = new Map(sorted.slice(sorted.length - MAX_CHUNKS));
 }
 
-/** 由历史基线 + 实时 raw 推导渲染列表：seq 跳号插缺口，相邻助手同类段合并；用户消息始终独立。 */
+/** 追加一个输出块；工具开始/更新/结束按调用 id 原位覆盖，避免同一步重复出现。 */
+function appendViewChunk(view: OutputChunk[], chunk: Omit<RemoteOutputChunk, "seq">): void {
+  if (chunk.kind === "tool") {
+    if (!chunk.tool) return;
+    const existing = view.findIndex((item) => !item.gap && item.kind === "tool" && item.tool?.id === chunk.tool?.id);
+    if (existing >= 0) {
+      view[existing] = { ...view[existing]!, chunk: "", kind: "tool", tool: chunk.tool };
+    } else {
+      view.push({ id: chunkIdCounter++, chunk: "", kind: "tool", tool: chunk.tool });
+    }
+    return;
+  }
+  const last = view[view.length - 1];
+  if (last && !last.gap && last.kind === chunk.kind && chunk.kind !== "user") {
+    view[view.length - 1] = { ...last, chunk: last.chunk + chunk.chunk };
+  } else {
+    view.push({ id: chunkIdCounter++, chunk: chunk.chunk, kind: chunk.kind });
+  }
+}
+
+/** 由历史基线 + 实时 raw 推导渲染列表：seq 跳号插缺口，相邻助手同类段合并；用户与工具保持独立。 */
 function buildView(t: OutputTrack): OutputChunk[] {
   const seqs = [...t.raw.keys()].sort((a, b) => a - b);
   const view: OutputChunk[] = t.history.map((chunk) => ({ ...chunk, id: chunkIdCounter++ }));
@@ -187,12 +217,7 @@ function buildView(t: OutputTrack): OutputChunk[] {
   for (const seq of seqs) {
     if (seq > prev + 1) view.push({ id: chunkIdCounter++, chunk: "", kind: "text", gap: true });
     const c = t.raw.get(seq)!;
-    const last = view[view.length - 1];
-    if (last && !last.gap && last.kind === c.kind && c.kind !== "user") {
-      view[view.length - 1] = { ...last, chunk: last.chunk + c.chunk };
-    } else {
-      view.push({ id: chunkIdCounter++, chunk: c.chunk, kind: c.kind });
-    }
+    appendViewChunk(view, c);
     prev = seq;
   }
   if (view.length > MAX_CHUNKS) return view.slice(view.length - MAX_CHUNKS);
@@ -268,7 +293,23 @@ export const useAppStore = create<AppState>((set) => ({
   applySessionSnapshot: (metas, pendingPermissions, pendingQuestions) =>
     set((s) => {
       const sessions: Record<string, SessionView> = {};
-      for (const m of metas) sessions[m.id] = { ...m, status: m.status ?? "idle" };
+      for (const m of metas) {
+        const previous = s.sessions[m.id];
+        const status = m.status ?? "idle";
+        sessions[m.id] = {
+          ...m,
+          status,
+          ...(previous?.supportedThinkingLevels ? { supportedThinkingLevels: previous.supportedThinkingLevels } : {}),
+          ...(status !== "idle"
+            ? {
+                runStartedAt:
+                  previous?.status === "running" || previous?.status === "waiting_permission"
+                    ? (previous.runStartedAt ?? Date.now())
+                    : Date.now(),
+              }
+            : {}),
+        };
+      }
       const nextTodos = { ...s.todos };
       for (const meta of metas) {
         // 新桌面快照带注册表里的 Todo；旧桌面缺字段时保留本端已收到的实时数据
@@ -289,11 +330,11 @@ export const useAppStore = create<AppState>((set) => ({
       return reconcileSessions(s, sessions);
     }),
 
-  appendOutput: (sessionId, chunk, kind, seq) =>
+  appendOutput: (sessionId, chunk, kind, seq, tool) =>
     set((s) => {
       const t = trackOf(sessionId);
       if (seq <= t.historyThroughSeq || t.raw.has(seq)) return {}; // 历史已覆盖 / 实时与 backfill 重复
-      t.raw.set(seq, { kind, chunk });
+      t.raw.set(seq, { kind, chunk, ...(tool ? { tool } : {}) });
       trimRaw(t);
       const prevMax = t.maxSeq;
       t.maxSeq = Math.max(prevMax, seq);
@@ -307,12 +348,7 @@ export const useAppStore = create<AppState>((set) => ({
       } else if (prevMax < 0 && seq > 0 && prev.length === 0) {
         next.push({ id: chunkIdCounter++, chunk: "", kind: "text", gap: true }); // 头部截断
       }
-      const last = next[next.length - 1];
-      if (last && !last.gap && last.kind === kind && kind !== "user") {
-        next[next.length - 1] = { ...last, chunk: last.chunk + chunk }; // 助手增量按 kind 合并，user 不合并
-      } else {
-        next.push({ id: chunkIdCounter++, chunk, kind });
-      }
+      appendViewChunk(next, { kind, chunk, ...(tool ? { tool } : {}) });
       if (next.length > MAX_CHUNKS)
         return { outputs: { ...s.outputs, [sessionId]: next.slice(next.length - MAX_CHUNKS) } };
       return { outputs: { ...s.outputs, [sessionId]: next } };
@@ -324,7 +360,7 @@ export const useAppStore = create<AppState>((set) => ({
       const t = trackOf(sessionId);
       for (const c of chunks) {
         if (c.seq <= t.historyThroughSeq) continue;
-        if (!t.raw.has(c.seq)) t.raw.set(c.seq, { kind: c.kind, chunk: c.chunk });
+        if (!t.raw.has(c.seq)) t.raw.set(c.seq, { kind: c.kind, chunk: c.chunk, ...(c.tool ? { tool: c.tool } : {}) });
         t.maxSeq = Math.max(t.maxSeq, c.seq);
       }
       // 重排为升序（backfill 可能补的是比现有 seq 小的缺口）再裁剪、重建视图：

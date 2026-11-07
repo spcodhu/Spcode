@@ -526,7 +526,7 @@ export type HostEvent =
   | {
       type: "session.model";
       sessionId: string;
-      model: ModelRef;
+      model: ModelRef | null;
       thinkingLevel: string;
       supportedThinkingLevels: string[];
     }

@@ -127,6 +127,23 @@ export async function handleRemoteCommand(cmd: RemoteCommand, deps: RemoteHandle
       });
       return info;
     }
+    case "session.setThinkingLevel": {
+      const entry = deps.registry.get(cmd.sessionId);
+      if (!entry) throw new Error(i18n.t("integration:session.missing", { id: cmd.sessionId }));
+      const info = await deps.bridge.call<SessionInfo>(
+        withId({ type: "session.setThinkingLevel", payload: { sessionId: cmd.sessionId, level: cmd.level } }),
+      );
+      const model = info.model ?? entry.model ?? null;
+      deps.registry.patch(cmd.sessionId, { model, thinkingLevel: info.thinkingLevel });
+      deps.bridge.emitLocal?.({
+        type: "session.model",
+        sessionId: cmd.sessionId,
+        model,
+        thinkingLevel: info.thinkingLevel,
+        supportedThinkingLevels: info.supportedThinkingLevels ?? [],
+      });
+      return info;
+    }
     case "session.subscribe":
       // M1：所有 RemoteEvent 本就广播给全部已配对设备，订阅无需登记
       return { ok: true };

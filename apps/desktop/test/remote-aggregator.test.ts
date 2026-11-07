@@ -102,6 +102,71 @@ describe("RemoteEventAggregator", () => {
     ]);
   });
 
+  it("工具开始、增量与结束共享调用 id，输出状态/结果/patch，并维持文本时序", () => {
+    const s = setup();
+    agg = s.agg;
+    s.agg.handle(textDelta("先执行"));
+    s.agg.handle({
+      type: "session.event",
+      sessionId: "s1",
+      event: { type: "tool_execution_start", toolCallId: "tool-1", toolName: "edit", args: { path: "a.ts" } },
+    });
+    s.agg.handle({
+      type: "session.event",
+      sessionId: "s1",
+      event: {
+        type: "tool_execution_update",
+        toolCallId: "tool-1",
+        partialResult: { content: [{ type: "text", text: "部分输出" }] },
+      },
+    });
+    s.agg.handle({
+      type: "session.event",
+      sessionId: "s1",
+      event: {
+        type: "tool_execution_end",
+        toolCallId: "tool-1",
+        isError: true,
+        result: { content: [{ type: "text", text: "最终错误" }], details: { patch: "@@ -1 +1 @@" } },
+      },
+    });
+
+    expect(s.events).toEqual([
+      { type: "session.output", sessionId: "s1", chunk: "先执行", kind: "text", seq: 0 },
+      {
+        type: "session.output",
+        sessionId: "s1",
+        chunk: "",
+        kind: "tool",
+        seq: 1,
+        tool: { id: "tool-1", name: "edit", args: { path: "a.ts" }, status: "running", output: "" },
+      },
+      {
+        type: "session.output",
+        sessionId: "s1",
+        chunk: "",
+        kind: "tool",
+        seq: 2,
+        tool: { id: "tool-1", name: "edit", args: { path: "a.ts" }, status: "running", output: "部分输出" },
+      },
+      {
+        type: "session.output",
+        sessionId: "s1",
+        chunk: "",
+        kind: "tool",
+        seq: 3,
+        tool: {
+          id: "tool-1",
+          name: "edit",
+          args: { path: "a.ts" },
+          status: "error",
+          output: "最终错误",
+          patch: "@@ -1 +1 @@",
+        },
+      },
+    ]);
+  });
+
   it("agent_start / agent_settled 映射为 session.status，并先冲刷挂起文本", async () => {
     const s = setup();
     agg = s.agg;
