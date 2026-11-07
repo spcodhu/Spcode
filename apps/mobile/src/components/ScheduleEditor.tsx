@@ -4,7 +4,8 @@
  * 模式（聊天/项目 + cwd）。提交走 schedule.create / schedule.update。
  */
 
-import type { ModelRef, ScheduleFrequency, ScheduleTask, ScheduleTaskInput } from "@spcode/shared";
+import type { ModelRef, PermissionMode, ScheduleFrequency, ScheduleTask, ScheduleTaskInput } from "@spcode/shared";
+import { DEFAULT_SCHEDULE_PERMISSION_MODE } from "@spcode/shared";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorText, formatWeekday, MobileError } from "../lib/i18n";
@@ -68,6 +69,9 @@ export function ScheduleEditorSheet({
   const [kind, setKind] = useState<"chat" | "project" | "session">(task?.target.kind ?? "chat");
   const [sessionId, setSessionId] = useState(task?.target.kind === "session" ? task.target.sessionId : "");
   const [model, setModel] = useState<ModelRef | null>(task?.model ?? null);
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>(
+    task?.permissionMode ?? DEFAULT_SCHEDULE_PERMISSION_MODE,
+  );
   const [cwd, setCwd] = useState(task?.target.kind === "project" ? task.target.cwd : "");
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
@@ -116,6 +120,7 @@ export function ScheduleEditorSheet({
       minute: scheduledMinute,
       enabled: task?.enabled ?? true,
       model,
+      permissionMode,
     };
     if (frequency === "weekly") base.weekday = weekday;
     if (frequency === "once") {
@@ -327,6 +332,23 @@ export function ScheduleEditorSheet({
                 ))}
             </select>
           )}
+        </div>
+
+        <div>
+          <label className="block text-xs font-medium text-text-tertiary" htmlFor="schedule-permission-mode">
+            {t("schedule.permissionMode")}
+          </label>
+          <select
+            id="schedule-permission-mode"
+            value={permissionMode}
+            onChange={(event) => setPermissionMode(event.target.value as PermissionMode)}
+            className={FIELD_CLASS}
+          >
+            <option value="ask">{t("schedule.permissionAsk")}</option>
+            <option value="auto">{t("schedule.permissionAuto")}</option>
+            <option value="never">{t("schedule.permissionNever")}</option>
+          </select>
+          <p className="mt-1.5 text-[11px] leading-4 text-text-tertiary">{t("schedule.permissionHint")}</p>
         </div>
 
         {error != null && (

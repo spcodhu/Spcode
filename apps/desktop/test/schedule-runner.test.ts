@@ -87,15 +87,19 @@ function entry(patch: Partial<SessionRegistryEntry> = {}): SessionRegistryEntry 
 }
 
 describe("定时任务执行器", () => {
-  it("已有会话只唤醒并注入，不重复 create；计划和权限状态随注册表恢复", async () => {
+  it("已有会话只唤醒并注入，不重复 create；应用任务选择的权限模式", async () => {
     const { deps, calls } = setup([entry({ planMode: true })]);
     const images = [{ name: "a.png", mimeType: "image/png", data: "aGVsbG8=" }];
     const result = await runScheduledTask(
-      task({ target: { kind: "session", sessionId: "existing" }, images }),
+      task({ target: { kind: "session", sessionId: "existing" }, images, permissionMode: "ask" }),
       deps,
     );
     expect(result).toBe("existing");
-    expect(calls.map((call) => call.type)).toEqual(["session.activate", "session.prompt"]);
+    expect(calls.map((call) => call.type)).toEqual([
+      "session.activate",
+      "session.setPermissionMode",
+      "session.prompt",
+    ]);
     expect(calls[0]).toMatchObject({
       payload: {
         sessionId: "existing",
@@ -105,7 +109,8 @@ describe("定时任务执行器", () => {
         permissionMode: "ask",
       },
     });
-    expect(calls[1]).toMatchObject({ payload: { sessionId: "existing", text: "生成日报", images } });
+    expect(calls[1]).toMatchObject({ payload: { sessionId: "existing", mode: "ask" } });
+    expect(calls[2]).toMatchObject({ payload: { sessionId: "existing", text: "生成日报", images } });
   });
 
   it("已有会话缺失或无恢复文件时明确失败，不发送 prompt", async () => {
@@ -125,8 +130,10 @@ describe("定时任务执行器", () => {
     const result = await runScheduledTask(task({ model, images }), deps);
     expect(result).toBe("new-session");
     expect(calls.map((call) => call.type)).toEqual(["session.create", "session.prompt"]);
-    expect(calls[0]).toMatchObject({ payload: { sessionId: "new-session", model, noTitleAutomation: true } });
+    expect(calls[0]).toMatchObject({
+      payload: { sessionId: "new-session", model, permissionMode: "never", noTitleAutomation: true },
+    });
     expect(calls[1]).toMatchObject({ payload: { sessionId: "new-session", images } });
-    expect(registryEntries[0]).toMatchObject({ id: "new-session", title: "日报", model });
+    expect(registryEntries[0]).toMatchObject({ id: "new-session", title: "日报", model, permissionMode: "never" });
   });
 });

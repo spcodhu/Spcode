@@ -168,7 +168,10 @@ describe("移动端定时任务编辑器", () => {
     await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="schedule-submit"]')!.click());
     expect(state.update).toHaveBeenCalledWith(
       value.id,
-      expect.objectContaining({ target: { kind: "session", sessionId: "existing" } }),
+      expect.objectContaining({
+        target: { kind: "session", sessionId: "existing" },
+        permissionMode: "never",
+      }),
     );
   });
 });

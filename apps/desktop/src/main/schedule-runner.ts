@@ -9,6 +9,7 @@ import type {
   SessionInfo,
   SessionMode,
 } from "@spcode/shared";
+import { DEFAULT_SCHEDULE_PERMISSION_MODE } from "@spcode/shared";
 import { i18n } from "@spcode/shared/i18n";
 import { backfillSessionFile, type RegistryLike } from "./session-helpers.js";
 
@@ -55,6 +56,12 @@ async function runInExistingSession(task: ScheduleTask, sessionId: string, deps:
   });
   const info = await deps.bridge.call<SessionInfo>(cmd);
   backfillSessionFile(cmd, info, deps.registry);
+  const permissionMode = task.permissionMode ?? DEFAULT_SCHEDULE_PERMISSION_MODE;
+  if (info.permissionMode !== permissionMode) {
+    await deps.bridge.call(
+      withId({ type: "session.setPermissionMode", payload: { sessionId, mode: permissionMode } }),
+    );
+  }
   await promptSession(task, sessionId, deps);
   return sessionId;
 }
@@ -66,6 +73,7 @@ export async function runScheduledTask(task: ScheduleTask, deps: ScheduleRunnerD
   const mode: SessionMode = task.target.kind === "project" ? "project" : "chat";
   const cwd = task.target.kind === "project" ? task.target.cwd : "";
   const current = deps.settings.get();
+  const permissionMode = task.permissionMode ?? DEFAULT_SCHEDULE_PERMISSION_MODE;
   const now = Date.now();
   deps.registry.upsert({
     id: sessionId,
@@ -75,6 +83,7 @@ export async function runScheduledTask(task: ScheduleTask, deps: ScheduleRunnerD
     titleKind: "custom",
     model: task.model ?? current.defaultModel,
     thinkingLevel: current.defaultThinkingLevel,
+    permissionMode,
     sessionFile: null,
     createdAt: now,
     updatedAt: now,
@@ -88,6 +97,7 @@ export async function runScheduledTask(task: ScheduleTask, deps: ScheduleRunnerD
       cwd,
       model: task.model ?? current.defaultModel ?? undefined,
       thinkingLevel: current.defaultThinkingLevel,
+      permissionMode,
       noTitleAutomation: true,
     },
   });

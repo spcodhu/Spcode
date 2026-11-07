@@ -634,6 +634,9 @@ export interface DailyUsage {
 
 export type ScheduleFrequency = "once" | "hourly" | "daily" | "weekday" | "weekly";
 
+/** 定时任务默认无人值守运行；用户可在任务表单改成总是/必要时询问。 */
+export const DEFAULT_SCHEDULE_PERMISSION_MODE: PermissionMode = "never";
+
 /** 触发目标：新建聊天/项目会话，或复用指定已有会话 */
 export type ScheduleTarget =
   | { kind: "chat" }
@@ -646,6 +649,8 @@ export interface ScheduleTask {
   prompt: string;
   /** 每次触发随指令发送的图片；旧任务缺省为无附件 */
   images?: ImageAttachment[];
+  /** 触发时应用的权限模式；旧任务缺省也按无人值守的 never 执行 */
+  permissionMode?: PermissionMode;
   /** 缺省/null = 触发时跟随 PC 默认模型；旧任务无此字段保持原行为 */
   model?: ModelRef | null;
   target: ScheduleTarget;

@@ -16,6 +16,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { ImageAttachment, ScheduleTask, ScheduleTaskInput } from "@spcode/shared";
+import { DEFAULT_SCHEDULE_PERMISSION_MODE } from "@spcode/shared";
 import { i18n } from "@spcode/shared/i18n";
 import { readJsonFile, resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
 import { decodeImageAttachment } from "./image-file.js";
@@ -29,6 +30,10 @@ function validImages(images: unknown): boolean {
   } catch {
     return false;
   }
+}
+
+function validPermissionMode(mode: unknown): boolean {
+  return mode === undefined || mode === "ask" || mode === "auto" || mode === "never";
 }
 
 function validTarget(target: unknown): boolean {
@@ -52,7 +57,7 @@ function validateTasks(data: unknown): ScheduleTask[] | null {
     if (!t || typeof t !== "object") return null;
     const r = t as Record<string, unknown>;
     if (typeof r.id !== "string" || typeof r.name !== "string" || typeof r.prompt !== "string") return null;
-    if (!validImages(r.images) || !validTarget(r.target)) return null;
+    if (!validImages(r.images) || !validTarget(r.target) || !validPermissionMode(r.permissionMode)) return null;
     if (typeof r.frequency !== "string" || !FREQUENCIES.has(r.frequency)) return null;
     if (typeof r.hour !== "number" || typeof r.minute !== "number" || typeof r.enabled !== "boolean") return null;
     // 值域（评审 R3-C14：minute=999 会进位错乱、weekday=7 会显示「每周undefined」）
@@ -131,7 +136,13 @@ export class Scheduler {
   create(input: ScheduleTaskInput): ScheduleTask {
     assertValidImages(input.images);
     if (!validTarget(input.target)) throw new Error(i18n.t("main:scheduler.invalidTarget"));
-    const task: ScheduleTask = { ...input, id: randomUUID(), createdAt: this.opts.now?.() ?? Date.now() };
+    if (!validPermissionMode(input.permissionMode)) throw new Error(i18n.t("main:scheduler.invalidPermission"));
+    const task: ScheduleTask = {
+      permissionMode: DEFAULT_SCHEDULE_PERMISSION_MODE,
+      ...input,
+      id: randomUUID(),
+      createdAt: this.opts.now?.() ?? Date.now(),
+    };
     const list = this.list();
     list.unshift(task);
     this.persist();
@@ -142,6 +153,9 @@ export class Scheduler {
     if (Object.hasOwn(patch, "images")) assertValidImages(patch.images);
     if (Object.hasOwn(patch, "target") && !validTarget(patch.target)) {
       throw new Error(i18n.t("main:scheduler.invalidTarget"));
+    }
+    if (Object.hasOwn(patch, "permissionMode") && !validPermissionMode(patch.permissionMode)) {
+      throw new Error(i18n.t("main:scheduler.invalidPermission"));
     }
     const list = this.list();
     const idx = list.findIndex((t) => t.id === id);

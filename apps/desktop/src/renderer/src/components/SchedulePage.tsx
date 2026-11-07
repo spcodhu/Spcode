@@ -1,11 +1,12 @@
 import type {
   ImageAttachment,
+  PermissionMode,
   ScheduleFrequency,
   ScheduleTarget,
   ScheduleTask,
   ScheduleTaskInput,
 } from "@spcode/shared";
-import { baseName, describeNextScheduleRun, describeSchedule, nextScheduleRunAt } from "@spcode/shared";
+import { baseName, DEFAULT_SCHEDULE_PERMISSION_MODE, describeNextScheduleRun, describeSchedule, nextScheduleRunAt } from "@spcode/shared";
 import { getLocale } from "@spcode/shared/i18n";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -314,6 +315,9 @@ function TaskForm({
   const [prompt, setPrompt] = useState(task?.prompt ?? "");
   const [images, setImages] = useState<ImageAttachment[]>(task?.images ?? []);
   const [previewIdx, setPreviewIdx] = useState<number | null>(null);
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>(
+    task?.permissionMode ?? DEFAULT_SCHEDULE_PERMISSION_MODE,
+  );
   const [targetKind, setTargetKind] = useState<string>(
     task?.target.kind === "project"
       ? task.target.cwd
@@ -431,6 +435,7 @@ function TaskForm({
       name: trimmedName,
       prompt: trimmedPrompt,
       images,
+      permissionMode,
       target,
       frequency,
       hour: Number(hour),
@@ -561,6 +566,20 @@ function TaskForm({
           <Select value={modelKey} options={modelOptions} onChange={setModelKey} />
         </Field>
       )}
+
+      <Field label={t("schedule.permissionMode")}>
+        <Select
+          value={permissionMode}
+          options={[
+            { value: "ask", label: t("general.modeAsk") },
+            { value: "auto", label: t("general.modeAuto") },
+            { value: "never", label: t("general.modeNever") },
+          ]}
+          onChange={(value) => setPermissionMode(value as PermissionMode)}
+          testId="schedule-permission-mode"
+        />
+        <div className="mt-1.5 text-[11px] leading-4 text-text-tertiary">{t("schedule.permissionModeHint")}</div>
+      </Field>
 
       <Field label={t("schedule.frequency")}>
         <Select value={frequency} options={FREQ_OPTIONS} onChange={(v) => setFrequency(v as ScheduleFrequency)} />

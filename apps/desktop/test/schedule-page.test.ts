@@ -165,7 +165,10 @@ describe("定时任务页", () => {
         .click(),
     );
     expect(scheduleCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ target: { kind: "session", sessionId: "existing" } }),
+      expect.objectContaining({
+        target: { kind: "session", sessionId: "existing" },
+        permissionMode: "never",
+      }),
     );
   });
 

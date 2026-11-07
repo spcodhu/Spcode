@@ -273,6 +273,7 @@ describe("Scheduler.tick", () => {
     const reloaded = new Scheduler({ file, fire: async () => "s" });
     expect(reloaded.list()[0].name).toBe("B");
     expect(reloaded.list()[0].enabled).toBe(false);
+    expect(reloaded.list()[0].permissionMode).toBe("never");
     expect(reloaded.list()[0].images).toEqual([image]);
     reloaded.remove(t.id);
     expect(new Scheduler({ file, fire: async () => "s" }).list()).toHaveLength(0);
