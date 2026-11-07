@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { formatCompact, formatFileSize, formatMessageTimestamp } from "../format";
 import { openImageContextMenu } from "../image-actions";
 import { buildRunBlocks, type RunTextBlock } from "../run-activity";
-import { type ChatMessage, flattenSegments, messageText } from "../store";
+import { type ChatMessage, flattenSegments, messageText, useStore } from "../store";
 import { prefillComposer } from "./Composer";
 import { Icon } from "./Icon";
 import { ImageLightbox } from "./ImageLightbox";
@@ -205,7 +205,7 @@ export const MessageItem = memo(MessageItemImpl);
  * 标题 + 处理建议 + 原始错误（直接展示，不再藏在一个「详情」按钮后面），
  * 且重启后仍可见（historyToMessages 回放）。
  */
-function NoticeItemImpl({ message }: { message: ChatMessage }) {
+function NoticeItemImpl({ message, sessionId }: { message: ChatMessage; sessionId: string }) {
   const { t } = useTranslation("chat");
   const compaction = message.notice?.kind === "compaction" ? message.notice : undefined;
   const compactionKeys =
@@ -238,7 +238,7 @@ function NoticeItemImpl({ message }: { message: ChatMessage }) {
     : messageText(message);
   const summary = compaction?.summary;
   const [open, setOpen] = useState(false);
-  if (message.notice?.kind === "runError") return <RunErrorCard notice={message.notice} />;
+  if (message.notice?.kind === "runError") return <RunErrorCard message={message} sessionId={sessionId} />;
   return (
     <div className="my-5" data-testid={compaction ? "compaction-notice" : undefined} data-trigger={compaction?.trigger}>
       <button
@@ -272,10 +272,65 @@ function NoticeItemImpl({ message }: { message: ChatMessage }) {
   );
 }
 
+function localDateTimeInput(timestamp: number): string {
+  const date = new Date(timestamp);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 /** 运行被错误中断的持久错误卡（额度不足/凭证/限流/超长/网络） */
-function RunErrorCard({ notice }: { notice: Extract<NonNullable<ChatMessage["notice"]>, { kind: "runError" }> }) {
+function RunErrorCard({ message, sessionId }: { message: ChatMessage; sessionId: string }) {
+  const notice = message.notice as Extract<NonNullable<ChatMessage["notice"]>, { kind: "runError" }>;
   const { t } = useTranslation("chat");
   const { t: errorT } = useTranslation("errors");
+  const session = useStore((state) => state.sessions[sessionId]);
+  const scheduled = useStore((state) =>
+    (state.runRetries ?? []).find((retry) => retry.sessionId === sessionId),
+  );
+  const scheduleRunRetry = useStore((state) => state.scheduleRunRetry);
+  const cancelRunRetry = useStore((state) => state.cancelRunRetry);
+  const [open, setOpen] = useState(false);
+  const [exactTime, setExactTime] = useState(() => localDateTimeInput(Date.now() + 3 * 3_600_000));
+  const [busy, setBusy] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
+
+  const messages = session?.messages ?? [];
+  const noticeIndex = messages.findIndex((item) => item.id === message.id);
+  let source: ChatMessage | undefined;
+  for (let index = noticeIndex - 1; index >= 0; index--) {
+    if (messages[index]?.role === "user") {
+      source = messages[index];
+      break;
+    }
+  }
+  const hasLaterActivity = messages
+    .slice(Math.max(0, noticeIndex + 1))
+    .some((item) => item.role === "user" || item.role === "assistant");
+  const canSchedule = noticeIndex >= 0 && !hasLaterActivity && !session?.running && !!source;
+
+  const schedule = async (runAt: number) => {
+    if (!source || busy) return;
+    if (!Number.isFinite(runAt) || runAt <= Date.now()) {
+      setRetryError(t("message.retryTimeInvalid"));
+      return;
+    }
+    setBusy(true);
+    setRetryError(null);
+    try {
+      await scheduleRunRetry({
+        sessionId,
+        text: messageText(source),
+        ...(source.images?.length ? { images: source.images } : {}),
+        runAt,
+      });
+      setOpen(false);
+    } catch (error) {
+      setRetryError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div
       className="my-4 rounded-xl border border-danger/40 bg-danger/8 px-4 py-3"
@@ -302,6 +357,95 @@ function RunErrorCard({ notice }: { notice: Extract<NonNullable<ChatMessage["not
             >
               {notice.raw}
             </pre>
+          )}
+          {canSchedule && (
+            <div className="mt-3 border-t border-danger/20 pt-3">
+              {scheduled ? (
+                <div
+                  className="flex flex-wrap items-center gap-2 text-[12px] text-text-secondary"
+                  data-testid="run-retry-scheduled"
+                >
+                  <Icon name="clock" size={13} className="text-accent" />
+                  <span>{t("message.retryScheduled", { time: formatMessageTimestamp(scheduled.runAt) })}</span>
+                  <button
+                    type="button"
+                    data-testid="run-retry-cancel"
+                    disabled={busy}
+                    onClick={() => {
+                      setBusy(true);
+                      setRetryError(null);
+                      void cancelRunRetry(scheduled.id)
+                        .catch((error) => setRetryError(error instanceof Error ? error.message : String(error)))
+                        .finally(() => setBusy(false));
+                    }}
+                    className="rounded-md px-2 py-1 text-accent hover:bg-bg-hover disabled:opacity-40"
+                  >
+                    {t("message.cancelScheduledRetry")}
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    data-testid="run-retry-toggle"
+                    onClick={() => setOpen((value) => !value)}
+                    className="flex items-center gap-1.5 rounded-lg border border-border bg-bg-main px-2.5 py-1.5 text-[12px] text-text-primary hover:border-accent/50"
+                  >
+                    <Icon name="clock" size={13} />
+                    {t("message.scheduleRetry")}
+                  </button>
+                  {open && (
+                    <div className="mt-2 rounded-lg border border-border bg-bg-main p-3" data-testid="run-retry-panel">
+                      <div className="text-[11.5px] leading-5 text-text-tertiary">{t("message.retryDescription")}</div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          data-testid="run-retry-1h"
+                          disabled={busy}
+                          onClick={() => void schedule(Date.now() + 3_600_000)}
+                          className="rounded-md bg-bg-elevated px-2.5 py-1.5 text-[12px] text-text-secondary hover:bg-bg-hover disabled:opacity-40"
+                        >
+                          {t("message.retryIn1Hour")}
+                        </button>
+                        <button
+                          type="button"
+                          data-testid="run-retry-3h"
+                          disabled={busy}
+                          onClick={() => void schedule(Date.now() + 3 * 3_600_000)}
+                          className="rounded-md bg-bg-elevated px-2.5 py-1.5 text-[12px] text-text-secondary hover:bg-bg-hover disabled:opacity-40"
+                        >
+                          {t("message.retryIn3Hours")}
+                        </button>
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <input
+                          type="datetime-local"
+                          aria-label={t("message.retryExactTime")}
+                          data-testid="run-retry-exact"
+                          value={exactTime}
+                          onChange={(event) => setExactTime(event.target.value)}
+                          className="rounded-md border border-border bg-bg-elevated px-2 py-1.5 text-[12px] text-text-primary"
+                        />
+                        <button
+                          type="button"
+                          data-testid="run-retry-exact-submit"
+                          disabled={busy}
+                          onClick={() => void schedule(new Date(exactTime).getTime())}
+                          className="rounded-md bg-accent px-2.5 py-1.5 text-[12px] text-on-accent disabled:opacity-40"
+                        >
+                          {t("message.confirmScheduledRetry")}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+              {retryError && (
+                <div role="alert" className="mt-2 text-[12px] text-danger" data-testid="run-retry-error">
+                  {retryError}
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>

@@ -108,5 +108,13 @@ test("错误卡：原始错误直接展示，不需要点「详情」", async ()
   // 建议文案不再让人去点「详情」
   await expect(card).not.toContainText("展开「详情」");
 
+  // 错误卡可预定三小时后重试，并可取消；数据只写本测试的临时 SPCODE_HOME。
+  await window.getByTestId("run-retry-toggle").click();
+  await expect(window.getByTestId("run-retry-panel")).toBeVisible();
+  await window.getByTestId("run-retry-3h").click();
+  await expect(window.getByTestId("run-retry-scheduled")).toBeVisible();
+  await window.getByTestId("run-retry-cancel").click();
+  await expect(window.getByTestId("run-retry-toggle")).toBeVisible();
+
   await app.close();
 });

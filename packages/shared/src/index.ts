@@ -551,6 +551,8 @@ export type HostEvent =
   | { type: "question.request"; request: QuestionRequest }
   /** 提问已被结清（回答/超时/会话终结）：渲染层与主进程据此撤下提问卡（评审 R3-C11） */
   | { type: "question.resolved"; requestId: string }
+  /** 会话错误定时重试列表变化（全量小快照，避免双端对账） */
+  | { type: "runRetry.changed"; retries: ScheduledRunRetry[] }
   /** 会话注册表发生变化（如定时任务新建会话）：渲染进程应重新拉取列表 */
   | { type: "sessions.changed" }
   /** 定时任务触发：已为其创建会话并注入 prompt */
@@ -631,6 +633,20 @@ export interface DailyUsage {
 // ---------------------------------------------------------------------------
 // 定时任务
 // ---------------------------------------------------------------------------
+
+/** 错误卡预定的会话重试；到点重新发送原指令，模型层仍走正常自动重试。 */
+export interface ScheduledRunRetry {
+  id: string;
+  sessionId: string;
+  text: string;
+  images?: ImageAttachment[];
+  runAt: number;
+  createdAt: number;
+  /** 仅宿主派发失败时计数；最多补派 3 次，会话忙时顺延不计数 */
+  dispatchAttempts?: number;
+}
+
+export type ScheduledRunRetryInput = Pick<ScheduledRunRetry, "sessionId" | "text" | "images" | "runAt">;
 
 export type ScheduleFrequency = "once" | "hourly" | "daily" | "weekday" | "weekly";
 
@@ -861,6 +877,10 @@ export const IPC = {
   scheduleUpdate: "spcode:schedule-update",
   scheduleDelete: "spcode:schedule-delete",
   scheduleRunNow: "spcode:schedule-run-now",
+  /** 会话错误卡：预定/取消定时重试 */
+  runRetryList: "spcode:run-retry-list",
+  runRetrySchedule: "spcode:run-retry-schedule",
+  runRetryCancel: "spcode:run-retry-cancel",
   /** main -> renderer：原生窗口平台与全屏状态（macOS 红绿灯 inset 自适应） */
   windowChromeGet: "spcode:window-chrome-get",
   windowChromeChanged: "spcode:window-chrome-changed",

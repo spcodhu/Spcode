@@ -20,6 +20,7 @@ import {
   normalizeProjectCwd,
   type PickedFile,
   type SandboxStatusReport,
+  type ScheduledRunRetryInput,
   type ScheduleTask,
   type ScheduleTaskInput,
   SECRET_MASK,
@@ -40,8 +41,9 @@ import { readSessionPlan } from "./plan-file.js";
 import { applyNetworkProxy, registerNetworkProxyAuthentication } from "./proxy.js";
 import { QuotaService } from "./quota-service.js";
 import { RemoteServer } from "./remote/index.js";
+import { RunRetryScheduler } from "./run-retry.js";
 import { Scheduler } from "./scheduler.js";
-import { runScheduledTask } from "./schedule-runner.js";
+import { runScheduledRetry, runScheduledTask } from "./schedule-runner.js";
 import { type GitBaseline, gitBaseline, gitDiff, gitStashPush, gitStatusPorcelain, hasChanges } from "./session-git.js";
 import {
   backfillSessionFile,
@@ -255,6 +257,7 @@ function watchSessionLifecycle(): void {
       return;
     }
     if (event.type === "session.event") {
+      if ((event.event as { type?: string }).type === "agent_start") runRetries.cancelForSession(event.sessionId);
       notifier.noteSessionEvent(event.sessionId, event.event as { type?: string });
     }
     // 用量落账并广播权威会话快照；渲染层不再从零自行累计历史
@@ -307,6 +310,13 @@ const scheduler = new Scheduler({
 async function fireScheduledTask(task: ScheduleTask): Promise<string> {
   return runScheduledTask(task, { registry, bridge, settings });
 }
+
+const runRetries = new RunRetryScheduler({
+  fire: (retry) => runScheduledRetry(retry, { registry, bridge, settings }),
+  notify: (retries) => bridge.emitLocal({ type: "runRetry.changed", retries }),
+  onError: (_retry, error) =>
+    bridge.emitLocal({ type: "host.error", message: i18n.t("main:runRetry.dispatchFailed", { error }) }),
+});
 
 // ---------------------------------------------------------------------------
 // 远程控制（手机 PWA）：复用 settings/bridge/scheduler/registry 单例
@@ -463,8 +473,12 @@ function registerIpc(): void {
   );
   ipcMain.handle(IPC.scheduleDelete, (_e, id: string) => scheduler.remove(id));
   ipcMain.handle(IPC.scheduleRunNow, (_e, id: string) => scheduler.runNow(id));
+  ipcMain.handle(IPC.runRetryList, () => runRetries.list());
+  ipcMain.handle(IPC.runRetrySchedule, (_e, input: ScheduledRunRetryInput) => runRetries.schedule(input));
+  ipcMain.handle(IPC.runRetryCancel, (_e, id: string) => runRetries.cancel(String(id)));
   ipcMain.handle(IPC.removeSession, (_e, id: string) => {
     gitBaselines.delete(id);
+    runRetries.cancelForSession(id);
     return removeSessionEverywhere({ registry, bridge, events: bridge }, id);
   });
 
@@ -823,6 +837,7 @@ if (!app.requestSingleInstanceLock()) {
       console.error("[main] agent-host startup failed", err);
     }
     scheduler.start();
+    runRetries.start();
     try {
       await remote.applySettings();
     } catch (err) {
@@ -851,6 +866,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  runRetries.stop();
   void remote.stop();
   void bridge.dispose();
 });

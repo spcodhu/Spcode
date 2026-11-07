@@ -55,6 +55,24 @@ const errorEnd = (errorMessage: string) => ({
 });
 
 describe("applySessionEvent：错误回合的可见性", () => {
+  it("外部入口的用户消息同时还原文本与图片，供错误重试复用", () => {
+    const s = makeSession();
+    applySessionEvent(s, {
+      type: "message_end",
+      message: {
+        role: "user",
+        content: [
+          { type: "text", text: "看图片" },
+          { type: "image", data: "aGVsbG8=", mimeType: "image/png" },
+        ],
+      },
+    });
+    expect(s.messages[0]).toMatchObject({
+      role: "user",
+      images: [{ mimeType: "image/png", data: "aGVsbG8=" }],
+    });
+  });
+
   it("额度不足回合：agent_settled 落一张 runError 卡，且空 assistant 占位被清掉", () => {
     const s = makeSession();
     applySessionEvent(s, { type: "agent_start" });

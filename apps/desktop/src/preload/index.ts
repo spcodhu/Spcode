@@ -17,6 +17,8 @@ import {
   type RemotePairingInfo,
   type RemoteStatus,
   type SandboxStatusReport,
+  type ScheduledRunRetry,
+  type ScheduledRunRetryInput,
   type ScheduleTask,
   type ScheduleTaskInput,
   type SessionRegistryEntry,
@@ -48,6 +50,10 @@ export interface SpcodeApi {
   scheduleUpdate(id: string, patch: Partial<ScheduleTaskInput>): Promise<ScheduleTask | null>;
   scheduleDelete(id: string): Promise<void>;
   scheduleRunNow(id: string): Promise<string>;
+  /** 会话错误卡的持久化定时重试 */
+  runRetryList(): Promise<ScheduledRunRetry[]>;
+  runRetrySchedule(input: ScheduledRunRetryInput): Promise<ScheduledRunRetry>;
+  runRetryCancel(id: string): Promise<void>;
   /** 用量聚合（按日×模型）与厂商配额 */
   usageSummary(days?: number): Promise<DailyUsage[]>;
   /** 指定会话的跨日累计用量（含 revision，防止历史/实时快照竞态） */
@@ -154,6 +160,15 @@ const api: SpcodeApi = {
   },
   scheduleRunNow(id) {
     return ipcRenderer.invoke(IPC.scheduleRunNow, id);
+  },
+  runRetryList() {
+    return ipcRenderer.invoke(IPC.runRetryList);
+  },
+  runRetrySchedule(input) {
+    return ipcRenderer.invoke(IPC.runRetrySchedule, input);
+  },
+  runRetryCancel(id) {
+    return ipcRenderer.invoke(IPC.runRetryCancel, id);
   },
   usageSummary(days) {
     return ipcRenderer.invoke(IPC.usageSummary, days);

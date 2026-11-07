@@ -54,7 +54,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
             item.kind === "user" ? (
               <MessageItem key={item.key} message={item.message} />
             ) : item.kind === "notice" ? (
-              <NoticeItem key={item.key} message={item.message} />
+              <NoticeItem key={item.key} message={item.message} sessionId={sessionId} />
             ) : (
               <AssistantRunItem
                 key={item.key}

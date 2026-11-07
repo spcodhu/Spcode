@@ -21,6 +21,8 @@ import type {
   PermissionMode,
   PermissionRequest,
   QuestionRequest,
+  ScheduledRunRetry,
+  ScheduledRunRetryInput,
   SessionInfo,
   SessionMeta,
   SessionMode,
@@ -248,6 +250,8 @@ interface StoreState {
   notice: { text: string; presentation?: LocalizedText; sessionId?: string; tone?: "success" } | null;
   /** 更新状态机（主进程推送；idle 时侧栏不显示更新按钮） */
   updateState: UpdateState;
+  /** 主进程持久化的错误定时重试（每个会话最多一条） */
+  runRetries: ScheduledRunRetry[];
 
   init(): Promise<void>;
   createSession(mode: SessionMode, cwd?: string): Promise<string>;
@@ -291,6 +295,8 @@ interface StoreState {
   /** 重新拉取会话注册表（定时任务新建会话 / sessions.changed 事件后调用） */
   refreshSessions(): Promise<void>;
   saveSettings(patch: Partial<AppSettings>): Promise<void>;
+  scheduleRunRetry(input: ScheduledRunRetryInput): Promise<ScheduledRunRetry>;
+  cancelRunRetry(id: string): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -635,6 +641,15 @@ export function applySessionEvent(session: SessionState, event: Record<string, u
           .filter((s): s is Extract<Segment, { kind: "text" }> => s.kind === "text")
           .map((s) => s.text)
           .join("\n\n");
+        const images = Array.isArray(msg.content)
+          ? (msg.content as PiContentBlock[])
+              .filter((block) => block.type === "image" && block.data)
+              .map((block, index) => ({
+                name: `image-${index + 1}`,
+                mimeType: block.mimeType || "image/png",
+                data: block.data!,
+              }))
+          : [];
         let optimistic: ChatMessage | undefined;
         for (let i = session.messages.length - 1; i >= 0; i--) {
           const candidate = session.messages[i]!;
@@ -647,13 +662,14 @@ export function applySessionEvent(session: SessionState, event: Record<string, u
           // 保留本地附件和稳定的消息 id，只认领引擎权威时间戳并清除乐观标记。
           if (typeof msg.timestamp === "number") optimistic.timestamp = msg.timestamp;
           delete optimistic.optimistic;
-        } else if (text) {
+        } else if (text || images.length > 0) {
           // 手机 / 飞书 / 定时任务等入口绕过 Composer，必须由引擎事件补齐 PC 历史。
           session.messages.push({
             id: nextMsgId(),
             role: "user",
             timestamp: msg.timestamp ?? Date.now(),
             segments,
+            ...(images.length ? { images } : {}),
             streaming: false,
           });
         }
@@ -955,6 +971,7 @@ export const useStore = create<StoreState>((set, get) => ({
   lastError: null,
   notice: null,
   updateState: { status: "idle" },
+  runRetries: [],
   forkDialogFor: null,
 
   setForkDialogFor(id) {
@@ -1019,13 +1036,15 @@ export const useStore = create<StoreState>((set, get) => ({
       });
     }
     await get().refreshModels();
-    const [registry, drafts] = await Promise.all([
+    const [registry, drafts, runRetries] = await Promise.all([
       window.spcode.listSessions().catch(() => []),
       window.spcode.getComposerDrafts().catch(() => ({})),
+      Promise.resolve(window.spcode.runRetryList?.() ?? []).catch(() => []),
     ]);
     set({
       registrySessions: (registry ?? []).map((entry) => localizeDefaultTitle(entry)),
       composerDrafts: drafts ?? {},
+      runRetries: runRetries ?? [],
       ready: true,
     });
   },
@@ -1601,6 +1620,19 @@ export const useStore = create<StoreState>((set, get) => ({
     return save;
   },
 
+  async scheduleRunRetry(input) {
+    const retry = await window.spcode.runRetrySchedule(input);
+    set((state) => ({
+      runRetries: [...state.runRetries.filter((item) => item.sessionId !== retry.sessionId), retry],
+    }));
+    return retry;
+  },
+
+  async cancelRunRetry(id) {
+    await window.spcode.runRetryCancel(id);
+    set((state) => ({ runRetries: state.runRetries.filter((item) => item.id !== id) }));
+  },
+
   applyHostEvent(event) {
     if (event.type === "locale.changed") {
       setLocale(event.locale);
@@ -1632,6 +1664,10 @@ export const useStore = create<StoreState>((set, get) => ({
       const presentation: LocalizedText = { key: "integration:schedule.started", params: { name: event.name } };
       set({ notice: { text: renderMessage(presentation), presentation, sessionId: event.sessionId } });
       void get().refreshSessions();
+      return;
+    }
+    if (event.type === "runRetry.changed") {
+      set({ runRetries: event.retries });
       return;
     }
     if (event.type === "session.focus") {

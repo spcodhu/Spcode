@@ -5,6 +5,8 @@ import type {
   AppSettings,
   HostCommand,
   HostCommandInput,
+  ImageAttachment,
+  ScheduledRunRetry,
   ScheduleTask,
   SessionInfo,
   SessionMode,
@@ -31,17 +33,21 @@ function withId(cmd: HostCommandInput): Extract<HostCommand, { id: string }> {
   return { ...cmd, id: cmd.id ?? randomUUID() } as Extract<HostCommand, { id: string }>;
 }
 
-async function promptSession(task: ScheduleTask, sessionId: string, deps: ScheduleRunnerDeps): Promise<void> {
+async function promptSession(
+  sessionId: string,
+  text: string,
+  images: ImageAttachment[] | undefined,
+  deps: ScheduleRunnerDeps,
+): Promise<void> {
   await deps.bridge.call(
     withId({
       type: "session.prompt",
-      payload: { sessionId, text: task.prompt, ...(task.images?.length ? { images: task.images } : {}) },
+      payload: { sessionId, text, ...(images?.length ? { images } : {}) },
     }),
   );
 }
 
-/** 已有会话只 activate，不 create（create 同 id 会销毁并替换原 controller）。 */
-async function runInExistingSession(task: ScheduleTask, sessionId: string, deps: ScheduleRunnerDeps): Promise<string> {
+async function activateExistingSession(sessionId: string, deps: ScheduleRunnerDeps): Promise<SessionInfo> {
   const entry = deps.registry.get(sessionId);
   if (!entry?.sessionFile) throw new Error(i18n.t("integration:session.missing", { id: sessionId }));
   const cmd = withId({
@@ -56,14 +62,28 @@ async function runInExistingSession(task: ScheduleTask, sessionId: string, deps:
   });
   const info = await deps.bridge.call<SessionInfo>(cmd);
   backfillSessionFile(cmd, info, deps.registry);
+  return info;
+}
+
+/** 已有会话只 activate，不 create（create 同 id 会销毁并替换原 controller）。 */
+async function runInExistingSession(task: ScheduleTask, sessionId: string, deps: ScheduleRunnerDeps): Promise<string> {
+  const info = await activateExistingSession(sessionId, deps);
   const permissionMode = task.permissionMode ?? DEFAULT_SCHEDULE_PERMISSION_MODE;
   if (info.permissionMode !== permissionMode) {
     await deps.bridge.call(
       withId({ type: "session.setPermissionMode", payload: { sessionId, mode: permissionMode } }),
     );
   }
-  await promptSession(task, sessionId, deps);
+  await promptSession(sessionId, task.prompt, task.images, deps);
   return sessionId;
+}
+
+/** 错误定时重试：会话忙时返回 false 顺延，不覆盖用户正在进行的运行。 */
+export async function runScheduledRetry(retry: ScheduledRunRetry, deps: ScheduleRunnerDeps): Promise<boolean> {
+  const info = await activateExistingSession(retry.sessionId, deps);
+  if (info.running) return false;
+  await promptSession(retry.sessionId, retry.text, retry.images, deps);
+  return true;
 }
 
 export async function runScheduledTask(task: ScheduleTask, deps: ScheduleRunnerDeps): Promise<string> {
@@ -103,6 +123,6 @@ export async function runScheduledTask(task: ScheduleTask, deps: ScheduleRunnerD
   });
   const info = await deps.bridge.call<SessionInfo>(cmd);
   backfillSessionFile(cmd, info, deps.registry);
-  await promptSession(task, sessionId, deps);
+  await promptSession(sessionId, task.prompt, task.images, deps);
   return sessionId;
 }

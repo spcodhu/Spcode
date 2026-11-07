@@ -1,6 +1,6 @@
 import type { HostCommand, ScheduleTask, SessionInfo, SessionRegistryEntry } from "@spcode/shared";
 import { describe, expect, it } from "vitest";
-import { runScheduledTask, type ScheduleRunnerDeps } from "../src/main/schedule-runner.js";
+import { runScheduledRetry, runScheduledTask, type ScheduleRunnerDeps } from "../src/main/schedule-runner.js";
 
 function task(patch: Partial<ScheduleTask> = {}): ScheduleTask {
   return {
@@ -31,7 +31,7 @@ function info(sessionId: string, sessionFile = `/tmp/${sessionId}.jsonl`): Sessi
   };
 }
 
-function setup(entries: SessionRegistryEntry[] = []) {
+function setup(entries: SessionRegistryEntry[] = [], running = false) {
   const registryEntries = [...entries];
   const calls: Extract<HostCommand, { id: string }>[] = [];
   const registry: ScheduleRunnerDeps["registry"] = {
@@ -54,7 +54,7 @@ function setup(entries: SessionRegistryEntry[] = []) {
   const bridge: ScheduleRunnerDeps["bridge"] = {
     call: async <T,>(cmd: Extract<HostCommand, { id: string }>): Promise<T> => {
       calls.push(cmd);
-      return info(cmd.payload.sessionId) as T;
+      return { ...info(cmd.payload.sessionId), running } as T;
     },
   };
   const deps: ScheduleRunnerDeps = {
@@ -135,5 +135,24 @@ describe("定时任务执行器", () => {
     });
     expect(calls[1]).toMatchObject({ payload: { sessionId: "new-session", images } });
     expect(registryEntries[0]).toMatchObject({ id: "new-session", title: "日报", model, permissionMode: "never" });
+  });
+
+  it("错误重试在会话忙时顺延，空闲时原样重发文本和图片", async () => {
+    const retry = {
+      id: "retry-1",
+      sessionId: "existing",
+      text: "继续生成",
+      images: [{ name: "a.png", mimeType: "image/png", data: "aGVsbG8=" }],
+      runAt: 100,
+      createdAt: 1,
+    };
+    const busy = setup([entry()], true);
+    await expect(runScheduledRetry(retry, busy.deps)).resolves.toBe(false);
+    expect(busy.calls.map((call) => call.type)).toEqual(["session.activate"]);
+
+    const idle = setup([entry()], false);
+    await expect(runScheduledRetry(retry, idle.deps)).resolves.toBe(true);
+    expect(idle.calls.map((call) => call.type)).toEqual(["session.activate", "session.prompt"]);
+    expect(idle.calls[1]).toMatchObject({ payload: { text: retry.text, images: retry.images } });
   });
 });
