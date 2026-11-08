@@ -1,4 +1,4 @@
-import type { AddCustomModelInput, CatalogModel, CatalogProvider, ModelPriceRates } from "@spcode/shared";
+import type { AddCustomModelInput, CatalogModel, CatalogProvider, ModelCatalogSyncStatus, ModelPriceRates } from "@spcode/shared";
 import { validateModelInput } from "@spcode/shared";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -15,6 +15,8 @@ export function ModelsPage() {
   const refreshModels = useStore((s) => s.refreshModels);
   const [catalog, setCatalog] = useState<CatalogProvider[]>([]);
   const [detail, setDetail] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<ModelCatalogSyncStatus | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const reload = useCallback(() => {
     void window.spcode
@@ -25,7 +27,31 @@ export function ModelsPage() {
 
   useEffect(() => {
     reload();
+    void window.spcode
+      .command<ModelCatalogSyncStatus>({ type: "models.catalogSyncStatus" })
+      .then((s) => setSyncStatus(s ?? null))
+      .catch(() => {});
   }, [reload]);
+
+  const refreshCatalog = useCallback(async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await window.spcode.command({ type: "models.refreshCatalog" });
+      const s = await window.spcode.command<ModelCatalogSyncStatus>({ type: "models.catalogSyncStatus" });
+      setSyncStatus(s ?? null);
+      reload();
+      void refreshModels();
+    } catch {
+      // 失败时重拉状态以展示 lastError
+      void window.spcode
+        .command<ModelCatalogSyncStatus>({ type: "models.catalogSyncStatus" })
+        .then((s) => setSyncStatus(s ?? null))
+        .catch(() => {});
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshing, reload, refreshModels]);
 
   // 目录变化（添加/删除自定义模型）后 Composer 的可用模型列表也要重拉
   const handleChanged = useCallback(() => {
@@ -68,6 +94,31 @@ export function ModelsPage() {
       ) : (
         <>
           <PageHeader title={t("nav.models")} subtitle={t("models.description")} />
+
+          <div className="mb-4 flex items-center gap-3">
+            <button
+              type="button"
+              data-testid="models-refresh-catalog"
+              onClick={() => void refreshCatalog()}
+              disabled={refreshing}
+              className="rounded-lg border border-border bg-bg-elevated px-3 py-1.5 text-[12px] text-text-secondary hover:bg-bg-hover disabled:opacity-40"
+            >
+              {refreshing ? t("models.refreshCatalogRunning") : t("models.refreshCatalog")}
+            </button>
+            {syncStatus && (
+              <span className="text-[12px] text-text-tertiary">
+                {syncStatus.inProgress
+                  ? t("models.refreshCatalogRunning")
+                  : syncStatus.lastError
+                    ? t("models.refreshCatalogError", { error: syncStatus.lastError })
+                    : syncStatus.lastSyncedAt
+                      ? t("models.refreshCatalogLastSynced", {
+                          time: new Date(syncStatus.lastSyncedAt).toLocaleTimeString(),
+                        })
+                      : t("models.refreshCatalogNever")}
+              </span>
+            )}
+          </div>
 
           <GroupTitle>{t("models.configured")}</GroupTitle>
           <div className="space-y-2">

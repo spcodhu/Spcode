@@ -191,6 +191,18 @@ function GeneralPage() {
         />
       </div>
 
+      <div className="mt-2 flex items-center justify-between gap-4 rounded-xl border border-border bg-bg-elevated px-4 py-3">
+        <div>
+          <div className="text-[14px] text-text-primary">{t("general.modelCatalogAutoSync")}</div>
+          <div className="mt-0.5 text-[12px] text-text-tertiary">{t("general.modelCatalogAutoSyncDescription")}</div>
+        </div>
+        <Switch
+          on={settings?.modelCatalogAutoSync ?? true}
+          onChange={(v) => void saveSettings({ modelCatalogAutoSync: v })}
+          label={t("general.modelCatalogAutoSync")}
+        />
+      </div>
+
       {/* 评审 R3-F4 */}
       <div className="mt-2 flex items-center justify-between gap-4 rounded-xl border border-border bg-bg-elevated px-4 py-3">
         <div>
