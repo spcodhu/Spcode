@@ -8,8 +8,12 @@
  * 本文件自包含（不 import 本包其他文件）：shared 在桌面主进程以 TS 源码被 Node
  * 直接加载，运行时相对导入会解析失败（见 node.ts 头注）。
  *
- * 包含：base64（纯 JS）、sha256（纯 JS 同步）、OTP KDF、NaCl box/secretbox、
- * SeqGuard/SeqCounter、OTP 生成、channelId 推导。
+ * 包含：base64（纯 JS）、sha256（纯 JS 同步）、NaCl box、SeqGuard/SeqCounter、
+ * OTP 生成、channelId 推导、配对/握手密文封装、relay 准入 MAC（协议 v3）。
+ *
+ * 协议 v3 安全审计：配对帧不再用 OTP 派生对称密钥（8 位 OTP 的 secretbox 可被在途 relay
+ * 离线穷举后抢先配对），改为用 QR 带外下发的桌面公钥做 box——relay 看到的只是公钥密文，
+ * OTP 只需抵御在线猜测（桌面 5 次锁定）。
  */
 import nacl from "tweetnacl";
 
@@ -131,28 +135,32 @@ export function sha256TextSync(text: string): Uint8Array {
   return sha256Sync(new TextEncoder().encode(text));
 }
 
-// ---------------------------------------------------------------------------
-// 配对 OTP KDF（协议 v2）
-// ---------------------------------------------------------------------------
-
-/**
- * key = sha256 迭代 PAIR_KDF_ITERATIONS 轮，第 0 轮输入 `PAIR_KDF_DOMAIN + otp`，后续轮输入上一轮摘要。
- * 8 位 OTP 只有 10^8 空间，单轮 sha256 可被离线暴破；迭代拉高成本（评审 R3-C1）。
- */
-export const PAIR_KDF_DOMAIN = "spcode-remote-pair-v2:";
-export const PAIR_KDF_ITERATIONS = 50_000;
-
-/** OTP → secretbox 密钥（同步纯 JS；5 万轮在移动端约几十毫秒） */
-export function deriveOtpKey(otp: string): Uint8Array {
-  let digest = sha256TextSync(`${PAIR_KDF_DOMAIN}${otp}`);
-  for (let i = 1; i < PAIR_KDF_ITERATIONS; i++) {
-    digest = sha256Sync(digest);
+/** HMAC-SHA256（纯 JS；relay 侧用 Node createHmac 等价实现，互通由测试向量锁定） */
+export function hmacSha256Sync(key: Uint8Array, message: Uint8Array): Uint8Array {
+  const block = 64;
+  const k = new Uint8Array(block);
+  k.set(key.length > block ? sha256Sync(key) : key);
+  const ipad = new Uint8Array(block + message.length);
+  const opad = new Uint8Array(block + 32);
+  for (let i = 0; i < block; i++) {
+    ipad[i] = k[i]! ^ 0x36;
+    opad[i] = k[i]! ^ 0x5c;
   }
-  return digest;
+  ipad.set(message, block);
+  opad.set(sha256Sync(ipad), block);
+  return sha256Sync(opad);
+}
+
+/** 常数时间字节比较（长度不等直接 false） */
+export function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i]! ^ b[i]!;
+  return diff === 0;
 }
 
 // ---------------------------------------------------------------------------
-// NaCl box / secretbox（密文布局：base64( nonce(24B) ‖ ciphertext )）
+// NaCl box（密文布局：base64( nonce(24B) ‖ ciphertext )）
 // ---------------------------------------------------------------------------
 
 export interface BoxKeyPairB64 {
@@ -186,27 +194,6 @@ function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-/** secretbox 加密：输出 base64( nonce ‖ ciphertext ) */
-export function secretboxEncrypt(plaintext: string, key: Uint8Array): string {
-  const nonce = nacl.randomBytes(nacl.secretbox.nonceLength);
-  const box = nacl.secretbox(encoder.encode(plaintext), nonce, key);
-  return b64encode(concat(nonce, box));
-}
-
-/** secretbox 解密：任何失败（含篡改）一律返回 null，不抛错 */
-export function secretboxDecrypt(payload: string, key: Uint8Array): string | null {
-  try {
-    const buf = b64decode(payload);
-    if (buf.length <= nacl.secretbox.nonceLength) return null;
-    const nonce = buf.subarray(0, nacl.secretbox.nonceLength);
-    const box = buf.subarray(nacl.secretbox.nonceLength);
-    const plain = nacl.secretbox.open(box, nonce, key);
-    return plain ? decoder.decode(plain) : null;
-  } catch {
-    return null;
-  }
-}
-
 /** NaCl box 加密：输出 base64( nonce ‖ ciphertext ) */
 export function boxEncrypt(plaintext: string, peerPublicKey: string, mySecretKey: string): string {
   const nonce = nacl.randomBytes(nacl.box.nonceLength);
@@ -237,19 +224,29 @@ export function generateOtp(): string {
   }
 }
 
+/**
+ * seq 上限：推到 MAX_SAFE_INTEGER 后 `+1` 不再递增，该设备会永久被拒；
+ * 两端都在此封顶，超限视为非法帧。
+ */
+export const MAX_SEQ = Number.MAX_SAFE_INTEGER - 1;
+
+function isValidSeq(seq: unknown): seq is number {
+  return typeof seq === "number" && Number.isInteger(seq) && seq >= 0 && seq <= MAX_SEQ;
+}
+
 /** 接收侧 seq 防重放：只接受严格递增的整数 */
 export class SeqGuard {
   private last = -1;
 
   accept(seq: unknown): boolean {
-    if (typeof seq !== "number" || !Number.isInteger(seq) || seq <= this.last) return false;
+    if (!isValidSeq(seq) || seq <= this.last) return false;
     this.last = seq;
     return true;
   }
 
   /** 协议 v2：用持久化的基准线初始化（重连不再归零，跨连接重放窗口随之关闭） */
   seed(last: number): void {
-    this.last = last;
+    this.last = Number.isInteger(last) ? Math.min(Math.max(last, -1), MAX_SEQ) : -1;
   }
 
   reset(): void {
@@ -262,6 +259,7 @@ export class SeqCounter {
   private next = 0;
 
   take(): number {
+    if (this.next > MAX_SEQ) throw new Error("seq exhausted");
     return this.next++;
   }
 
@@ -272,7 +270,7 @@ export class SeqCounter {
 
   /** 协议 v2：按 host 的 resumeSeq / 本地持久值续接出站序号 */
   setNext(n: number): void {
-    if (Number.isInteger(n) && n >= 0) this.next = n;
+    if (isValidSeq(n)) this.next = n;
   }
 
   reset(): void {
@@ -289,23 +287,103 @@ export function deriveChannelId(desktopPublicKeyB64: string): string {
 // 协议语义封装（hello 密文 / 加密业务帧的载荷）
 // ---------------------------------------------------------------------------
 
-import type { PairAckInner, PairHelloInner, RemoteEncryptedPayload } from "./index.js";
+import type {
+  AuthAckInner,
+  HelloErrorInner,
+  PairAckInner,
+  PairHelloInner,
+  RelayDeviceGrant,
+  RemoteEncryptedPayload,
+} from "./index.js";
 
-/** 配对握手：把手机公钥 + 设备名封进 OTP 派生密钥的 secretbox（pair hello 的 c 字段） */
-export function pairSeal(inner: PairHelloInner, otp: string): string {
-  return secretboxEncrypt(JSON.stringify(inner), deriveOtpKey(otp));
+/** 通用：JSON 对象 box 加密 */
+export function sealJson(value: unknown, peerPublicKey: string, mySecretKey: string): string {
+  return boxEncrypt(JSON.stringify(value), peerPublicKey, mySecretKey);
 }
 
-/** 解开 pair_ack 密文（桌面私钥 × 手机公钥的 box）；失败返回 null */
-export function pairOpen(c: string, desktopPk: string, mySecretKey: string): PairAckInner | null {
-  const plain = boxDecrypt(c, desktopPk, mySecretKey);
+/** 通用：box 解密 + JSON 解析 + 形状校验；任何失败返回 null */
+export function openJson<T>(
+  c: string,
+  peerPublicKey: string,
+  mySecretKey: string,
+  guard: (value: unknown) => value is T,
+): T | null {
+  const plain = boxDecrypt(c, peerPublicKey, mySecretKey);
   if (!plain) return null;
   try {
-    const inner = JSON.parse(plain) as PairAckInner;
-    return typeof inner.desktopPk === "string" && typeof inner.deviceId === "string" ? inner : null;
+    const value: unknown = JSON.parse(plain);
+    return guard(value) ? value : null;
   } catch {
     return null;
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object";
+}
+
+export function isRelayDeviceGrant(value: unknown): value is RelayDeviceGrant {
+  return (
+    isRecord(value) &&
+    typeof value.exp === "number" &&
+    Number.isInteger(value.exp) &&
+    typeof value.mac === "string" &&
+    value.mac.length > 0
+  );
+}
+
+function isPairHelloInner(value: unknown): value is PairHelloInner {
+  return isRecord(value) && value.v === 3 && typeof value.otp === "string" && typeof value.name === "string";
+}
+
+function isPairAckInner(value: unknown): value is PairAckInner {
+  return (
+    isRecord(value) &&
+    typeof value.desktopPk === "string" &&
+    typeof value.deviceId === "string" &&
+    (value.relayGrant === undefined || isRelayDeviceGrant(value.relayGrant))
+  );
+}
+
+function isAuthAckInner(value: unknown): value is AuthAckInner {
+  return (
+    isRecord(value) &&
+    typeof value.desktopPk === "string" &&
+    typeof value.resumeSeq === "number" &&
+    (value.relayGrant === undefined || isRelayDeviceGrant(value.relayGrant))
+  );
+}
+
+function isHelloErrorInner(value: unknown): value is HelloErrorInner {
+  return isRecord(value) && typeof value.error === "string";
+}
+
+/**
+ * 配对握手（协议 v3）：手机把 OTP + 设备名封进「桌面公钥 × 手机临时私钥」的 box。
+ * 桌面公钥来自 QR（带外可信），relay 无法离线穷举 OTP，也无法替换手机公钥（ECDH 绑定）。
+ */
+export function sealPairHello(inner: Omit<PairHelloInner, "v">, desktopPk: string, mySecretKey: string): string {
+  return sealJson({ v: 3, ...inner } satisfies PairHelloInner, desktopPk, mySecretKey);
+}
+
+/** 桌面解开 pair 帧密文（手机外层公钥 × 桌面私钥）；失败返回 null。OTP 比对由调用方做 */
+export function openPairHello(c: string, devicePk: string, desktopSecretKey: string): PairHelloInner | null {
+  return openJson(c, devicePk, desktopSecretKey, isPairHelloInner);
+}
+
+/** 解开 pair_ack 成功密文（桌面私钥 × 手机公钥的 box）；失败返回 null */
+export function pairOpen(c: string, desktopPk: string, mySecretKey: string): PairAckInner | null {
+  return openJson(c, desktopPk, mySecretKey, isPairAckInner);
+}
+
+/** 解开 auth_ack 成功密文 */
+export function openAuthAck(c: string, desktopPk: string, mySecretKey: string): AuthAckInner | null {
+  return openJson(c, desktopPk, mySecretKey, isAuthAckInner);
+}
+
+/** 解开 pair_ack / auth_ack 失败密文（桌面对声明公钥加密的 {error}） */
+export function openHelloError(c: string, desktopPk: string, mySecretKey: string): HelloErrorInner | null {
+  return openJson(c, desktopPk, mySecretKey, isHelloErrorInner);
 }
 
 /** 加密业务帧的载荷（command / event / response） */
@@ -321,4 +399,96 @@ export function openPayload(c: string, peerPublicKey: string, mySecretKey: strin
   } catch {
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// relay 准入 MAC（协议 v3）：桌面与 relay 以 X25519 共享密钥（nacl.box.before）做 HMAC-SHA256，
+// 证明「host 拥有 channel」与「device 持有桌面签发的准入令牌」。relay 侧同算法实现在
+// spcod-relay/src/admission.ts，互通由共享测试向量锁定。
+// ---------------------------------------------------------------------------
+
+export const RELAY_HOST_PROOF_DOMAIN = "spcod-relay-host-v3:";
+export const RELAY_DEVICE_GRANT_DOMAIN = "spcod-relay-device-v3:";
+/** 配对令牌的主体（设备尚无 deviceId） */
+export const RELAY_PAIR_SUBJECT = "pair";
+
+function relaySharedKey(peerPublicKey: string, mySecretKey: string): Uint8Array {
+  return nacl.box.before(b64decode(peerPublicKey), b64decode(mySecretKey));
+}
+
+function relayMac(message: string, sharedKey: Uint8Array): string {
+  return b64encode(hmacSha256Sync(sharedKey, encoder.encode(message)));
+}
+
+function relayMacVerify(message: string, macB64: string, sharedKey: Uint8Array): boolean {
+  try {
+    return constantTimeEqual(b64decode(macB64), hmacSha256Sync(sharedKey, encoder.encode(message)));
+  } catch {
+    return false;
+  }
+}
+
+export function hostProofMessage(channelId: string, ts: number): string {
+  return `${RELAY_HOST_PROOF_DOMAIN}${channelId}:${ts}`;
+}
+
+export function deviceGrantMessage(channelId: string, subject: string, exp: number): string {
+  return `${RELAY_DEVICE_GRANT_DOMAIN}${channelId}:${subject}:${exp}`;
+}
+
+/** host 取票证明：HMAC(`host-domain:channelId:ts`, X25519(relayPk, hostSk)) */
+export function buildHostProof(channelId: string, ts: number, relayPk: string, hostSecretKey: string): string {
+  return relayMac(hostProofMessage(channelId, ts), relaySharedKey(relayPk, hostSecretKey));
+}
+
+export function verifyHostProof(
+  channelId: string,
+  ts: number,
+  proof: string,
+  hostPk: string,
+  relaySecretKey: string,
+): boolean {
+  return relayMacVerify(hostProofMessage(channelId, ts), proof, relaySharedKey(hostPk, relaySecretKey));
+}
+
+/** 设备准入令牌：桌面签发，subject = deviceId 或 RELAY_PAIR_SUBJECT */
+export function buildDeviceGrant(
+  channelId: string,
+  subject: string,
+  exp: number,
+  relayPk: string,
+  hostSecretKey: string,
+): RelayDeviceGrant {
+  return { exp, mac: relayMac(deviceGrantMessage(channelId, subject, exp), relaySharedKey(relayPk, hostSecretKey)) };
+}
+
+export function verifyDeviceGrant(
+  channelId: string,
+  subject: string,
+  grant: RelayDeviceGrant,
+  hostPk: string,
+  relaySecretKey: string,
+): boolean {
+  return relayMacVerify(
+    deviceGrantMessage(channelId, subject, grant.exp),
+    grant.mac,
+    relaySharedKey(hostPk, relaySecretKey),
+  );
+}
+
+/** QR 里的紧凑串：`<exp>.<base64url mac>` */
+export function encodeGrantParam(grant: RelayDeviceGrant): string {
+  const url = grant.mac.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return `${grant.exp}.${url}`;
+}
+
+export function decodeGrantParam(text: string): RelayDeviceGrant | null {
+  const dot = text.indexOf(".");
+  if (dot <= 0) return null;
+  const exp = Number(text.slice(0, dot));
+  const url = text.slice(dot + 1);
+  if (!Number.isInteger(exp) || exp <= 0 || !/^[A-Za-z0-9_-]+$/.test(url)) return null;
+  let std = url.replace(/-/g, "+").replace(/_/g, "/");
+  while (std.length % 4 !== 0) std += "=";
+  return { exp, mac: std };
 }

@@ -11,26 +11,20 @@ declare module "tweetnacl" {
   export interface BoxAPI {
     (msg: Uint8Array, nonce: Uint8Array, publicKey: Uint8Array, secretKey: Uint8Array): Uint8Array;
     open(box: Uint8Array, nonce: Uint8Array, publicKey: Uint8Array, secretKey: Uint8Array): Uint8Array | null;
+    /** X25519 + HSalsa20 共享密钥（32B）；relay 准入 MAC 的密钥 */
+    before(publicKey: Uint8Array, secretKey: Uint8Array): Uint8Array;
     keyPair(): BoxKeyPair;
     nonceLength: number;
     publicKeyLength: number;
     secretKeyLength: number;
-  }
-
-  export interface SecretBoxAPI {
-    (msg: Uint8Array, nonce: Uint8Array, key: Uint8Array): Uint8Array;
-    open(box: Uint8Array, nonce: Uint8Array, key: Uint8Array): Uint8Array | null;
-    nonceLength: number;
-    keyLength: number;
+    sharedKeyLength: number;
   }
 
   export const box: BoxAPI;
-  export const secretbox: SecretBoxAPI;
   export function randomBytes(n: number): Uint8Array;
 
   const nacl: {
     box: BoxAPI;
-    secretbox: SecretBoxAPI;
     randomBytes: (n: number) => Uint8Array;
   };
   export default nacl;

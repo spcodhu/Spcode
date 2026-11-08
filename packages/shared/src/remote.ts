@@ -125,12 +125,12 @@ export type RemoteEvent =
 /** 手机 → 桌面：连接建立后发送的第一个帧 */
 export type RemoteClientHello =
   /**
-   * 新设备配对：c = base64( secretbox( JSON(PairHelloInner), key = KDF(otp) ) )
-   * secretbox 输出布局：nonce(24B) ‖ ciphertext。
-   * 协议 v2（评审 R3-C1）：OTP 不再随帧明文发送——它就是 c 的密钥派生源，
-   * 明文传输会让 relay/嗅探者截留真设备 pair 帧并抢跑配对；桌面用当前窗口 OTP 试解验证。
+   * 新设备配对（协议 v3）：pk = 手机临时 X25519 公钥，
+   * c = base64( box( JSON(PairHelloInner), nonce, desktopPk, phoneSecretKey ) )，布局 nonce(24B) ‖ ciphertext。
+   * 桌面公钥经 QR 带外下发，relay 看到的只是公钥密文：既不能离线穷举 OTP，也不能替换 pk
+   * （v2 的 secretbox(KDF(8 位 OTP)) 可被在途 relay 数分钟内暴破后抢先配对——安全审计）。
    */
-  | { t: "pair"; c: string }
+  | { t: "pair"; v: 3; pk: string; c: string }
   /**
    * 已配对设备身份声明：未知公钥直接断开。
    * deviceId 仅经 relay 连接时携带（pair_ack 里分配的那个 id）：host 按它把帧分流到
@@ -145,32 +145,70 @@ export type RemoteClientHello =
    */
   | { t: "auth_proof"; c: string };
 
-/** 桌面 → 手机：hello 帧的应答 */
+/**
+ * 桌面 → 手机：hello 帧的应答。
+ * 协议 v3：pair_ack / auth_ack 无论成败一律 box 加密（对手机声明的公钥）——
+ * 伪 host / 在途 relay 无桌面私钥，无法伪造 unknown_device/seq_rollback 把手机打成"需重新配对"，
+ * 也无法篡改 resumeSeq；手机只信任能解开的应答。
+ */
 export type RemoteServerHello =
-  /** c = base64( box( JSON(PairAckInner), nonce, phonePublicKey, desktopSecretKey ) )，布局 nonce(24B) ‖ ciphertext */
+  /** c = box( JSON(PairAckInner), phonePk, desktopSk ) */
   | { t: "pair_ack"; ok: true; c: string }
-  /** error: "locked"（错误超限锁定）| "expired"（窗口过期/未开启）| "otp_mismatch" | "bad_payload" */
-  | { t: "pair_ack"; ok: false; error: string }
-  /** auth 挑战：32B 随机 nonce（base64）；设备须用私钥 box 密封回传（auth_proof） */
+  /** c = box( JSON(HelloErrorInner), phonePk, desktopSk )；error: "locked" | "expired" | "otp_mismatch" | "bad_payload" */
+  | { t: "pair_ack"; ok: false; c: string }
+  /** auth 挑战：随机 nonce（明文即可，证明绑定在设备私钥上） */
   | { t: "auth_challenge"; nonce: string }
-  /**
-   * resumeSeq：host 期望的下一个入站 seq（设备出站计数据此续接，跨连接单调）。
-   * error: "unknown_device" | "bad_proof" | "seq_rollback"（设备持久 seq 回滚，需重新配对）
-   */
-  | { t: "auth_ack"; ok: true; desktopPk: string; resumeSeq?: number }
-  | { t: "auth_ack"; ok: false; error: string };
+  /** c = box( JSON(AuthAckInner), devicePk, desktopSk ) */
+  | { t: "auth_ack"; ok: true; c: string }
+  /** c = box( JSON(HelloErrorInner), claimedPk, desktopSk )；error: "unknown_device" | "bad_proof" | "seq_rollback" */
+  | { t: "auth_ack"; ok: false; c: string };
 
-/** PairHello 密文内明文（手机公钥 + 设备名） */
+/** PairHello 密文内明文（协议 v3：OTP + 设备名；手机公钥在帧外层） */
 export interface PairHelloInner {
-  /** 手机的 X25519 公钥（base64，32 字节） */
-  publicKey: string;
+  v: 3;
+  /** 8 位数字一次性配对码（桌面常数时间比对） */
+  otp: string;
   name: string;
 }
 
-/** PairAck 密文内明文（桌面公钥 + 分配的设备 id） */
+/**
+ * relay 设备准入令牌（协议 v3）：桌面用 X25519(relayPk, desktopSk) 共享密钥对
+ * `channelId:subject:exp` 做 HMAC；relay 以 X25519(desktopPk, relaySk) 复算验证。
+ * 不含秘密，仅证明"桌面允许该 subject 在 exp 前经此 relay 入场"。
+ */
+export interface RelayDeviceGrant {
+  /** 过期时间戳（ms） */
+  exp: number;
+  /** base64 HMAC-SHA256（32B） */
+  mac: string;
+}
+
+/** PairAck 密文内明文（桌面公钥 + 分配的设备 id + 可选 relay 准入令牌） */
 export interface PairAckInner {
   desktopPk: string;
   deviceId: string;
+  relayGrant?: RelayDeviceGrant;
+}
+
+/** auth_ack 成功密文内明文 */
+export interface AuthAckInner {
+  desktopPk: string;
+  /** host 期望的下一个入站 seq（设备出站计数据此续接，跨连接单调） */
+  resumeSeq: number;
+  /** relay 启用且 relayPk 已知时每次 auth 刷新（7 天滚动续期） */
+  relayGrant?: RelayDeviceGrant;
+}
+
+/** pair_ack / auth_ack 失败密文内明文 */
+export interface HelloErrorInner {
+  error: string;
+}
+
+/** GET /v1/relay-info 响应 */
+export interface RelayInfo {
+  version: 3;
+  /** relay 的 X25519 公钥（base64） */
+  relayPk: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -349,15 +387,18 @@ export interface RemoteTailscaleStatus {
 export interface RemotePairingInfo {
   otp: string;
   /**
-   * QR payload：
-   *   spcode-remote://pair?v=2&hosts=<逗号分隔的 base url,URL编码>&desktop_pk=<base64>&otp=<8位数字>
-   * 例：spcode-remote://pair?v=2&hosts=http%3A%2F%2F192.168.1.5%3A8123&desktop_pk=…&otp=12345678
+   * QR payload（v4）：
+   *   spcode-remote://pair?v=4&hosts=<逗号分隔的 base url,URL编码>&desktop_pk=<base64>&otp=<8位数字>
+   *     [&relay_key=<自托管访问密钥>][&relay_grant=<exp>.<base64url mac>]
+   * 例：spcode-remote://pair?v=4&hosts=http%3A%2F%2F192.168.1.5%3A8123&desktop_pk=…&otp=12345678
    * （OTP 走 QR 带外通道是安全的——威胁模型是不可信的网络/relay 路径，QR 展示在桌面屏幕上）
+   * relay_grant：桌面签发的配对准入令牌（subject = "pair"，exp = OTP 过期时间），
+   * 手机凭它向 relay 换取 device 票据发送 pair 帧；relay 未启用或 relayPk 未知时省略。
    *
    * hosts 前缀约定：普通项为局域网直连 base url（http://ip:port）；
    * 以 `relay+` 开头的项为 relay 通道（如 relay+wss://relay.example.com），
    * 客户端据此区分直连与 relay——relay 项去掉前缀后按
-   *   wss://<relay>/channel/<channelId>?role=device 建连，
+   *   wss://<relay>/channel/<channelId>?role=device&ticket=… 建连，
    * channelId = SHA-256(desktop_pk 解码后的原始 32 字节) 的 hex 小写。
    */
   qrPayload: string;
@@ -367,7 +408,7 @@ export interface RemotePairingInfo {
   urls: string[];
 }
 
-/** relay 通道连接状态：auth_failed = 访问密钥/票据失败，error = 其他连接错误 */
+/** relay 通道连接状态：auth_failed = relay 拒绝接入（证明/票据失败，自动长退避重试），error = 其他连接错误 */
 export type RemoteRelayState = "disabled" | "connecting" | "connected" | "auth_failed" | "error";
 
 /** 飞书通道连接状态：disabled = 未启用 / 未配置 appId+appSecret；error = 建连失败（详情见主进程日志） */

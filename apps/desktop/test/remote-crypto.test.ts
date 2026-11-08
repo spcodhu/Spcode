@@ -1,20 +1,19 @@
 /**
- * 远程控制加密层单测：密钥对生成、box/secretbox 加解密往返、
- * 篡改密文解密失败、seq 重放拒绝。
+ * 远程控制加密层单测：密钥对生成、box 加解密、v3 配对密文往返、
+ * 篡改/错钥解密失败、seq 重放拒绝。
  */
 import { describe, expect, it } from "vitest";
 import {
   b64decode,
   boxDecrypt,
   boxEncrypt,
-  deriveOtpKey,
   generateBoxKeyPair,
   generateOtp,
   isValidPublicKey,
+  openPairHello,
   SeqCounter,
   SeqGuard,
-  secretboxDecrypt,
-  secretboxEncrypt,
+  sealPairHello,
 } from "../src/main/remote/crypto.js";
 
 describe("密钥对生成", () => {
@@ -65,12 +64,29 @@ describe("NaCl box 加解密", () => {
   });
 });
 
-describe("OTP secretbox（配对握手）", () => {
-  it("同一 OTP 派生密钥可解密；不同 OTP 不可解密", () => {
-    const key = deriveOtpKey("12345678");
-    const c = secretboxEncrypt(JSON.stringify({ publicKey: "pk", name: "手机" }), key);
-    expect(secretboxDecrypt(c, deriveOtpKey("12345678"))).toBe(JSON.stringify({ publicKey: "pk", name: "手机" }));
-    expect(secretboxDecrypt(c, deriveOtpKey("87654321"))).toBeNull();
+describe("配对握手 box（协议 v3）", () => {
+  it("sealPairHello/openPairHello 往返，包含 v=3 内层标签；同 OTP 随机 nonce 产生不同密文", () => {
+    const desktop = generateBoxKeyPair();
+    const phone = generateBoxKeyPair();
+    const inner = { otp: "12345678", name: "手机" };
+    const c1 = sealPairHello(inner, desktop.publicKey, phone.secretKey);
+    const c2 = sealPairHello(inner, desktop.publicKey, phone.secretKey);
+    expect(c1).not.toBe(c2);
+    expect(openPairHello(c1, phone.publicKey, desktop.secretKey)).toEqual({ v: 3, ...inner });
+    expect(openPairHello(c2, phone.publicKey, desktop.secretKey)).toEqual({ v: 3, ...inner });
+  });
+
+  it("篡改、错设备公钥、错桌面私钥与非法密文均解密失败且不抛错", () => {
+    const desktop = generateBoxKeyPair();
+    const phone = generateBoxKeyPair();
+    const stranger = generateBoxKeyPair();
+    const c = sealPairHello({ otp: "12345678", name: "手机" }, desktop.publicKey, phone.secretKey);
+    const tampered = Buffer.from(c, "base64");
+    tampered[tampered.length - 1] = tampered[tampered.length - 1]! ^ 0xff;
+    expect(openPairHello(tampered.toString("base64"), phone.publicKey, desktop.secretKey)).toBeNull();
+    expect(openPairHello(c, stranger.publicKey, desktop.secretKey)).toBeNull();
+    expect(openPairHello(c, phone.publicKey, stranger.secretKey)).toBeNull();
+    expect(openPairHello("%%%not-base64%%%", phone.publicKey, desktop.secretKey)).toBeNull();
   });
 
   it("OTP 生成：8 位数字，允许前导零", () => {
