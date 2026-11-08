@@ -6,24 +6,29 @@
  * 验证 pair → snapshot → 加密命令往返 → 事件广播 → auth 重连，提前发现两端实现不一致。
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { RemoteEvent } from "@spcode/shared";
 import { DEFAULT_SETTINGS, type HostCommand, type HostEvent, type ScheduleTask } from "@spcode/shared";
+import { deriveChannelId } from "@spcode/shared/crypto";
 import { getLocale, resolveLocale, setLocale } from "@spcode/shared/i18n";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { RemoteServer } from "../../desktop/src/main/remote/index.js";
 import { PairingManager } from "../../desktop/src/main/remote/pairing.js";
 import { PushService } from "../../desktop/src/main/remote/push.js";
 import { LanTransport } from "../../desktop/src/main/remote/transport/lan.js";
+import { RelayTransport } from "../../desktop/src/main/remote/transport/relay.js";
 import type { RegistryLike } from "../../desktop/src/main/session-helpers.js";
 import type { SessionRegistryEntry } from "../../desktop/src/main/session-registry.js";
-import { createRelayServer } from "../../relay/src/index.js";
 import { type ConnectionState, PairError, pairWithQr, RemoteClient } from "../src/lib/client";
 import type { PairingRecord } from "../src/lib/db";
 import { attachPairedRecord, getClient } from "../src/state/controller";
 import { useAppStore } from "../src/state/store";
+
+const relayModuleAvailable =
+  existsSync(new URL("../../../spcod-relay/src/index.ts", import.meta.url)) &&
+  existsSync(new URL("../../../spcod-relay/src/admission.ts", import.meta.url));
 
 // ---------------------------------------------------------------------------
 // 桌面端装配（mock 控制面，真实 transport + crypto + pairing）
@@ -141,7 +146,7 @@ function freshQrPayload(): string {
   if (info.urls.length > 0) return info.qrPayload;
   const hosts = encodeURIComponent(`http://127.0.0.1:${port}`);
   const pk = encodeURIComponent(pairing.getIdentity().publicKey);
-  return `spcode-remote://pair?v=2&hosts=${hosts}&desktop_pk=${pk}&otp=${info.otp}`;
+  return `spcode-remote://pair?v=4&hosts=${hosts}&desktop_pk=${pk}&otp=${info.otp}`;
 }
 
 /** QR payload 的 hosts 替换为 127.0.0.1（集成测试强制走回环，避免依赖机器网卡） */
@@ -149,7 +154,7 @@ function localQrPayload(): string {
   const info = server.regeneratePairing();
   const hosts = encodeURIComponent(`http://127.0.0.1:${port}`);
   const pk = encodeURIComponent(pairing.getIdentity().publicKey);
-  return `spcode-remote://pair?v=2&hosts=${hosts}&desktop_pk=${pk}&otp=${info.otp}`;
+  return `spcode-remote://pair?v=4&hosts=${hosts}&desktop_pk=${pk}&otp=${info.otp}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -242,7 +247,7 @@ describe("PWA ↔ 真实桌面 RemoteServer 全链路", () => {
     const wrongOtp = info.otp === "00000000" ? "00000001" : "00000000";
     const hosts = encodeURIComponent(`http://127.0.0.1:${port}`);
     const pk = encodeURIComponent(pairing.getIdentity().publicKey);
-    const bad = `spcode-remote://pair?v=2&hosts=${hosts}&desktop_pk=${pk}&otp=${wrongOtp}`;
+    const bad = `spcode-remote://pair?v=4&hosts=${hosts}&desktop_pk=${pk}&otp=${wrongOtp}`;
     await expect(pairWithQr(bad, "错误 OTP 机")).rejects.toBeInstanceOf(PairError);
     await expect(pairWithQr(bad, "错误 OTP 机")).rejects.toMatchObject({ code: "otp_mismatch" });
   });
@@ -557,21 +562,25 @@ describe("断线补拉：session.output.since ↔ session.output.backfill", () =
 });
 
 // ---------------------------------------------------------------------------
-// relay 通道全链路（真实 relay 服务 + 真实 RemoteServer 自建 RelayTransport）
+// relay 通道全链路（独立 spcod-relay 仓库 + 真实 RemoteServer / RelayTransport）
 // ---------------------------------------------------------------------------
 
-describe("PWA ↔ 桌面 RemoteServer 经 relay 全链路", () => {
+describe.skipIf(!relayModuleAvailable)("PWA ↔ 桌面 RemoteServer 经 relay 全链路", () => {
   let dir2 = "";
   let relayPort = 0;
   let relayClose: (() => Promise<void>) | null = null;
   let pairing2: PairingManager;
   let server2: RemoteServer;
   let transport2: LanTransport;
+  let relayTransport2: RelayTransport;
   let bridgeListeners2: Set<(e: HostEvent) => void>;
 
   beforeAll(async () => {
+    // 独立仓库在 CI 中可能不存在；skipIf 保证这里不会执行，文件顶层也不静态引用它。
+    const { createRelayServer } = await import("../../../spcod-relay/src/index.js");
+    const { RelayIdentity } = await import("../../../spcod-relay/src/admission.js");
     dir2 = mkdtempSync(join(tmpdir(), "spcode-mobile-it-relay-"));
-    // 真实哑中继（apps/relay 同源装配，回环 + 随机端口）
+    // 真实哑中继（回环 + 随机端口 + 固定测试身份）
     const relay = createRelayServer({
       port: 0,
       staticDir: join(dir2, "no-static"),
@@ -579,6 +588,10 @@ describe("PWA ↔ 桌面 RemoteServer 经 relay 全链路", () => {
       queueTtlMs: 3600_000,
       frameMaxBytes: 256 * 1024,
       ratePerSec: 600,
+      maxChannels: 100,
+      maxDevices: 16,
+      queueBytesMax: 1024 * 1024,
+      identity: RelayIdentity.generate(),
     });
     relayClose = relay.close;
     await new Promise<void>((resolve) => relay.server.listen(0, "127.0.0.1", resolve));
@@ -588,6 +601,13 @@ describe("PWA ↔ 桌面 RemoteServer 经 relay 全链路", () => {
 
     pairing2 = new PairingManager({ baseDir: dir2 });
     transport2 = new LanTransport({ port: 0, staticDir: join(dir2, "pwa-not-built") });
+    relayTransport2 = new RelayTransport({
+      url: `ws://127.0.0.1:${relayPort}`,
+      channelId: deriveChannelId(pairing2.getIdentity().publicKey),
+      identity: () => pairing2.getIdentity(),
+      reconnectInitialMs: 20,
+      reconnectMaxMs: 100,
+    });
     bridgeListeners2 = new Set();
     const registry: RegistryLike = {
       list: () => [],
@@ -615,7 +635,7 @@ describe("PWA ↔ 桌面 RemoteServer 经 relay 全链路", () => {
       remove: () => {},
       runNow: async () => "x",
     };
-    // relayUrl 非空 → RemoteServer 自建 RelayTransport（host 角色出站连 relay）
+    // 显式注入 RelayTransport，锁定桌面身份用于 host proof 与设备 grant。
     const settings = {
       get: () => ({ ...DEFAULT_SETTINGS, remote: { enabled: true, port: 0, relayUrl: `ws://127.0.0.1:${relayPort}` } }),
     };
@@ -626,32 +646,63 @@ describe("PWA ↔ 桌面 RemoteServer 经 relay 全链路", () => {
       registry,
       pairing: pairing2,
       transport: transport2,
+      relayTransport: relayTransport2,
       push: new PushService({ baseDir: dir2 }),
     });
     await server2.start();
+    await vi.waitFor(() => expect(relayTransport2.getState()).toBe("connected"), { timeout: 5000 });
   });
 
   afterAll(async () => {
     await server2?.stop();
     await transport2?.stop();
+    await relayTransport2?.stop();
     await relayClose?.();
     if (dir2) rmSync(dir2, { recursive: true, force: true });
   });
 
+  function qrWithHosts(hosts: string[]): string {
+    const info = server2.regeneratePairing();
+    const url = new URL(info.qrPayload);
+    expect(url.searchParams.get("v")).toBe("4");
+    expect(url.searchParams.get("relay_grant")).toBeTruthy();
+    url.searchParams.set("hosts", hosts.join(","));
+    return url.toString();
+  }
+
   /** 只含 relay host 的 QR payload（强制走 relay 通道） */
   function relayQrPayload(): string {
-    const info = server2.regeneratePairing();
-    const hosts = encodeURIComponent(`relay+ws://127.0.0.1:${relayPort}`);
-    const pk = encodeURIComponent(pairing2.getIdentity().publicKey);
-    return `spcode-remote://pair?v=2&hosts=${hosts}&desktop_pk=${pk}&otp=${info.otp}`;
+    return qrWithHosts([`relay+ws://127.0.0.1:${relayPort}`]);
   }
+
+  it("LAN 配对持久化 relayGrant 后，仅 relay 可达也能完成 auth", async () => {
+    const qr = qrWithHosts([`http://127.0.0.1:${transport2.getPort()}`]);
+    const record = await pairWithQr(qr, "LAN 配对 relay 续接机");
+    expect(record.version).toBe(2);
+    expect(record.relayGrant).toBeTruthy();
+
+    // JSON 往返模拟 IndexedDB 持久化/页面刷新，随后移除 LAN host，强制只走 relay。
+    const persisted = JSON.parse(JSON.stringify(record)) as PairingRecord;
+    persisted.hosts = [`relay+ws://127.0.0.1:${relayPort}`];
+    const mobile = new MobileTestClient(persisted);
+    mobile.start();
+    try {
+      await mobile.waitState("ready");
+      await mobile.waitEvent((e) => e.type === "session.snapshot");
+      const list = await mobile.client.command<{ sessions: unknown[] }>({ type: "session.list" });
+      expect(list.sessions).toEqual([]);
+      expect(persisted.relayGrant).toBeTruthy();
+    } finally {
+      mobile.stop();
+    }
+  });
 
   it("pair（无 deviceId）→ 重连 auth（带 deviceId）→ 加密命令往返 → 广播事件 → 重连", async () => {
     // 1) 经 relay 配对（pair 帧无 deviceId，host 走配对临时虚拟连接）
     const record = await pairWithQr(relayQrPayload(), "relay 测试机");
     expect(record.desktopPk).toBe(pairing2.getIdentity().publicKey);
     expect(record.deviceId).toBeTruthy();
-
+    expect(record.relayGrant).toBeTruthy();
     // 2) pair 后重新连接，先 auth（帧外层带 deviceId）再发加密命令
     const mobile = new MobileTestClient(record);
     mobile.start();

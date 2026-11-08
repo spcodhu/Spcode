@@ -3,13 +3,15 @@
  * 密钥对生成后只进不出（无导出接口），与桌面端 ~/.spcode/remote/device.key 同职责。
  */
 
+import type { RelayDeviceGrant } from "@spcode/shared";
 import { MobileError } from "./i18n";
 
 const DB_NAME = "spcode-remote";
 const STORE = "kv";
 
 export interface PairingRecord {
-  version: 1;
+  /** 1 = 协议 v2 时期的记录（无 relayGrant）；2 = 协议 v3（首次 auth 成功后自动升级） */
+  version: 1 | 2;
   /** 桌面 X25519 公钥（base64） */
   desktopPk: string;
   /** 桌面分配的设备 id */
@@ -25,6 +27,8 @@ export interface PairingRecord {
   relayAccessKey?: string;
   /** 协议 v2：下一个出站 seq（跨连接单调；节流落盘） */
   lastOutSeq?: number;
+  /** 协议 v3：桌面签发的 relay 设备准入令牌（每次 auth 成功刷新；过期需经 LAN 续期或重新扫码） */
+  relayGrant?: RelayDeviceGrant;
 }
 
 const PAIRING_KEY = "pairing";

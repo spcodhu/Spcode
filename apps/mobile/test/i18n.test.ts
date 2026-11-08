@@ -71,7 +71,7 @@ vi.mock("../src/state/store", async (importOriginal) => {
 });
 
 const record: PairingRecord = {
-  version: 1,
+  version: 2,
   desktopPk: "desktop-public-key",
   deviceId: "test-device",
   hosts: ["http://127.0.0.1"],

@@ -7,7 +7,7 @@ import { PairPage } from "./pages/PairPage";
 import { SchedulesPage } from "./pages/SchedulesPage";
 import { SessionDetailPage } from "./pages/SessionDetailPage";
 import { SessionsPage } from "./pages/SessionsPage";
-import { boot, unpair } from "./state/controller";
+import { boot, reconnect, unpair } from "./state/controller";
 import { useAppStore } from "./state/store";
 
 function ConnBanner() {
@@ -22,17 +22,25 @@ function ConnBanner() {
         ? t("connection.reconnecting")
         : connState === "incompatible"
           ? t("connection.incompatible")
-          : t("connection.unpaired");
+          : connState === "grant_expired"
+            ? t("connection.grantExpired")
+            : t("connection.unpaired");
   const text = detail ? t("connection.detail", { message, detail: errorText(detail) }) : message;
+  const alert = connState === "unpaired" || connState === "grant_expired";
   return (
     <div
-      role={connState === "unpaired" ? "alert" : "status"}
+      role={alert ? "alert" : "status"}
       className={`safe-break px-4 py-2 text-center text-xs leading-5 ${
-        connState === "unpaired" ? "bg-red-950 text-red-100" : "bg-amber-950/90 text-amber-100"
+        alert ? "bg-red-950 text-red-100" : "bg-amber-950/90 text-amber-100"
       }`}
     >
       <span>{text}</span>
-      {connState === "unpaired" && (
+      {connState === "grant_expired" && (
+        <button type="button" onClick={() => reconnect()} className="ml-2 min-h-11 px-2 font-medium underline">
+          {t("connection.retry")}
+        </button>
+      )}
+      {alert && (
         <button type="button" onClick={() => void unpair()} className="ml-2 min-h-11 px-2 font-medium underline">
           {t("connection.repair")}
         </button>
@@ -56,6 +64,7 @@ export default function App() {
     connState === "reconnecting" ||
     connState === "unpaired" ||
     connState === "incompatible" ||
+    connState === "grant_expired" ||
     connState === "stopped";
 
   useEffect(() => {

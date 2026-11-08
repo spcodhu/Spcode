@@ -33,7 +33,7 @@ vi.mock("../src/lib/db", () => ({ savePairing: mocks.savePairing }));
 vi.mock("../src/state/controller", () => ({ attachPairedRecord: mocks.attachPairedRecord }));
 
 const record: PairingRecord = {
-  version: 1,
+  version: 2,
   desktopPk: "desktop",
   deviceId: "device",
   hosts: ["http://localhost"],

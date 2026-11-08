@@ -8,17 +8,17 @@ import {
   b64encode,
   boxDecrypt,
   boxEncrypt,
-  deriveOtpKey,
+  encodeGrantParam,
   generateBoxKeyPair,
+  hmacSha256Sync,
   isValidPublicKey,
+  openPairHello,
   openPayload,
   pairOpen,
-  pairSeal,
   SeqCounter,
   SeqGuard,
+  sealPairHello,
   sealPayload,
-  secretboxDecrypt,
-  secretboxEncrypt,
   sha256Sync,
 } from "@spcode/shared/crypto";
 import { describe, expect, it } from "vitest";
@@ -27,10 +27,9 @@ import {
   b64encode as desktopB64encode,
   boxDecrypt as desktopBoxDecrypt,
   boxEncrypt as desktopBoxEncrypt,
-  deriveOtpKey as desktopDeriveOtpKey,
   generateBoxKeyPair as desktopGenerateBoxKeyPair,
-  secretboxDecrypt as desktopSecretboxDecrypt,
-  secretboxEncrypt as desktopSecretboxEncrypt,
+  openPairHello as desktopOpenPairHello,
+  sealPairHello as desktopSealPairHello,
 } from "../../desktop/src/main/remote/crypto.js";
 import { parseQrPayload } from "../src/lib/qr";
 
@@ -68,25 +67,33 @@ describe("sha256", () => {
     );
   });
 
-  it("OTP 派生密钥与桌面端一致", async () => {
-    const otp = "01234567";
-    const mobileKey = await deriveOtpKey(otp);
-    const desktopKey = desktopDeriveOtpKey(otp);
-    expect([...mobileKey]).toEqual([...desktopKey]);
+  it("HMAC-SHA256 符合 RFC 4231 Test Case 2", () => {
+    const enc = new TextEncoder();
+    expect(hex(hmacSha256Sync(enc.encode("Jefe"), enc.encode("what do ya want for nothing?")))).toBe(
+      "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843",
+    );
   });
 });
 
-describe("NaCl secretbox / box（与桌面端交叉）", () => {
-  it("手机 pairSeal → 桌面 secretboxDecrypt 可解；桌面 secretboxEncrypt → 手机 secretboxDecrypt 可解", async () => {
-    const otp = "87654321";
-    const inner = { publicKey: "pk", name: "测试机" };
-    const sealed = await pairSeal(inner, otp);
-    expect(JSON.parse(desktopSecretboxDecrypt(sealed, desktopDeriveOtpKey(otp))!)).toEqual(inner);
+describe("NaCl box / pair hello（与桌面端交叉）", () => {
+  it("sealPairHello 与 openPairHello 双端互通，随机 nonce 避免密文复用", () => {
+    const phone = generateBoxKeyPair();
+    const desktop = desktopGenerateBoxKeyPair();
+    const inner = { otp: "87654321", name: "测试机" };
 
-    const fromDesktop = desktopSecretboxEncrypt(JSON.stringify(inner), desktopDeriveOtpKey(otp));
-    expect(secretboxDecrypt(fromDesktop, await deriveOtpKey(otp))).toBe(JSON.stringify(inner));
+    const fromPhone = sealPairHello(inner, desktop.publicKey, phone.secretKey);
+    expect(desktopOpenPairHello(fromPhone, phone.publicKey, desktop.secretKey)).toEqual({ v: 3, ...inner });
+    const fromDesktop = desktopSealPairHello(inner, desktop.publicKey, phone.secretKey);
+    expect(openPairHello(fromDesktop, phone.publicKey, desktop.secretKey)).toEqual({ v: 3, ...inner });
+    expect(sealPairHello(inner, desktop.publicKey, phone.secretKey)).not.toBe(fromPhone);
+  });
 
-    expect(secretboxEncrypt("x", await deriveOtpKey(otp))).not.toBe(sealed); // nonce 随机
+  it("错误桌面私钥无法解开 pair hello", () => {
+    const phone = generateBoxKeyPair();
+    const desktop = generateBoxKeyPair();
+    const wrongDesktop = generateBoxKeyPair();
+    const sealed = sealPairHello({ otp: "12345678", name: "测试机" }, desktop.publicKey, phone.secretKey);
+    expect(openPairHello(sealed, phone.publicKey, wrongDesktop.secretKey)).toBeNull();
   });
 
   it("手机 boxEncrypt → 桌面 boxDecrypt；桌面 boxEncrypt → 手机 pairOpen/boxDecrypt", () => {
@@ -141,17 +148,36 @@ describe("seq", () => {
 
 describe("QR payload 解析", () => {
   const kp = generateBoxKeyPair();
-  const build = (hosts: string[], pk = kp.publicKey, otp = "12345678") =>
-    `spcode-remote://pair?v=2&hosts=${encodeURIComponent(hosts.join(","))}&desktop_pk=${encodeURIComponent(pk)}&otp=${otp}`;
+  const build = (hosts: string[], pk = kp.publicKey, otp = "12345678", suffix = "") =>
+    `spcode-remote://pair?v=4&hosts=${encodeURIComponent(hosts.join(","))}&desktop_pk=${encodeURIComponent(pk)}&otp=${otp}${suffix}`;
 
   it("单 host（URL 编码）", () => {
     const p = parseQrPayload(build(["http://192.168.1.5:8123"]));
-    expect(p).toEqual({ version: 2, hosts: ["http://192.168.1.5:8123"], desktopPk: kp.publicKey, otp: "12345678" });
+    expect(p).toEqual({ version: 4, hosts: ["http://192.168.1.5:8123"], desktopPk: kp.publicKey, otp: "12345678" });
   });
 
   it("多 host（逗号分隔后整体编码）", () => {
     const p = parseQrPayload(build(["http://192.168.1.5:8123", "http://100.64.1.2:8123"]));
     expect(p.hosts).toEqual(["http://192.168.1.5:8123", "http://100.64.1.2:8123"]);
+  });
+
+  it("v1/v2/v3 一律报告桌面版本过旧", () => {
+    for (const version of [1, 2, 3]) {
+      const old = build(["http://192.168.1.5:8123"]).replace("v=4", `v=${version}`);
+      expect(() => parseQrPayload(old)).toThrowError(expect.objectContaining({ key: "qr.oldVersion" }));
+    }
+  });
+
+  it("v4 正常解析 relay_grant，非法格式报告 qr.relayGrant", () => {
+    const relayGrant = { exp: Date.now() + 60_000, mac: b64encode(new Uint8Array(32).fill(7)) };
+    const encoded = encodeGrantParam(relayGrant);
+    const parsed = parseQrPayload(
+      build(["relay+wss://relay.example.com"], undefined, undefined, `&relay_grant=${encoded}`),
+    );
+    expect(parsed.relayGrant).toEqual(relayGrant);
+    expect(() =>
+      parseQrPayload(build(["relay+wss://relay.example.com"], undefined, undefined, "&relay_grant=not-a-grant")),
+    ).toThrowError(expect.objectContaining({ key: "qr.relayGrant" }));
   });
 
   it("非法输入逐一报错", () => {
@@ -160,7 +186,7 @@ describe("QR payload 解析", () => {
     expect(() => parseQrPayload(build(["http://1.2.3.4:1"], "bad-key"))).toThrow(/公钥/);
     expect(() => parseQrPayload(build(["http://1.2.3.4:1"], undefined, "123"))).toThrow(/OTP/);
     expect(() =>
-      parseQrPayload("spcode-remote://pair?v=4&hosts=http%3A%2F%2F1.2.3.4%3A1&desktop_pk=x&otp=12345678"),
+      parseQrPayload("spcode-remote://pair?v=5&hosts=http%3A%2F%2F1.2.3.4%3A1&desktop_pk=x&otp=12345678"),
     ).toThrow(/版本/);
     expect(() => parseQrPayload(build(["ftp://x"]))).toThrow(/地址/);
   });

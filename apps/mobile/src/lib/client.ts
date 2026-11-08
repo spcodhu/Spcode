@@ -1,17 +1,24 @@
 /**
  * RemoteClient：手机侧 WS 协议客户端（配对 / 重连 / 加密帧收发）。
  *
- * 与桌面端 RemoteServer 的契约（packages/shared/src/remote.ts）：
- * - 首帧明文：pair（OTP secretbox）或 auth（已配对公钥）；
+ * 与桌面端 RemoteServer 的契约（packages/shared/src/remote.ts，协议 v3）：
+ * - 首帧明文：pair（外层手机公钥 + box 到桌面公钥的 OTP）或 auth（已配对公钥）；
+ * - pair_ack / auth_ack 一律是对本机公钥的 box 密文——解不开的应答不可信，直接忽略
+ *   （伪 host / 在途 relay 无法把我们打成"需重新配对"或篡改 resumeSeq）；
  * - 之后全部 {id, seq, t:"encrypted", c}，seq 每连接每方向 0 起严格递增；
  * - 乱序 / 重放 / 解密失败 → 本端主动断开（与桌面行为一致）；
- * - command 帧带自增唯一 id，响应用同 id 关联。
+ * - command 帧带自增唯一 id，响应用同 id 关联；
+ * - relay 通道：建连前凭桌面签发的准入令牌换票（配对用 QR 的 relay_grant，之后用 ack 下发并
+ *   持久化的 relayGrant）；令牌过期且无 LAN 可达 → grant_expired，提示在局域网内连一次续期。
  *
  * 环境要求：全局 WebSocket（浏览器 / Node ≥ 22 均有）；tweetnacl 的随机数
  * 依赖 crypto.getRandomValues（非安全上下文也可用）。
  */
 
 import type {
+  AuthAckInner,
+  PairAckInner,
+  RelayDeviceGrant,
   RemoteCommand,
   RemoteCommand as RemoteCommandExt,
   RemoteEncryptedFrame,
@@ -21,18 +28,20 @@ import type {
 import {
   boxEncrypt,
   generateBoxKeyPair,
+  openAuthAck,
+  openHelloError,
   openPayload,
   pairOpen,
-  pairSeal,
   SeqCounter,
   SeqGuard,
+  sealPairHello,
   sealPayload,
 } from "@spcode/shared/crypto";
 import type { PairingRecord } from "./db";
 import { savePairing } from "./db";
 import { MobileError, type MobileKey } from "./i18n";
 import { parseQrPayload } from "./qr";
-import { isRelayHost, orderHosts, relayTicketQuery, relayWsUrl } from "./relay";
+import { isGrantUsable, isRelayHost, orderHosts, relayTicketQuery, relayWsUrl } from "./relay";
 
 export type PairErrorCode = "locked" | "expired" | "otp_mismatch" | "bad_payload";
 
@@ -66,20 +75,29 @@ function wsUrlOf(host: string): string {
   return `${host.replace(/^http/, "ws").replace(/\/+$/, "")}/ws`;
 }
 
-/** host 项 → 实际 ws url：relay 前缀项走 channel 路径，其余为 LAN 直连 */
-async function connectUrlOf(host: string, desktopPk: string, deviceId?: string, accessKey?: string): Promise<string> {
+/** host 项 → 实际 ws url：relay 前缀项先凭准入令牌换票再走 channel 路径，其余为 LAN 直连 */
+async function connectUrlOf(
+  host: string,
+  desktopPk: string,
+  deviceId: string | undefined,
+  grant: RelayDeviceGrant | undefined,
+  accessKey?: string,
+): Promise<string> {
   if (!isRelayHost(host)) return wsUrlOf(host);
-  const ticket = await relayTicketQuery(host, desktopPk, "device", deviceId, accessKey);
+  const ticket = await relayTicketQuery(host, desktopPk, deviceId, grant, accessKey);
   return `${relayWsUrl(host, desktopPk, deviceId)}${ticket}`;
 }
 
-/** 等一帧满足条件的消息；超时或断连即 reject */
-function waitFrame(
+/**
+ * 等一帧满足条件的消息；超时或断连即 reject。
+ * pred 返回非 undefined 即命中（可顺手返回解密结果），返回 undefined 继续等。
+ */
+function waitFrame<T>(
   ws: WebSocket,
-  pred: (frame: unknown) => boolean,
+  pred: (frame: unknown) => T | undefined,
   timeoutMs: number,
   what: "pair" | "challenge" | "auth",
-): Promise<unknown> {
+): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       cleanup();
@@ -92,9 +110,10 @@ function waitFrame(
       } catch {
         return;
       }
-      if (pred(frame)) {
+      const hit = pred(frame);
+      if (hit !== undefined) {
         cleanup();
-        resolve(frame);
+        resolve(hit);
       }
     };
     const onClose = () => {
@@ -142,43 +161,53 @@ function connectWs(url: string, timeoutMs = 6000): Promise<WebSocket> {
 }
 
 /**
- * 一次性配对流程：解析 QR payload → 逐个 host 尝试 pair 握手 → 返回可持久化的 PairingRecord。
- * OTP 单次有效且错误计数共享，收到确定性的 pair_ack（无论成败）后不再尝试其余 host。
- */
-/**
- * 一次性配对流程：解析 QR payload → 逐个 host 尝试 pair 握手 → 返回可持久化的 PairingRecord。
- * OTP 单次有效且错误计数共享，收到确定性的 pair_ack（无论成败）后不再尝试其余 host。
+ * 一次性配对流程（协议 v3）：解析 QR payload → 逐个 host 尝试 pair 握手 → 返回可持久化的 PairingRecord。
+ * pair 帧 = {t:"pair", v:3, pk, c}，c = box({v:3, otp, name}, desktopPk, 本机临时私钥)。
+ * pair_ack 无论成败都是对本机公钥的密文：解不开的 ack 不可信（伪 host / relay 伪造），
+ * 视为该 host 失败换下一个；解开的确定性失败（OTP 已消耗）不再尝试其余 host。
  *
- * relay 注意：pair 帧不带 deviceId（此时尚未分配）；pair_ack ok 后桌面即关闭配对用的
- * 逻辑连接——本函数随后关掉物理连接，业务流量由 RemoteClient 重新连接并先走 auth
- * （带 deviceId）再发加密帧，符合 relay 契约。
+ * relay 注意：pair 帧不带 deviceId（此时尚未分配），换票用 QR 里的配对令牌（relay_grant）；
+ * pair_ack ok 后桌面即关闭配对用的逻辑连接——本函数随后关掉物理连接，业务流量由 RemoteClient
+ * 重新连接并先走 auth（带 deviceId、用 ack 下发的设备令牌换票）再发加密帧。
  */
 export async function pairWithQr(qrText: string, deviceName: string): Promise<PairingRecord> {
   const payload = parseQrPayload(qrText);
   const keyPair = generateBoxKeyPair();
-  const c = pairSeal({ publicKey: keyPair.publicKey, name: deviceName }, payload.otp);
+  const c = sealPairHello({ otp: payload.otp, name: deviceName }, payload.desktopPk, keyPair.secretKey);
 
   let lastError: Error | null = null;
   for (const host of orderHosts(payload.hosts)) {
     let ws: WebSocket | null = null;
     try {
-      ws = await connectWs(await connectUrlOf(host, payload.desktopPk, undefined, payload.relayAccessKey));
-      // 协议 v2：OTP 不上线，桌面用当前配对窗口 OTP 试解密文验证
-      ws.send(JSON.stringify({ t: "pair", c }));
-      const ack = (await waitFrame(ws, (f) => (f as { t?: string }).t === "pair_ack", 8000, "pair")) as
-        | { t: "pair_ack"; ok: true; c: string }
-        | { t: "pair_ack"; ok: false; error: string };
+      ws = await connectWs(
+        await connectUrlOf(host, payload.desktopPk, undefined, payload.relayGrant, payload.relayAccessKey),
+      );
+      ws.send(JSON.stringify({ t: "pair", v: 3, pk: keyPair.publicKey, c }));
+      const ack = await waitFrame(
+        ws,
+        (f) => {
+          const frame = f as { t?: unknown; ok?: unknown; c?: unknown };
+          if (frame.t !== "pair_ack" || typeof frame.c !== "string") return undefined;
+          if (frame.ok === true) {
+            const inner = pairOpen(frame.c, payload.desktopPk, keyPair.secretKey);
+            return inner ? ({ ok: true, inner } as const) : undefined;
+          }
+          const err = openHelloError(frame.c, payload.desktopPk, keyPair.secretKey);
+          return err ? ({ ok: false, error: err.error } as const) : undefined;
+        },
+        8000,
+        "pair",
+      );
       ws.close();
       if (!ack.ok) {
         throw new PairError(Object.hasOwn(PAIR_ERROR_KEYS, ack.error) ? (ack.error as PairErrorCode) : "bad_payload");
       }
-      const inner = pairOpen(ack.c, payload.desktopPk, keyPair.secretKey);
-      if (!inner) throw new PairError("bad_payload");
+      const inner: PairAckInner = ack.inner;
       if (inner.desktopPk !== payload.desktopPk) {
         throw new PairError("bad_payload", "pair.keyMismatch");
       }
       return {
-        version: 1,
+        version: 2,
         desktopPk: inner.desktopPk,
         deviceId: inner.deviceId,
         hosts: payload.hosts,
@@ -186,6 +215,7 @@ export async function pairWithQr(qrText: string, deviceName: string): Promise<Pa
         keyPair,
         pairedAt: Date.now(),
         ...(payload.relayAccessKey ? { relayAccessKey: payload.relayAccessKey } : {}),
+        ...(inner.relayGrant ? { relayGrant: inner.relayGrant } : {}),
       };
     } catch (err) {
       ws?.close();
@@ -206,6 +236,7 @@ export type ConnectionState =
   | "reconnecting" // 断线，退避重连中
   | "unpaired" // 桌面端不认识本设备（已在桌面侧解除配对）→ 需重新扫码
   | "incompatible" // 桌面过旧，无法安全恢复跨连接序号 → 升级桌面，而非重新配对
+  | "grant_expired" // 仅 relay 可达且准入令牌过期/缺失 → 在局域网内连一次续期，或重新扫码
   | "stopped";
 
 export type ConnectionDetail = string | Error;
@@ -320,13 +351,24 @@ export class RemoteClient {
   private async connectOnce(generation: number): Promise<void> {
     if (this.stopped || generation !== this.generation) return;
     this.setState(this.state === "reconnecting" ? "reconnecting" : "connecting");
-    const host = this.hosts[this.hostIndex % this.hosts.length]!;
-    this.hostIndex++;
+    const host = this.pickHost();
+    if (!host) {
+      // 只剩 relay 可选且准入令牌不可用：等用户在局域网内连一次（桌面会在 auth_ack 里续发新令牌）
+      this.stopped = true;
+      this.setState("grant_expired");
+      return;
+    }
     this.relay = isRelayHost(host);
     let ws: WebSocket;
     try {
       ws = await connectWs(
-        await connectUrlOf(host, this.record.desktopPk, this.record.deviceId, this.record.relayAccessKey),
+        await connectUrlOf(
+          host,
+          this.record.desktopPk,
+          this.record.deviceId,
+          this.record.relayGrant,
+          this.record.relayAccessKey,
+        ),
       );
     } catch (err) {
       if (generation === this.generation) {
@@ -357,8 +399,12 @@ export class RemoteClient {
     this.outSeq.setNext(this.record.lastOutSeq ?? 0);
     this.inSeq.reset();
     this.earlyFrames = [];
+    const desktopPk = this.record.desktopPk;
+    const mySk = this.record.keyPair.secretKey;
+    const forMe = (frame: { deviceId?: unknown }): boolean =>
+      !this.relay || typeof frame.deviceId !== "string" || frame.deviceId === this.record.deviceId;
     try {
-      // relay 是广播语义：auth 帧外层带 deviceId，host 据此把帧分流到本设备的虚拟连接
+      // relay 定向投递：auth 帧外层带 deviceId，host 据此把帧分流到本设备的虚拟连接
       const hello: { t: "auth"; publicKey: string; deviceId?: string; nextSeq: number } = {
         t: "auth",
         publicKey: this.record.keyPair.publicKey,
@@ -367,64 +413,61 @@ export class RemoteClient {
       if (this.relay) hello.deviceId = this.record.deviceId;
       ws.send(JSON.stringify(hello));
 
-      // 第一步：等服务端挑战（relay 广播下可能收到他设备的帧：带 deviceId 且不匹配的丢弃）。
-      // 未知设备会被直接回 auth_ack(ok:false) 而不发挑战，两种帧都要接。
-      const first = (await waitFrame(
+      // 第一步：等服务端挑战。未知设备会被直接回加密的 auth_ack(ok:false) 而不发挑战，两种帧都要接；
+      // 解不开的 auth_ack 不是桌面发的（伪 host / 他设备残留），继续等到超时再退避。
+      type FirstFrame = { kind: "challenge"; nonce: string } | { kind: "rejected"; error: string };
+      const first = await waitFrame<FirstFrame>(
         ws,
         (f) => {
-          const frame = f as { t?: string; deviceId?: string };
-          if (frame.t !== "auth_challenge" && frame.t !== "auth_ack") return false;
-          return !this.relay || typeof frame.deviceId !== "string" || frame.deviceId === this.record.deviceId;
+          const frame = f as { t?: unknown; deviceId?: unknown; nonce?: unknown; ok?: unknown; c?: unknown };
+          if (!forMe(frame)) return undefined;
+          if (frame.t === "auth_challenge" && typeof frame.nonce === "string") {
+            return { kind: "challenge", nonce: frame.nonce };
+          }
+          if (frame.t === "auth_ack" && frame.ok === false && typeof frame.c === "string") {
+            const err = openHelloError(frame.c, desktopPk, mySk);
+            return err ? { kind: "rejected", error: err.error } : undefined;
+          }
+          return undefined;
         },
         8000,
         "challenge",
-      )) as { t: "auth_challenge" | "auth_ack"; nonce?: string; ok?: boolean; error?: string };
+      );
 
       if (this.stopped || generation !== this.generation) return;
-      if (first.t === "auth_ack") {
-        // 未配对即拒（无挑战）：进入 unpaired 等用户重新扫码
-        this.stopped = true;
-        this.setState("unpaired");
-        ws.close();
+      if (first.kind === "rejected") {
+        this.handleAuthRejected(first.error, ws);
         return;
       }
 
       // 第二步：私钥证明（box 密封 nonce 回传）
-      const proof = boxEncrypt(first.nonce!, this.record.desktopPk, this.record.keyPair.secretKey);
+      const proof = boxEncrypt(first.nonce, desktopPk, mySk);
       const proofFrame: { t: "auth_proof"; c: string; deviceId?: string } = { t: "auth_proof", c: proof };
       if (this.relay) proofFrame.deviceId = this.record.deviceId;
       ws.send(JSON.stringify(proofFrame));
 
-      const ack = (await waitFrame(
+      type AckFrame = { kind: "ok"; inner: AuthAckInner } | { kind: "rejected"; error: string };
+      const ack = await waitFrame<AckFrame>(
         ws,
         (f) => {
-          const frame = f as { t?: string; deviceId?: string };
-          // relay 广播下可能收到他设备的 auth_ack：带 deviceId 且不匹配的不是给我们的
-          if (frame.t !== "auth_ack") return false;
-          return !this.relay || typeof frame.deviceId !== "string" || frame.deviceId === this.record.deviceId;
+          const frame = f as { t?: unknown; deviceId?: unknown; ok?: unknown; c?: unknown };
+          if (frame.t !== "auth_ack" || typeof frame.c !== "string" || !forMe(frame)) return undefined;
+          if (frame.ok === true) {
+            const inner = openAuthAck(frame.c, desktopPk, mySk);
+            return inner ? { kind: "ok", inner } : undefined;
+          }
+          const err = openHelloError(frame.c, desktopPk, mySk);
+          return err ? { kind: "rejected", error: err.error } : undefined;
         },
         8000,
         "auth",
-      )) as {
-        t: "auth_ack";
-        ok: boolean;
-        desktopPk?: string;
-        resumeSeq?: number;
-        error?: string;
-      };
+      );
       if (this.stopped || generation !== this.generation) return;
-      if (!ack.ok) {
-        const incompatible = ack.error === "seq_rollback";
-        this.stopped = true;
-        // 旧桌面只会拒绝序号回滚：提示升级；未知设备才进入真正重新配对。
-        this.setState(
-          incompatible ? "incompatible" : "unpaired",
-          incompatible ? new MobileError("error.desktopUpgrade") : undefined,
-        );
-        ws.close();
+      if (ack.kind === "rejected") {
+        this.handleAuthRejected(ack.error, ws);
         return;
       }
-      if (ack.desktopPk && ack.desktopPk !== this.record.desktopPk) {
+      if (ack.inner.desktopPk !== desktopPk) {
         // 桌面换了身份密钥（重装/重置）：旧配对全部作废
         this.stopped = true;
         this.setState("unpaired", new MobileError("error.identityChanged"));
@@ -433,7 +476,10 @@ export class RemoteClient {
       }
       this.backoff = this.backoffMin;
       // 协议 v2：按 host 的 resumeSeq 续接出站序号（与本地持久值取大者）
-      this.outSeq.setNext(Math.max(ack.resumeSeq ?? 0, this.outSeq.peek()));
+      this.outSeq.setNext(Math.max(ack.inner.resumeSeq, this.outSeq.peek()));
+      // 协议 v3：桌面每次 auth 续发 relay 准入令牌；v1 记录由此升级为 v2
+      if (ack.inner.relayGrant) this.record.relayGrant = ack.inner.relayGrant;
+      this.record.version = 2;
       // 立即记录权威续接点；即使下一次刷新又来不及走 close 落盘，也尽量缩小回滚窗口。
       this.persistOutSeq();
       this.setState("ready");
@@ -447,6 +493,31 @@ export class RemoteClient {
         this.scheduleReconnect(err instanceof Error ? err : new MobileError("error.authFailed"), generation);
       }
     }
+  }
+
+  /**
+   * 选下一个 host：LAN 直连随时可试；relay 项只有准入令牌可用时才试。
+   * 全部 host 都不可试（只剩令牌失效的 relay）返回 null。
+   */
+  private pickHost(): string | null {
+    for (let i = 0; i < this.hosts.length; i++) {
+      const host = this.hosts[(this.hostIndex + i) % this.hosts.length]!;
+      if (isRelayHost(host) && !isGrantUsable(this.record.relayGrant)) continue;
+      this.hostIndex = (this.hostIndex + i + 1) % this.hosts.length;
+      return host;
+    }
+    return null;
+  }
+
+  /** 桌面（经密文验证的）拒绝：unknown_device / bad_proof → 重新扫码；seq_rollback → 升级桌面 */
+  private handleAuthRejected(error: string, ws: WebSocket): void {
+    const incompatible = error === "seq_rollback";
+    this.stopped = true;
+    this.setState(
+      incompatible ? "incompatible" : "unpaired",
+      incompatible ? new MobileError("error.desktopUpgrade") : undefined,
+    );
+    ws.close();
   }
 
   private scheduleReconnect(reason: ConnectionDetail, generation: number): void {

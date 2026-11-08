@@ -44,7 +44,7 @@ vi.mock("../src/lib/client", () => ({
 }));
 
 const record: PairingRecord = {
-  version: 1,
+  version: 2,
   desktopPk: "desktop",
   deviceId: "device",
   hosts: ["http://localhost"],
@@ -381,7 +381,7 @@ describe("空会话创建", () => {
 
 describe("relay 配置更新", () => {
   it("冷启动自动迁移旧官方 relay，并保留局域网地址与设备身份", async () => {
-    const legacy = { ...record, hosts: ["http://localhost", "relay+wss://relay.spcode.dev"] };
+    const legacy = { ...record, version: 1 as const, hosts: ["http://localhost", "relay+wss://relay.spcode.dev"] };
     mocks.loadPairing.mockResolvedValueOnce(legacy);
     await boot();
 
@@ -391,7 +391,12 @@ describe("relay 配置更新", () => {
   });
 
   it("带访问密钥的旧域名记录按自托管配置保留", async () => {
-    const custom = { ...record, hosts: ["relay+wss://relay.spcode.dev"], relayAccessKey: "secret" };
+    const custom = {
+      ...record,
+      version: 1 as const,
+      hosts: ["relay+wss://relay.spcode.dev"],
+      relayAccessKey: "secret",
+    };
     mocks.loadPairing.mockResolvedValueOnce(custom);
     await boot();
 

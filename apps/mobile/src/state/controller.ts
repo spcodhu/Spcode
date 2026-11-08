@@ -115,6 +115,12 @@ export function attachPairedRecord(record: PairingRecord): void {
   startClient(record);
 }
 
+/** grant_expired 等停驻状态下用户手动重试（例如已回到局域网）：用当前记录重建客户端 */
+export function reconnect(): void {
+  const record = useAppStore.getState().pairing;
+  if (record) startClient(record);
+}
+
 /** 解除配对：清本地记录 + 停连接 + 重置状态（桌面侧设备列表需在桌面设置页移除） */
 export async function unpair(): Promise<void> {
   clientGeneration++;
@@ -135,12 +141,8 @@ export async function unpair(): Promise<void> {
 export async function probeRelayConfiguration(input: { url: string; accessKey?: string | null }): Promise<void> {
   const pairing = useAppStore.getState().pairing;
   if (!pairing) throw new MobileError("error.notConnected");
-  await probeRelay({
-    url: input.url,
-    desktopPk: pairing.desktopPk,
-    deviceId: pairing.deviceId,
-    accessKey: input.accessKey,
-  });
+  // 协议 v3：手机没有该 relay 的准入令牌，只能确认它是可达的 v3 中继；令牌由桌面在下次 auth 时签发
+  await probeRelay({ url: input.url });
 }
 
 /** 修改 relay 只重建传输：保留设备身份、密钥、输出缓存、路由和输入草稿。 */

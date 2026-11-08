@@ -7,17 +7,21 @@
  * - 重连后出站 seq 持久续接不归零、入站 SeqGuard 重置（桌面出站 seq 不归零也兼容）。
  */
 
-import type { RemoteEvent as RemoteEventExt } from "@spcode/shared";
-import { generateBoxKeyPair, sealPayload } from "@spcode/shared/crypto";
+import type { RelayDeviceGrant, RemoteEvent as RemoteEventExt } from "@spcode/shared";
+import { b64encode, boxDecrypt, generateBoxKeyPair, sealJson, sealPayload } from "@spcode/shared/crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { type ConnectionState, RemoteClient } from "../src/lib/client";
+import { type ConnectionState, PairError, pairWithQr, RemoteClient } from "../src/lib/client";
 import type { PairingRecord } from "../src/lib/db";
 import { deriveChannelId } from "../src/lib/relay";
+
+const mocks = vi.hoisted(() => ({ savePairing: vi.fn() }));
+vi.mock("../src/lib/db", () => ({ savePairing: mocks.savePairing }));
 
 type Listener = (ev: { data?: string }) => void;
 
 class FakeWs {
   static instances: FakeWs[] = [];
+  static steps: string[] = [];
   readonly url: string;
   readonly sent: string[] = [];
   readyState = 0;
@@ -26,6 +30,7 @@ class FakeWs {
 
   constructor(url: string) {
     this.url = url;
+    FakeWs.steps.push("ws");
     FakeWs.instances.push(this);
   }
 
@@ -75,16 +80,26 @@ function tick(ms = 5): Promise<void> {
 const desktop = generateBoxKeyPair();
 const phone = generateBoxKeyPair();
 
-function relayRecord(): PairingRecord {
+function grant(exp = Date.now() + 60_000): RelayDeviceGrant {
+  return { exp, mac: b64encode(new Uint8Array(32).fill(7)) };
+}
+
+function relayRecord(overrides: Partial<PairingRecord> = {}): PairingRecord {
   return {
-    version: 1,
+    version: 2,
     desktopPk: desktop.publicKey,
     deviceId: "dev-1",
     hosts: ["relay+wss://relay.test"],
     deviceName: "单测手机",
     keyPair: phone,
     pairedAt: Date.now(),
+    relayGrant: grant(),
+    ...overrides,
   };
+}
+
+function lanRecord(version: 1 | 2 = 1): PairingRecord {
+  return relayRecord({ version, hosts: ["http://lan.test"], relayGrant: undefined });
 }
 
 /** 桌面视角加密一帧载荷（phone 公钥 × desktop 私钥） */
@@ -96,22 +111,32 @@ describe("RemoteClient：relay 通道", () => {
   let client: RemoteClient;
   let events: RemoteEventExt[];
   let states: ConnectionState[];
+  let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     FakeWs.instances = [];
+    FakeWs.steps = [];
     events = [];
     states = [];
+    mocks.savePairing.mockReset().mockResolvedValue(undefined);
+    let ticketId = 0;
+    fetchMock = vi.fn(async () => {
+      FakeWs.steps.push("ticket");
+      return new Response(JSON.stringify({ ticket: `ticket-${++ticketId}` }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
     vi.stubGlobal("WebSocket", FakeWs as unknown as typeof WebSocket);
   });
 
   afterEach(() => {
     client?.stop();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
-  async function startToReady(): Promise<FakeWs> {
+  async function startToReady(record: PairingRecord = relayRecord()): Promise<FakeWs> {
     client = new RemoteClient(
-      relayRecord(),
+      record,
       { onEvent: (e) => events.push(e), onState: (s) => states.push(s) },
       {
         backoffMinMs: 20,
@@ -126,24 +151,57 @@ describe("RemoteClient：relay 通道", () => {
     return ws;
   }
 
-  /** 模拟桌面端协议 v2 认证：挑战 → 校验设备私钥证明 → ack（resumeSeq 从 0 起） */
-  async function ackAuth(ws: FakeWs): Promise<void> {
-    const nonce = `test-nonce-${Math.random().toString(36).slice(2)}`;
+  /** 模拟桌面端协议 v3 认证：明文挑战 → 校验设备私钥证明 → sealJson 加密 ack */
+  async function challenge(ws: FakeWs, nonce = `test-nonce-${Math.random().toString(36).slice(2)}`): Promise<void> {
     ws.message({ t: "auth_challenge", nonce, deviceId: "dev-1" });
     await tick();
-    // 客户端应回 auth_proof：box(nonce) 可用 phone 公钥 × desktop 私钥解开
     const proofFrame = JSON.parse(ws.sent.at(-1)!) as { t: string; c: string };
     expect(proofFrame.t).toBe("auth_proof");
-    const { boxDecrypt } = await import("@spcode/shared/crypto");
-    const plain = boxDecrypt(proofFrame.c, phone.publicKey, desktop.secretKey);
-    expect(plain).toBe(nonce);
-    ws.message({ t: "auth_ack", ok: true, desktopPk: desktop.publicKey, deviceId: "dev-1", resumeSeq: 0 });
+    expect(boxDecrypt(proofFrame.c, phone.publicKey, desktop.secretKey)).toBe(nonce);
+  }
+
+  async function ackAuth(
+    ws: FakeWs,
+    options: { resumeSeq?: number; relayGrant?: RelayDeviceGrant } = {},
+  ): Promise<void> {
+    await challenge(ws);
+    const inner = {
+      desktopPk: desktop.publicKey,
+      resumeSeq: options.resumeSeq ?? 0,
+      ...(options.relayGrant ? { relayGrant: options.relayGrant } : {}),
+    };
+    ws.message({
+      t: "auth_ack",
+      ok: true,
+      deviceId: "dev-1",
+      c: sealJson(inner, phone.publicKey, desktop.secretKey),
+    });
     await tick();
   }
 
+  function encryptedAuthError(ws: FakeWs, error: string): void {
+    ws.message({
+      t: "auth_ack",
+      ok: false,
+      deviceId: "dev-1",
+      c: sealJson({ error }, phone.publicKey, desktop.secretKey),
+    });
+  }
+
   it("连接 URL 走 channel 路径；auth 与加密帧外层带 deviceId", async () => {
-    const ws = await startToReady();
-    expect(ws.url).toBe(`wss://relay.test/channel/${deriveChannelId(desktop.publicKey)}?role=device&device=dev-1`);
+    const record = relayRecord();
+    const ws = await startToReady(record);
+    expect(ws.url).toBe(
+      `wss://relay.test/channel/${deriveChannelId(desktop.publicKey)}?role=device&device=dev-1&ticket=ticket-1`,
+    );
+    expect(FakeWs.steps.slice(0, 2)).toEqual(["ticket", "ws"]);
+    const [, ticketInit] = fetchMock.mock.calls[0]!;
+    expect(JSON.parse(String(ticketInit?.body))).toMatchObject({
+      role: "device",
+      deviceId: "dev-1",
+      hostPk: desktop.publicKey,
+      grant: record.relayGrant,
+    });
 
     const auth = JSON.parse(ws.sent[0]!);
     expect(auth).toEqual({ t: "auth", publicKey: phone.publicKey, deviceId: "dev-1", nextSeq: 0 });
@@ -164,7 +222,12 @@ describe("RemoteClient：relay 通道", () => {
     const ws = await startToReady();
     ws.message({ t: "relay.hello", role: "device", queued: 0 });
     ws.message({ t: "relay.error", error: "channel_full" });
-    ws.message({ t: "auth_ack", ok: false, error: "unknown_device", deviceId: "other-dev" }); // 他设备的，不该误判
+    ws.message({
+      t: "auth_ack",
+      ok: false,
+      deviceId: "other-dev",
+      c: sealJson({ error: "unknown_device" }, phone.publicKey, desktop.secretKey),
+    });
     await tick();
     expect(states).not.toContain("unpaired");
     await ackAuth(ws);
@@ -238,7 +301,12 @@ describe("RemoteClient：relay 通道", () => {
     freshWs.open();
     await tick();
 
-    oldWs.message({ t: "auth_ack", ok: true, desktopPk: desktop.publicKey, deviceId: "dev-1", resumeSeq: 0 });
+    oldWs.message({
+      t: "auth_ack",
+      ok: true,
+      deviceId: "dev-1",
+      c: sealJson({ desktopPk: desktop.publicKey, resumeSeq: 0 }, phone.publicKey, desktop.secretKey),
+    });
     await tick();
     expect(states.at(-1)).toBe("connecting");
     expect(freshWs.closed).toBe(false);
@@ -295,5 +363,134 @@ describe("RemoteClient：relay 通道", () => {
     await tick();
     expect(events).toHaveLength(2);
     expect(ws2.closed).toBe(false);
+  });
+
+  it("伪造明文或解不开的 auth_ack 被忽略，超时后退避且不会 unpaired", async () => {
+    vi.useFakeTimers();
+    client = new RemoteClient(
+      relayRecord(),
+      { onEvent: (e) => events.push(e), onState: (s) => states.push(s) },
+      { backoffMinMs: 20, backoffMaxMs: 40 },
+    );
+    client.start();
+    await vi.advanceTimersByTimeAsync(0);
+    const ws = FakeWs.instances.at(-1)!;
+    ws.open();
+    await vi.advanceTimersByTimeAsync(0);
+
+    ws.message({ t: "auth_ack", ok: false, error: "unknown_device", deviceId: "dev-1" });
+    ws.message({ t: "auth_ack", ok: false, c: "not-decryptable", deviceId: "dev-1" });
+    ws.message({
+      t: "auth_ack",
+      ok: true,
+      desktopPk: desktop.publicKey,
+      resumeSeq: 999,
+      deviceId: "dev-1",
+    });
+    expect(states).not.toContain("unpaired");
+    expect(states).not.toContain("ready");
+
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(ws.closed).toBe(true);
+    expect(states.at(-1)).toBe("reconnecting");
+    expect(states).not.toContain("unpaired");
+    await vi.advanceTimersByTimeAsync(20);
+    expect(FakeWs.instances).toHaveLength(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("v1 记录经 LAN auth 成功升级 v2，并持久化新 relayGrant", async () => {
+    const record = lanRecord(1);
+    const refreshed = grant(Date.now() + 7 * 24 * 3600_000);
+    const ws = await startToReady(record);
+    expect(fetchMock).not.toHaveBeenCalled();
+    await ackAuth(ws, { relayGrant: refreshed });
+
+    expect(client.getState()).toBe("ready");
+    expect(record.version).toBe(2);
+    expect(record.relayGrant).toEqual(refreshed);
+    expect(mocks.savePairing).toHaveBeenCalledWith(record);
+    expect(mocks.savePairing.mock.calls.at(-1)?.[0]).toMatchObject({ version: 2, relayGrant: refreshed });
+  });
+
+  it("relay-only 且 grant 过期进入 grant_expired，不取票也不建 WS", async () => {
+    client = new RemoteClient(
+      relayRecord({ relayGrant: grant(Date.now() - 1) }),
+      { onEvent: (e) => events.push(e), onState: (s) => states.push(s) },
+      { backoffMinMs: 20, backoffMaxMs: 40 },
+    );
+    client.start();
+    await tick();
+    expect(client.getState()).toBe("grant_expired");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(FakeWs.instances).toHaveLength(0);
+  });
+
+  it("加密 unknown_device 进入 unpaired，不再重连", async () => {
+    const ws = await startToReady();
+    encryptedAuthError(ws, "unknown_device");
+    await tick();
+    expect(client.getState()).toBe("unpaired");
+    expect(ws.closed).toBe(true);
+    await tick(60);
+    expect(FakeWs.instances).toHaveLength(1);
+  });
+
+  it("私钥证明后的加密 seq_rollback 进入 incompatible", async () => {
+    const ws = await startToReady();
+    await challenge(ws);
+    encryptedAuthError(ws, "seq_rollback");
+    await tick();
+    expect(client.getState()).toBe("incompatible");
+    expect(states).not.toContain("unpaired");
+  });
+
+  it("pair_ack ok:false 解不开则忽略并在超时后继续下一 host", async () => {
+    vi.useFakeTimers();
+    const hosts = "http://first.test,http://second.test";
+    const qr = `spcode-remote://pair?v=4&hosts=${encodeURIComponent(hosts)}&desktop_pk=${encodeURIComponent(desktop.publicKey)}&otp=12345678`;
+    const pending = pairWithQr(qr, "配对测试机");
+    await vi.advanceTimersByTimeAsync(0);
+    const first = FakeWs.instances.at(-1)!;
+    first.open();
+    await vi.advanceTimersByTimeAsync(0);
+    const hello = JSON.parse(first.sent[0]!) as { t: string; v: number; pk: string; c: string };
+    expect(hello).toMatchObject({ t: "pair", v: 3 });
+
+    first.message({ t: "pair_ack", ok: false, c: "not-decryptable" });
+    await vi.advanceTimersByTimeAsync(8000);
+    const second = FakeWs.instances.at(-1)!;
+    expect(second).not.toBe(first);
+    expect(second.url).toBe("ws://second.test/ws");
+    second.open();
+    await vi.advanceTimersByTimeAsync(0);
+    second.message({
+      t: "pair_ack",
+      ok: true,
+      c: sealJson({ desktopPk: desktop.publicKey, deviceId: "paired-device" }, hello.pk, desktop.secretKey),
+    });
+    await expect(pending).resolves.toMatchObject({
+      version: 2,
+      desktopPk: desktop.publicKey,
+      deviceId: "paired-device",
+      hosts: hosts.split(","),
+    });
+  });
+
+  it("可解密的 pair_ack 失败仍映射确定的 PairError", async () => {
+    const qr = `spcode-remote://pair?v=4&hosts=${encodeURIComponent("http://only.test")}&desktop_pk=${encodeURIComponent(desktop.publicKey)}&otp=12345678`;
+    const pending = pairWithQr(qr, "失败配对机");
+    await tick();
+    const ws = FakeWs.instances.at(-1)!;
+    ws.open();
+    await tick();
+    const hello = JSON.parse(ws.sent[0]!) as { pk: string };
+    ws.message({
+      t: "pair_ack",
+      ok: false,
+      c: sealJson({ error: "otp_mismatch" }, hello.pk, desktop.secretKey),
+    });
+    await expect(pending).rejects.toBeInstanceOf(PairError);
+    await expect(pending).rejects.toMatchObject({ code: "otp_mismatch" });
   });
 });
