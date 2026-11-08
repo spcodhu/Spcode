@@ -3,7 +3,7 @@
  * M1 只有 lan 实现；M2 relay、M3 tailscale 实现同一接口。
  */
 
-import type { RemoteRelayState } from "@spcode/shared";
+import type { RelayDeviceGrant, RemoteRelayState } from "@spcode/shared";
 
 /** 一条对端连接（手机 PWA 的 WebSocket） */
 export interface PeerConnection {
@@ -26,4 +26,9 @@ export interface RemoteTransport {
   getState?(): RemoteRelayState;
   /** 实际监听端口（仅局域网监听型实现；tailscale serve 回源用） */
   getPort?(): number;
+  /**
+   * 协议 v3（仅 relay）：签发设备准入令牌。subject = deviceId 或 "pair"；
+   * relay 公钥尚未获取时返回 null（此时 QR / ack 不带令牌）。
+   */
+  issueDeviceGrant?(subject: string, exp: number): RelayDeviceGrant | null;
 }

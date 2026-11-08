@@ -4,7 +4,9 @@
  * 配对经 relay、加密命令往返、断线期间队列补投、多设备隔离、
  * 断线补拉（session.output.since/backfill）、seq 绑定逻辑连接的语义。
  */
+
 import { mkdtempSync, rmSync } from "node:fs";
+import { createServer, type IncomingMessage, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_SETTINGS, type HostCommand, type HostEvent, type ScheduleTask } from "@spcode/shared";
@@ -13,27 +15,35 @@ import WebSocket, { WebSocketServer } from "ws";
 import {
   boxDecrypt,
   boxEncrypt,
-  deriveOtpKey,
+  decodeGrantParam,
+  deriveChannelId,
   generateBoxKeyPair,
-  secretboxEncrypt,
+  RELAY_PAIR_SUBJECT,
+  type RelayDeviceGrant,
+  verifyDeviceGrant,
+  verifyHostProof,
 } from "../src/main/remote/crypto.js";
 import { RemoteServer } from "../src/main/remote/index.js";
 import { PairingManager } from "../src/main/remote/pairing.js";
 import { PushService } from "../src/main/remote/push.js";
 import { LanTransport } from "../src/main/remote/transport/lan.js";
-import { deriveChannelId, RelayTransport } from "../src/main/remote/transport/relay.js";
+import { RelayTransport } from "../src/main/remote/transport/relay.js";
 import type { RegistryLike } from "../src/main/session-helpers.js";
 import type { SessionRegistryEntry } from "../src/main/session-registry.js";
+import { newPhone, openAuthAckFrame, openPairAck, pairFrame, proofFrame } from "./remote-v3-helpers.js";
 
 // ---------------------------------------------------------------------------
-// 进程内假 relay：对齐 apps/relay 服务端的真实语义
-// - ws://…/channel/<channelId>?role=host|device
-// - 帧原样穿过（relay 不解析、不修改业务帧，不做 deviceId 路由）：
+// 进程内假 relay：对齐 spcod-relay 服务端的协议 v3 语义
+// - GET /v1/relay-info → {version:3, relayPk}；
+// - POST /v1/tickets：host 需 proof（verifyHostProof），device 需桌面签发的 grant
+//   （verifyDeviceGrant，subject = deviceId ?? "pair"）；通过则发 30s 单次票据；
+// - ws://…/channel/<channelId>?role=host|device[&device=<id>]&ticket=<t>，无票据 401；
+// - 帧原样穿过（relay 不解析、不修改业务帧）：
 //   device→host：host 在线转发，离线进 toHost 队列，host 上线按 FIFO 补投；
-//   host→device：**广播给全部在线设备**（无任何设备在线时进 toDevices 队列，
-//   下一个设备上线补投）——多设备隔离靠逐设备加密 + 帧外层 deviceId 由客户端过滤；
+//   host→device：广播给全部在线设备（无任何设备在线时进 toDevices 队列）——
+//   多设备隔离靠逐设备加密 + 帧外层 deviceId 由客户端过滤；
 // - 连接建立先发 relay.hello {role, queued} 再补投；
-// - 第二个 host 连同一 channel：直接关闭（真实 relay 用 close code 4001）
+// - 第二个 host 连同一 channel：新连接接管，旧连接 4001。
 // ---------------------------------------------------------------------------
 
 interface ChannelState {
@@ -45,20 +55,85 @@ interface ChannelState {
   toDevices: string[];
 }
 
+interface TicketBinding {
+  channelId: string;
+  role: string;
+  deviceId?: string;
+}
+
 class FakeRelay {
-  private wss: WebSocketServer;
+  private readonly http: Server;
+  private readonly wss: WebSocketServer;
   private readonly channels = new Map<string, ChannelState>();
+  private readonly tickets = new Map<string, TicketBinding>();
+  readonly identity = generateBoxKeyPair();
   readonly port: Promise<number>;
+  /** 票据请求记录（断言 host 证明 / 设备令牌确实被使用） */
+  readonly ticketRequests: Record<string, unknown>[] = [];
 
   constructor() {
-    this.wss = new WebSocketServer({ port: 0 });
+    this.http = createServer((req, res) => void this.handleHttp(req, res));
+    this.wss = new WebSocketServer({ noServer: true });
+    this.http.on("upgrade", (req, socket, head) => {
+      const url = new URL(req.url ?? "/", "http://localhost");
+      const m = /^\/channel\/([0-9a-f]+)$/.exec(url.pathname);
+      const role = url.searchParams.get("role") ?? "";
+      const deviceId = url.searchParams.get("device") ?? undefined;
+      const ticket = url.searchParams.get("ticket") ?? "";
+      const binding = this.tickets.get(ticket);
+      this.tickets.delete(ticket);
+      if (!m || !binding || binding.channelId !== m[1] || binding.role !== role || binding.deviceId !== deviceId) {
+        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+      this.wss.handleUpgrade(req, socket, head, (ws) => this.accept(ws, m[1]!, role));
+    });
     this.port = new Promise((resolvePromise) => {
-      this.wss.on("listening", () => {
-        const addr = this.wss.address();
+      this.http.listen(0, "127.0.0.1", () => {
+        const addr = this.http.address();
         resolvePromise(typeof addr === "object" && addr ? addr.port : 0);
       });
     });
-    this.wss.on("connection", (ws, req) => this.accept(ws, req.url ?? ""));
+  }
+
+  private async handleHttp(req: IncomingMessage, res: import("node:http").ServerResponse): Promise<void> {
+    const url = new URL(req.url ?? "/", "http://localhost");
+    const json = (status: number, body: unknown) => {
+      res.writeHead(status, { "content-type": "application/json" });
+      res.end(JSON.stringify(body));
+    };
+    if (url.pathname === "/v1/relay-info" && req.method === "GET") {
+      return json(200, { version: 3, relayPk: this.identity.publicKey });
+    }
+    if (url.pathname === "/v1/tickets" && req.method === "POST") {
+      const chunks: Buffer[] = [];
+      for await (const c of req) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c));
+      const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+      this.ticketRequests.push(body);
+      const channelId = String(body.channelId);
+      const hostPk = String(body.hostPk);
+      if (deriveChannelId(hostPk) !== channelId) return json(401, { error: "proof_invalid" });
+      let binding: TicketBinding;
+      if (body.role === "host") {
+        if (!verifyHostProof(channelId, Number(body.ts), String(body.proof), hostPk, this.identity.secretKey)) {
+          return json(401, { error: "proof_invalid" });
+        }
+        binding = { channelId, role: "host" };
+      } else {
+        const grant = body.grant as RelayDeviceGrant;
+        const deviceId = typeof body.deviceId === "string" ? body.deviceId : undefined;
+        if (grant.exp <= Date.now()) return json(401, { error: "grant_expired" });
+        if (!verifyDeviceGrant(channelId, deviceId ?? RELAY_PAIR_SUBJECT, grant, hostPk, this.identity.secretKey)) {
+          return json(401, { error: "grant_invalid" });
+        }
+        binding = { channelId, role: "device", ...(deviceId ? { deviceId } : {}) };
+      }
+      const ticket = `t-${Math.random().toString(36).slice(2)}`;
+      this.tickets.set(ticket, binding);
+      return json(200, { ...binding, ticket, expiresAt: Date.now() + 30_000 });
+    }
+    json(404, { error: "not_found" });
   }
 
   private channel(id: string): ChannelState {
@@ -70,21 +145,11 @@ class FakeRelay {
     return ch;
   }
 
-  private accept(ws: WebSocket, rawUrl: string): void {
-    const url = new URL(rawUrl, "http://localhost");
-    const m = /^\/channel\/([0-9a-f]+)$/.exec(url.pathname);
-    const role = url.searchParams.get("role");
-    if (!m || (role !== "host" && role !== "device")) {
-      ws.close();
-      return;
-    }
-    const ch = this.channel(m[1]!);
+  private accept(ws: WebSocket, channelId: string, role: string): void {
+    const ch = this.channel(channelId);
 
     if (role === "host") {
-      if (ch.host) {
-        ws.close(4001, "host_exists");
-        return;
-      }
+      if (ch.host) ch.host.close(4001, "host_replaced");
       ch.host = ws;
       ws.send(JSON.stringify({ t: "relay.hello", role: "host", queued: ch.toHost.length }));
       // FIFO 补投离线队列（帧沿用发送方原始 seq）
@@ -138,6 +203,7 @@ class FakeRelay {
       for (const d of ch.devices) d.terminate();
     }
     await new Promise<void>((r) => this.wss.close(() => r()));
+    await new Promise<void>((r) => this.http.close(() => r()));
   }
 }
 
@@ -155,8 +221,10 @@ interface WireFrame {
 }
 
 class RelayDevice {
-  readonly phone = generateBoxKeyPair();
+  readonly phone = newPhone();
   deviceId: string | null = null;
+  /** 桌面签发的准入令牌：配对前来自 QR 的 relay_grant，之后来自加密 ack */
+  grant: RelayDeviceGrant | null = null;
   private ws!: WebSocket;
   private frames: WireFrame[] = [];
   private payloads: Record<string, unknown>[] = [];
@@ -170,9 +238,27 @@ class RelayDevice {
     private readonly desktopPk: string,
   ) {}
 
-  connect(): Promise<void> {
-    return new Promise((resolvePromise, rejectPromise) => {
-      const ws = new WebSocket(`${this.relayBase}/channel/${this.channelId}?role=device`);
+  /** 协议 v3：先凭令牌换票再建连（配对连接不带 device 参数） */
+  async connect(): Promise<void> {
+    if (!this.grant) throw new Error("device 缺少准入令牌");
+    const res = await fetch(`${this.relayBase.replace(/^ws/, "http")}/v1/tickets`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        channelId: this.channelId,
+        role: "device",
+        ...(this.deviceId ? { deviceId: this.deviceId } : {}),
+        hostPk: this.desktopPk,
+        grant: this.grant,
+      }),
+    });
+    if (res.status !== 200) throw new Error(`ticket ${res.status}: ${await res.text()}`);
+    const { ticket } = (await res.json()) as { ticket: string };
+    const dev = this.deviceId ? `&device=${encodeURIComponent(this.deviceId)}` : "";
+    await new Promise<void>((resolvePromise, rejectPromise) => {
+      const ws = new WebSocket(
+        `${this.relayBase}/channel/${this.channelId}?role=device${dev}&ticket=${encodeURIComponent(ticket)}`,
+      );
       this.ws = ws;
       ws.on("message", (data: Buffer) => {
         let frame: WireFrame;
@@ -211,16 +297,14 @@ class RelayDevice {
   }
 
   async pair(otp: string, name = "relay 测试机"): Promise<void> {
-    const c = secretboxEncrypt(JSON.stringify({ publicKey: this.phone.publicKey, name }), deriveOtpKey(otp));
-    this.sendRaw({ t: "pair", c });
-    const ack = await this.waitFrame((f) => f.t === "pair_ack");
+    this.sendRaw(pairFrame(this.phone, this.desktopPk, otp, name));
+    const ack = openPairAck(await this.waitFrame((f) => f.t === "pair_ack"), this.phone, this.desktopPk);
     expect(ack.ok).toBe(true);
-    const inner = JSON.parse(boxDecrypt(ack.c!, this.desktopPk, this.phone.secretKey)!) as {
-      desktopPk: string;
-      deviceId: string;
-    };
-    expect(inner.desktopPk).toBe(this.desktopPk);
-    this.deviceId = inner.deviceId;
+    if (!ack.ok) return;
+    expect(ack.inner.desktopPk).toBe(this.desktopPk);
+    expect(ack.inner.relayGrant).toBeTruthy();
+    this.deviceId = ack.inner.deviceId;
+    this.grant = ack.inner.relayGrant ?? null;
   }
 
   async auth(): Promise<void> {
@@ -234,11 +318,18 @@ class RelayDevice {
       nextSeq: this.outSeq,
     });
     const challenge = await this.waitFrame((f) => f.t === "auth_challenge", 3000, startAt);
-    const proof = boxEncrypt(challenge.nonce as string, this.desktopPk, this.phone.secretKey);
-    this.sendRaw({ t: "auth_proof", c: proof });
-    const ack = await this.waitFrame((f) => f.t === "auth_ack", 3000, startAt);
+    this.sendRaw(proofFrame(challenge.nonce as string, this.phone, this.desktopPk));
+    const ack = openAuthAckFrame(
+      await this.waitFrame((f) => f.t === "auth_ack", 3000, startAt),
+      this.phone,
+      this.desktopPk,
+    );
     expect(ack.ok).toBe(true);
-    if (typeof ack.resumeSeq === "number") this.outSeq = Math.max(ack.resumeSeq, this.outSeq);
+    if (!ack.ok) return;
+    this.outSeq = Math.max(ack.inner.resumeSeq, this.outSeq);
+    // 协议 v3：每次 auth 续发设备令牌
+    expect(ack.inner.relayGrant).toBeTruthy();
+    this.grant = ack.inner.relayGrant ?? null;
   }
 
   /** 发送加密命令（帧外层带 deviceId 供 relay 路由） */
@@ -327,9 +418,16 @@ const emitHost = (e: HostEvent) => {
 
 async function makeDevice(name?: string): Promise<RelayDevice> {
   const dev = new RelayDevice(relayBase, channelId, pairing.getIdentity().publicKey);
+  const info = server.regeneratePairing();
+  // 配对令牌来自 QR 的 relay_grant（subject "pair"）
+  const grantParam = new URL(info.qrPayload).searchParams.get("relay_grant");
+  expect(grantParam).toBeTruthy();
+  dev.grant = decodeGrantParam(grantParam!);
   await dev.connect();
-  const { otp } = server.regeneratePairing();
-  await dev.pair(otp, name);
+  await dev.pair(info.otp, name);
+  // 配对连接完成使命；正式连接带 deviceId + 设备令牌
+  dev.close();
+  await dev.connect();
   await dev.auth();
   devices.push(dev);
   return dev;
@@ -347,6 +445,7 @@ beforeAll(async () => {
   relayTransport = new RelayTransport({
     url: relayBase,
     channelId,
+    identity: () => pairing.getIdentity(),
     reconnectInitialMs: 50,
     reconnectMaxMs: 200,
     log: (msg, extra) => relayLogs.push({ msg, extra }),
@@ -442,16 +541,43 @@ function waitUntil(pred: () => boolean, timeoutMs = 3000): Promise<void> {
 // ---------------------------------------------------------------------------
 
 describe("relay transport 基础", () => {
-  it("channelId = sha256(公钥原始字节) hex；QR urls 携带 relay+ 前缀；status 透出 relay 状态", () => {
+  it("channelId = sha256(公钥原始字节) hex；QR urls 携带 relay+ 前缀与配对令牌；status 透出 relay 状态", () => {
     expect(channelId).toMatch(/^[0-9a-f]{64}$/);
     const urls = server.urls();
     expect(urls.some((u) => u === `relay+${relayBase}`)).toBe(true);
     expect(urls.some((u) => u.startsWith("http://"))).toBe(true); // 局域网项仍在
     expect(server.status().relay).toBe("connected");
-    // QR payload 的 hosts 里带 relay+wss:// 前缀项
+    // QR payload 的 hosts 里带 relay+wss:// 前缀项，且携带 subject="pair" 的准入令牌（随 OTP 过期）
     const info = server.regeneratePairing();
-    const hosts = decodeURIComponent(new URL(info.qrPayload).searchParams.get("hosts") ?? "");
+    const params = new URL(info.qrPayload).searchParams;
+    expect(params.get("v")).toBe("4");
+    const hosts = decodeURIComponent(params.get("hosts") ?? "");
     expect(hosts.split(",")).toContain(`relay+${relayBase}`);
+    const grant = decodeGrantParam(params.get("relay_grant") ?? "");
+    expect(grant).not.toBeNull();
+    expect(grant!.exp).toBe(info.expiresAt);
+    expect(
+      verifyDeviceGrant(
+        channelId,
+        RELAY_PAIR_SUBJECT,
+        grant!,
+        pairing.getIdentity().publicKey,
+        relay.identity.secretKey,
+      ),
+    ).toBe(true);
+  });
+
+  it("host 建连用所有权证明换票：relay 收到 hostPk/ts/proof，且伪造证明不被接受", async () => {
+    const hostReq = relay.ticketRequests.find((r) => r.role === "host");
+    expect(hostReq).toBeTruthy();
+    expect(hostReq!.hostPk).toBe(pairing.getIdentity().publicKey);
+    expect(typeof hostReq!.ts).toBe("number");
+    const forged = await fetch(`${relayBase.replace(/^ws/, "http")}/v1/tickets`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...hostReq, proof: Buffer.alloc(32, 1).toString("base64") }),
+    });
+    expect(forged.status).toBe(401);
   });
 });
 

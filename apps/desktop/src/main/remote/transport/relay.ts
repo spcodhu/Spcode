@@ -1,14 +1,22 @@
 /**
  * relay Transport（M2）：harness 作为 host 出站长连接哑 relay，公网可达。
  *
- * 协议（与 apps/relay 服务端对齐）：
- * - 连接：`wss://<relayUrl>/channel/<channelId>?role=host`；
+ * 协议 v3（与 spcod-relay 服务端对齐）：
+ * - 准入：先 `GET /v1/relay-info` 取 relay X25519 公钥；每次建连前 `POST /v1/tickets`
+ *   携带 host 证明（HMAC(channelId:ts, X25519(relayPk, desktopSk))）换 30s 单次票据，
+ *   relay 据此确认 host 确实持有 channel 对应的桌面私钥——匿名者无法抢占 host 槽位或
+ *   随意建 channel。自托管访问密钥（accessKey）作为额外 Bearer 门槛叠加。
+ * - 设备准入令牌：host 用同一共享密钥为 deviceId / "pair" 签发 {exp, mac}，经加密 ack 或
+ *   QR 下发给手机，手机凭它换取 device 票据；relay 不再接受匿名 device。
+ * - 连接：`wss://<relayUrl>/channel/<channelId>?role=host&ticket=…`；
  *   channelId = SHA-256(桌面 X25519 公钥原始 32 字节) 的 hex 小写（见 deriveChannelId）；
  * - 帧：与 LAN 完全相同的 JSON 文本帧（pair/auth/encrypted 原样穿过 relay）；
  *   relay 额外产生 {t:"relay.hello", role, queued}（queued = 离线补投条数，记日志）
  *   与 {t:"relay.error", error}（channel_full 等，记日志即可）；
  * - 断线：指数退避自动重连（默认 1s → 30s）；host 断线期间 device 发的帧由 relay
  *   离线队列按 FIFO 补投，帧沿用发送方原始 seq。
+ * - 401/403（证明被拒：时钟偏差 / relay 换钥）：进入 auth_failed，按长退避重拉 relay-info 再试；
+ *   4001（同身份另一 host 接管）：按最大退避重连，避免两台共用 device.key 的桌面互踢打转。
  *
  * 多设备路由（一条 host↔relay 连接承载多台手机）：
  * - 每台设备映射为一条「虚拟 PeerConnection」，按 deviceId 键控，**跨 host-relay
@@ -16,9 +24,9 @@
  *   host 侧的入站防重放状态因此也必须连续，补投帧才不会被误判为重放；
  * - device→host：设备在 auth / encrypted 帧外层携带 deviceId（pair 帧除外），
  *   relay 原样转发给 host，host 按 deviceId 分流到对应虚拟连接；
- * - host→device：relay 是**广播语义**（原样发给全部在线设备；无设备在线时入队，
- *   下一设备上线补投）。host 发送时在帧外层附对端 deviceId 作为过滤元数据——
- *   客户端据此廉价丢弃他设备帧；隔离由逐设备加密兜底（他设备帧解不开）；
+ * - host→device：relay 按帧外层 deviceId 定向投递（无 deviceId 的帧广播给全部在线设备；
+ *   无设备在线时入队）。host 发送时在帧外层附对端 deviceId——客户端据此廉价丢弃他设备帧；
+ *   隔离由逐设备加密兜底（他设备帧解不开）；
  * - 无 deviceId 的帧只有 pair_ack 与配对期快照：密文只有配对中的设备能解开；
  * - 设备经 relay 配对成功后必须先再发一帧 auth（带 publicKey + deviceId）再发加密流量：
  *   配对用的临时虚拟连接在 pair_ack ok 后即关闭，业务状态挂在按 deviceId 键控的
@@ -28,8 +36,14 @@
  */
 
 import { randomUUID } from "node:crypto";
-import type { RemoteRelayState } from "@spcode/shared";
-import { deriveChannelId } from "@spcode/shared/crypto";
+import type { RelayDeviceGrant, RelayInfo, RemoteRelayState } from "@spcode/shared";
+import {
+  type BoxKeyPairB64,
+  buildDeviceGrant,
+  buildHostProof,
+  deriveChannelId,
+  isValidPublicKey,
+} from "@spcode/shared/crypto";
 import type { NetworkProxySettings } from "@spcode/shared/proxy";
 import WebSocket from "ws";
 import { createNodeProxyAgent } from "../../../network-proxy.js";
@@ -38,10 +52,17 @@ import type { PeerConnection, RemoteTransport } from "./types.js";
 // channelId 推导已下沉 @spcode/shared/crypto（评审 R3-C12：双端同一份实现）
 export { deriveChannelId };
 
+export const RELAY_INFO_PATH = "/v1/relay-info";
+export const RELAY_TICKET_PATH = "/v1/tickets";
+/** relay close code：同身份另一 host 接管 */
+export const RELAY_CLOSE_HOST_REPLACED = 4001;
+/** 证明被拒后的重试间隔（重拉 relay-info，覆盖 relay 换钥场景） */
+const AUTH_FAILED_RETRY_MS = 60_000;
+
 export interface RelayTransportOptions {
   /** relay 地址（wss://host[:port]，不含路径） */
   url: string;
-  /** 自托管可选访问密钥；有值时先经 HTTPS 换取单次 ticket。 */
+  /** 自托管可选访问密钥；叠加在 host 证明之上作为 Bearer 门槛。 */
   accessKey?: string | null;
   /** 应用统一出站代理；HTTP(S) fetch 由全局 dispatcher 覆盖，WS 在此显式注入 agent。 */
   proxy?: NetworkProxySettings;
@@ -49,6 +70,8 @@ export interface RelayTransportOptions {
   fetchImpl?: typeof fetch;
   /** 见 deriveChannelId */
   channelId: string;
+  /** 桌面身份密钥对（host 证明与设备令牌都用它和 relayPk 推共享密钥） */
+  identity: () => BoxKeyPairB64;
   /** 重连退避（默认 1000ms 起步，翻倍至 30000ms 封顶） */
   reconnectInitialMs?: number;
   reconnectMaxMs?: number;
@@ -67,13 +90,37 @@ function httpBaseOf(url: string): string {
   return url.replace(/^ws/i, "http").replace(/\/+$/, "");
 }
 
-async function issueHostTicket(opts: RelayTransportOptions): Promise<string> {
-  if (!opts.accessKey) return "";
+function authHeaders(accessKey: string | null | undefined): Record<string, string> {
+  return accessKey ? { authorization: `Bearer ${accessKey}` } : {};
+}
+
+/** GET /v1/relay-info：relay 公钥（协议 v3 准入的根） */
+export async function fetchRelayInfo(url: string, fetchImpl: typeof fetch = fetch): Promise<RelayInfo> {
+  const response = await fetchImpl(`${httpBaseOf(url)}${RELAY_INFO_PATH}`);
+  if (!response.ok) throw new RelayHttpError(response.status);
+  const info = (await response.json()) as Partial<RelayInfo>;
+  if (info.version !== 3 || !isValidPublicKey(info.relayPk)) throw new RelayHttpError(500);
+  return { version: info.version, relayPk: info.relayPk };
+}
+
+/** POST /v1/tickets（host）：携带所有权证明换单次票据，返回 `&ticket=…` 查询串 */
+async function issueHostTicket(
+  opts: Pick<RelayTransportOptions, "url" | "accessKey" | "channelId" | "identity" | "fetchImpl">,
+  relayPk: string,
+): Promise<string> {
   const fetchImpl = opts.fetchImpl ?? fetch;
-  const response = await fetchImpl(`${httpBaseOf(opts.url)}/v1/tickets`, {
+  const identity = opts.identity();
+  const ts = Date.now();
+  const response = await fetchImpl(`${httpBaseOf(opts.url)}${RELAY_TICKET_PATH}`, {
     method: "POST",
-    headers: { "content-type": "application/json", authorization: `Bearer ${opts.accessKey}` },
-    body: JSON.stringify({ channelId: opts.channelId, role: "host" }),
+    headers: { "content-type": "application/json", ...authHeaders(opts.accessKey) },
+    body: JSON.stringify({
+      channelId: opts.channelId,
+      role: "host",
+      hostPk: identity.publicKey,
+      ts,
+      proof: buildHostProof(opts.channelId, ts, relayPk, identity.secretKey),
+    }),
   });
   if (!response.ok) throw new RelayHttpError(response.status);
   const grant = (await response.json()) as { ticket?: unknown };
@@ -81,17 +128,13 @@ async function issueHostTicket(opts: RelayTransportOptions): Promise<string> {
   return `&ticket=${encodeURIComponent(grant.ticket)}`;
 }
 
-/** 设置页测试连接：健康检查或真实签发票据，不占用用户实际 channel。 */
+/** 设置页测试连接：拉 relay-info 并真实签发一张 host 票据（不建连、不占用 channel）。 */
 export async function testRelayConnection(
-  opts: RelayTransportOptions,
+  opts: Pick<RelayTransportOptions, "url" | "accessKey" | "channelId" | "identity" | "fetchImpl">,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    if (opts.accessKey) {
-      await issueHostTicket(opts);
-    } else {
-      const response = await (opts.fetchImpl ?? fetch)(`${httpBaseOf(opts.url)}/health`);
-      if (!response.ok) throw new RelayHttpError(response.status);
-    }
+    const info = await fetchRelayInfo(opts.url, opts.fetchImpl);
+    await issueHostTicket(opts, info.relayPk);
     return { ok: true };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -172,6 +215,8 @@ export class RelayTransport implements RemoteTransport {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectDelay: number;
   private pending: string[] = [];
+  /** relay X25519 公钥（协议 v3 准入根）；null = 尚未成功拉取 relay-info */
+  private relayPk: string | null = null;
   private readonly initialDelay: number;
   private readonly maxDelay: number;
   private readonly pendingLimit: number;
@@ -224,9 +269,18 @@ export class RelayTransport implements RemoteTransport {
     return this.state;
   }
 
-  /** QR hosts 项：`relay+` 前缀约定（客户端据此区分直连与 relay；见 shared/remote.ts） */
+  /**
+   * QR hosts 项：`relay+` 前缀约定（客户端据此区分直连与 relay；见 shared/remote.ts）。
+   * relayPk 未知时不广告——没有它签不出配对令牌，手机拿到 relay 项也进不了门。
+   */
   getAdvertisedUrls(): string[] {
-    return this.started ? [`relay+${this.opts.url}`] : [];
+    return this.started && this.relayPk ? [`relay+${this.opts.url}`] : [];
+  }
+
+  /** 协议 v3：为 deviceId / "pair" 签发准入令牌（relayPk 未知返回 null） */
+  issueDeviceGrant(subject: string, exp: number): RelayDeviceGrant | null {
+    if (!this.relayPk) return null;
+    return buildDeviceGrant(this.opts.channelId, subject, exp, this.relayPk, this.opts.identity().secretKey);
   }
 
   /** 虚拟连接发送入口：物化 deviceId 后写入 ws；断线期间进本地缓冲，重连后按序冲刷 */
@@ -269,16 +323,35 @@ export class RelayTransport implements RemoteTransport {
     this.state = "connecting";
     void this.openConnection().catch((error) => {
       const status = error instanceof RelayHttpError ? error.status : 0;
-      const authFailed = status === 401 || status === 403;
-      this.state = authFailed ? "auth_failed" : "error";
-      this.log("relay 连接失败", { status, authFailed, anonymous: !this.opts.accessKey });
-      if (!authFailed) this.scheduleReconnect();
+      this.onAdmissionFailure(status);
     });
+  }
+
+  /**
+   * 准入失败（relay-info / 取票 / 握手非 101）：401/403 = 证明被拒（时钟偏差或 relay 换钥），
+   * 进入 auth_failed 并按长间隔重试——每次重试都重拉 relay-info，relay 换钥可自愈；
+   * 其余状态按普通指数退避。
+   */
+  private onAdmissionFailure(status: number): void {
+    const authFailed = status === 401 || status === 403;
+    this.state = authFailed ? "auth_failed" : "error";
+    this.log("relay 连接失败", { status, authFailed });
+    if (authFailed) {
+      this.relayPk = null;
+      this.scheduleReconnect(AUTH_FAILED_RETRY_MS);
+    } else {
+      this.scheduleReconnect();
+    }
   }
 
   private async openConnection(): Promise<void> {
     const base = this.opts.url.replace(/\/+$/, "");
-    const ticket = await issueHostTicket(this.opts);
+    if (!this.relayPk) {
+      const info = await fetchRelayInfo(this.opts.url, this.opts.fetchImpl);
+      if (!this.started) return;
+      this.relayPk = info.relayPk;
+    }
+    const ticket = await issueHostTicket(this.opts, this.relayPk);
     if (!this.started) return;
     const url = `${base}/channel/${this.opts.channelId}?role=host${ticket}`;
     const agent = createNodeProxyAgent(this.opts.proxy) as unknown as import("http").Agent | undefined;
@@ -286,18 +359,15 @@ export class RelayTransport implements RemoteTransport {
     this.ws = ws;
     this.state = "connecting";
     let handshakeStatus = 0;
+    let closeCode = 0;
 
-    // ws 在握手收到非 101 时走 unexpected-response，而不是普通 HTTP catch；
-    // 官方匿名客户端遇到 401/403 也必须进入 auth_failed，不能当成断线无限重连。
+    // ws 在握手收到非 101 时走 unexpected-response，而不是普通 HTTP catch。
     ws.on("unexpected-response", (_request, response) => {
       if (this.ws !== ws) {
         response.resume();
         return;
       }
       handshakeStatus = response.statusCode ?? 0;
-      const authFailed = handshakeStatus === 401 || handshakeStatus === 403;
-      this.state = authFailed ? "auth_failed" : "error";
-      this.log("relay 连接失败", { status: handshakeStatus, authFailed, anonymous: !this.opts.accessKey });
       response.resume();
       ws.terminate();
     });
@@ -325,23 +395,41 @@ export class RelayTransport implements RemoteTransport {
     const onDown = () => {
       if (this.ws !== ws) return;
       this.ws = null;
-      const authFailed = handshakeStatus === 401 || handshakeStatus === 403;
-      this.state = authFailed ? "auth_failed" : "connecting";
       ws.removeAllListeners();
       ws.on("error", () => {}); // 同上：残余 error 兜底
-      if (!authFailed) this.scheduleReconnect();
+      if (handshakeStatus !== 0) {
+        this.onAdmissionFailure(handshakeStatus);
+        return;
+      }
+      this.state = "connecting";
+      if (closeCode === RELAY_CLOSE_HOST_REPLACED) {
+        // 同身份另一 host 接管（两台桌面共用 device.key）：按最大退避，避免互踢打转
+        this.log("relay 上有同身份的另一主机在线，已被接管", { channelId: this.opts.channelId });
+        this.scheduleReconnect(this.maxDelay);
+        return;
+      }
+      this.scheduleReconnect();
     };
-    ws.on("close", onDown);
+    ws.on("close", (code: number) => {
+      closeCode = code;
+      onDown();
+    });
     ws.on("error", (err) => {
       this.log("relay 连接错误", err instanceof Error ? err.message : String(err));
       ws.close();
     });
   }
 
-  private scheduleReconnect(): void {
+  /** delayOverride：指定本次等待时长（不参与指数增长）；缺省走指数退避 */
+  private scheduleReconnect(delayOverride?: number): void {
     if (!this.started || this.reconnectTimer) return;
-    const delay = this.reconnectDelay;
-    this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxDelay);
+    let delay: number;
+    if (delayOverride === undefined) {
+      delay = this.reconnectDelay;
+      this.reconnectDelay = Math.min(this.reconnectDelay * 2, this.maxDelay);
+    } else {
+      delay = delayOverride;
+    }
     this.log("relay 断线，等待重连", { delayMs: delay });
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;

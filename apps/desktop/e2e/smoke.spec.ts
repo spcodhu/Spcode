@@ -273,7 +273,7 @@ test.describe("Spcode 冒烟 E2E", () => {
 
     // 完整配对码可展开，内容使用现有 QR payload，不触发重新生成
     await window.getByTestId("remote-payload-toggle").click();
-    await expect(window.getByTestId("remote-payload")).toHaveValue(/^spcode-remote:\/\/pair\?v=3&/);
+    await expect(window.getByTestId("remote-payload")).toHaveValue(/^spcode-remote:\/\/pair\?v=4&/);
     await expect(window.getByTestId("remote-copy-payload")).toBeVisible();
 
     // 关闭：回到简介态

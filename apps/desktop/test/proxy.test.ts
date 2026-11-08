@@ -13,6 +13,7 @@ import {
 } from "@spcode/shared/proxy";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocketServer } from "ws";
+import { deriveChannelId, generateBoxKeyPair } from "../src/main/remote/crypto.js";
 import { RelayTransport } from "../src/main/remote/transport/relay.js";
 import { redactSettingsForRenderer, restoreMaskedSecrets, SettingsStore } from "../src/main/settings-store.js";
 import { applyNetworkProxyEnvironment, configureNetworkProxy, createNodeProxyAgent } from "../src/network-proxy.js";
@@ -127,8 +128,32 @@ describe("Node 网络栈真实代理转发", () => {
   });
 
   it("relay WebSocket 经 HTTP CONNECT 隧道，代理认证不会退化成直连", async () => {
-    const target = http.createServer();
+    const hostIdentity = generateBoxKeyPair();
+    const relayIdentity = generateBoxKeyPair();
+    const channelId = deriveChannelId(hostIdentity.publicKey);
+    const httpSteps: string[] = [];
+    const upgradeUrls: string[] = [];
+    let ticketBody: Record<string, unknown> | null = null;
+    const target = http.createServer(async (req, res) => {
+      const url = new URL(req.url ?? "/", "http://localhost");
+      httpSteps.push(`${req.method} ${url.pathname}`);
+      if (req.method === "GET" && url.pathname === "/v1/relay-info") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ version: 3, relayPk: relayIdentity.publicKey }));
+        return;
+      }
+      if (req.method === "POST" && url.pathname === "/v1/tickets") {
+        const chunks: Buffer[] = [];
+        for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        ticketBody = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ticket: "proxy-ticket", expiresAt: Date.now() + 30_000 }));
+        return;
+      }
+      res.writeHead(404).end();
+    });
     const wss = new WebSocketServer({ server: target });
+    target.on("upgrade", (req) => upgradeUrls.push(req.url ?? ""));
     wss.on("connection", (ws) => ws.send(JSON.stringify({ t: "relay.hello", role: "host", queued: 0 })));
     const targetPort = await listen(target);
     const connects: { url?: string; authorization?: string }[] = [];
@@ -145,9 +170,18 @@ describe("Node 网络栈真实代理转发", () => {
       client.on("error", () => upstream.destroy());
     });
     const proxyPort = await listen(proxy);
+    const fetchCalls: string[] = [];
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const rawUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const url = new URL(rawUrl);
+      fetchCalls.push(`${init?.method ?? "GET"} ${url.pathname}`);
+      return fetch(input, init);
+    };
     const transport = new RelayTransport({
       url: `ws://127.0.0.1:${targetPort}`,
-      channelId: "a".repeat(64),
+      channelId,
+      identity: () => hostIdentity,
+      fetchImpl,
       proxy: {
         enabled: true,
         protocol: "http",
@@ -171,6 +205,13 @@ describe("Node 网络栈真实代理转发", () => {
       });
       expect(connects[0]?.url).toBe(`127.0.0.1:${targetPort}`);
       expect(connects[0]?.authorization).toBe(`Basic ${Buffer.from("relay:secret").toString("base64")}`);
+      expect(connects).toHaveLength(1);
+      expect(fetchCalls).toEqual(["GET /v1/relay-info", "POST /v1/tickets"]);
+      expect(httpSteps).toEqual(["GET /v1/relay-info", "POST /v1/tickets"]);
+      expect(ticketBody).toMatchObject({ channelId, role: "host", hostPk: hostIdentity.publicKey });
+      expect(typeof ticketBody?.proof).toBe("string");
+      expect(upgradeUrls).toHaveLength(1);
+      expect(new URL(upgradeUrls[0]!, "ws://localhost").searchParams.get("ticket")).toBe("proxy-ticket");
       expect(createNodeProxyAgent()).toBeUndefined();
     } finally {
       await transport.stop();
