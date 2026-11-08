@@ -26,6 +26,7 @@ import type {
   ModelInfo,
   ModelPriceRates,
   ModelPricingOverrides,
+  ModelCatalogSyncStatus,
   ModelRef,
   PermissionMode,
   PermissionRequest,
@@ -93,6 +94,14 @@ const modelOverlay = createModelOverlayStore(AGENT_DIR);
 
 let modelRuntime: ModelRuntime | null = null;
 let memoryStore: MemoryStore | null = null;
+/** 模型目录自动同步开关（主进程设置页经 modelCatalog.setAutoSync 下发；宿主重启后由主进程重推） */
+let modelCatalogAutoSync = true;
+/** 最近一次模型目录联网刷新的状态（供 models.catalogSyncStatus 查询） */
+const catalogSync: ModelCatalogSyncStatus = {
+  lastSyncedAt: null,
+  lastError: null,
+  inProgress: false,
+};
 /** 用户按模型配置的单价；只应用于收到配置后新产生的 usage，不回算历史。 */
 let modelPricing: ModelPricingOverrides = {};
 /** 记忆蒸馏总开关（主进程设置页经 memory.setDistillEnabled 下发；宿主重启后由主进程重推） */
@@ -150,8 +159,29 @@ async function getRuntime(): Promise<ModelRuntime> {
       authPath: join(AGENT_DIR, "auth.json"),
       modelsPath: modelOverlay.managedPath,
     });
+    // 首次创建 runtime 后，若开关开启则后台静默联网刷新一次 pi 远程目录补丁。
+    // 不传 force，让 pi 官方的 4 小时节流窗口自然生效；失败静默，不阻塞本次调用。
+    if (modelCatalogAutoSync) void backgroundCatalogSync(modelRuntime);
   }
   return modelRuntime;
+}
+
+/**
+ * 后台联网刷新 pi 远程目录补丁（withRemoteCatalog）。
+ * 失败仅记录 lastError，不抛出、不打断任何现有流程。
+ */
+async function backgroundCatalogSync(rt: ModelRuntime): Promise<void> {
+  if (catalogSync.inProgress) return;
+  catalogSync.inProgress = true;
+  catalogSync.lastError = null;
+  try {
+    await rt.refresh({ allowNetwork: true });
+    catalogSync.lastSyncedAt = Date.now();
+  } catch (err) {
+    catalogSync.lastError = err instanceof Error ? err.message : String(err);
+  } finally {
+    catalogSync.inProgress = false;
+  }
 }
 
 /**
@@ -507,6 +537,11 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
     return;
   }
 
+  if (cmd.type === "modelCatalog.setAutoSync") {
+    modelCatalogAutoSync = cmd.payload.enabled;
+    return;
+  }
+
   const { id } = cmd;
   try {
     switch (cmd.type) {
@@ -555,6 +590,26 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
           })),
         }));
         respond(id, true, catalog);
+        break;
+      }
+      case "models.refreshCatalog": {
+        // 模型页「刷新模型目录」按钮：用户显式触发，绕开 4 小时节流立即联网刷新
+        const rt = await getRuntime();
+        catalogSync.inProgress = true;
+        catalogSync.lastError = null;
+        try {
+          await rt.refresh({ allowNetwork: true, force: true });
+          catalogSync.lastSyncedAt = Date.now();
+        } catch (err) {
+          catalogSync.lastError = err instanceof Error ? err.message : String(err);
+        } finally {
+          catalogSync.inProgress = false;
+        }
+        respond(id, true);
+        break;
+      }
+      case "models.catalogSyncStatus": {
+        respond(id, true, { ...catalogSync });
         break;
       }
       case "models.addModel": {

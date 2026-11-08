@@ -64,6 +64,16 @@ export interface CatalogProvider {
   models: CatalogModel[];
 }
 
+/** 模型目录联网刷新状态（models.catalogSyncStatus 响应） */
+export interface ModelCatalogSyncStatus {
+  /** 最近一次成功联网检查的时间戳（ms）；null = 从未成功检查过 */
+  lastSyncedAt: number | null;
+  /** 最近一次联网检查失败的错误信息；null = 无失败 */
+  lastError: string | null;
+  /** 当前是否有刷新正在进行 */
+  inProgress: boolean;
+}
+
 export * from "./models-overlay.js";
 
 // ---------------------------------------------------------------------------
@@ -458,6 +468,12 @@ export type HostCommand =
     }
   | { id: string; type: "models.list" }
   | { id: string; type: "models.catalog" }
+  /** 模型页「刷新模型目录」按钮：强制联网刷新所有已配置供应商的 pi 远程目录补丁 */
+  | { id: string; type: "models.refreshCatalog" }
+  /** 查询最近一次模型目录联网刷新的状态（时间/错误/进行中） */
+  | { id: string; type: "models.catalogSyncStatus" }
+  /** 设置页「自动检查模型目录更新」开关下发（主进程 → 宿主） */
+  | { type: "modelCatalog.setAutoSync"; payload: { enabled: boolean } }
   /** 设置页「添加模型」：追加到用户 models.json（同 id 覆盖），仅自定义模型可删 */
   | { id: string; type: "models.addModel"; payload: AddCustomModelInput }
   /** 仅允许删除用户 models.json 里声明的自定义模型；内置/官方补丁模型返回错误 */
@@ -1016,6 +1032,8 @@ export interface AppSettings {
   ignoredUpdateVersion?: string;
   /** 自动记忆蒸馏：每轮对话结束后自动整理长期记忆（会消耗少量 token，可关） */
   memoryDistill: boolean;
+  /** 自动检查模型目录更新：启动后静默联网刷新一次 pi 远程目录补丁（失败静默，可关） */
+  modelCatalogAutoSync: boolean;
   /** 模型行悬浮时显示配额卡片 */
   quickQuota: boolean;
   /** 模型单价覆盖（provider/modelId → USD/1M token 四项费率），只影响新产生的用量 */
@@ -1197,6 +1215,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoUpdate: true,
   desktopNotifications: true,
   memoryDistill: true,
+  modelCatalogAutoSync: true,
   quickQuota: true,
   modelPricing: {},
   disabledProviders: [],
