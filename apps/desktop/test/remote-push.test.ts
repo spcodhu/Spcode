@@ -24,13 +24,7 @@ vi.mock("web-push", () => ({ default: mocks }));
 
 const { sendNotification, generateVAPIDKeys, setVapidDetails } = mocks;
 
-import {
-  boxDecrypt,
-  boxEncrypt,
-  deriveOtpKey,
-  generateBoxKeyPair,
-  secretboxEncrypt,
-} from "../src/main/remote/crypto.js";
+import { boxDecrypt, boxEncrypt, generateBoxKeyPair } from "../src/main/remote/crypto.js";
 import { RemoteServer } from "../src/main/remote/index.js";
 import { PairingManager } from "../src/main/remote/pairing.js";
 import { PushService } from "../src/main/remote/push.js";
@@ -39,6 +33,7 @@ import { TailscaleManager } from "../src/main/remote/transport/tailscale.js";
 import type { RegistryLike } from "../src/main/session-helpers.js";
 import type { SessionRegistryEntry } from "../src/main/session-registry.js";
 import { configureNetworkProxy } from "../src/network-proxy.js";
+import { openPairAck, pairFrame } from "./remote-v3-helpers.js";
 
 const VALID_SUB = {
   endpoint: "https://push.example.com/sub/abc",
@@ -276,14 +271,8 @@ describe("RemoteServer 集成：push.subscribe 命令", () => {
       await new Promise<void>((r) => ws.on("open", () => r()));
 
       const { otp } = server.regeneratePairing();
-      ws.send(
-        JSON.stringify({
-          t: "pair",
-          otp,
-          c: secretboxEncrypt(JSON.stringify({ publicKey: phone.publicKey, name: "推送机" }), deriveOtpKey(otp)),
-        }),
-      );
       const desktopPk = pairing.getIdentity().publicKey;
+      ws.send(JSON.stringify(pairFrame(phone, desktopPk, otp, "推送机")));
       const waitFrame = async (pred: (f: { t?: string; c?: string }) => boolean) => {
         for (let i = 0; i < 300; i++) {
           const hit = frames.find(pred);
@@ -292,7 +281,8 @@ describe("RemoteServer 集成：push.subscribe 命令", () => {
         }
         throw new Error("waitFrame 超时");
       };
-      await waitFrame((f) => f.t === "pair_ack");
+      const pairAck = openPairAck(await waitFrame((f) => f.t === "pair_ack"), phone, desktopPk);
+      expect(pairAck.ok).toBe(true);
 
       // remote.hello 携带 VAPID 公钥（mock 值）
       const helloFrame = await waitFrame((f) => {

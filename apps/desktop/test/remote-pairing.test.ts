@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { deriveOtpKey, generateBoxKeyPair, secretboxEncrypt } from "../src/main/remote/crypto.js";
+import { decodeGrantParam, generateBoxKeyPair, sealPairHello } from "../src/main/remote/crypto.js";
 import { deviceFingerprint, PairingManager } from "../src/main/remote/pairing.js";
 
 let dir = "";
@@ -21,10 +21,9 @@ function setup(now?: () => number) {
   return new PairingManager({ baseDir, now });
 }
 
-/** 构造一次合法握手的密文（模拟手机端） */
-function makePairCiphertext(otp: string, name = "我的手机") {
-  const phone = generateBoxKeyPair();
-  const c = secretboxEncrypt(JSON.stringify({ publicKey: phone.publicKey, name }), deriveOtpKey(otp));
+/** 构造协议 v3 配对密文：外层公钥与 box 内的手机私钥必须属于同一密钥对。 */
+function makePairHello(pm: PairingManager, otp: string, name = "我的手机", phone = generateBoxKeyPair()) {
+  const c = sealPairHello({ otp, name }, pm.getIdentity().publicKey, phone.secretKey);
   return { phone, c };
 }
 
@@ -68,8 +67,8 @@ describe("OTP 配对窗口", () => {
   it("配对成功：设备落盘（0600），新实例可读回；窗口单次有效", () => {
     const pm = setup();
     const win = pm.beginPairing();
-    const { phone, c } = makePairCiphertext(win.otp);
-    const result = pm.tryPair(c);
+    const { phone, c } = makePairHello(pm, win.otp);
+    const result = pm.tryPair(phone.publicKey, c);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.device.name).toBe("我的手机");
@@ -86,17 +85,18 @@ describe("OTP 配对窗口", () => {
     expect(new PairingManager({ baseDir }).devices()).toHaveLength(1);
 
     // 单次有效：同一 OTP 再用 → 窗口已消费（expired）
-    expect(pm.tryPair(c)).toEqual({ ok: false, error: "expired" });
+    expect(pm.tryPair(phone.publicKey, c)).toEqual({ ok: false, error: "expired" });
   });
 
   it("同公钥重复配对替换旧记录", () => {
     const pm = setup();
     const win1 = pm.beginPairing();
-    const { phone, c } = makePairCiphertext(win1.otp, "旧名字");
-    pm.tryPair(c);
+    const phone = generateBoxKeyPair();
+    const { c } = makePairHello(pm, win1.otp, "旧名字", phone);
+    pm.tryPair(phone.publicKey, c);
     const win2 = pm.beginPairing();
-    const c2 = secretboxEncrypt(JSON.stringify({ publicKey: phone.publicKey, name: "新名字" }), deriveOtpKey(win2.otp));
-    const r = pm.tryPair(c2);
+    const c2 = makePairHello(pm, win2.otp, "新名字", phone).c;
+    const r = pm.tryPair(phone.publicKey, c2);
     expect(r.ok).toBe(true);
     expect(pm.devices()).toHaveLength(1);
     expect(pm.devices()[0]?.name).toBe("新名字");
@@ -108,43 +108,65 @@ describe("OTP 配对窗口", () => {
     const pm = setup(() => now);
     const win = pm.beginPairing();
     const wrong = win.otp === "00000000" ? "00000001" : "00000000"; // 保证与真实 OTP 不同
-    // 协议 v2：OTP 不上线，"OTP 错误" = 用错误 OTP 加密的密文（试解失败）
+    // 协议 v3：错误 OTP 仍在合法 box 内，解开后分类为 otp_mismatch。
+    const phone = generateBoxKeyPair();
     for (let i = 0; i < 4; i++) {
-      expect(pm.tryPair(makePairCiphertext(wrong).c)).toEqual({ ok: false, error: "otp_mismatch" });
+      const attempt = makePairHello(pm, wrong, "猜测机", phone);
+      expect(pm.tryPair(phone.publicKey, attempt.c)).toEqual({ ok: false, error: "otp_mismatch" });
     }
     // 第 5 次错误 → 锁定
-    expect(pm.tryPair(makePairCiphertext(wrong).c)).toEqual({ ok: false, error: "otp_mismatch" });
+    expect(pm.tryPair(phone.publicKey, makePairHello(pm, wrong, "猜测机", phone).c)).toEqual({
+      ok: false,
+      error: "otp_mismatch",
+    });
     expect(pm.lockedRemainingMs()).toBeGreaterThan(0);
 
-    const { c } = makePairCiphertext(win.otp);
-    expect(pm.tryPair(c)).toEqual({ ok: false, error: "locked" });
+    const { c } = makePairHello(pm, win.otp, "我的手机", phone);
+    expect(pm.tryPair(phone.publicKey, c)).toEqual({ ok: false, error: "locked" });
     // 锁定中新开窗口也被拒
     pm.beginPairing();
-    expect(pm.tryPair(c)).toEqual({ ok: false, error: "locked" });
+    expect(pm.tryPair(phone.publicKey, c)).toEqual({ ok: false, error: "locked" });
 
     now = t0 + 10 * 60_000; // 锁定期满
     const win2 = pm.beginPairing();
-    const good = makePairCiphertext(win2.otp);
-    expect(pm.tryPair(good.c).ok).toBe(true);
+    const good = makePairHello(pm, win2.otp, "我的手机", phone);
+    expect(pm.tryPair(phone.publicKey, good.c).ok).toBe(true);
   });
 
-  it("OTP 正确但密文内容损坏 → bad_payload（窗口保留可重试）", () => {
+  it("非法密文 → bad_payload，窗口保留可用合法配对重试", () => {
     const pm = setup();
     const win = pm.beginPairing();
-    // 用正确 OTP 加密一段非 JSON 内容：能解开、解析失败 → bad_payload
-    const bad = secretboxEncrypt("not-json-payload", deriveOtpKey(win.otp));
-    expect(pm.tryPair(bad)).toEqual({ ok: false, error: "bad_payload" });
-    const good = makePairCiphertext(win.otp);
-    expect(pm.tryPair(good.c).ok).toBe(true);
+    const phone = generateBoxKeyPair();
+    expect(pm.tryPair(phone.publicKey, "%%%not-base64%%%")).toEqual({ ok: false, error: "bad_payload" });
+    const good = makePairHello(pm, win.otp, "我的手机", phone);
+    expect(pm.tryPair(phone.publicKey, good.c).ok).toBe(true);
   });
 
-  it("协议 v2：旧版帧（带明文 otp 字段）不再被信任——otp 字段被忽略，仅试解密文", () => {
-    // 旧客户端若仍发 {t:"pair", otp, c}，handleHello 只读 c；此处断言 PairingManager 层面
-    // 任何"声明的 OTP"都不参与裁决——正确 OTP 加密的帧成功，声明正确 OTP 但密文错的帧失败
+  it("非法/随机密文同样计入在线猜测：5 次后锁定，正确 OTP 也被拒", () => {
+    const t0 = 1_000_000;
+    const now = t0;
+    const pm = setup(() => now);
+    const win = pm.beginPairing();
+    const phone = generateBoxKeyPair();
+    const junk = ["not-base64%%%", "AAAA", Buffer.from("random ciphertext").toString("base64")];
+    for (let i = 0; i < 5; i++) {
+      expect(pm.tryPair(phone.publicKey, junk[i % junk.length])).toEqual({ ok: false, error: "bad_payload" });
+    }
+    expect(pm.lockedRemainingMs()).toBe(10 * 60_000);
+    const good = makePairHello(pm, win.otp, "我的手机", phone);
+    expect(pm.tryPair(phone.publicKey, good.c)).toEqual({ ok: false, error: "locked" });
+  });
+
+  it("正确 OTP 配非法公钥、非 8 位 OTP 均不抛错，分别分类为 bad_payload / otp_mismatch", () => {
     const pm = setup();
     const win = pm.beginPairing();
-    const good = makePairCiphertext(win.otp);
-    expect(pm.tryPair(good.c).ok).toBe(true);
+    const phone = generateBoxKeyPair();
+    const good = makePairHello(pm, win.otp, "我的手机", phone);
+    expect(pm.tryPair("not-a-public-key", good.c)).toEqual({ ok: false, error: "bad_payload" });
+    const shortOtp = sealPairHello({ otp: "1234567", name: "格式错误" }, pm.getIdentity().publicKey, phone.secretKey);
+    expect(pm.tryPair(phone.publicKey, shortOtp)).toEqual({ ok: false, error: "otp_mismatch" });
+    expect(pm.lockedRemainingMs()).toBe(0);
+    expect(pm.tryPair(phone.publicKey, good.c).ok).toBe(true);
   });
 
   it("窗口过期 → expired", () => {
@@ -153,8 +175,8 @@ describe("OTP 配对窗口", () => {
     const pm = setup(() => now);
     const win = pm.beginPairing();
     now = t0 + 6 * 60_000;
-    const { c } = makePairCiphertext(win.otp);
-    expect(pm.tryPair(c)).toEqual({ ok: false, error: "expired" });
+    const { phone, c } = makePairHello(pm, win.otp);
+    expect(pm.tryPair(phone.publicKey, c)).toEqual({ ok: false, error: "expired" });
   });
 });
 
@@ -162,26 +184,29 @@ describe("设备管理", () => {
   it("removeDevice：存在的删除返回 true，不存在返回 false", () => {
     const pm = setup();
     const win = pm.beginPairing();
-    const { c } = makePairCiphertext(win.otp);
-    const r = pm.tryPair(c);
+    const { phone, c } = makePairHello(pm, win.otp);
+    const r = pm.tryPair(phone.publicKey, c);
     if (!r.ok) throw new Error("pair failed");
     expect(pm.removeDevice(r.device.id)).toBe(true);
     expect(pm.devices()).toHaveLength(0);
     expect(pm.removeDevice(r.device.id)).toBe(false);
   });
 
-  it("QR payload 格式（协议 v3）：spcode-remote://pair?v=3&hosts=…&desktop_pk=…&otp=…", () => {
+  it("QR payload 格式（QR v4）：携带桌面公钥、OTP、可选 relay_key 与 relay_grant", () => {
     const pm = setup();
     const win = pm.beginPairing();
     const payload = pm.buildQrPayload(["http://192.168.1.5:8123"], win);
     const url = new URL(payload);
     expect(url.protocol).toBe("spcode-remote:");
     expect(url.host).toBe("pair");
-    expect(url.searchParams.get("v")).toBe("3");
+    expect(url.searchParams.get("v")).toBe("4");
     expect(url.searchParams.get("hosts")).toBe("http://192.168.1.5:8123");
     expect(url.searchParams.get("desktop_pk")).toBe(pm.getIdentity().publicKey);
     expect(url.searchParams.get("otp")).toBe(win.otp);
-    const withKey = new URL(pm.buildQrPayload(["relay+wss://relay.example.com"], win, "server-secret"));
-    expect(withKey.searchParams.get("relay_key")).toBe("server-secret");
+    expect(url.searchParams.get("relay_grant")).toBeNull();
+    const grant = { exp: win.expiresAt, mac: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=" };
+    const withRelay = new URL(pm.buildQrPayload(["relay+wss://relay.example.com"], win, "server-secret", grant));
+    expect(withRelay.searchParams.get("relay_key")).toBe("server-secret");
+    expect(decodeGrantParam(withRelay.searchParams.get("relay_grant") ?? "")).toEqual(grant);
   });
 });

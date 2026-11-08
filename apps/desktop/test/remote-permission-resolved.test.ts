@@ -12,19 +12,14 @@ import { join } from "node:path";
 import { DEFAULT_SETTINGS, type HostCommand, type HostEvent, type ScheduleTask } from "@spcode/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
-import {
-  boxDecrypt,
-  boxEncrypt,
-  deriveOtpKey,
-  generateBoxKeyPair,
-  secretboxEncrypt,
-} from "../src/main/remote/crypto.js";
+import { boxDecrypt, boxEncrypt, generateBoxKeyPair } from "../src/main/remote/crypto.js";
 import { RemoteServer } from "../src/main/remote/index.js";
 import { PairingManager } from "../src/main/remote/pairing.js";
 import { PushService } from "../src/main/remote/push.js";
 import { LanTransport } from "../src/main/remote/transport/lan.js";
 import type { RegistryLike } from "../src/main/session-helpers.js";
 import type { SessionRegistryEntry } from "../src/main/session-registry.js";
+import { openPairAck, pairFrame } from "./remote-v3-helpers.js";
 
 let dir = "";
 let server: RemoteServer;
@@ -117,14 +112,9 @@ class PairedPhone {
     this.ws.on("message", (data: Buffer) => this.frames.push(JSON.parse(data.toString())));
     await new Promise<void>((r) => this.ws.on("open", () => r()));
     const { otp } = server.regeneratePairing();
-    this.ws.send(
-      JSON.stringify({
-        t: "pair",
-        otp,
-        c: secretboxEncrypt(JSON.stringify({ publicKey: this.keys.publicKey, name: "撤卡机" }), deriveOtpKey(otp)),
-      }),
-    );
-    await this.waitRaw((f) => f.t === "pair_ack");
+    this.ws.send(JSON.stringify(pairFrame(this.keys, this.desktopPk, otp, "撤卡机")));
+    const ack = openPairAck(await this.waitRaw((f) => f.t === "pair_ack"), this.keys, this.desktopPk);
+    expect(ack.ok).toBe(true);
   }
 
   private async waitRaw(pred: (f: { t?: string; c?: string }) => boolean, timeoutMs = 3000) {

@@ -12,13 +12,7 @@ import { i18n, setLocale } from "@spcode/shared/i18n";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import WebSocket from "ws";
-import {
-  boxDecrypt,
-  boxEncrypt,
-  deriveOtpKey,
-  generateBoxKeyPair,
-  secretboxEncrypt,
-} from "../src/main/remote/crypto.js";
+import { boxDecrypt, boxEncrypt, generateBoxKeyPair } from "../src/main/remote/crypto.js";
 import { RemoteServer } from "../src/main/remote/index.js";
 import { PairingManager } from "../src/main/remote/pairing.js";
 import { PushService } from "../src/main/remote/push.js";
@@ -26,6 +20,7 @@ import { LanTransport } from "../src/main/remote/transport/lan.js";
 import { TailscaleManager } from "../src/main/remote/transport/tailscale.js";
 import type { RegistryLike } from "../src/main/session-helpers.js";
 import type { SessionRegistryEntry } from "../src/main/session-registry.js";
+import { newPhone, openAuthAckFrame, openPairAck, pairFrame, proofFrame } from "./remote-v3-helpers.js";
 
 beforeEach(() => setLocale("zh-CN"));
 afterEach(() => {
@@ -106,14 +101,13 @@ async function pairDeviceSeq(name = "seq 机"): Promise<{
   phone: { publicKey: string; secretKey: string };
   client: TestClient;
 }> {
-  const phone = generateBoxKeyPair();
+  const phone = newPhone();
   const client = await TestClient.connect(wsUrl());
   const { otp } = server.regeneratePairing();
-  client.send({
-    t: "pair",
-    c: secretboxEncrypt(JSON.stringify({ publicKey: phone.publicKey, name }), deriveOtpKey(otp)),
-  });
-  await client.waitFor((f) => (f as { t?: string }).t === "pair_ack");
+  client.send(pairFrame(phone, pairing.getIdentity().publicKey, otp, name));
+  const ackFrame = await client.waitFor((f) => (f as { t?: string }).t === "pair_ack");
+  const ack = openPairAck(ackFrame, phone, pairing.getIdentity().publicKey);
+  expect(ack.ok).toBe(true);
   return { phone, client };
 }
 
@@ -122,17 +116,15 @@ async function authWithProof(
   keyPair: { publicKey: string; secretKey: string },
   desktopPk: string,
   opts: { nextSeq?: number } = {},
-): Promise<{ ok: boolean; resumeSeq?: number; error?: string }> {
+): Promise<{ ok: boolean; resumeSeq?: number; error?: string; frame: unknown }> {
   client.send({ t: "auth", publicKey: keyPair.publicKey, nextSeq: opts.nextSeq ?? 0 });
   const challenge = (await client.waitFor((f) => (f as { t?: string }).t === "auth_challenge")) as {
     nonce: string;
   };
-  client.send({ t: "auth_proof", c: boxEncrypt(challenge.nonce, desktopPk, keyPair.secretKey) });
-  return (await client.waitFor((f) => (f as { t?: string }).t === "auth_ack")) as {
-    ok: boolean;
-    resumeSeq?: number;
-    error?: string;
-  };
+  client.send(proofFrame(challenge.nonce, keyPair, desktopPk));
+  const frame = await client.waitFor((f) => (f as { t?: string }).t === "auth_ack");
+  const ack = openAuthAckFrame(frame, keyPair, desktopPk);
+  return ack.ok ? { ok: true, resumeSeq: ack.inner.resumeSeq, frame } : { ok: false, error: ack.error, frame };
 }
 
 // ---------------------------------------------------------------------------
@@ -304,24 +296,15 @@ describe("配对握手 + 加密命令全链路", () => {
     const phone = generateBoxKeyPair();
     const client = await TestClient.connect(wsUrl());
     try {
-      // 1) OTP 配对握手
+      // 1) 协议 v3 OTP 配对握手
       const { otp } = server.regeneratePairing();
-      const helloC = secretboxEncrypt(
-        JSON.stringify({ publicKey: phone.publicKey, name: "集成测试机" }),
-        deriveOtpKey(otp),
-      );
-      client.send({ t: "pair", otp, c: helloC });
-      const ack = (await client.waitFor((f) => (f as { t?: string }).t === "pair_ack")) as {
-        ok: boolean;
-        c: string;
-      };
-      expect(ack.ok).toBe(true);
       const desktopPk = pairing.getIdentity().publicKey;
-      const ackInner = JSON.parse(boxDecrypt(ack.c, desktopPk, phone.secretKey)!) as {
-        desktopPk: string;
-        deviceId: string;
-      };
-      expect(ackInner.desktopPk).toBe(desktopPk);
+      client.send(pairFrame(phone, desktopPk, otp, "集成测试机"));
+      const ackFrame = await client.waitFor((f) => (f as { t?: string }).t === "pair_ack");
+      const ack = openPairAck(ackFrame, phone, desktopPk);
+      expect(ack.ok).toBe(true);
+      if (!ack.ok) throw new Error(ack.error);
+      expect(ack.inner.desktopPk).toBe(desktopPk);
 
       // 2) 配对成功后收到加密的全量快照（服务端出站 seq=0）
       const snapFrame = (await client.waitFor((f) => (f as { t?: string }).t === "encrypted")) as {
@@ -459,10 +442,10 @@ describe("配对握手 + 加密命令全链路", () => {
     const phone = generateBoxKeyPair();
     const client = await TestClient.connect(wsUrl());
     const { otp } = server.regeneratePairing();
-    const helloC = secretboxEncrypt(JSON.stringify({ publicKey: phone.publicKey, name: "重放机" }), deriveOtpKey(otp));
-    client.send({ t: "pair", c: helloC });
-    await client.waitFor((f) => (f as { t?: string }).t === "pair_ack");
     const desktopPk = pairing.getIdentity().publicKey;
+    client.send(pairFrame(phone, desktopPk, otp, "重放机"));
+    const pairAck = openPairAck(await client.waitFor((f) => (f as { t?: string }).t === "pair_ack"), phone, desktopPk);
+    expect(pairAck.ok).toBe(true);
 
     const frame = {
       id: "cmd-list",
@@ -484,44 +467,50 @@ describe("配对握手 + 加密命令全链路", () => {
     const phone = generateBoxKeyPair();
     const c1 = await TestClient.connect(wsUrl());
     const { otp } = server.regeneratePairing();
-    c1.send({
-      t: "pair",
-      c: secretboxEncrypt(JSON.stringify({ publicKey: phone.publicKey, name: "回头客" }), deriveOtpKey(otp)),
-    });
-    await c1.waitFor((f) => (f as { t?: string }).t === "pair_ack");
+    const desktopPk = pairing.getIdentity().publicKey;
+    c1.send(pairFrame(phone, desktopPk, otp, "回头客"));
+    const pairAck = openPairAck(await c1.waitFor((f) => (f as { t?: string }).t === "pair_ack"), phone, desktopPk);
+    expect(pairAck.ok).toBe(true);
     c1.close();
 
-    // 重连：auth 挑战-应答通过 + 收到快照
+    // 重连：auth 挑战-应答通过 + 加密 ack + 收到快照
     const c2 = await TestClient.connect(wsUrl());
-    const ack = await authWithProof(c2, phone, pairing.getIdentity().publicKey);
+    const ack = await authWithProof(c2, phone, desktopPk);
     expect(ack.ok).toBe(true);
     expect(ack.resumeSeq).toBe(0);
+    expect(ack.frame).not.toHaveProperty("resumeSeq");
+    expect(boxDecrypt((ack.frame as { c: string }).c, desktopPk, generateBoxKeyPair().secretKey)).toBeNull();
     await c2.waitFor((f) => (f as { t?: string }).t === "encrypted"); // snapshot
     c2.close();
 
-    // 未知公钥：auth_ack ok:false 且断开（不发挑战）
+    // 未知公钥：加密 auth_ack ok:false 且断开（不发挑战），其他设备私钥不可解。
     const stranger = generateBoxKeyPair();
     const c3 = await TestClient.connect(wsUrl());
     c3.send({ t: "auth", publicKey: stranger.publicKey });
-    const deny = (await c3.waitFor((f) => (f as { t?: string }).t === "auth_ack")) as { ok: boolean };
-    expect(deny.ok).toBe(false);
+    const denyFrame = await c3.waitFor((f) => (f as { t?: string }).t === "auth_ack");
+    const deny = openAuthAckFrame(denyFrame, stranger, desktopPk);
+    expect(deny).toEqual({ ok: false, error: "unknown_device" });
+    expect(denyFrame).not.toHaveProperty("error");
+    expect(boxDecrypt((denyFrame as { c: string }).c, desktopPk, phone.secretKey)).toBeNull();
     await c3.waitClosed();
 
-    // 协议 v2：证明不通过（用错私钥）→ bad_proof 并断开
+    // 证明不通过（用错私钥）→ 加密 bad_proof 并断开
     const c4 = await TestClient.connect(wsUrl());
     c4.send({ t: "auth", publicKey: phone.publicKey, nextSeq: 0 });
     const ch4 = (await c4.waitFor((f) => (f as { t?: string }).t === "auth_challenge")) as { nonce: string };
     c4.send({
       t: "auth_proof",
-      c: boxEncrypt(ch4.nonce, pairing.getIdentity().publicKey, stranger.secretKey),
+      c: boxEncrypt(ch4.nonce, desktopPk, stranger.secretKey),
     });
-    const deny4 = (await c4.waitFor((f) => (f as { t?: string }).t === "auth_ack")) as { ok: boolean; error?: string };
-    expect(deny4.ok).toBe(false);
-    expect(deny4.error).toBe("bad_proof");
+    const deny4Frame = await c4.waitFor((f) => (f as { t?: string }).t === "auth_ack");
+    const deny4 = openAuthAckFrame(deny4Frame, phone, desktopPk);
+    expect(deny4).toEqual({ ok: false, error: "bad_proof" });
+    expect(deny4Frame).not.toHaveProperty("error");
+    expect(boxDecrypt((deny4Frame as { c: string }).c, desktopPk, stranger.secretKey)).toBeNull();
     await c4.waitClosed();
   });
 
-  it("协议 v2：nextSeq 落后时按桌面 resumeSeq 恢复，旧序号重放仍拒绝", async () => {
+  it("协议 v3：nextSeq 落后时按桌面 resumeSeq 恢复，旧序号重放仍拒绝", async () => {
     const { phone, client } = await pairDeviceSeq();
     const desktopPk = pairing.getIdentity().publicKey;
     const decryptPayload = (f: unknown) => {
@@ -563,6 +552,44 @@ describe("配对握手 + 加密命令全链路", () => {
     expect(ok.ok).toBe(true);
     expect(ok.resumeSeq).toBe(3);
     c3.close();
+  });
+
+  it("垃圾加密帧解密失败不推进持久 seq；重 auth 后合法续接帧仍可接收", async () => {
+    const { phone, client } = await pairDeviceSeq("垃圾帧机");
+    const desktopPk = pairing.getIdentity().publicKey;
+    const decryptPayload = (f: unknown) => {
+      const fr = f as { t?: string; c?: string };
+      if (fr.t !== "encrypted" || !fr.c) return null;
+      const plain = boxDecrypt(fr.c, desktopPk, phone.secretKey);
+      return plain ? (JSON.parse(plain) as { kind: string; id?: string }) : null;
+    };
+    const commandFrame = (seq: number, id: string) => ({
+      id,
+      seq,
+      t: "encrypted",
+      c: boxEncrypt(JSON.stringify({ kind: "command", command: { type: "session.list" } }), desktopPk, phone.secretKey),
+    });
+
+    client.send(commandFrame(0, "before-garbage"));
+    await client.waitFor((f) => decryptPayload(f)?.id === "before-garbage");
+    // 高位 seq 的密文由非配对私钥生成，host 必须解密失败且不能把 40 写入防重放基线。
+    client.send({
+      id: "garbage",
+      seq: 40,
+      t: "encrypted",
+      c: boxEncrypt("garbage", desktopPk, generateBoxKeyPair().secretKey),
+    });
+    await client.waitClosed();
+    expect(pairing.lastInSeqOf(phone.publicKey)).toBe(0);
+
+    const resumedClient = await TestClient.connect(wsUrl());
+    const resumed = await authWithProof(resumedClient, phone, desktopPk, { nextSeq: 1 });
+    expect(resumed.ok).toBe(true);
+    expect(resumed.resumeSeq).toBe(1);
+    resumedClient.send(commandFrame(1, "after-garbage"));
+    await resumedClient.waitFor((f) => decryptPayload(f)?.id === "after-garbage");
+    expect(pairing.lastInSeqOf(phone.publicKey)).toBe(1);
+    resumedClient.close();
   });
 
   it("首帧不是合法 hello → 断开", async () => {

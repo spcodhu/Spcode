@@ -11,19 +11,14 @@ import {
   type SessionMeta,
 } from "@spcode/shared";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  boxDecrypt,
-  boxEncrypt,
-  deriveOtpKey,
-  generateBoxKeyPair,
-  secretboxEncrypt,
-} from "../src/main/remote/crypto.js";
+import { boxDecrypt, generateBoxKeyPair } from "../src/main/remote/crypto.js";
 import { RemoteServer } from "../src/main/remote/index.js";
 import { PairingManager } from "../src/main/remote/pairing.js";
 import { PushService } from "../src/main/remote/push.js";
 import { RemoteRuntimeTracker } from "../src/main/remote/runtime-snapshot.js";
 import type { PeerConnection, RemoteTransport } from "../src/main/remote/transport/types.js";
 import type { RegistryLike } from "../src/main/session-helpers.js";
+import { openAuthAckFrame, openPairAck, pairFrame, proofFrame } from "./remote-v3-helpers.js";
 
 const meta: SessionMeta = {
   id: "s1",
@@ -218,11 +213,15 @@ describe("RemoteServer 认证快照协议", () => {
     const first = new FakePeer();
     transport.connect(first);
     const { otp } = server.regeneratePairing();
-    first.receive({
-      t: "pair",
-      c: secretboxEncrypt(JSON.stringify({ publicKey: phone.publicKey, name: "快照机" }), deriveOtpKey(otp)),
-    });
-    const firstSnapshot = decryptedEvents(first, pairing.getIdentity().publicKey, phone.secretKey).find(
+    const desktopPk = pairing.getIdentity().publicKey;
+    first.receive(pairFrame(phone, desktopPk, otp, "快照机"));
+    const pairAck = openPairAck(
+      first.sent.find((frame) => (frame as { t?: string }).t === "pair_ack"),
+      phone,
+      desktopPk,
+    );
+    expect(pairAck.ok).toBe(true);
+    const firstSnapshot = decryptedEvents(first, desktopPk, phone.secretKey).find(
       (payload) => payload.kind === "event" && payload.event.type === "session.snapshot",
     );
     expect(firstSnapshot).toMatchObject({
@@ -245,10 +244,14 @@ describe("RemoteServer 认证快照协议", () => {
     const challenge = second.sent.find((frame) => (frame as { t?: string }).t === "auth_challenge") as {
       nonce: string;
     };
-    second.receive({
-      t: "auth_proof",
-      c: boxEncrypt(challenge.nonce, pairing.getIdentity().publicKey, phone.secretKey),
-    });
+    second.receive(proofFrame(challenge.nonce, phone, pairing.getIdentity().publicKey));
+    const authAck = openAuthAckFrame(
+      second.sent.find((frame) => (frame as { t?: string }).t === "auth_ack"),
+      phone,
+      pairing.getIdentity().publicKey,
+    );
+    expect(authAck.ok).toBe(true);
+    if (authAck.ok) expect(authAck.inner.resumeSeq).toBe(0);
     const secondSnapshot = decryptedEvents(second, pairing.getIdentity().publicKey, phone.secretKey).find(
       (payload) => payload.kind === "event" && payload.event.type === "session.snapshot",
     );

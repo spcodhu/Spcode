@@ -3,22 +3,22 @@
  * - 桌面长期设备密钥对：~/.spcode/remote/device.key（0600，原子写，损坏自动备份重建）
  * - 已配对设备列表：~/.spcode/remote/devices.json（原子写）
  * - OTP 配对窗口：8 位数字、单次有效、5 分钟过期；连续 5 次错误锁定 10 分钟
- * - QR payload 生成（spcode-remote://pair?…，格式见 shared/src/remote.ts 注释）
+ * - QR payload 生成（spcode-remote://pair?v=4…，格式见 shared/src/remote.ts 注释）
  */
 
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import type { PairedDevice, PairHelloInner } from "@spcode/shared";
+import type { PairedDevice, RelayDeviceGrant } from "@spcode/shared";
 import { i18n } from "@spcode/shared/i18n";
 import { readJsonFile, resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
 import {
   type BoxKeyPairB64,
-  deriveOtpKey,
+  encodeGrantParam,
   generateBoxKeyPair,
   generateOtp,
   isValidPublicKey,
-  secretboxDecrypt,
+  openPairHello,
 } from "./crypto.js";
 
 const OTP_TTL_MS = 5 * 60_000;
@@ -59,15 +59,9 @@ function validateDevices(data: unknown): PairedDevice[] | null {
   return data as PairedDevice[];
 }
 
-function parsePairHelloInner(plain: string): PairHelloInner | null {
-  try {
-    const data = JSON.parse(plain) as Record<string, unknown>;
-    if (!isValidPublicKey(data.publicKey)) return null;
-    const name = typeof data.name === "string" ? data.name.slice(0, 100) : "";
-    return { publicKey: data.publicKey, name };
-  } catch {
-    return null;
-  }
+function otpEquals(actual: string, expected: string): boolean {
+  if (!/^\d{8}$/.test(actual) || !/^\d{8}$/.test(expected)) return false;
+  return timingSafeEqual(Buffer.from(actual, "utf8"), Buffer.from(expected, "utf8"));
 }
 
 /** 设备指纹：公钥 sha256 前 8 位 hex（桌面/手机双向人工核对用，类似 SSH fingerprint） */
@@ -166,26 +160,29 @@ export class PairingManager {
   }
 
   /**
-   * OTP 握手（协议 v2）：pair 帧只带 secretbox 密文，OTP 不上线。
-   * 用当前窗口 OTP 派生密钥直接试解——解不开即 OTP 不匹配（计数锁定）；
+   * OTP 握手（协议 v3）：pair 帧外层带手机公钥 pk，c = box({v:3, otp, name}, desktopPk, phoneSk)。
+   * 用桌面私钥 × pk 解开后常数时间比对 OTP——relay 拿不到桌面私钥，既不能离线穷举 OTP，
+   * 也不能替换 pk。解不开 / 形状错 / OTP 不符一律计数锁定（在线猜测 5 次封顶）；
    * 成功即消费窗口（单次有效），同公钥重复配对替换旧记录。
    */
-  tryPair(ciphertext: string): PairResult {
+  tryPair(pk: unknown, ciphertext: unknown): PairResult {
     const now = this.now();
     if (now < this.lockedUntil) return { ok: false, error: "locked" };
     const win = this.currentPairing();
     if (!win) return { ok: false, error: "expired" };
-    const plain = secretboxDecrypt(ciphertext, deriveOtpKey(win.otp));
-    const inner = plain ? parsePairHelloInner(plain) : null;
-    if (!plain || !inner) {
-      // 解密失败与解析失败同归 otp_mismatch：没有 OTP 的一方无法区分两者，统一计数防试探
+    const inner =
+      isValidPublicKey(pk) && typeof ciphertext === "string"
+        ? openPairHello(ciphertext, pk, this.getIdentity().secretKey)
+        : null;
+    const matched = inner ? otpEquals(inner.otp, win.otp) : false;
+    if (!inner || !matched) {
       this.failures += 1;
       if (this.failures >= MAX_OTP_FAILURES) {
         this.lockedUntil = now + LOCKOUT_MS;
         this.window = null;
         this.failures = 0;
       }
-      return { ok: false, error: plain ? "bad_payload" : "otp_mismatch" };
+      return { ok: false, error: inner ? "otp_mismatch" : "bad_payload" };
     }
 
     // 单次有效：成功后立即关闭窗口
@@ -194,8 +191,8 @@ export class PairingManager {
 
     const device: PairedDevice = {
       id: randomUUID(),
-      name: inner.name || i18n.t("main:pairing.unnamedDevice"),
-      publicKey: inner.publicKey,
+      name: inner.name.slice(0, 100) || i18n.t("main:pairing.unnamedDevice"),
+      publicKey: pk as string,
       pairedAt: now,
     };
     const list = this.devices();
@@ -207,14 +204,20 @@ export class PairingManager {
   }
 
   /**
-   * QR payload（协议 v2）：
-   *   spcode-remote://pair?v=2&hosts=<逗号分隔,URL编码>&desktop_pk=<base64>&otp=<8位>
+   * QR payload（v4）：
+   *   spcode-remote://pair?v=4&hosts=<逗号分隔,URL编码>&desktop_pk=<base64>&otp=<8位>[&relay_key=…][&relay_grant=<exp>.<mac>]
    */
-  buildQrPayload(urls: string[], win: PairingWindow, relayAccessKey?: string | null): string {
+  buildQrPayload(
+    urls: string[],
+    win: PairingWindow,
+    relayAccessKey?: string | null,
+    relayGrant?: RelayDeviceGrant | null,
+  ): string {
     const hosts = encodeURIComponent(urls.join(","));
     const pk = encodeURIComponent(this.getIdentity().publicKey);
     const relayKey = relayAccessKey ? `&relay_key=${encodeURIComponent(relayAccessKey)}` : "";
-    return `spcode-remote://pair?v=3&hosts=${hosts}&desktop_pk=${pk}&otp=${win.otp}${relayKey}`;
+    const grant = relayGrant ? `&relay_grant=${encodeGrantParam(relayGrant)}` : "";
+    return `spcode-remote://pair?v=4&hosts=${hosts}&desktop_pk=${pk}&otp=${win.otp}${relayKey}${grant}`;
   }
 
   private persistDevices(): void {

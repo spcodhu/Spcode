@@ -6,11 +6,16 @@
  *   // whenReady 内：await remote.applySettings();（settings.remote.enabled 时启动）
  *
  * 连接安全模型：
- * - WS 首帧必须是 hello：pair（OTP 握手，单次有效）或 auth（已配对设备公钥）；
- *   未知公钥直接断开；
+ * - WS 首帧必须是 hello：pair（协议 v3：手机公钥 + box 到桌面公钥的 OTP）或
+ *   auth（已配对设备公钥 → 挑战应答）；未知公钥直接断开；
+ * - pair_ack / auth_ack 无论成败一律对手机声明的公钥 box 加密：伪 host / 在途 relay
+ *   无法伪造"需重新配对"或篡改 resumeSeq（安全审计）；
  * - 配对完成后业务帧一律为 {id, seq, t:"encrypted", c}（NaCl box 密文），
+ *   **先解密成功再推进 seq**（未认证帧不得污染持久化的防重放基线），
  *   seq 绑定逻辑连接（LAN = 每条 TCP 连接；relay = 每设备虚拟连接，重 auth 重置入站），
  *   重放/乱序即断开；
+ * - relay 启用时，pair_ack / auth_ack 内附 relay 设备准入令牌（协议 v3，7 天滚动续期），
+ *   QR 附配对令牌——手机凭令牌向 relay 换票，relay 不再接受匿名 device；
  * - 事件流由 RemoteEventAggregator 把 bridge 的全量 HostEvent 映射为 RemoteEvent，
  *   广播给所有处于 ready 态的连接（逐连接独立加密）；
  *   session.output 同时写入 SessionOutputLog 环形缓冲，供断线补拉（session.output.since）。
@@ -21,9 +26,12 @@
 
 import { randomUUID } from "node:crypto";
 import type {
+  AuthAckInner,
+  HelloErrorInner,
   HostEvent,
   PairAckInner,
   PairedDevice,
+  RelayDeviceGrant,
   RemoteClientHello,
   RemoteCommand,
   RemoteEncryptedFrame,
@@ -39,7 +47,15 @@ import { resolveRelayConfig } from "@spcode/shared/remote";
 import { historyToRemotePage } from "@spcode/shared/remote-history";
 import { RemoteEventAggregator } from "./aggregator.js";
 import { type FeishuApi, FeishuChannel } from "./channel/feishu.js";
-import { boxDecrypt, boxEncrypt, isValidPublicKey, SeqCounter, SeqGuard } from "./crypto.js";
+import {
+  boxDecrypt,
+  boxEncrypt,
+  isValidPublicKey,
+  RELAY_PAIR_SUBJECT,
+  SeqCounter,
+  SeqGuard,
+  sealJson,
+} from "./crypto.js";
 import { handleRemoteCommand, type RemoteHandlerDeps } from "./handlers.js";
 import { isMobilePwaBuilt, type MobilePwaRuntime, resolveMobileDistDir } from "./mobile-pwa.js";
 import { SessionOutputLog } from "./output-log.js";
@@ -85,6 +101,9 @@ function normalizeRelayUrl(url: string | null | undefined): string | null {
   const trimmed = typeof url === "string" ? url.trim() : "";
   return trimmed || null;
 }
+
+/** 设备准入令牌有效期（每次 auth 成功滚动续期；超过未连线需经 LAN 续期或重新扫码） */
+const DEVICE_GRANT_TTL_MS = 7 * 24 * 3600_000;
 
 interface PeerState {
   peer: PeerConnection;
@@ -209,6 +228,7 @@ export class RemoteServer {
           accessKey: resolved.accessKey,
           proxy: this.deps.settings.get().proxy,
           channelId: deriveChannelId(this.pairing.getIdentity().publicKey),
+          identity: () => this.pairing.getIdentity(),
           log: (msg, extra) => console.warn(`[remote/relay] ${msg}`, extra ?? ""),
         });
       }
@@ -352,6 +372,7 @@ export class RemoteServer {
       url: input.url,
       accessKey: input.accessKey,
       channelId: deriveChannelId(this.pairing.getIdentity().publicKey),
+      identity: () => this.pairing.getIdentity(),
     });
   }
 
@@ -406,16 +427,7 @@ export class RemoteServer {
 
   /** 重新生成 OTP 并返回 QR payload（设置页「刷新二维码」） */
   regeneratePairing(): RemotePairingInfo {
-    const win = this.pairing.beginPairing();
-    const urls = this.urls();
-    const accessKey = resolveRelayConfig(this.deps.settings.get().remote).accessKey;
-    return {
-      otp: win.otp,
-      expiresAt: win.expiresAt,
-      qrPayload: this.pairing.buildQrPayload(urls, win, accessKey),
-      containsRelayAccessKey: !!accessKey,
-      urls,
-    };
+    return this.pairingInfoOf(this.pairing.beginPairing());
   }
 
   /** 吊销设备：落盘删除 + 断开该设备的现存连接 + 删除其推送订阅 */
@@ -432,16 +444,27 @@ export class RemoteServer {
 
   private currentPairingInfo(): RemotePairingInfo | null {
     const win = this.pairing.currentPairing();
-    if (!win) return null;
+    return win ? this.pairingInfoOf(win) : null;
+  }
+
+  /** QR 附带配对准入令牌（subject "pair"，随 OTP 窗口过期）；relayPk 未知时 urls 也不含 relay 项 */
+  private pairingInfoOf(win: { otp: string; expiresAt: number }): RemotePairingInfo {
     const urls = this.urls();
     const accessKey = resolveRelayConfig(this.deps.settings.get().remote).accessKey;
+    const pairGrant = this.issueDeviceGrant(RELAY_PAIR_SUBJECT, win.expiresAt);
     return {
       otp: win.otp,
       expiresAt: win.expiresAt,
-      qrPayload: this.pairing.buildQrPayload(urls, win, accessKey),
+      qrPayload: this.pairing.buildQrPayload(urls, win, accessKey, pairGrant),
       containsRelayAccessKey: !!accessKey,
       urls,
     };
+  }
+
+  /** relay 运行中且已知 relayPk 时签发设备准入令牌；否则 null（LAN-only 场景） */
+  private issueDeviceGrant(subject: string, exp: number): RelayDeviceGrant | null {
+    if (!this.running || !this.activeRelayUrl || !this.relayTransport?.issueDeviceGrant) return null;
+    return this.relayTransport.issueDeviceGrant(subject, exp);
   }
 
   // -------------------------------------------------------------------------
@@ -490,6 +513,12 @@ export class RemoteServer {
       state.peer.close();
       return;
     }
+    // 先解密再推进 seq：未认证的帧（伪造 / 他设备串线）不得污染持久化的防重放基线
+    const plain = boxDecrypt(f.c, state.device.publicKey, this.pairing.getIdentity().secretKey);
+    if (!plain) {
+      state.peer.close(); // 解密失败（篡改 / 密钥错配）：直接断开
+      return;
+    }
     if (!state.inGuard.accept(f.seq)) {
       state.peer.close(); // 重放 / 乱序：直接断开
       return;
@@ -497,11 +526,6 @@ export class RemoteServer {
     state.lastAcceptedSeq = f.seq;
     // 设备级持久基准线：每 32 帧落一次盘（崩溃只丢尾部 ≤32 个序号，基准线偏低不放大重放窗口）
     this.pairing.noteInboundSeq(state.device.publicKey, f.seq, f.seq % 32 === 0);
-    const plain = boxDecrypt(f.c, state.device.publicKey, this.pairing.getIdentity().secretKey);
-    if (!plain) {
-      state.peer.close(); // 解密失败（篡改 / 密钥错配）：直接断开
-      return;
-    }
     let payload: RemoteEncryptedPayload;
     try {
       payload = JSON.parse(plain) as RemoteEncryptedPayload;
@@ -512,6 +536,12 @@ export class RemoteServer {
     void this.executeCommand(state, f.id, payload.command);
   }
 
+  /** pair_ack / auth_ack 失败应答：对手机声明的公钥加密 {error}（伪 host 无桌面私钥不可伪造） */
+  private sendHelloError(state: PeerState, t: "pair_ack" | "auth_ack", peerPk: string, error: string): void {
+    const inner: HelloErrorInner = { error };
+    state.peer.send({ t, ok: false, c: sealJson(inner, peerPk, this.pairing.getIdentity().secretKey) });
+  }
+
   private handleHello(state: PeerState, frame: unknown): void {
     const hello = frame as RemoteClientHello | null;
     if (!hello || typeof hello !== "object") {
@@ -519,11 +549,15 @@ export class RemoteServer {
       return;
     }
 
-    if (hello.t === "pair" && typeof hello.c === "string") {
-      // 协议 v2：OTP 不上线，用当前配对窗口 OTP 试解验证
-      const result = this.pairing.tryPair(hello.c);
+    if (hello.t === "pair") {
+      // 协议 v3：外层手机公钥 + box 到桌面公钥的 OTP；公钥非法连错误都没法加密回传，直接断开
+      if (hello.v !== 3 || !isValidPublicKey(hello.pk) || typeof hello.c !== "string") {
+        state.peer.close();
+        return;
+      }
+      const result = this.pairing.tryPair(hello.pk, hello.c);
       if (!result.ok) {
-        state.peer.send({ t: "pair_ack", ok: false, error: result.error });
+        this.sendHelloError(state, "pair_ack", hello.pk, result.error);
         return; // 未锁定时允许在同一连接上重试
       }
       state.device = result.device;
@@ -531,6 +565,7 @@ export class RemoteServer {
       const inner: PairAckInner = {
         desktopPk: this.pairing.getIdentity().publicKey,
         deviceId: result.device.id,
+        ...this.grantField(result.device.id),
       };
       const c = boxEncrypt(JSON.stringify(inner), result.device.publicKey, this.pairing.getIdentity().secretKey);
       state.peer.send({ t: "pair_ack", ok: true, c });
@@ -543,7 +578,7 @@ export class RemoteServer {
     if (hello.t === "auth" && isValidPublicKey(hello.publicKey)) {
       const device = this.pairing.findByPublicKey(hello.publicKey);
       if (!device) {
-        state.peer.send({ t: "auth_ack", ok: false, error: "unknown_device" });
+        this.sendHelloError(state, "auth_ack", hello.publicKey, "unknown_device");
         state.peer.close();
         return;
       }
@@ -579,7 +614,7 @@ export class RemoteServer {
     const proof = boxDecrypt(f.c, pending.device.publicKey, this.pairing.getIdentity().secretKey);
     if (proof !== pending.nonce) {
       state.pendingAuth = null;
-      state.peer.send({ t: "auth_ack", ok: false, error: "bad_proof" });
+      this.sendHelloError(state, "auth_ack", pending.device.publicKey, "bad_proof");
       state.peer.close();
       return;
     }
@@ -589,7 +624,7 @@ export class RemoteServer {
     if (pending.nextSeq === null && bar > -1) {
       // 旧版客户端（无 nextSeq）连接有历史 seq 的设备：无法安全续接，要求刷新为新版
       state.pendingAuth = null;
-      state.peer.send({ t: "auth_ack", ok: false, error: "seq_rollback" });
+      this.sendHelloError(state, "auth_ack", pending.device.publicKey, "seq_rollback");
       state.peer.close();
       return;
     }
@@ -598,9 +633,24 @@ export class RemoteServer {
     state.lastAcceptedSeq = bar;
     // 入站 seq 用持久基准线 seed（不再归零）：跨连接重放窗口随之关闭
     state.inGuard.seed(bar);
-    state.peer.send({ t: "auth_ack", ok: true, desktopPk: this.pairing.getIdentity().publicKey, resumeSeq: bar + 1 });
+    const inner: AuthAckInner = {
+      desktopPk: this.pairing.getIdentity().publicKey,
+      resumeSeq: bar + 1,
+      ...this.grantField(pending.device.id),
+    };
+    state.peer.send({
+      t: "auth_ack",
+      ok: true,
+      c: sealJson(inner, pending.device.publicKey, this.pairing.getIdentity().secretKey),
+    });
     this.sendSnapshot(state);
     this.sendHello(state);
+  }
+
+  /** ack 内层的 relayGrant 字段（relay 未启用 / relayPk 未知时省略） */
+  private grantField(deviceId: string): { relayGrant?: RelayDeviceGrant } {
+    const relayGrant = this.issueDeviceGrant(deviceId, Date.now() + DEVICE_GRANT_TTL_MS);
+    return relayGrant ? { relayGrant } : {};
   }
 
   private async executeCommand(state: PeerState, frameId: string, command: RemoteCommand): Promise<void> {
