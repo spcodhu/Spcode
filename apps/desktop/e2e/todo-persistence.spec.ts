@@ -1,6 +1,6 @@
 /**
  * Todo 进度跨应用重启恢复：注册表保存最近一次 TodoWrite 全量清单，
- * 冷启动打开会话时 WorkDrawer 必须还原内容与完成状态。
+ * 冷启动打开会话时右侧工作区面板必须还原内容与完成状态。
  */
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -68,8 +68,9 @@ function seed(home: string): void {
 
 async function assertRestored(window: Page) {
   await window.locator("div.group", { hasText: TITLE }).first().click();
-  const drawer = window.getByTestId("work-drawer-toggle");
-  await expect(drawer).toContainText("1/3", { timeout: 15000 });
+  await expect(window.getByTestId("workspace-panel")).toBeVisible({ timeout: 15000 });
+  const toggle = window.getByTestId("workspace-todo-toggle");
+  await expect(toggle).toContainText("1/3");
   const tasks = window.getByTestId("work-task");
   await expect(tasks).toHaveCount(3);
   await expect(tasks.nth(0)).toContainText("已完成的阶段");

@@ -4,7 +4,6 @@ import { ChatView } from "./components/ChatView";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ForkDialog } from "./components/ForkDialog";
 import { Icon } from "./components/Icon";
-import { PlanPanel } from "./components/PlanPanel";
 import { ResizeHandle } from "./components/ResizeHandle";
 import { SchedulePage } from "./components/SchedulePage";
 import { SearchPalette } from "./components/SearchPalette";
@@ -13,6 +12,7 @@ import { Sidebar } from "./components/Sidebar";
 import { ToastRegion } from "./components/ToastRegion";
 import { TopBar } from "./components/TopBar";
 import { closeTopModal } from "./components/ui/Modal";
+import { WorkspacePanel } from "./components/WorkspacePanel";
 import {
   constrainLayoutWidths,
   DEFAULT_LAYOUT_WIDTHS,
@@ -21,7 +21,7 @@ import {
   planRange,
   sidebarRange,
 } from "./layout";
-import { teardownHostEvents, useStore } from "./store";
+import { teardownHostEvents, useStore, workspacePanelVisible } from "./store";
 import { applyAppearance } from "./theme";
 
 export default function App() {
@@ -33,11 +33,15 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
-  const planOpen = useStore((s) => !!s.planPanel && s.planPanel.sessionId === s.activeSessionId);
+  // 右侧工作区面板是否占位：有已打开文件、任务清单或计划模式任一就算（与 WorkspacePanel 自身的显示判断同源）
+  const workspaceOpen = useStore((s) => {
+    const id = s.activeSessionId;
+    return !!id && workspacePanelVisible(s.sessions[id], s.workspacePanels[id]);
+  });
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const [widths, setWidths] = useState(() => parseLayoutWidths(localStorage.getItem(LAYOUT_STORAGE_KEY)));
-  const layout = constrainLayoutWidths(widths, viewportWidth, planOpen);
-  const [sidebarMin, sidebarMax] = sidebarRange(viewportWidth, layout.plan, planOpen);
+  const layout = constrainLayoutWidths(widths, viewportWidth, workspaceOpen);
+  const [sidebarMin, sidebarMax] = sidebarRange(viewportWidth, layout.plan, workspaceOpen);
   const [planMin, planMax] = planRange(viewportWidth, layout.sidebar);
 
   useEffect(() => {
@@ -123,10 +127,10 @@ export default function App() {
             )}
           </div>
         </div>
-        {planOpen && (
+        {workspaceOpen && (
           <ResizeHandle
             label={t("layout.resizePlan")}
-            testId="plan-resize-handle"
+            testId="workspace-resize-handle"
             value={layout.plan}
             min={planMin}
             max={planMax}
@@ -135,8 +139,8 @@ export default function App() {
             onReset={() => setWidths((current) => ({ ...current, plan: DEFAULT_LAYOUT_WIDTHS.plan }))}
           />
         )}
-        <ErrorBoundary label={t("plan.panelTitle")}>
-          <PlanPanel width={layout.plan} />
+        <ErrorBoundary label={t("workspace.panelTitle")}>
+          <WorkspacePanel width={layout.plan} />
         </ErrorBoundary>
         {forkDialogFor && <ForkDialog sourceId={forkDialogFor} onClose={() => setForkDialogFor(null)} />}
         {settingsOpen && <SettingsPage onClose={() => setSettingsOpen(false)} />}

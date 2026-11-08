@@ -227,6 +227,40 @@ type HostSessionInfo = SessionInfo;
 /** 主进程注册表里的持久化会话条目（已下沉 shared 的 SessionRegistryEntry；别名保留渲染层习惯叫法） */
 export type RegistrySession = SessionRegistryEntry;
 
+/**
+ * 右侧工作区面板（会话级）：收纳计划文件与模型在本会话读写过的文件预览，
+ * 任务清单固定钉在面板顶部。dismissed 只影响是否显示，不清空已打开的文件，
+ * 用户随时能通过顶栏按钮或再次点击链接唤回。
+ */
+export interface WorkspaceFileTab {
+  /** 绝对路径，同一路径重复打开只聚焦/刷新内容，不产生重复标签 */
+  path: string;
+  label: string;
+  kind: "plan" | "file";
+  text: string;
+}
+
+export interface WorkspacePanelState {
+  files: WorkspaceFileTab[];
+  activePath: string | null;
+  /** 用户主动收起过面板（header 的关闭按钮）；发新消息/再次打开文件时复位 */
+  dismissed: boolean;
+}
+
+const EMPTY_WORKSPACE_PANEL: WorkspacePanelState = { files: [], activePath: null, dismissed: false };
+
+/** 最多同时缓存的已打开文件数（超出淠汰最早打开的那个，够用且不无限增长） */
+const MAX_WORKSPACE_FILES = 8;
+
+/** 面板是否应该显示：有已打开文件，或任务清单非空，或计划模式开着（给出说明性提示） */
+export function workspacePanelVisible(
+  session: Pick<SessionState, "todos" | "planMode"> | undefined,
+  panel: WorkspacePanelState | undefined,
+): boolean {
+  if (!session || panel?.dismissed) return false;
+  return (panel?.files.length ?? 0) > 0 || session.todos.length > 0 || session.planMode;
+}
+
 interface StoreState {
   ready: boolean;
   hostReady: boolean;
@@ -243,8 +277,8 @@ interface StoreState {
   composerDrafts: Record<string, ComposerDraft>;
   pendingQuestions: QuestionRequest[];
   pendingPermissions: PermissionRequest[];
-  /** 右侧第三栏：当前打开的 Plan 文件及所属会话 */
-  planPanel: { sessionId: string; path: string } | null;
+  /** 右侧工作区面板：按会话记录已打开文件、当前聚焦项与是否被用户收起 */
+  workspacePanels: Record<string, WorkspacePanelState>;
   lastError: string | null;
   /** 轻量通知（定时任务触发等）：自动消失，点击可跳到对应会话 */
   notice: { text: string; presentation?: LocalizedText; sessionId?: string; tone?: "success" } | null;
@@ -286,8 +320,16 @@ interface StoreState {
   setPermissionMode(mode: PermissionMode): Promise<void>;
   replyPermission(requestId: string, approved: boolean, rememberProject?: boolean): void;
   replyQuestion(requestId: string, answers: import("@spcode/shared").QuestionAnswers): void;
-  openPlanFile(path: string): void;
-  closePlanFile(): void;
+  /** 打开一个工作区文件（计划文件走 kind:"plan"；普通文件由主进程按当前会话确定 cwd/scratch） */
+  openWorkspaceFile(input: { path: string; kind: "plan" | "file"; label?: string }): Promise<void>;
+  /** 切换到已打开的某个文件标签 */
+  focusWorkspaceFile(path: string): void;
+  /** 关闭单个文件标签（关掉的是当前聚焦项时，焦点移到相邻标签） */
+  closeWorkspaceFile(path: string): void;
+  /** 收起整个工作区面板（不影响已打开文件与任务清单数据） */
+  dismissWorkspacePanel(): void;
+  /** 按当前可见性取反：显示中则收起，隐藏中则唤回 */
+  toggleWorkspacePanel(): void;
   /** 用户明确开始：先关闭计划模式，确认工具恢复后再发送执行指令 */
   startPlanExecution(): Promise<boolean>;
   applyHostEvent(event: HostEvent): void;
@@ -967,7 +1009,7 @@ export const useStore = create<StoreState>((set, get) => ({
   composerDrafts: {},
   pendingQuestions: [],
   pendingPermissions: [],
-  planPanel: null,
+  workspacePanels: {},
   lastError: null,
   notice: null,
   updateState: { status: "idle" },
@@ -1220,12 +1262,15 @@ export const useStore = create<StoreState>((set, get) => ({
     set((s) => {
       const sessions = { ...s.sessions };
       delete sessions[id];
-      // 同步清掉该会话的输入框草稿
+      // 同步清掉该会话的输入框草稿与工作区面板状态
       const drafts = { ...s.composerDrafts };
       delete drafts[id];
+      const workspacePanels = { ...s.workspacePanels };
+      delete workspacePanels[id];
       return {
         sessions,
         composerDrafts: drafts,
+        workspacePanels,
         sessionOrder: s.sessionOrder.filter((x) => x !== id),
         registrySessions: s.registrySessions.filter((x) => x.id !== id),
         activeSessionId: s.activeSessionId === id ? null : s.activeSessionId,
@@ -1395,6 +1440,13 @@ export const useStore = create<StoreState>((set, get) => ({
         }
       }),
     );
+    // 新一轮任务开始：给工作区面板一次重新露出的机会（用户之前关过不代表这次也不想看；
+    // 该轮若不产生任务清单/新文件，可见性公式仍为假，这里只是换回 dismissed=false 不会异常显示）
+    set((s) => {
+      const current = s.workspacePanels[sessionId];
+      if (!current?.dismissed) return s;
+      return { workspacePanels: { ...s.workspacePanels, [sessionId]: { ...current, dismissed: false } } };
+    });
     // 侧栏标题即时兜底更新（AI RenameSession 之后可覆盖）
     set((s) => ({
       registrySessions: s.registrySessions.map((r) =>
@@ -1591,24 +1643,85 @@ export const useStore = create<StoreState>((set, get) => ({
     }));
   },
 
-  openPlanFile(path) {
+  async openWorkspaceFile(input) {
     const sessionId = get().activeSessionId;
     if (!sessionId) return;
-    set({ planPanel: { sessionId, path } });
+    try {
+      const { path, text } =
+        input.kind === "plan"
+          ? { path: input.path, text: await window.spcode.readPlanFile(input.path) }
+          : await window.spcode.readWorkspaceFile(input.path, sessionId);
+      set((s) => {
+        const current = s.workspacePanels[sessionId] ?? EMPTY_WORKSPACE_PANEL;
+        const label = input.label?.trim() || baseName(path) || path;
+        // 同路径重复打开：先扔掉旧标签再重新推入队尾，内容跟着刷新且视为最近打开
+        const files = [...current.files.filter((f) => f.path !== path), { path, label, kind: input.kind, text }];
+        const capped = files.length > MAX_WORKSPACE_FILES ? files.slice(files.length - MAX_WORKSPACE_FILES) : files;
+        return {
+          workspacePanels: {
+            ...s.workspacePanels,
+            [sessionId]: { files: capped, activePath: path, dismissed: false },
+          },
+        };
+      });
+    } catch (e) {
+      set({ lastError: e instanceof Error ? e.message : String(e) });
+    }
   },
 
-  closePlanFile() {
-    set({ planPanel: null });
+  focusWorkspaceFile(path) {
+    const sessionId = get().activeSessionId;
+    if (!sessionId) return;
+    set((s) => {
+      const current = s.workspacePanels[sessionId];
+      if (!current) return s;
+      return {
+        workspacePanels: { ...s.workspacePanels, [sessionId]: { ...current, activePath: path, dismissed: false } },
+      };
+    });
+  },
+
+  closeWorkspaceFile(path) {
+    const sessionId = get().activeSessionId;
+    if (!sessionId) return;
+    set((s) => {
+      const current = s.workspacePanels[sessionId];
+      if (!current) return s;
+      const files = current.files.filter((f) => f.path !== path);
+      const activePath = current.activePath === path ? (files[files.length - 1]?.path ?? null) : current.activePath;
+      return { workspacePanels: { ...s.workspacePanels, [sessionId]: { ...current, files, activePath } } };
+    });
+  },
+
+  dismissWorkspacePanel() {
+    const sessionId = get().activeSessionId;
+    if (!sessionId) return;
+    set((s) => {
+      const current = s.workspacePanels[sessionId] ?? EMPTY_WORKSPACE_PANEL;
+      return { workspacePanels: { ...s.workspacePanels, [sessionId]: { ...current, dismissed: true } } };
+    });
+  },
+
+  toggleWorkspacePanel() {
+    const sessionId = get().activeSessionId;
+    if (!sessionId) return;
+    const visible = workspacePanelVisible(get().sessions[sessionId], get().workspacePanels[sessionId]);
+    set((s) => {
+      const current = s.workspacePanels[sessionId] ?? EMPTY_WORKSPACE_PANEL;
+      return { workspacePanels: { ...s.workspacePanels, [sessionId]: { ...current, dismissed: visible } } };
+    });
   },
 
   async startPlanExecution() {
     const sessionId = get().activeSessionId;
-    const path = get().planPanel?.path;
-    if (!sessionId || !path || !get().sessions[sessionId]?.planMode) return false;
+    if (!sessionId) return false;
+    const panel = get().workspacePanels[sessionId];
+    const activeFile = panel?.files.find((f) => f.path === panel.activePath);
+    if (activeFile?.kind !== "plan" || !get().sessions[sessionId]?.planMode) return false;
     await get().setPlanMode(false);
     // setPlanMode 失败会回滚；未真正退出就绝不发送执行指令。
     if (get().sessions[sessionId]?.planMode) return false;
-    return get().sendPrompt(i18n.t("chat:plan.executePrompt", { path }));
+    return get().sendPrompt(i18n.t("chat:plan.executePrompt", { path: activeFile.path }));
   },
 
   async saveSettings(patch) {

@@ -1,8 +1,8 @@
-/** 桌面 Markdown 适配：共享渲染器 + 本机 Plan 文件动作。 */
+/** 桌面 Markdown 适配：共享渲染器 + 本机计划/工作区文件动作。 */
 import { Markdown as SharedMarkdown } from "@spcode/ui";
 import { useStore } from "../store";
 import { resolveThemeBase } from "../theme";
-import { PlanFileLink } from "./PlanFileLink";
+import { WorkspaceFileLink } from "./WorkspaceFileLink";
 
 export function Markdown({ text }: { text: string }) {
   const themeBase = useStore((s) => resolveThemeBase(s.settings));
@@ -10,7 +10,8 @@ export function Markdown({ text }: { text: string }) {
     <SharedMarkdown
       text={text}
       themeBase={themeBase}
-      renderPlanLink={({ key, path, label }) => <PlanFileLink key={key} path={path} label={label} />}
+      renderPlanLink={({ key, path, label }) => <WorkspaceFileLink key={key} path={path} label={label} kind="plan" />}
+      renderFileLink={({ key, path, label }) => <WorkspaceFileLink key={key} path={path} label={label} kind="file" />}
     />
   );
 }

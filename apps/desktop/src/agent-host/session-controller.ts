@@ -264,10 +264,18 @@ export class SessionController {
     // 行为约定：引导模型在理解第一轮意图后用 RenameSession 起标题（agent 命名 + harness 兜底生成双保险）
     const titleBlock =
       "Session title convention: If the session has no descriptive title yet (only the default new-chat title), call RenameSession once after understanding the user's first request. Use the current UI language, not the input language, unless the user explicitly requests another language for the title. Keep it short (at most 30 Chinese characters or 60 English characters). Call only once; do not rename it afterwards.";
+    // 文件链接约定：正文提到用户可能需要查看的本地文件时，给桌面端一个可直接预览的入口。
+    // 只约束工作区内文件，实际读取仍由主进程按 cwd/realpath/凭据目录校验。
+    const fileLinkBlock =
+      "Local file links: When your response refers to a file you created, modified, or want the user to inspect, format it as [filename](file:<absolute-path>) so the desktop can preview it in the right-hand workspace panel. Only link files inside the session working directory; do not use file: links for web URLs.";
     const resourceLoader = new DefaultResourceLoader({
       cwd,
       agentDir: opts.agentDir,
-      appendSystemPrompt: [...(opts.noTitleAutomation ? [] : [titleBlock]), ...(memoryBlock ? [memoryBlock] : [])],
+      appendSystemPrompt: [
+        fileLinkBlock,
+        ...(opts.noTitleAutomation ? [] : [titleBlock]),
+        ...(memoryBlock ? [memoryBlock] : []),
+      ],
     });
     await resourceLoader.reload();
 

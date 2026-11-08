@@ -59,6 +59,7 @@ import { searchSessions } from "./session-search.js";
 import { redactSettingsForRenderer, restoreMaskedSecrets, SettingsStore } from "./settings-store.js";
 import { downloadUpdate, getUpdateState, ignoreVersion, installUpdate, setupAutoUpdater } from "./updater.js";
 import { UsageLedger } from "./usage-ledger.js";
+import { readWorkspaceFile } from "./workspace-file.js";
 
 /** pickFiles 的文本文件扩展名白名单（不在名单内的靠二进制唿探判决） */
 const PICK_TEXT_EXTS = new Set([
@@ -630,6 +631,12 @@ function registerIpc(): void {
   ipcMain.handle(IPC.autoLaunchStatus, () => loginItems.status());
   ipcMain.handle(IPC.autoLaunchSetEnabled, (_e, enabled: boolean) => loginItems.setEnabled(enabled === true));
   ipcMain.handle(IPC.planRead, (_e, path: string) => readSessionPlan(String(path)));
+  ipcMain.handle(IPC.workspaceFileRead, (_e, path: string, sessionId: string) => {
+    const entry = registry.get(String(sessionId));
+    if (!entry) throw new Error("Unknown session for workspace file preview");
+    // cwd 不信任渲染层输入：project 以注册表为准，chat 由读取守卫映射到 scratch。
+    return readWorkspaceFile(String(path), entry.mode === "chat" ? "" : entry.cwd);
+  });
   ipcMain.handle(IPC.getAppVersion, () => app.getVersion());
   ipcMain.handle(IPC.windowChromeGet, () => windowChromeOf(mainWindow));
 

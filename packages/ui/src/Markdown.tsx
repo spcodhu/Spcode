@@ -1,6 +1,6 @@
 /**
  * 双端统一的 Markdown 渲染：Streamdown + Shiki + KaTeX + Mermaid。
- * 数学与 Mermaid 按需加载；Plan 文件等桌面专有动作通过 renderPlanLink 适配。
+ * 数学与 Mermaid 按需加载；Plan 文件等桌面专有动作通过 renderPlanLink/renderFileLink 适配。
  */
 
 import type { ThemeBase } from "@spcode/shared/theme";
@@ -10,7 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type PluginConfig, Streamdown, type StreamdownTranslations } from "streamdown";
 import { hasMathSyntax, hasMermaidSyntax } from "./md-detect";
-import { splitPlanLinks } from "./plan-links";
+import { type PlanMarkdownPart, splitPlanLinks } from "./plan-links";
 
 const SHIKI_THEMES = { dark: "github-dark", light: "github-light" } as const;
 const codePlugins: Partial<Record<ThemeBase, PluginConfig["code"]>> = {};
@@ -51,14 +51,18 @@ export interface MarkdownPlanLink {
   label: string;
 }
 
+export type MarkdownFileLink = MarkdownPlanLink;
+
 export interface MarkdownProps {
   text: string;
   themeBase?: ThemeBase;
   /** 桌面可注入本机 Plan 文件打开卡；缺省仅展示同样式文本，不伪造文件动作。 */
   renderPlanLink?: (link: MarkdownPlanLink) => ReactNode;
+  /** 桌面可注入工作区文件预览；手机缺省只展示链接文本，不尝试读取本机文件。 */
+  renderFileLink?: (link: MarkdownFileLink) => ReactNode;
 }
 
-export function Markdown({ text, themeBase = "light", renderPlanLink }: MarkdownProps) {
+export function Markdown({ text, themeBase = "light", renderPlanLink, renderFileLink }: MarkdownProps) {
   const { t } = useTranslation("chat");
   const translations = useMemo(
     () =>
@@ -135,19 +139,21 @@ export function Markdown({ text, themeBase = "light", renderPlanLink }: Markdown
   );
 
   const contentParts = useMemo(() => splitPlanLinks(text), [text]);
+  const renderLink = (part: Exclude<PlanMarkdownPart, { kind: "text" }>) => {
+    const renderer = part.kind === "plan" ? renderPlanLink : renderFileLink;
+    return renderer ? (
+      renderer(part)
+    ) : (
+      <span key={part.key} className="md-plan-link" title={part.path}>
+        {part.label}
+      </span>
+    );
+  };
 
   return (
     <div className="md-body mb-2 text-sm leading-6" data-testid="markdown-body">
       {contentParts.map((part) =>
-        part.kind === "plan" ? (
-          renderPlanLink ? (
-            renderPlanLink(part)
-          ) : (
-            <span key={part.key} className="md-plan-link" title={part.path}>
-              {part.label}
-            </span>
-          )
-        ) : (
+        part.kind === "text" ? (
           <Streamdown
             key={part.key}
             translations={translations}
@@ -162,6 +168,8 @@ export function Markdown({ text, themeBase = "light", renderPlanLink }: Markdown
           >
             {part.text}
           </Streamdown>
+        ) : (
+          renderLink(part)
         ),
       )}
     </div>

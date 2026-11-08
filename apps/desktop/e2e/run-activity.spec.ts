@@ -213,9 +213,9 @@ test("任务结束后只留总结，展开过程恢复完整时间线", async ()
   await expect(steps.first()).toHaveAttribute("data-tool", "read");
   await expect(steps.first()).toHaveAttribute("data-status", "done");
 
-  // 点击步骤展开输入/响应面板
-  await steps.first().getByRole("button").click();
-  await expect(steps.first().getByRole("button")).toHaveAttribute("aria-expanded", "true");
+  // 点击步骤展开输入/响应面板（read/write/edit 步骤行尾还有一个右侧预览图标按钮，.first() 取展开切换用的主按钮）
+  await steps.first().getByRole("button").first().click();
+  await expect(steps.first().getByRole("button").first()).toHaveAttribute("aria-expanded", "true");
   await expect(steps.first().locator(".collapse-grid")).toHaveAttribute("aria-hidden", "false");
   await expect(firstGroup.getByTestId("run-step-detail")).toBeVisible();
 

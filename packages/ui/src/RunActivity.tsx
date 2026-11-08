@@ -16,18 +16,28 @@ import {
 } from "./run-activity";
 import { isCommandTool, summarizeArgs, toolLabel } from "./tooling";
 
+/** 可预览本地文件的工具：这三个的 args.path 是模型在本会话中读写过的真实文件路径 */
+const PREVIEWABLE_TOOLS = new Set(["read", "write", "edit"]);
+
 function RunIcon({
   name,
   size = 16,
   className,
   strokeWidth = 1.8,
 }: {
-  name: "check" | "x" | "chevronRight";
+  name: "check" | "x" | "chevronRight" | "panelRight";
   size?: number;
   className?: string;
   strokeWidth?: number;
 }) {
-  const d = name === "check" ? "M20 6 9 17l-5-5" : name === "x" ? "M18 6 6 18M6 6l12 12" : "m9 18 6-6-6-6";
+  const d =
+    name === "check"
+      ? "M20 6 9 17l-5-5"
+      : name === "x"
+        ? "M18 6 6 18M6 6l12 12"
+        : name === "chevronRight"
+          ? "m9 18 6-6-6-6"
+          : "M3 4h18v16H3zm12 0v16";
   return (
     <svg
       width={size}
@@ -54,6 +64,7 @@ export function RunActivityTimeline({
   startedAt,
   themeBase,
   renderText,
+  onOpenFile,
 }: {
   segments: RunSegment[];
   active: boolean;
@@ -62,6 +73,8 @@ export function RunActivityTimeline({
   themeBase?: ThemeBase;
   /** 桌面注入本机 Plan 文件动作；手机缺省使用共享 Markdown。 */
   renderText?: (block: RunTextBlock) => ReactNode;
+  /** 桌面注入：点击 read/write/edit 调用行的预览入口，传回该次调用的原始路径；缺省不显示该入口。 */
+  onOpenFile?: (rawPath: string) => void;
 }) {
   const blocks = buildRunBlocks(segments);
   const renderBlock = (block: RunTextBlock): ReactNode =>
@@ -69,7 +82,7 @@ export function RunActivityTimeline({
   if (!active) {
     const { process, summary } = splitCompletedRun(blocks);
     return process.length > 0 ? (
-      <RunProcess blocks={process} summary={summary} renderText={renderBlock} />
+      <RunProcess blocks={process} summary={summary} renderText={renderBlock} onOpenFile={onOpenFile} />
     ) : (
       summary && renderBlock(summary)
     );
@@ -88,6 +101,7 @@ export function RunActivityTimeline({
             segments={block.segments}
             active={i === activeGroupIdx}
             startedAt={i === activeGroupIdx ? startedAt : undefined}
+            onOpenFile={onOpenFile}
           />
         ),
       )}
@@ -100,10 +114,12 @@ function ActivityGroup({
   segments,
   active,
   startedAt,
+  onOpenFile,
 }: {
   segments: ActivitySegment[];
   active: boolean;
   startedAt?: number;
+  onOpenFile?: (rawPath: string) => void;
 }) {
   const { t } = useTranslation("chat");
   const [open, setOpen] = useState(active);
@@ -131,7 +147,7 @@ function ActivityGroup({
                 seg.kind === "thinking" ? (
                   <ThinkingRow key={seg.id} text={seg.text} streaming={!seg.done && active} />
                 ) : (
-                  <ToolRowGroup key={seg.id} calls={seg.calls} />
+                  <ToolRowGroup key={seg.id} calls={seg.calls} onOpenFile={onOpenFile} />
                 ),
               )}
             </div>
@@ -177,10 +193,12 @@ function RunProcess({
   blocks,
   summary,
   renderText,
+  onOpenFile,
 }: {
   blocks: RunBlock[];
   summary?: RunTextBlock;
   renderText: (block: RunTextBlock) => ReactNode;
+  onOpenFile?: (rawPath: string) => void;
 }) {
   const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
@@ -217,7 +235,7 @@ function RunProcess({
                 block.kind === "text" ? (
                   renderText(block)
                 ) : (
-                  <ActivityGroup key={block.key} segments={block.segments} active={false} />
+                  <ActivityGroup key={block.key} segments={block.segments} active={false} onOpenFile={onOpenFile} />
                 ),
               )}
             </div>
@@ -378,43 +396,62 @@ function toolStepTitle(name: string, status: RemoteToolCall["status"]): string {
   return i18n.t("chat:message.commandDone");
 }
 
-function ToolRowGroup({ calls }: { calls: RemoteToolCall[] }) {
+function ToolRowGroup({ calls, onOpenFile }: { calls: RemoteToolCall[]; onOpenFile?: (rawPath: string) => void }) {
   return (
     <div className="min-w-0">
       {calls.map((tc) => (
-        <ToolRow key={tc.id} toolCall={tc} />
+        <ToolRow key={tc.id} toolCall={tc} onOpenFile={onOpenFile} />
       ))}
     </div>
   );
 }
 
-function ToolRow({ toolCall }: { toolCall: RemoteToolCall }) {
+function ToolRow({ toolCall, onOpenFile }: { toolCall: RemoteToolCall; onOpenFile?: (rawPath: string) => void }) {
   const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
   const error = toolCall.status === "error";
   const summary = summarizeArgs(toolCall.name, toolCall.args);
+  // read/write/edit 的 args.path 是模型本次调用给到的真实文件路径，只有桌面端注入了 onOpenFile 才显示预览入口
+  const previewable = !!onOpenFile && !!summary && PREVIEWABLE_TOOLS.has(toolCall.name.toLowerCase());
 
   return (
     <div className="min-w-0" data-testid="run-tool-step" data-tool={toolCall.name} data-status={toolCall.status}>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-        className="group flex min-h-6 w-full min-w-0 items-center gap-2 rounded-md py-0.5 text-left transition-colors hover:bg-bg-hover/40"
-      >
-        <StepStatusIcon status={toolCall.status} />
-        <span className="min-w-0 flex-1 truncate text-[13px] leading-5 text-text-secondary">
-          <span title={toolCall.name}>{toolStepTitle(toolCall.name, toolCall.status)}</span>
-          {summary && (
-            <>
-              <span className="text-text-tertiary"> · </span>
-              <span className="mono text-[12px] text-text-tertiary" title={summary}>
-                {summary}
-              </span>
-            </>
-          )}
-        </span>
-      </button>
+      <div className="flex min-w-0 items-center gap-0.5">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+          className="flex min-h-6 min-w-0 flex-1 items-center gap-2 rounded-md py-0.5 text-left transition-colors hover:bg-bg-hover/40"
+        >
+          <StepStatusIcon status={toolCall.status} />
+          <span className="min-w-0 flex-1 truncate text-[13px] leading-5 text-text-secondary">
+            <span title={toolCall.name}>{toolStepTitle(toolCall.name, toolCall.status)}</span>
+            {summary && (
+              <>
+                <span className="text-text-tertiary"> · </span>
+                <span className="mono text-[12px] text-text-tertiary" title={summary}>
+                  {summary}
+                </span>
+              </>
+            )}
+          </span>
+        </button>
+        {previewable && (
+          <button
+            type="button"
+            data-testid="run-tool-preview"
+            title={t("message.previewFile")}
+            aria-label={t("message.previewFile")}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenFile?.(summary);
+            }}
+            className="shrink-0 rounded-md p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-accent"
+          >
+            <RunIcon name="panelRight" size={13} />
+          </button>
+        )}
+      </div>
       <div className="collapse-grid" data-open={open} aria-hidden={!open} inert={!open}>
         <div className="collapse-inner">
           <div

@@ -1,6 +1,6 @@
 import { baseName } from "@spcode/shared";
 import { useTranslation } from "react-i18next";
-import { useStore } from "../store";
+import { useStore, workspacePanelVisible } from "../store";
 import { Icon } from "./Icon";
 
 export function TopBar() {
@@ -24,12 +24,44 @@ export function TopBar() {
             <span className="min-w-0 truncate text-text-primary">{session.meta.title}</span>
           </nav>
           <div className="flex-1" />
+          <WorkspacePanelToggle />
           <UsageChip />
         </>
       ) : (
         <div className="flex-1" />
       )}
     </header>
+  );
+}
+
+/** 顶栏工作区开关：仅当本会话有任务清单/计划模式/已打开文件时才出现，进行中任务被收起时加个小点提醒 */
+function WorkspacePanelToggle() {
+  const { t } = useTranslation("chat");
+  const activeSessionId = useStore((s) => s.activeSessionId);
+  const session = useStore((s) => (activeSessionId ? s.sessions[activeSessionId] : undefined));
+  const panel = useStore((s) => (activeSessionId ? s.workspacePanels[activeSessionId] : undefined));
+  const toggleWorkspacePanel = useStore((s) => s.toggleWorkspacePanel);
+  const hasContent = (panel?.files.length ?? 0) > 0 || (session?.todos.length ?? 0) > 0 || session?.planMode === true;
+  if (!hasContent) return null;
+  const open = workspacePanelVisible(session, panel);
+  const running = session?.todos.some((td) => td.status === "in_progress") === true;
+  return (
+    <button
+      type="button"
+      data-testid="workspace-panel-toggle"
+      onClick={toggleWorkspacePanel}
+      title={t("workspace.toggle")}
+      aria-label={t("workspace.toggle")}
+      aria-pressed={open}
+      className={`titlebar-no-drag relative flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors ${
+        open ? "bg-accent-soft text-accent" : "text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
+      }`}
+    >
+      <Icon name="panelRight" size={15} />
+      {running && !open && (
+        <span aria-hidden className="absolute right-1 top-1 h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+      )}
+    </button>
   );
 }
 

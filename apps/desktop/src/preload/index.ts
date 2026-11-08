@@ -88,6 +88,8 @@ export interface SpcodeApi {
   getWindowChrome(): Promise<WindowChromeState>;
   onWindowChromeChanged(cb: (state: WindowChromeState) => void): () => void;
   readPlanFile(path: string): Promise<string>;
+  /** 右侧工作区面板预览：主进程按 sessionId 查注册表确定 cwd/scratch，渲染层不能指定目录 */
+  readWorkspaceFile(path: string, sessionId: string): Promise<{ path: string; text: string }>;
   setSettings(patch: Partial<AppSettings>): Promise<AppSettings>;
   /** Windows/macOS 系统登录项真实状态与一键设置 */
   autoLaunchStatus(): Promise<AutoLaunchStatus>;
@@ -232,6 +234,9 @@ const api: SpcodeApi = {
   },
   readPlanFile(path) {
     return ipcRenderer.invoke(IPC.planRead, path);
+  },
+  readWorkspaceFile(path, sessionId) {
+    return ipcRenderer.invoke(IPC.workspaceFileRead, path, sessionId);
   },
   getAppVersion() {
     return ipcRenderer.invoke(IPC.getAppVersion);

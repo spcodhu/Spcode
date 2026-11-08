@@ -870,6 +870,8 @@ export const IPC = {
   pickFiles: "spcode:pick-files",
   /** renderer -> main (invoke)：读取 plans 目录直接子级的 PLAN.md */
   planRead: "spcode:plan-read",
+  /** renderer -> main (invoke)：右侧工作区面板预览——只读会话 cwd 内的文本文件，凭证/过大/二进制均拒 */
+  workspaceFileRead: "spcode:workspace-file-read",
   /** renderer -> main (invoke)：输入框草稿全量读/写（渲染层防抖保存） */
   getComposerDrafts: "spcode:get-composer-drafts",
   setComposerDrafts: "spcode:set-composer-drafts",

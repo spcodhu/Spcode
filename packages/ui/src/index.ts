@@ -1,5 +1,5 @@
 export { DiffPatch } from "./DiffPatch";
-export type { MarkdownPlanLink, MarkdownProps } from "./Markdown";
+export type { MarkdownFileLink, MarkdownPlanLink, MarkdownProps } from "./Markdown";
 export { Markdown } from "./Markdown";
 export { hasMathSyntax, hasMermaidSyntax } from "./md-detect";
 export type { PlanMarkdownPart } from "./plan-links";

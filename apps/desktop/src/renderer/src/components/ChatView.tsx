@@ -7,7 +7,6 @@ import { AssistantRunItem, MessageItem, NoticeItem } from "./MessageItem";
 import { PermissionInline } from "./PermissionCard";
 import { QuestionInline } from "./QuestionCard";
 import { RunStatusBar } from "./RunStatusBar";
-import { WorkDrawer } from "./WorkDrawer";
 
 export function ChatView({ sessionId }: { sessionId: string }) {
   const session = useStore((s) => s.sessions[sessionId]);
@@ -67,14 +66,6 @@ export function ChatView({ sessionId }: { sessionId: string }) {
           <div ref={bottomRef} />
         </div>
       </div>
-      {/* 工作抽屉：悬浮在输入框上方，不随内容滚动（进行中展开、完成后收起） */}
-      {(session.todos.length > 0 || session.planMode) && (
-        <div className="shrink-0 px-6 pb-2">
-          <div className="mx-auto max-w-3xl">
-            <WorkDrawer todos={session.todos} planMode={session.planMode} />
-          </div>
-        </div>
-      )}
       {/* 当前会话的待批权限/待答提问：均内嵌在输入框上方，不全局弹窗 */}
       <PermissionInline sessionId={sessionId} />
       <QuestionInline sessionId={sessionId} />

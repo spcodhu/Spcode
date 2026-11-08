@@ -80,7 +80,7 @@ function seed(home: string): void {
   );
 }
 
-test("Plan 链接打开第三栏，用户显式开始后关闭计划模式并发送执行指令", async () => {
+test("Plan 链接打开工作区面板，用户显式开始后关闭计划模式并发送执行指令", async () => {
   const app = await launchApp({ seed });
   const window = await app.firstWindow();
   const row = window.locator("div.group", { hasText: TITLE }).first();
@@ -93,15 +93,15 @@ test("Plan 链接打开第三栏，用户显式开始后关闭计划模式并发
   await expect(window.getByTestId("question-submit")).toHaveCount(0);
   await link.click();
 
-  const panel = window.getByTestId("plan-panel");
+  const panel = window.getByTestId("workspace-panel");
   await expect(panel).toBeVisible();
   await expect(window.getByRole("heading", { name: "三栏实施计划" })).toBeVisible();
-  await expect(window.getByTestId("plan-content")).toContainText(
+  await expect(window.getByTestId("workspace-file-content")).toContainText(
     "这是一段用于验证右侧完整 Markdown 阅读体验的计划正文",
   );
 
-  // 可关闭后重新打开，执行面板不会与消息流互相挤压。
-  await window.getByTestId("plan-panel-close").click();
+  // 可关闭后重新打开，工作区面板不会与消息流互相挤压。
+  await window.getByTestId("workspace-panel-close").click();
   await expect(panel).toHaveCount(0);
   await link.click();
   await expect(panel).toBeVisible();

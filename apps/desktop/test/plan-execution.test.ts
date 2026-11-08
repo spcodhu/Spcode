@@ -4,7 +4,13 @@ import { useStore } from "../src/renderer/src/store.js";
 function seed(planMode: boolean) {
   useStore.setState({
     activeSessionId: "s-plan",
-    planPanel: { sessionId: "s-plan", path: "/tmp/plans/s-plan.md" },
+    workspacePanels: {
+      "s-plan": {
+        files: [{ path: "/tmp/plans/s-plan.md", label: "PLAN.md", kind: "plan", text: "# plan" }],
+        activePath: "/tmp/plans/s-plan.md",
+        dismissed: false,
+      },
+    },
     sessions: {
       "s-plan": {
         meta: {

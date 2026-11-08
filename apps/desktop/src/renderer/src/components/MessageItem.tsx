@@ -482,6 +482,7 @@ function AssistantRunItemImpl({
   const lastMessage = messages[messages.length - 1];
   const streamingTail = lastMessage?.streaming ? lastMessage.segments[lastMessage.segments.length - 1] : undefined;
   const renderText = (block: RunTextBlock) => <Markdown key={block.key} text={block.text} />;
+  const onOpenFile = (rawPath: string) => void useStore.getState().openWorkspaceFile({ path: rawPath, kind: "file" });
 
   if (!active) {
     const copyText = blocks
@@ -491,7 +492,7 @@ function AssistantRunItemImpl({
     const timestamp = messages[messages.length - 1]?.timestamp ?? messages[0]?.timestamp;
     return (
       <div className="group/message mb-6">
-        <RunActivityTimeline segments={segments} active={false} renderText={renderText} />
+        <RunActivityTimeline segments={segments} active={false} renderText={renderText} onOpenFile={onOpenFile} />
         <MessageHoverMeta timestamp={timestamp} copyText={copyText} align="start" />
       </div>
     );
@@ -505,6 +506,7 @@ function AssistantRunItemImpl({
         progressSegment={streamingTail}
         startedAt={startedAt}
         renderText={renderText}
+        onOpenFile={onOpenFile}
       />
     </div>
   );
