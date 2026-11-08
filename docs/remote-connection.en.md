@@ -105,20 +105,21 @@ In public mode, both the desktop and phone make outbound connections to the same
 
 - **The public PWA address**, `https://spcod-relay.hlt.cab/`, loads the pairing page and encryption client directly on the phone. It is not the desktop address and does not require the phone to join the LAN first.
 - **The relay address**, `wss://spcod-relay.hlt.cab`, forwards ciphertext. The desktop and phone each make an outbound connection to the same relay channel, so the desktop needs neither a public IP nor router port forwarding.
-- **The pairing code** contains the desktop public key, a one-time OTP, and a `relay+wss://…` channel. The phone generates its own key pair and protects the pairing request with an OTP-derived key; the plaintext OTP does not pass through the relay. After pairing, both devices save the device identity and use X25519 with NaCl box for end-to-end encrypted business traffic.
+- **The pairing code** contains the desktop public key, a one-time OTP, a `relay+wss://…` channel, and the QR v4 `relay_grant`. The phone seals the pair frame with NaCl box using the desktop public key authenticated out of band by the QR code. Within the pair frame, the OTP exists only inside that ciphertext. Without the desktop private key, the relay cannot open the pairing content or use the ciphertext to test OTP guesses offline. After pairing, both devices save the device identity and continue to use X25519 with NaCl box for end-to-end encrypted business traffic.
+- **V3 admission** requires the desktop to obtain a ticket with a host ownership proof, and the phone to obtain one with a device grant issued by the desktop. Both official and self-hosted relays enforce these checks. A self-hosted accessKey is only an additional Bearer requirement; it does not replace either proof or grant.
 
 ### Option A: Use the official relay without deploying a server
 
-The official PWA is `https://spcod-relay.hlt.cab/` and the official relay is `wss://spcod-relay.hlt.cab`. No account or access key is required.
+The official PWA is `https://spcod-relay.hlt.cab/` and the official relay is `wss://spcod-relay.hlt.cab`. The official instance does not require an additional accessKey, but desktops and phones must still pass host-proof and device-grant admission respectively.
 
 #### 1. Enable the official relay on the desktop
 
 1. Open **Settings → Remote control** and turn on **Enable remote control**.
 2. Under **Public relay**, select **Official relay**.
 3. Confirm that `wss://spcod-relay.hlt.cab` is displayed and the state becomes **Connected**.
-4. Optionally click **Test connection** to check the health endpoint before pairing.
+4. Optionally click **Test connection** to retrieve the v3 relay information and verify host-proof ticket issuance before pairing.
 
-New installations default to the official relay. An older installation configured as **LAN only** retains that setting after an upgrade, so switch it to **Official relay** manually. At the same mobile origin, an old official pairing without an access key migrates automatically to the current official address during a cold start, without another QR scan.
+New installations default to the official relay. An older installation configured as **LAN only** retains that setting after an upgrade, so switch it to **Official relay** manually. Whether an existing phone pairing can immediately use the relay depends on whether its record contains a valid v3 device grant. See **Migrating existing devices and renewing grants** below.
 
 #### 2. Open the public PWA directly on the phone
 
@@ -128,7 +129,7 @@ The phone can use cellular data or another Wi-Fi network; it does not need to sh
 https://spcod-relay.hlt.cab/
 ```
 
-The **Connect to Spcod on desktop** pairing page should appear. This public address distributes only the static mobile client. Hosting the PWA does not turn your session content into plaintext.
+The **Connect to Spcod on desktop** pairing page should appear. This address distributes the mobile client and connects to the relay from the same origin. Transport encryption still assumes that this client-code distribution source is trusted; see **Security and privacy boundaries**.
 
 #### 3. Pair directly in the public PWA
 
@@ -143,12 +144,12 @@ The entire pairing exchange can run over the public relay. **There is no need to
 
 1. Keep the desktop and Spcod running, with the relay state **Connected**.
 2. Refresh the session list or open an existing session in the public PWA.
-3. After closing the page, reopen `https://spcod-relay.hlt.cab/` in the same browser. The saved device identity authenticates automatically without another pairing.
-4. In a paired PWA, open **Settings → Relay server** and choose **Official / Self-hosted / LAN only**. Saving rebuilds the connection without actively unpairing the device; the device identity and existing page data are retained.
+3. After closing the page, reopen `https://spcod-relay.hlt.cab/` in the same browser. LAN connections can authenticate directly; reconnecting through a relay also requires a valid device grant, which is normally renewed on every successful authentication.
+4. In a paired PWA, open **Settings → Relay server** and choose **Official / Self-hosted / LAN only**. Saving rebuilds the connection without actively unpairing the device; the device identity and existing page data are retained. A grant from the old relay cannot be reused after switching relays. If the new relay denies admission, follow **Migrating existing devices and renewing grants**.
 
 ### Option B: Use a self-hosted relay
 
-Self-hosting gives you control over the relay. Business messages remain end-to-end encrypted between the phone and desktop. The relay access key controls server admission; it is not the end-to-end encryption private key.
+Self-hosting gives you control over the relay and PWA distribution source. Business messages remain end-to-end encrypted between the phone and desktop. The relay access key is an additional server-admission credential on top of v3 proofs. It is not the end-to-end encryption private key and does not replace a host proof or device grant.
 
 #### 1. Deploy the relay with HTTPS/WSS
 
@@ -163,12 +164,14 @@ cd spcod-relay
 ./deploy.sh --domain relay.example.com
 ```
 
-Replace `relay.example.com` with your domain. The script generates a random access key, builds and starts the relay and Caddy, and requests an HTTPS certificate automatically. Save the displayed access key, then verify:
+Replace `relay.example.com` with your domain. The script generates a random access key and the relay identity private key `RELAY_SECRET_KEY`, builds and starts the relay and Caddy, and requests an HTTPS certificate automatically. Both credentials are stored in `deploy/relay.env` and must be retained across upgrades and restarts. Save the displayed access key, then verify:
 
 ```bash
 curl --fail https://relay.example.com/health
-# Expected: {"ok":true,"version":2}
+# Expected: {"ok":true,"version":3}
 ```
+
+`RELAY_SECRET_KEY` is the relay's long-term identity for v3 admission. Changing it invalidates every device grant issued by paired desktops; do not treat it as an ordinary access key that can be rotated casually. After an accidental change, phones must authenticate over LAN to receive a new grant or pair again with a new QR code.
 
 See the [spcod-relay deployment guide](https://github.com/spcodhu/spcod-relay/blob/master/docs/DEPLOYMENT.en.md) for complete installation, update, and operations instructions.
 
@@ -180,12 +183,12 @@ See the [spcod-relay deployment guide](https://github.com/spcodhu/spcod-relay/bl
 4. Click **Save**, then **Test connection**.
 5. Confirm the **Connected** state and generate a pairing code.
 
-> A self-hosted pairing payload includes the relay access key. If the desktop warns that the QR code contains this key, do not share the QR code, screenshots, or full payload in group chats or public channels.
+> A self-hosted pairing payload includes the relay access key and a pairing grant. The access key is used only for the additional Bearer check, while the pairing grant provides v3 device admission. If the desktop warns that the QR code contains this key, do not share the QR code, screenshots, or full payload in group chats or public channels.
 
 #### 3. Open the public PWA and pair, or change an existing pairing
 
 - **New device**: first open `https://spcod-relay.hlt.cab/` or your own HTTPS PWA on the phone. Generate the payload while the desktop is connected to the self-hosted relay, then scan or paste it on the phone. The relay URL and access key are included automatically.
-- **Existing paired device**: open **Settings → Relay server → Self-hosted** in the mobile PWA. Enter the same `wss://` URL and access key, then tap **Test connection** and **Save**. This does not unpair the device.
+- **Existing paired device**: open **Settings → Relay server → Self-hosted** in the mobile PWA. Enter the same `wss://` URL and access key, then tap **Test connection** and **Save**. This does not unpair the device, but it also does not convert a grant from the old relay into one for the new relay. If needed, authenticate over LAN to obtain a new grant or scan a new QR code.
 
 The desktop and phone must use the same relay instance. A different URL, access key, or origin allowlist will prevent the connection. When using the official PWA with your self-hosted relay, add the complete official PWA origin to `deploy/relay.env` on your server:
 
@@ -220,12 +223,25 @@ CORS_ALLOWED_ORIGINS=https://app.example.com
 
 Do not use a path or wildcard. Changing the PWA domain creates a new origin. Existing pairing records are not copied across origins, so pair again at the new entry point. Browser mixed-content rules may prevent the HTTPS page from using an HTTP LAN address in the pairing payload; falling back to the WSS relay is expected and does not affect public use.
 
+### Migrating existing devices and renewing grants
+
+A protocol v3 device grant is valid for 7 days. The desktop issues a new grant inside the encrypted `pair_ack` / `auth_ack` after successful pairing and every successful authentication, so normal use renews it on a rolling basis.
+
+Pairing records from older browser clients (`version:1`) have no relay device grant. Keep the existing record and upgrade it as follows:
+
+1. On the desktop, enable the official or self-hosted relay you intend to use and confirm that its state is **Connected**.
+2. Bring the phone and desktop onto the same LAN. Open the existing pairing in the same browser and at the same PWA origin. The client tries the LAN addresses saved in the record first. If the page remains on a grant-expired notice, tap **Retry** after returning to the LAN.
+3. After LAN authentication succeeds, the desktop issues a new grant. The phone automatically upgrades the record to `version:2` and saves the grant, allowing it to reconnect through the corresponding relay.
+
+A phone cannot renew a missing or expired grant through the relay. If the record still contains a reachable LAN address, use the authentication steps above. If it contains only relay addresses or the LAN is unavailable, generate a new QR v4 payload under **Pair a new device** on the desktop and scan it again. Pair again as well if the device was unpaired, the desktop identity changed, or the browser pairing data was cleared. Old grants also stop working after changing the relay or its `RELAY_SECRET_KEY`.
+
 ### Public-network troubleshooting
 
 | Symptom | What to check |
 | --- | --- |
 | Desktop relay remains “Connecting” or “Connection failed” | Verify desktop access to the relay. For the official service, open `https://spcod-relay.hlt.cab/health`. For self-hosting, check `https://your-domain/health`, DNS, TLS, ports 80/443, and proxy settings. |
-| Desktop shows “Key authentication failed” | Recheck the self-hosted URL and access key, save, and test again. HTTP 401/403 usually means an invalid key or denied access. |
+| Desktop shows “Key authentication failed” | Recheck the self-hosted URL and access key, the desktop clock, and whether the relay identity changed; then save and test again. HTTP 401/403 can also mean that the host proof was rejected. |
+| The phone reports a missing or expired device grant, or relay denial | Follow **Migrating existing devices and renewing grants** to obtain a new grant through LAN authentication. If only relay access is available and renewal is impossible, scan a new QR code. |
 | The phone reports an invalid or unavailable relay | Use `wss://` on public networks and omit the `/health` path. Verify that the phone can reach the same relay and uses the correct access key. |
 | A self-hosted PWA reports an invalid relay key or connection failure even though the key is correct | Add the complete PWA origin to `CORS_ALLOWED_ORIGINS`, save, and run the deployment script again. Origin rejection can also surface as HTTP 401/403. |
 | The pairing payload expired, was used, or is invalid | Generate a new desktop payload and use the latest QR code or full value. |
@@ -233,13 +249,16 @@ Do not use a path or wildcard. Changing the PWA domain creates a new origin. Exi
 | The phone says the desktop is too old | Upgrade desktop Spcod and reconnect; do not clear the pairing first. |
 | Public access fails but Wi-Fi works | Check that the desktop relay is connected, the saved payload includes a relay channel, and the phone is not set to **LAN only** mode. |
 | The page cannot reopen after being closed off-LAN | Reopen the same public HTTPS PWA address in the same browser. If it displays a “does not host the mobile PWA” notice, static hosting has not been deployed on that instance; this is not a pairing-code problem. |
-| Offline messages disappear after a relay restart | The relay queue is memory-only and is cleared on restart. Clients reconcile through authoritative snapshots and backfill after reconnecting, but the relay is not a persistent message database. |
+| Offline messages disappear after a relay restart | The relay queue is memory-only and retains ciphertext and routing metadata for up to 72 hours by default. A restart clears it. Clients reconcile through authoritative snapshots and backfill after reconnecting, but the relay is not a persistent message database. |
 
 ## Security and privacy boundaries
 
-- Traffic between the phone and desktop uses X25519 and NaCl box end-to-end encryption. The relay forwards ciphertext and cannot read code, prompts, session content, or scheduled task content.
-- The relay can still see metadata such as channel identifiers, deviceId, connection times, and traffic volume. With a self-hosted relay, official Spcod services are outside your forwarding path.
-- The official relay needs no access key. A self-hosted access key is exchanged for short-lived, single-use tickets and should not appear in WebSocket URLs.
+- Traffic between the phone and desktop uses X25519 and NaCl box end-to-end encryption. The relay cannot read protocol business content produced by an authentic client, but this does not guarantee availability or the integrity of the PWA distribution source.
+- Both official and self-hosted relays enforce v3 host proofs, device grants, and single-use tickets. The official relay needs no additional accessKey. A self-hosted accessKey is an additional Bearer requirement, not a substitute for those proofs.
+- The relay can still see metadata such as channel identifiers, deviceId, connection times, frame types, and traffic volume. Its offline queue stores ciphertext and this routing metadata in memory for up to 72 hours by default.
+- A relay can drop frames, block connections, or perform other denial-of-service actions. E2E and v3 admission do not remove these capabilities.
+- Revoking a device does not immediately withdraw an issued grant. The revoked device can still use it to enter the relay until its original expiry, at most 7 days after issuance, but the desktop rejects its authentication and relay admission does not restore control.
+- Official and self-hosted relays serve the PWA from the same origin by default. E2E therefore also requires trust in the client-code distribution source. Self-hosting places the relay and PWA distribution under your control, but does not eliminate the risk of a compromised distribution source.
 - Treat pairing payloads and OTPs as sensitive. Payloads containing a self-hosted access key require particular care.
 - Web Push is disabled by default and notifications contain no task data. Camera access, push, and Add to Home Screen may be restricted on LAN HTTP origins.
 
