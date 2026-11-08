@@ -1,4 +1,10 @@
-import type { AddCustomModelInput, CatalogModel, CatalogProvider, ModelCatalogSyncStatus, ModelPriceRates } from "@spcode/shared";
+import type {
+  AddCustomModelInput,
+  CatalogModel,
+  CatalogProvider,
+  ModelCatalogSyncStatus,
+  ModelPriceRates,
+} from "@spcode/shared";
 import { validateModelInput } from "@spcode/shared";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -262,7 +268,7 @@ function ProviderDetail({
     onChanged();
   };
 
-  // 先按关键词过滤再分页：搜索变化时回到第一页，避免停在超出新结果范围的空页
+  // 先按关键词过滤再分页；搜索输入变化时在 onChange 中同步回第一页，避免停在空页
   const filteredModels = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return provider.models;
@@ -270,7 +276,6 @@ function ProviderDetail({
       (m) => m.displayName.toLowerCase().includes(q) || m.modelId.toLowerCase().includes(q),
     );
   }, [provider.models, query]);
-  useEffect(() => setPage(0), [query]);
   const totalPages = Math.max(1, Math.ceil(filteredModels.length / MODELS_PAGE_SIZE));
   const currentPage = Math.min(page, totalPages - 1);
   const pageModels = filteredModels.slice(
@@ -322,7 +327,10 @@ function ProviderDetail({
           />
           <input
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setPage(0);
+            }}
             placeholder={t("models.searchPlaceholder")}
             aria-label={t("models.searchPlaceholder")}
             data-testid="model-search-input"
