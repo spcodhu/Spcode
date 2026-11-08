@@ -352,6 +352,7 @@ function registerIpc(): void {
     "models.catalog": 60_000,
     "models.addModel": 60_000, // 内部触发 ModelRuntime 首次初始化 + rebuildProviders
     "models.removeModel": 60_000,
+    "models.refreshCatalog": 30_000, // pi.dev 单请求 4s 超时 + 重试 + 代理转发余量
     "session.compact": 180_000, // 评审 R3-C11：LLM 压缩大上下文常超 30s（压缩实际会继续，误报错误最迷惑）
   };
 
@@ -653,6 +654,10 @@ function registerIpc(): void {
     if ("memoryDistill" in patch) {
       bridge.push({ type: "memory.setDistillEnabled", payload: { enabled: next.memoryDistill } });
     }
+    // 模型目录自动同步开关实时下发宿主
+    if ("modelCatalogAutoSync" in patch) {
+      bridge.push({ type: "modelCatalog.setAutoSync", payload: { enabled: next.modelCatalogAutoSync } });
+    }
     // 高级搜索配置实时下发宿主（对己创建会话不生效，新会话生效——工具列表创建时固定）
     if ("advancedSearch" in patch) {
       bridge.push({ type: "search.setAdvancedConfig", payload: { config: next.advancedSearch } });
@@ -825,6 +830,7 @@ if (!app.requestSingleInstanceLock()) {
       if (event.type === "ready") {
         bridge.push({ type: "locale.set", payload: { locale: settings.get().locale } });
         bridge.push({ type: "memory.setDistillEnabled", payload: { enabled: settings.get().memoryDistill } });
+        bridge.push({ type: "modelCatalog.setAutoSync", payload: { enabled: settings.get().modelCatalogAutoSync } });
         bridge.push({ type: "proxy.setConfig", payload: { config: settings.get().proxy } });
         bridge.push({ type: "search.setAdvancedConfig", payload: { config: settings.get().advancedSearch } });
         bridge.push({ type: "webfetch.setConfig", payload: { config: settings.get().webFetch } });

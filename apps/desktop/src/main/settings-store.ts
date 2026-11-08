@@ -40,7 +40,7 @@ export function sanitizeAppSettings(input: Partial<AppSettings>): Partial<AppSet
     else delete out.permissionMode;
   }
   // 布尔字段
-  for (const k of ["memoryDistill", "quickQuota", "autoUpdate", "betaUpdates"] as const) {
+  for (const k of ["memoryDistill", "quickQuota", "autoUpdate", "betaUpdates", "modelCatalogAutoSync"] as const) {
     if (out[k] !== undefined && typeof out[k] !== "boolean") delete out[k];
   }
   if (out.themeMigrationVersion !== undefined && !Number.isSafeInteger(out.themeMigrationVersion)) {
