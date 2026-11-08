@@ -75,6 +75,13 @@ async function openModels() {
   await act(async () => element("composer-open-models").click());
 }
 
+async function typeQuery(input: HTMLInputElement, value: string) {
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
 async function key(key: string) {
   await act(async () => {
     (document.activeElement ?? document).dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
@@ -82,7 +89,7 @@ async function key(key: string) {
 }
 
 describe("模型菜单", () => {
-  it("按供应商分组，只显示一次 provider，并定位当前模型", async () => {
+  it("按供应商分组，只显示一次 provider，初始聚焦搜索框并把当前模型滚入视野", async () => {
     await render();
     await openModels();
     const groups = [...container.querySelectorAll('[data-testid="composer-model-provider"]')];
@@ -91,13 +98,37 @@ describe("模型菜单", () => {
     const selected = options()[0]!;
     expect(selected.getAttribute("aria-selected")).toBe("true");
     expect(selected.className).toContain("bg-accent-soft");
-    expect(document.activeElement).toBe(selected);
+    // 支持直接打字过滤（OpenRouter 几百个模型场景）：默认聚焦搜索框而非选项
+    expect(document.activeElement).toBe(element("composer-model-search"));
     expect(selected.scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
+  });
+
+  it("搜索框过滤模型，支持按名称/ID/供应商匹配，并在清空后恢复全量", async () => {
+    await render();
+    await openModels();
+    const search = element<HTMLInputElement>("composer-model-search");
+    await typeQuery(search, "pro");
+    expect(options()).toHaveLength(1);
+    expect(options()[0]!.textContent).toContain("DeepSeek Pro");
+
+    await typeQuery(search, "kimi-coding");
+    expect(options()).toHaveLength(1);
+    expect(options()[0]!.textContent).toContain("Kimi K3");
+
+    await typeQuery(search, "没有这个模型");
+    expect(options()).toHaveLength(0);
+    expect(element("composer-model-search-empty")).toBeTruthy();
+
+    await typeQuery(search, "");
+    expect(options()).toHaveLength(3);
   });
 
   it("方向键、Home/End、选择后焦点归还和两级 Esc 可用", async () => {
     await render();
     await openModels();
+    // 初始焦点在搜索框；第一次 ArrowDown 先落到第一项
+    await key("ArrowDown");
+    expect(document.activeElement).toBe(options()[0]);
     await key("ArrowDown");
     expect(document.activeElement).toBe(options()[1]);
     await key("End");

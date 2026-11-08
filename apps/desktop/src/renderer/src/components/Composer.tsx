@@ -879,10 +879,12 @@ export function ModelMenu({
   const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<MenuView>("main");
+  const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const selectedOptionRef = useRef<HTMLButtonElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -908,18 +910,27 @@ export function ModelMenu({
     };
   }, [open, view]);
 
-  // 打开主菜单时聚焦第一项；进入二级列表时聚焦并滚动到当前值。
+  // 打开主菜单时聚焦第一项；进入模型列表改聚焦搜索框（可直接打字过滤），当前值仍滚入视野。
   useEffect(() => {
     if (!open) return;
     const frame = requestAnimationFrame(() => {
+      if (view === "models") {
+        searchInputRef.current?.focus();
+        selectedOptionRef.current?.scrollIntoView({ block: "nearest" });
+        return;
+      }
       const target =
         view === "main"
           ? panelRef.current?.querySelector<HTMLElement>("[data-menu-option]")
           : (selectedOptionRef.current ?? panelRef.current?.querySelector<HTMLElement>("[data-menu-option]"));
       target?.focus();
-      if (view === "models") selectedOptionRef.current?.scrollIntoView({ block: "nearest" });
     });
     return () => cancelAnimationFrame(frame);
+  }, [open, view]);
+
+  // 离开模型列表（含关闭菜单）清空搜索词，下次打开从干净状态开始
+  useEffect(() => {
+    if (!open || view !== "models") setQuery("");
   }, [open, view]);
 
   const current = value ? models.find((m) => m.provider === value.provider && m.modelId === value.modelId) : null;
@@ -928,16 +939,24 @@ export function ModelMenu({
       ? t("model.withThinking", { model: current.displayName, level: thinkingLevelLabel(thinkingLevel) })
       : current.displayName
     : t("common.selectModel");
+  // OpenRouter 这类中转站一次给出几百个模型，列表前先按关键词过滤（供应商/显示名/模型 ID 任意命中）
+  const filterText = query.trim().toLowerCase();
+  const filteredModels = filterText
+    ? models.filter((m) => `${m.provider} ${m.displayName} ${m.modelId}`.toLowerCase().includes(filterText))
+    : models;
   const groups = new Map<string, ModelOption[]>();
-  const nameCounts = new Map<string, number>();
-  for (const m of models) {
+  for (const m of filteredModels) {
     const group = groups.get(m.provider) ?? [];
     group.push(m);
     groups.set(m.provider, group);
+  }
+  // 同供应商重名消歧义按全量模型计算，不随搜索结果增减而忽隐忽现
+  const nameCounts = new Map<string, number>();
+  for (const m of models) {
     const nameKey = `${m.provider}/${m.displayName}`;
     nameCounts.set(nameKey, (nameCounts.get(nameKey) ?? 0) + 1);
   }
-  const firstModelKey = models[0] ? `${models[0].provider}/${models[0].modelId}` : "";
+  const firstModelKey = filteredModels[0] ? `${filteredModels[0].provider}/${filteredModels[0].modelId}` : "";
 
   const closeWithTriggerFocus = () => {
     setOpen(false);
@@ -1046,9 +1065,33 @@ export function ModelMenu({
           {view === "models" && (
             <>
               <MenuHeader title={t("common.selectModel")} onBack={() => setView("main")} />
+              {models.length > 0 && (
+                <div className="relative mb-1.5">
+                  <Icon
+                    name="search"
+                    size={13}
+                    className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-text-tertiary"
+                  />
+                  <input
+                    ref={searchInputRef}
+                    type="text"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder={t("model.searchPlaceholder")}
+                    aria-label={t("model.searchPlaceholder")}
+                    data-testid="composer-model-search"
+                    className="w-full rounded-lg border border-border bg-bg-main py-1.5 pl-8 pr-2.5 text-[12.5px] text-text-primary outline-none placeholder:text-text-tertiary focus:border-accent"
+                  />
+                </div>
+              )}
               <div className="max-h-80 overflow-y-auto" role="listbox" aria-label={t("common.selectModel")}>
                 {models.length === 0 && (
                   <div className="px-3 py-4 text-[12px] text-text-tertiary">{t("model.empty")}</div>
+                )}
+                {models.length > 0 && filteredModels.length === 0 && (
+                  <div data-testid="composer-model-search-empty" className="px-3 py-4 text-[12px] text-text-tertiary">
+                    {t("model.searchEmpty")}
+                  </div>
                 )}
                 {[...groups].map(([provider, items]) => (
                   <fieldset key={provider} aria-label={provider} className="mb-1 min-w-0 last:mb-0">
@@ -1085,10 +1128,12 @@ export function ModelMenu({
                             }`}
                           >
                             <span className="min-w-0 flex-1">
-                              <span className="block truncate text-[13px] leading-5">{m.displayName || m.modelId}</span>
+                              <span className="block truncate text-[13px] leading-5">
+                                <HighlightMatch text={m.displayName || m.modelId} query={filterText} />
+                              </span>
                               {showId && (
                                 <span className="mono block truncate text-[10.5px] leading-4 text-text-tertiary">
-                                  {m.modelId}
+                                  <HighlightMatch text={m.modelId} query={filterText} />
                                 </span>
                               )}
                             </span>
@@ -1152,5 +1197,20 @@ function MenuHeader({ title, onBack }: { title: string; onBack: () => void }) {
       <Icon name="chevronRight" size={12} style={{ transform: "rotate(180deg)" }} />
       {title}
     </button>
+  );
+}
+
+/** 大小写不敏感的关键词高亮（模型搜索结果用，同 SearchPalette 的视觉语言） */
+function HighlightMatch({ text, query }: { text: string; query: string }) {
+  if (!query) return <>{text}</>;
+  const lower = text.toLowerCase();
+  const idx = lower.indexOf(query);
+  if (idx < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, idx)}
+      <mark className="rounded-sm bg-accent/25 text-accent">{text.slice(idx, idx + query.length)}</mark>
+      {text.slice(idx + query.length)}
+    </>
   );
 }
