@@ -8,6 +8,9 @@ import { Switch } from "./ui/Switch";
 
 export type { CatalogModel, CatalogProvider };
 
+/** 单个供应商的模型列表分页大小（OpenRouter 这类中转站一次能开出几百个模型） */
+const MODELS_PAGE_SIZE = 30;
+
 export function ModelsPage() {
   const { t } = useTranslation("settings");
   const settings = useStore((s) => s.settings);
@@ -237,6 +240,8 @@ function ProviderDetail({
   const [key, setKey] = useState("");
   const [saved, setSaved] = useState(false);
   const [pricingFor, setPricingFor] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(0);
 
   const saveKey = async () => {
     const k = key.trim();
@@ -256,6 +261,22 @@ function ProviderDetail({
     });
     onChanged();
   };
+
+  // 先按关键词过滤再分页：搜索变化时回到第一页，避免停在超出新结果范围的空页
+  const filteredModels = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return provider.models;
+    return provider.models.filter(
+      (m) => m.displayName.toLowerCase().includes(q) || m.modelId.toLowerCase().includes(q),
+    );
+  }, [provider.models, query]);
+  useEffect(() => setPage(0), [query]);
+  const totalPages = Math.max(1, Math.ceil(filteredModels.length / MODELS_PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages - 1);
+  const pageModels = filteredModels.slice(
+    currentPage * MODELS_PAGE_SIZE,
+    currentPage * MODELS_PAGE_SIZE + MODELS_PAGE_SIZE,
+  );
 
   return (
     <div>
@@ -290,11 +311,33 @@ function ProviderDetail({
       </div>
 
       <div className="mb-2 mt-6 text-[13px] font-semibold text-text-secondary">
-        {t("models.availableCount", { count: provider.models.length })}
+        {t("models.availableCount", { count: filteredModels.length })}
       </div>
+      {provider.models.length > 5 && (
+        <div className="relative mb-3">
+          <Icon
+            name="search"
+            size={14}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary"
+          />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t("models.searchPlaceholder")}
+            aria-label={t("models.searchPlaceholder")}
+            data-testid="model-search-input"
+            className="w-full rounded-lg border border-border bg-bg-elevated py-2 pl-9 pr-3 text-[13px] text-text-primary outline-none placeholder:text-text-tertiary focus:border-accent"
+          />
+        </div>
+      )}
       <div className="space-y-1.5">
         {provider.models.length === 0 && <div className="text-[12px] text-text-tertiary">{t("models.noModels")}</div>}
-        {provider.models.map((m) => {
+        {provider.models.length > 0 && filteredModels.length === 0 && (
+          <div data-testid="model-search-empty" className="text-[12px] text-text-tertiary">
+            {t("models.searchEmpty")}
+          </div>
+        )}
+        {pageModels.map((m) => {
           const k = `${m.provider}/${m.modelId}`;
           const enabled = !disabledModels.has(k);
           return (
@@ -346,6 +389,31 @@ function ProviderDetail({
           );
         })}
       </div>
+      {totalPages > 1 && (
+        <div className="mt-3 flex items-center justify-center gap-3" data-testid="model-pagination">
+          <button
+            type="button"
+            data-testid="model-page-prev"
+            disabled={currentPage === 0}
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            className="rounded-lg border border-border bg-bg-elevated px-3 py-1.5 text-[12px] text-text-secondary hover:bg-bg-hover disabled:opacity-40"
+          >
+            {t("models.pagePrev")}
+          </button>
+          <span data-testid="model-page-info" className="tabular-nums text-[12px] text-text-tertiary">
+            {t("models.pageInfo", { page: currentPage + 1, total: totalPages })}
+          </span>
+          <button
+            type="button"
+            data-testid="model-page-next"
+            disabled={currentPage >= totalPages - 1}
+            onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+            className="rounded-lg border border-border bg-bg-elevated px-3 py-1.5 text-[12px] text-text-secondary hover:bg-bg-hover disabled:opacity-40"
+          >
+            {t("models.pageNext")}
+          </button>
+        </div>
+      )}
 
       <AddModelForm provider={provider.provider} onAdded={onChanged} />
     </div>
