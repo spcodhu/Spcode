@@ -4,6 +4,12 @@ export type PlanMarkdownPart =
   | { kind: "file"; key: string; path: string; label: string }
   | { kind: "image"; key: string; path: string; label: string };
 
+export type PlanMarkdownGroup = {
+  kind: "block" | "inline";
+  key: string;
+  parts: PlanMarkdownPart[];
+};
+
 const LINK_PATTERN = /\[([^\]]+)]\(([^)]+)\)/g;
 const EXTENSIONLESS_FILENAMES = new Set([
   "readme",
@@ -183,4 +189,71 @@ export function splitPlanLinks(text: string, options?: { includeImages?: boolean
   if (parts.length === 0) return [{ kind: "text", key: "text-0", text }];
   if (cursor < text.length) parts.push({ kind: "text", key: `text-${cursor}`, text: text.slice(cursor) });
   return parts;
+}
+
+const PARAGRAPH_BOUNDARY = /(\n[\t ]*\n[\t \n]*)/;
+const BLOCK_MARKDOWN = /^[ \t]*(?:#{1,6}[ \t]+|>|```|~~~|[-+*][ \t]+|\d+[.)][ \t]+|(?:-{3,}|\*{3,}|_{3,})[ \t]*$)/m;
+
+/** 空行是块级分组的硬边界；保留分隔文本，重组后不改变原始 Markdown。 */
+function splitParagraphText(part: Extract<PlanMarkdownPart, { kind: "text" }>): PlanMarkdownPart[] {
+  return part.text
+    .split(PARAGRAPH_BOUNDARY)
+    .filter((text) => text.length > 0)
+    .map((text, index) => ({ kind: "text", key: `${part.key}-p${index}`, text }));
+}
+
+function isParagraphBoundary(text: string): boolean {
+  return /^\n[\t ]*\n[\t \n]*$/.test(text);
+}
+
+/**
+ * 文件链接拆分时不能把同一段正文也拆成竖排块。这里按原始空行重新分组：
+ * 含文件链接的普通段落使用 inline，标题/列表/代码块等仍走完整 Streamdown 块渲染。
+ * 没有文件链接时直接返回原 parts，避免影响普通 Markdown 的解析与渲染。
+ */
+export function groupPlanMarkdownParts(parts: PlanMarkdownPart[]): PlanMarkdownGroup[] {
+  if (!parts.some((part) => part.kind === "file" || part.kind === "plan")) {
+    return [{ kind: "block", key: parts[0]?.key ?? "empty", parts }];
+  }
+
+  const fragments = parts.flatMap((part) => (part.kind === "text" ? splitParagraphText(part) : [part]));
+  const groups: PlanMarkdownGroup[] = [];
+  let blockParts: PlanMarkdownPart[] = [];
+  let inlineParts: PlanMarkdownPart[] = [];
+  let inlineHasLink = false;
+
+  const flushBlock = () => {
+    if (blockParts.length > 0) groups.push({ kind: "block", key: blockParts[0]!.key, parts: blockParts });
+    blockParts = [];
+  };
+  const appendBlock = (part: PlanMarkdownPart) => {
+    const last = blockParts[blockParts.length - 1];
+    if (part.kind === "text" && last?.kind === "text") last.text += part.text;
+    else blockParts.push(part);
+  };
+  const flushInline = () => {
+    if (inlineHasLink) {
+      flushBlock();
+      groups.push({ kind: "inline", key: inlineParts[0]!.key, parts: inlineParts });
+    } else {
+      for (const part of inlineParts) appendBlock(part);
+    }
+    inlineParts = [];
+    inlineHasLink = false;
+  };
+
+  for (const part of fragments) {
+    if (part.kind === "file" || part.kind === "plan") {
+      inlineParts.push(part);
+      inlineHasLink = true;
+    } else if (part.kind === "text" && !isParagraphBoundary(part.text) && !BLOCK_MARKDOWN.test(part.text)) {
+      inlineParts.push(part);
+    } else {
+      flushInline();
+      appendBlock(part);
+    }
+  }
+  flushInline();
+  flushBlock();
+  return groups;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { splitPlanLinks } from "../src/renderer/src/plan-links.js";
+import { groupPlanMarkdownParts, splitPlanLinks } from "../src/renderer/src/plan-links.js";
 
 describe("Plan / 本地文件 Markdown 链接拆分", () => {
   it("只把 plan: 文件链接变成计划入口，前后正文保持原文", () => {
@@ -103,5 +103,27 @@ describe("Plan / 本地文件 Markdown 链接拆分", () => {
   it("未闭合代码块中的链接同样不接管", () => {
     const text = "```ts\nconst example = '[示例](src/a.ts)';";
     expect(splitPlanLinks(text)).toEqual([{ kind: "text", key: "text-0", text }]);
+  });
+
+  it("连续文件链接、顿号和末尾句号保留在同一个行内分组", () => {
+    const parts = splitPlanLinks("主要改动：\n\n[a](a.ts)、[b](b.ts)、[c](c.ts)。\n\n后续说明");
+    const groups = groupPlanMarkdownParts(parts);
+    expect(groups.map((group) => group.kind)).toEqual(["block", "inline", "block"]);
+    expect(groups[0]?.parts).toEqual([expect.objectContaining({ kind: "text", text: "主要改动：\n\n" })]);
+    expect(groups[1]?.parts.map((part) => part.kind)).toEqual(["file", "text", "file", "text", "file", "text"]);
+    expect(groups[1]?.parts.at(-1)).toMatchObject({ kind: "text", text: "。" });
+    expect(groups[2]?.parts).toEqual([expect.objectContaining({ kind: "text", text: "\n\n后续说明" })]);
+  });
+
+  it("文件链接前后的普通句子保持在同一段，无文件链接时不重排 Markdown", () => {
+    const groups = groupPlanMarkdownParts(
+      splitPlanLinks("文件已处理：[README](README.md)，也可以看[notes](notes.txt)。"),
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.kind).toBe("inline");
+    expect(groups[0]?.parts.map((part) => part.kind)).toEqual(["text", "file", "text", "file", "text"]);
+
+    const plain = splitPlanLinks("# 标题\n\n- 列表一\n- 列表二\n\n```ts\nconst a = 1;\n```");
+    expect(groupPlanMarkdownParts(plain)).toEqual([{ kind: "block", key: plain[0]!.key, parts: plain }]);
   });
 });

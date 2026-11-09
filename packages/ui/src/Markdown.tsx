@@ -10,7 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type PluginConfig, Streamdown, type StreamdownTranslations } from "streamdown";
 import { hasMathSyntax, hasMermaidSyntax } from "./md-detect";
-import { type PlanMarkdownPart, splitPlanLinks } from "./plan-links";
+import { groupPlanMarkdownParts, type PlanMarkdownPart, splitPlanLinks } from "./plan-links";
 
 const SHIKI_THEMES = { dark: "github-dark", light: "github-light" } as const;
 const codePlugins: Partial<Record<ThemeBase, PluginConfig["code"]>> = {};
@@ -143,6 +143,7 @@ export function Markdown({ text, themeBase = "light", renderPlanLink, renderFile
 
   const includeImages = renderImage !== undefined;
   const contentParts = useMemo(() => splitPlanLinks(text, { includeImages }), [text, includeImages]);
+  const contentGroups = useMemo(() => groupPlanMarkdownParts(contentParts), [contentParts]);
   const renderLink = (part: Exclude<PlanMarkdownPart, { kind: "text" | "image" }>) => {
     const renderer = part.kind === "plan" ? renderPlanLink : renderFileLink;
     return renderer ? (
@@ -153,30 +154,47 @@ export function Markdown({ text, themeBase = "light", renderPlanLink, renderFile
       </span>
     );
   };
+  const renderText = (part: Extract<PlanMarkdownPart, { kind: "text" }>, inline: boolean) => {
+    const streamdown = (
+      <Streamdown
+        key={part.key}
+        translations={translations}
+        controls={{
+          table: false,
+          mermaid: { download: false, copy: false, fullscreen: false, panZoom: false },
+          code: { copy: true, download: false },
+        }}
+        tableMaxHeight={0}
+        shikiTheme={[SHIKI_THEMES[themeBase], SHIKI_THEMES[themeBase]]}
+        plugins={plugins}
+      >
+        {part.text}
+      </Streamdown>
+    );
+    return inline ? (
+      <div key={part.key} className="md-inline-text">
+        {streamdown}
+      </div>
+    ) : (
+      streamdown
+    );
+  };
+  const renderPart = (part: PlanMarkdownPart, inline = false) => {
+    if (part.kind === "text") return renderText(part, inline);
+    if (part.kind === "image") return renderImage ? renderImage(part) : null;
+    return renderLink(part);
+  };
 
   return (
     <div className="md-body mb-2 text-sm leading-6" data-testid="markdown-body">
-      {contentParts.map((part) =>
-        part.kind === "text" ? (
-          <Streamdown
-            key={part.key}
-            translations={translations}
-            controls={{
-              table: false,
-              mermaid: { download: false, copy: false, fullscreen: false, panZoom: false },
-              code: { copy: true, download: false },
-            }}
-            tableMaxHeight={0}
-            shikiTheme={[SHIKI_THEMES[themeBase], SHIKI_THEMES[themeBase]]}
-            plugins={plugins}
-          >
-            {part.text}
-          </Streamdown>
-        ) : part.kind === "image" && renderImage ? (
-          renderImage(part)
-        ) : part.kind !== "image" ? (
-          renderLink(part)
-        ) : null,
+      {contentGroups.map((group) =>
+        group.kind === "inline" ? (
+          <div key={group.key} data-testid="markdown-inline-group" className="md-inline-group">
+            {group.parts.map((part) => renderPart(part, true))}
+          </div>
+        ) : (
+          group.parts.map((part) => renderPart(part))
+        ),
       )}
     </div>
   );

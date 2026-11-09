@@ -359,6 +359,17 @@ test("模型正文中的 file: 与普通相对文件链接直接在右侧打开�
 
   const panel = window.getByTestId("workspace-panel");
   await expect(panel).toBeVisible();
+  const inlineGroup = window.getByTestId("markdown-inline-group");
+  await expect(inlineGroup).toHaveCount(1);
+  const inlineLinks = inlineGroup.getByTestId("workspace-file-link");
+  await expect(inlineLinks).toHaveCount(2);
+  const firstLinkBox = await inlineLinks.nth(0).boundingBox();
+  const secondLinkBox = await inlineLinks.nth(1).boundingBox();
+  expect(firstLinkBox).not.toBeNull();
+  expect(secondLinkBox).not.toBeNull();
+  expect(Math.abs(firstLinkBox!.y - secondLinkBox!.y)).toBeLessThan(4);
+  expect(firstLinkBox!.height).toBeLessThanOrEqual(28);
+  expect(secondLinkBox!.height).toBeLessThanOrEqual(28);
   await window.getByTestId("workspace-file-link").filter({ hasText: "README.md" }).click();
   await expect(panel.getByTestId("workspace-file-tab")).toHaveCount(1);
   await expect(panel.getByTestId("workspace-file-content")).toContainText(README_TEXT);

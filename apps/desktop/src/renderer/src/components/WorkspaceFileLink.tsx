@@ -16,14 +16,15 @@ export function WorkspaceFileLink({ path, label, kind }: { path: string; label: 
       data-testid={isPlan ? "plan-file-link" : "workspace-file-link"}
       title={path}
       onClick={() => void openWorkspaceFile({ path, kind, label })}
-      className="my-1 inline-flex max-w-full items-center gap-2 rounded-xl border border-accent/35 bg-accent-soft px-3 py-1.5 text-left text-[12.5px] text-accent transition-colors hover:border-accent/60 hover:bg-accent/20"
+      className="mx-0.5 inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-bg-elevated/70 px-2 py-0.5 align-middle text-left text-[12px] leading-5 text-text-secondary transition-colors hover:border-border-strong hover:bg-bg-hover hover:text-text-primary"
     >
-      <Icon name="fileText" size={15} className="shrink-0" />
-      <span className="mono truncate font-medium">{label}</span>
+      <Icon name="fileText" size={12} className="shrink-0 text-text-tertiary" />
+      <span className="mono truncate">{label}</span>
       {isPlan && (
-        <span className="shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10.5px]">{t("plan.fileBadge")}</span>
+        <span className="shrink-0 rounded bg-accent-soft px-1 py-0 text-[10px] leading-4 text-text-tertiary">
+          {t("plan.fileBadge")}
+        </span>
       )}
-      <Icon name="panelRight" size={13} className="shrink-0" />
     </button>
   );
 }
