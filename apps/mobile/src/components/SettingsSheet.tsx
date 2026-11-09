@@ -4,6 +4,7 @@
  */
 
 import { getLocale } from "@spcode/shared/i18n";
+import { OFFICIAL_MOBILE_URL } from "@spcode/shared/remote";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorText } from "../lib/i18n";
@@ -13,6 +14,7 @@ import {
   disablePushNotifications,
   enablePushNotifications,
   probeRelayConfiguration,
+  unpair,
   updateRelayConfiguration,
 } from "../state/controller";
 import { useAppStore } from "../state/store";
@@ -38,6 +40,8 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
   const [relayKey, setRelayKey] = useState(pairing?.relayAccessKey ?? "");
   const [relayBusy, setRelayBusy] = useState(false);
   const [relayTestText, setRelayTestText] = useState<string | null>(null);
+  const [confirmRepair, setConfirmRepair] = useState(false);
+  const [repairBusy, setRepairBusy] = useState(false);
 
   const pushSupported = isPushSupported();
   const pushActive = enabled && pushSupported;
@@ -71,6 +75,18 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const repair = async () => {
+    setRepairBusy(true);
+    setError(null);
+    try {
+      await unpair();
+      onClose();
+    } catch (err) {
+      setError(err);
+      setRepairBusy(false);
+    }
+  };
+
   const toggle = async () => {
     if (busy || !pushSupported) return;
     setBusy(true);
@@ -91,7 +107,7 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <Sheet title={t("common.settings")} onClose={onClose} busy={busy || relayBusy}>
+    <Sheet title={t("common.settings")} onClose={onClose} busy={busy || relayBusy || repairBusy}>
       <div className="space-y-4">
         <div className="rounded-2xl border border-border bg-bg-elevated px-4 py-3">
           <div className="flex items-center gap-3">
@@ -274,6 +290,65 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
                   pairing.hosts.map((h) => (h.startsWith("relay+") ? t("settings.relay") : h)),
                 ),
               })}
+            </div>
+          </div>
+        )}
+
+        {pairing && (
+          <div
+            className="rounded-2xl border border-border bg-bg-elevated px-4 py-3"
+            data-testid="mobile-connection-recovery"
+          >
+            <div className="text-sm font-medium text-text-primary">{t("settings.recovery")}</div>
+            <div className="safe-break mt-1 text-xs leading-5 text-text-tertiary">{t("settings.repairHelp")}</div>
+            {confirmRepair ? (
+              <div className="mt-3 rounded-xl border border-red-800 bg-red-950/40 px-3 py-2.5">
+                <div className="safe-break text-xs leading-5 text-red-200">{t("settings.repairConfirm")}</div>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    type="button"
+                    data-testid="mobile-repair-confirm"
+                    disabled={repairBusy}
+                    onClick={() => void repair()}
+                    className="min-h-11 flex-1 rounded-xl bg-red-800 px-3 text-xs font-medium text-red-50 disabled:opacity-40"
+                  >
+                    {t("common.confirm")}
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="mobile-repair-cancel"
+                    disabled={repairBusy}
+                    onClick={() => setConfirmRepair(false)}
+                    className="min-h-11 flex-1 rounded-xl border border-border px-3 text-xs text-text-secondary disabled:opacity-40"
+                  >
+                    {t("common.cancel")}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                data-testid="mobile-repair"
+                onClick={() => {
+                  setError(null);
+                  setConfirmRepair(true);
+                }}
+                className="mt-3 min-h-11 w-full rounded-xl border border-red-800 px-3 text-xs font-medium text-red-300"
+              >
+                {t("connection.repair")}
+              </button>
+            )}
+            <a
+              href={OFFICIAL_MOBILE_URL}
+              target="_blank"
+              rel="noreferrer"
+              data-testid="mobile-official-page"
+              className="mt-2 flex min-h-11 items-center justify-center rounded-xl border border-border px-3 text-center text-xs text-text-secondary"
+            >
+              {t("settings.officialPage")}
+            </a>
+            <div className="safe-break mt-2 text-[11px] leading-5 text-text-tertiary">
+              {t("settings.officialPageHelp", { url: OFFICIAL_MOBILE_URL })}
             </div>
           </div>
         )}

@@ -178,6 +178,12 @@ export const zhCN = {
   "settings.relayKeyPlaceholder": "服务器访问密钥（可选）",
   "settings.relayTest": "测试连接",
   "settings.relayTestSuccess": "连接成功，配置有效",
+  "settings.recovery": "连接恢复",
+  "settings.repairHelp":
+    "持续连接失败时，可清除本机保存的设备身份和连接状态，返回扫码配对页。桌面端的设备记录需单独移除。",
+  "settings.repairConfirm": "确认清除本机配对并返回扫码页？",
+  "settings.officialPage": "在浏览器中打开官方配对页面",
+  "settings.officialPageHelp": "缓存仍异常时，请将 {{url}} 复制到浏览器无痕窗口打开。网页无法直接启动无痕模式。",
   "permission.readonly": "只读操作",
   "permission.write": "写入操作",
   "permission.outward": "对外动作",
@@ -417,6 +423,13 @@ export const en = {
   "settings.relayKeyPlaceholder": "Relay access key (optional)",
   "settings.relayTest": "Test connection",
   "settings.relayTestSuccess": "Connected. Configuration is valid.",
+  "settings.recovery": "Connection recovery",
+  "settings.repairHelp":
+    "If the connection keeps failing, clear the device identity and connection state saved on this phone to return to QR pairing. Remove the old device separately in desktop settings.",
+  "settings.repairConfirm": "Clear the pairing on this phone and return to QR pairing?",
+  "settings.officialPage": "Open the official pairing page in the browser",
+  "settings.officialPageHelp":
+    "If cached content is still broken, copy {{url}} into a private browser window. A web page cannot open private browsing directly.",
   "permission.readonly": "Read-only operation",
   "permission.write": "Write operation",
   "permission.outward": "External action",
