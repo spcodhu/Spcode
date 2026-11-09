@@ -86,6 +86,20 @@ describe("Plan / 本地文件 Markdown 链接拆分", () => {
     expect(parts[1]).toMatchObject({ kind: "file", path: "README.md" });
   });
 
+  it("工作区预览按需拆出本地图片，并保留远程图片与代码示例原样", () => {
+    const parts = splitPlanLinks("前文\n![架构](images/arch.png)\n![远程](https://example.com/a.png)", {
+      includeImages: true,
+    });
+    expect(parts).toEqual([
+      { kind: "text", key: "text-0", text: "前文\n" },
+      { kind: "image", key: "image-3", path: "images/arch.png", label: "架构" },
+      { kind: "text", key: "text-25", text: "\n![远程](https://example.com/a.png)" },
+    ]);
+    expect(splitPlanLinks("```md\n![示例](images/a.png)\n```", { includeImages: true })[0]).toMatchObject({
+      kind: "text",
+    });
+  });
+
   it("未闭合代码块中的链接同样不接管", () => {
     const text = "```ts\nconst example = '[示例](src/a.ts)';";
     expect(splitPlanLinks(text)).toEqual([{ kind: "text", key: "text-0", text }]);

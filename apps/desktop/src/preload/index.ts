@@ -90,6 +90,12 @@ export interface SpcodeApi {
   readPlanFile(path: string): Promise<string>;
   /** 右侧工作区面板预览：主进程按 sessionId 查注册表确定 cwd/scratch，渲染层不能指定目录 */
   readWorkspaceFile(path: string, sessionId: string): Promise<{ path: string; text: string }>;
+  /** Markdown 本地图片：相对路径以 documentPath 所在目录解析，主进程仍只准读当前会话工作区 */
+  readWorkspaceImage(
+    path: string,
+    sessionId: string,
+    documentPath?: string,
+  ): Promise<{ path: string; mimeType: string; data: string }>;
   setSettings(patch: Partial<AppSettings>): Promise<AppSettings>;
   /** Windows/macOS 系统登录项真实状态与一键设置 */
   autoLaunchStatus(): Promise<AutoLaunchStatus>;
@@ -237,6 +243,9 @@ const api: SpcodeApi = {
   },
   readWorkspaceFile(path, sessionId) {
     return ipcRenderer.invoke(IPC.workspaceFileRead, path, sessionId);
+  },
+  readWorkspaceImage(path, sessionId, documentPath) {
+    return ipcRenderer.invoke(IPC.workspaceImageRead, path, sessionId, documentPath);
   },
   getAppVersion() {
     return ipcRenderer.invoke(IPC.getAppVersion);

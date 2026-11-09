@@ -52,6 +52,7 @@ export interface MarkdownPlanLink {
 }
 
 export type MarkdownFileLink = MarkdownPlanLink;
+export type MarkdownImageLink = MarkdownPlanLink;
 
 export interface MarkdownProps {
   text: string;
@@ -60,9 +61,11 @@ export interface MarkdownProps {
   renderPlanLink?: (link: MarkdownPlanLink) => ReactNode;
   /** 桌面可注入工作区文件预览；手机缺省只展示链接文本，不尝试读取本机文件。 */
   renderFileLink?: (link: MarkdownFileLink) => ReactNode;
+  /** 工作区文档可注入受控本地图片加载器；未提供时图片语法保持由 Streamdown 处理。 */
+  renderImage?: (image: MarkdownImageLink) => ReactNode;
 }
 
-export function Markdown({ text, themeBase = "light", renderPlanLink, renderFileLink }: MarkdownProps) {
+export function Markdown({ text, themeBase = "light", renderPlanLink, renderFileLink, renderImage }: MarkdownProps) {
   const { t } = useTranslation("chat");
   const translations = useMemo(
     () =>
@@ -138,8 +141,9 @@ export function Markdown({ text, themeBase = "light", renderPlanLink, renderFile
     [mathPlugin, mermaidPlugin, themeBase],
   );
 
-  const contentParts = useMemo(() => splitPlanLinks(text), [text]);
-  const renderLink = (part: Exclude<PlanMarkdownPart, { kind: "text" }>) => {
+  const includeImages = renderImage !== undefined;
+  const contentParts = useMemo(() => splitPlanLinks(text, { includeImages }), [text, includeImages]);
+  const renderLink = (part: Exclude<PlanMarkdownPart, { kind: "text" | "image" }>) => {
     const renderer = part.kind === "plan" ? renderPlanLink : renderFileLink;
     return renderer ? (
       renderer(part)
@@ -168,9 +172,11 @@ export function Markdown({ text, themeBase = "light", renderPlanLink, renderFile
           >
             {part.text}
           </Streamdown>
-        ) : (
+        ) : part.kind === "image" && renderImage ? (
+          renderImage(part)
+        ) : part.kind !== "image" ? (
           renderLink(part)
-        ),
+        ) : null,
       )}
     </div>
   );

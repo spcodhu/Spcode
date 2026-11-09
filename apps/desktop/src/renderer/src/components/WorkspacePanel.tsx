@@ -1,19 +1,15 @@
 /**
- * 右侧工作区面板：任务清单固定钉在顶部，下方是本会话里打开过的文件
- * （计划文件 / 模型通过 read、write、edit 读写过的文件）标签与预览。
- *
- * 取代两样旧东西：
- * - PlanPanel：只认 WritePlan 落盘的计划文件，点别的都没反应；
- * - WorkDrawer：悬浮在输入框上方的任务清单抽屉，和文件预览完全无关。
- * 合并后第三栏不再是「只有点计划链接才用得上」的边角功能——会话里任何一次
- * 读写都能点开在这里看，任务进度也始终钉在最上面。
+ * 右侧工作区面板：顶部是悬浮任务卡片，下方在「会话文件列表 / 文件预览」间切换。
+ * 会话文件只从助手正文明确分享的 file:/本地文件链接派生；工具过程文件仍可手动预览，
+ * 但不会自动混入列表。面板关闭后由右侧悬浮按钮随时唤回，空会话也展示明确空态。
  */
 import type { TodoItem } from "@spcode/shared";
 import { baseName } from "@spcode/shared";
-import { useEffect, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { langOf } from "../file-blocks";
 import { useStore, type WorkspaceFileTab, workspacePanelVisible } from "../store";
+import { type WorkspaceDeliverable, workspaceDeliverables } from "../workspace-deliverables";
 import { Icon } from "./Icon";
 import { Markdown } from "./Markdown";
 
@@ -25,8 +21,11 @@ export function WorkspacePanel({ width = 560 }: { width?: number }) {
   const dismissWorkspacePanel = useStore((s) => s.dismissWorkspacePanel);
   const closeWorkspaceFile = useStore((s) => s.closeWorkspaceFile);
   const focusWorkspaceFile = useStore((s) => s.focusWorkspaceFile);
+  const showWorkspaceLibrary = useStore((s) => s.showWorkspaceLibrary);
+  const openWorkspaceFile = useStore((s) => s.openWorkspaceFile);
   const startPlanExecution = useStore((s) => s.startPlanExecution);
   const [starting, setStarting] = useState(false);
+  const deliverables = useMemo(() => workspaceDeliverables(session?.messages ?? []), [session?.messages]);
 
   if (!workspacePanelVisible(session, panel)) return null;
 
@@ -62,12 +61,13 @@ export function WorkspacePanel({ width = 560 }: { width?: number }) {
 
       <TodoSection todos={session!.todos} planMode={session!.planMode} />
 
-      {files.length > 0 && (
+      {activeFile && files.length > 0 && (
         <FileTabs
           files={files}
           activePath={panel?.activePath ?? null}
           onFocus={focusWorkspaceFile}
           onClose={closeWorkspaceFile}
+          onShowLibrary={showWorkspaceLibrary}
         />
       )}
 
@@ -75,12 +75,7 @@ export function WorkspacePanel({ width = 560 }: { width?: number }) {
         {activeFile ? (
           <FileContent key={activeFile.path} file={activeFile} />
         ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-2.5 px-10 text-center">
-            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-bg-elevated text-text-tertiary">
-              <Icon name="fileText" size={18} />
-            </span>
-            <p className="text-[12.5px] leading-5 text-text-tertiary">{t("workspace.emptyHint")}</p>
-          </div>
+          <FileLibrary files={deliverables} onOpen={(file) => void openWorkspaceFile(file)} />
         )}
       </div>
 
@@ -106,8 +101,39 @@ export function WorkspacePanel({ width = 560 }: { width?: number }) {
   );
 }
 
+/** 面板关闭时始终可唤回；没有任务或文件时也允许打开查看空态。 */
+export function WorkspacePanelLauncher() {
+  const { t } = useTranslation("chat");
+  const activeSessionId = useStore((s) => s.activeSessionId);
+  const visible = useStore((s) => {
+    const id = s.activeSessionId;
+    return !!id && workspacePanelVisible(s.sessions[id], s.workspacePanels[id]);
+  });
+  const toggleWorkspacePanel = useStore((s) => s.toggleWorkspacePanel);
+  const running = useStore((s) => {
+    const id = s.activeSessionId;
+    return id ? s.sessions[id]?.todos.some((todo) => todo.status === "in_progress") === true : false;
+  });
+  if (!activeSessionId || visible) return null;
+  return (
+    <button
+      type="button"
+      data-testid="workspace-panel-toggle"
+      onClick={toggleWorkspacePanel}
+      title={t("workspace.open")}
+      aria-label={t("workspace.open")}
+      className="fixed right-4 top-1/2 z-30 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-2xl border border-border bg-bg-elevated text-text-secondary shadow-xl transition-all hover:-translate-y-[52%] hover:border-border-strong hover:text-accent"
+    >
+      <Icon name="panelRight" size={18} />
+      {running && (
+        <span aria-hidden className="absolute right-2 top-2 h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+      )}
+    </button>
+  );
+}
+
 // ---------------------------------------------------------------------------
-// 任务清单（固定钉在面板顶部；折叠态随运行自动展开/收起，用户手动切换后不被覆盖）
+// 任务清单：左右留白的悬浮卡片；有任务时默认展开，固定高度，清单内部滚动。
 // ---------------------------------------------------------------------------
 
 function TodoSection({ todos, planMode }: { todos: TodoItem[]; planMode: boolean }) {
@@ -116,82 +142,77 @@ function TodoSection({ todos, planMode }: { todos: TodoItem[]; planMode: boolean
   const current = todos.find((x) => x.status === "in_progress");
   const hasTodos = todos.length > 0;
   const allDone = hasTodos && done === todos.length;
-
-  const [open, setOpen] = useState(!allDone);
-  // 自动跟随完成态翻转：进行中→展开，全部完成→收起；用户手动开合过就不再强制复位
-  // （只当当前开合仍等于「上次自动值」时才跟随，同 WorkDrawer 的既有策略）。
-  const lastAuto = useRef(!allDone);
-  useEffect(() => {
-    const auto = !allDone;
-    setOpen((cur) => (cur === lastAuto.current ? auto : cur));
-    lastAuto.current = auto;
-  }, [allDone]);
+  const [open, setOpen] = useState(true);
 
   if (!hasTodos && !planMode) return null;
 
   return (
-    <div data-testid="workspace-todo-section" className="shrink-0 border-b border-border">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-        data-testid="workspace-todo-toggle"
-        className="flex min-h-11 w-full items-center gap-2.5 px-4 py-2.5 text-left transition-colors hover:bg-bg-hover/50"
+    <div data-testid="workspace-todo-section" className="shrink-0 px-3 pt-3">
+      <div
+        className={`overflow-hidden rounded-2xl border border-border bg-bg-elevated shadow-[0_8px_28px_rgba(0,0,0,0.07)] ${
+          open && hasTodos ? "flex h-[260px] flex-col" : ""
+        }`}
       >
-        <Icon
-          name="chevronRight"
-          size={12}
-          className={`shrink-0 text-text-tertiary transition-transform duration-150 ${open ? "rotate-90" : ""}`}
-        />
-        <span
-          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md ${
-            allDone ? "bg-success/15 text-success" : "bg-accent-soft text-accent"
-          }`}
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          aria-expanded={open}
+          data-testid="workspace-todo-toggle"
+          className="flex min-h-11 w-full shrink-0 items-center gap-2.5 px-3.5 py-2.5 text-left transition-colors hover:bg-bg-hover/50"
         >
-          <Icon name={allDone ? "check" : hasTodos ? "clipboardCheck" : "clipboard"} size={11} strokeWidth={2.2} />
-        </span>
-
-        {hasTodos ? (
-          <>
-            <span className="shrink-0 text-[12.5px] font-medium text-text-primary">{t("work.tasks")}</span>
-            <span className="shrink-0 text-[11.5px] text-text-tertiary">
-              {done}/{todos.length}
-            </span>
-            <span className="h-[3px] w-12 shrink-0 overflow-hidden rounded-full bg-bg-hover">
-              <span
-                className="block h-full rounded-full transition-all duration-300"
-                style={{
-                  width: `${todos.length ? (done / todos.length) * 100 : 0}%`,
-                  background: allDone ? "var(--color-success)" : "var(--color-accent)",
-                }}
-              />
-            </span>
-          </>
-        ) : (
-          <span className="shrink-0 text-[12.5px] font-medium text-text-primary">{t("common.planMode")}</span>
-        )}
-
-        <span className="min-w-0 flex-1" />
-
-        {planMode && hasTodos && (
-          <span className="flex shrink-0 items-center gap-1 rounded-full bg-accent/15 px-2 py-0.5 text-[10.5px] text-accent">
-            <Icon name="clipboard" size={10} strokeWidth={2.2} />
-            {t("common.planMode")}
+          <Icon
+            name="chevronRight"
+            size={12}
+            className={`shrink-0 text-text-tertiary transition-transform duration-150 ${open ? "rotate-90" : ""}`}
+          />
+          <span
+            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md ${
+              allDone ? "bg-success/15 text-success" : "bg-accent-soft text-accent"
+            }`}
+          >
+            <Icon name={allDone ? "check" : hasTodos ? "clipboardCheck" : "clipboard"} size={11} strokeWidth={2.2} />
           </span>
-        )}
-        {hasTodos &&
-          (current ? (
-            <span className="flex min-w-0 max-w-[42%] items-center gap-1.5 text-[11.5px] text-accent">
-              <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent" />
-              <span className="truncate">{current.activeForm ?? current.content}</span>
-            </span>
+
+          {hasTodos ? (
+            <>
+              <span className="shrink-0 text-[12.5px] font-medium text-text-primary">{t("work.tasks")}</span>
+              <span className="shrink-0 text-[11.5px] text-text-tertiary">
+                {done}/{todos.length}
+              </span>
+              <span className="h-[3px] w-12 shrink-0 overflow-hidden rounded-full bg-bg-hover">
+                <span
+                  className="block h-full rounded-full transition-all duration-300"
+                  style={{
+                    width: `${todos.length ? (done / todos.length) * 100 : 0}%`,
+                    background: allDone ? "var(--color-success)" : "var(--color-accent)",
+                  }}
+                />
+              </span>
+            </>
           ) : (
-            allDone && <span className="shrink-0 text-[11.5px] text-success">{t("work.allDone")}</span>
-          ))}
-      </button>
-      <div className="collapse-grid" data-open={open} aria-hidden={!open} inert={!open}>
-        <div className="collapse-inner">
-          <div className="px-4 pb-3.5">
+            <span className="shrink-0 text-[12.5px] font-medium text-text-primary">{t("common.planMode")}</span>
+          )}
+
+          <span className="min-w-0 flex-1" />
+
+          {planMode && hasTodos && (
+            <span className="flex shrink-0 items-center gap-1 rounded-full bg-accent/15 px-2 py-0.5 text-[10.5px] text-accent">
+              <Icon name="clipboard" size={10} strokeWidth={2.2} />
+              {t("common.planMode")}
+            </span>
+          )}
+          {hasTodos &&
+            (current ? (
+              <span className="flex min-w-0 max-w-[42%] items-center gap-1.5 text-[11.5px] text-accent">
+                <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-accent" />
+                <span className="truncate">{current.activeForm ?? current.content}</span>
+              </span>
+            ) : (
+              allDone && <span className="shrink-0 text-[11.5px] text-success">{t("work.allDone")}</span>
+            ))}
+        </button>
+        {open && (
+          <div data-testid="workspace-todo-list" className="min-h-0 flex-1 overflow-y-auto px-3.5 pb-3.5">
             {planMode && (
               <div className="mb-2 flex items-start gap-2 rounded-xl border border-accent/25 bg-accent/10 px-3 py-2 text-[12px] leading-5 text-accent">
                 <Icon name="info" size={13} className="mt-[3px] shrink-0" />
@@ -207,7 +228,7 @@ function TodoSection({ todos, planMode }: { todos: TodoItem[]; planMode: boolean
               </div>
             )}
           </div>
-        </div>
+        )}
       </div>
     </div>
   );
@@ -247,26 +268,97 @@ function TaskRow({ todo }: { todo: TodoItem }) {
 }
 
 // ---------------------------------------------------------------------------
-// 文件标签条 + 预览内容
+// 会话文件列表 + 已打开文件标签 + 预览内容
 // ---------------------------------------------------------------------------
+
+function FileLibrary({
+  files,
+  onOpen,
+}: {
+  files: WorkspaceDeliverable[];
+  onOpen: (file: WorkspaceDeliverable) => void;
+}) {
+  const { t } = useTranslation("chat");
+  if (files.length === 0) {
+    return (
+      <div
+        data-testid="workspace-empty"
+        className="flex h-full flex-col items-center justify-center gap-2.5 px-10 text-center"
+      >
+        <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-bg-elevated text-text-tertiary">
+          <Icon name="fileText" size={18} />
+        </span>
+        <p className="text-[13px] font-medium text-text-secondary">{t("workspace.empty")}</p>
+        <p className="text-[12px] leading-5 text-text-tertiary">{t("workspace.emptyHint")}</p>
+      </div>
+    );
+  }
+  return (
+    <section data-testid="workspace-file-list" className="p-3" aria-label={t("workspace.files")}>
+      <div className="mb-2 flex items-center gap-2 px-1 text-[12px] text-text-tertiary">
+        <Icon name="folder" size={13} />
+        <span className="font-medium text-text-secondary">{t("workspace.files")}</span>
+        <span>{files.length}</span>
+      </div>
+      <div className="overflow-hidden rounded-2xl border border-border bg-bg-elevated shadow-sm">
+        {files.map((file, index) => (
+          <button
+            type="button"
+            key={`${file.kind}:${file.path}`}
+            data-testid="workspace-delivered-file"
+            data-path={file.path}
+            title={file.path}
+            onClick={() => onOpen(file)}
+            className={`flex w-full items-center gap-3 px-3.5 py-3 text-left transition-colors hover:bg-bg-hover/70 ${
+              index > 0 ? "border-t border-border" : ""
+            }`}
+          >
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-text-secondary">
+              <Icon name={file.kind === "plan" ? "clipboard" : "fileText"} size={14} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[12.5px] font-medium text-text-primary">{file.label}</span>
+              <span className="mono mt-0.5 block truncate text-[10.5px] text-text-tertiary">
+                {baseName(file.path) || file.path}
+              </span>
+            </span>
+            <Icon name="chevronRight" size={13} className="shrink-0 text-text-tertiary" />
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 function FileTabs({
   files,
   activePath,
   onFocus,
   onClose,
+  onShowLibrary,
 }: {
   files: WorkspaceFileTab[];
   activePath: string | null;
   onFocus: (path: string) => void;
   onClose: (path: string) => void;
+  onShowLibrary: () => void;
 }) {
   const { t } = useTranslation("chat");
   return (
     <div
       data-testid="workspace-file-tabs"
-      className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-bg-elevated/50 px-2 py-1.5"
+      className="mx-3 mt-2 flex shrink-0 items-center gap-1 overflow-x-auto rounded-xl border border-border bg-bg-elevated/70 p-1.5"
     >
+      <button
+        type="button"
+        data-testid="workspace-file-list-back"
+        onClick={onShowLibrary}
+        title={t("workspace.files")}
+        aria-label={t("workspace.files")}
+        className="mr-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-text-tertiary hover:bg-bg-hover hover:text-text-primary"
+      >
+        <Icon name="list" size={13} />
+      </button>
       {files.map((f) => {
         const active = f.path === activePath;
         return (
@@ -310,7 +402,7 @@ function FileContent({ file }: { file: WorkspaceFileTab }) {
   const content = isMarkdown ? file.text : fencedCodeBlock(file.path, file.text);
   return (
     <div data-testid="workspace-file-content" className="px-6 py-5">
-      <Markdown text={content} />
+      <Markdown text={content} workspaceDocumentPath={file.path} />
     </div>
   );
 }

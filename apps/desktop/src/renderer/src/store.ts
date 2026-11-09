@@ -243,22 +243,24 @@ export interface WorkspaceFileTab {
 export interface WorkspacePanelState {
   files: WorkspaceFileTab[];
   activePath: string | null;
+  /** 用户通过右侧悬浮按钮显式打开过；即使暂无文件/任务也保持面板可见并展示空态。 */
+  opened: boolean;
   /** 用户主动收起过面板（header 的关闭按钮）；发新消息/再次打开文件时复位 */
   dismissed: boolean;
 }
 
-const EMPTY_WORKSPACE_PANEL: WorkspacePanelState = { files: [], activePath: null, dismissed: false };
+const EMPTY_WORKSPACE_PANEL: WorkspacePanelState = { files: [], activePath: null, opened: false, dismissed: false };
 
 /** 最多同时缓存的已打开文件数（超出淠汰最早打开的那个，够用且不无限增长） */
 const MAX_WORKSPACE_FILES = 8;
 
-/** 面板是否应该显示：有已打开文件，或任务清单非空，或计划模式开着（给出说明性提示） */
+/** 面板是否应该显示：显式打开、有已打开文件、任务清单或计划模式任一即可；收起状态优先。 */
 export function workspacePanelVisible(
   session: Pick<SessionState, "todos" | "planMode"> | undefined,
   panel: WorkspacePanelState | undefined,
 ): boolean {
   if (!session || panel?.dismissed) return false;
-  return (panel?.files.length ?? 0) > 0 || session.todos.length > 0 || session.planMode;
+  return panel?.opened === true || (panel?.files.length ?? 0) > 0 || session.todos.length > 0 || session.planMode;
 }
 
 interface StoreState {
@@ -324,6 +326,8 @@ interface StoreState {
   openWorkspaceFile(input: { path: string; kind: "plan" | "file"; label?: string }): Promise<void>;
   /** 切换到已打开的某个文件标签 */
   focusWorkspaceFile(path: string): void;
+  /** 保留已打开标签，但回到会话交付文件列表 */
+  showWorkspaceLibrary(): void;
   /** 关闭单个文件标签（关掉的是当前聚焦项时，焦点移到相邻标签） */
   closeWorkspaceFile(path: string): void;
   /** 收起整个工作区面板（不影响已打开文件与任务清单数据） */
@@ -1660,7 +1664,7 @@ export const useStore = create<StoreState>((set, get) => ({
         return {
           workspacePanels: {
             ...s.workspacePanels,
-            [sessionId]: { files: capped, activePath: path, dismissed: false },
+            [sessionId]: { files: capped, activePath: path, opened: true, dismissed: false },
           },
         };
       });
@@ -1677,6 +1681,20 @@ export const useStore = create<StoreState>((set, get) => ({
       if (!current) return s;
       return {
         workspacePanels: { ...s.workspacePanels, [sessionId]: { ...current, activePath: path, dismissed: false } },
+      };
+    });
+  },
+
+  showWorkspaceLibrary() {
+    const sessionId = get().activeSessionId;
+    if (!sessionId) return;
+    set((s) => {
+      const current = s.workspacePanels[sessionId] ?? EMPTY_WORKSPACE_PANEL;
+      return {
+        workspacePanels: {
+          ...s.workspacePanels,
+          [sessionId]: { ...current, activePath: null, opened: true, dismissed: false },
+        },
       };
     });
   },
@@ -1708,7 +1726,12 @@ export const useStore = create<StoreState>((set, get) => ({
     const visible = workspacePanelVisible(get().sessions[sessionId], get().workspacePanels[sessionId]);
     set((s) => {
       const current = s.workspacePanels[sessionId] ?? EMPTY_WORKSPACE_PANEL;
-      return { workspacePanels: { ...s.workspacePanels, [sessionId]: { ...current, dismissed: visible } } };
+      return {
+        workspacePanels: {
+          ...s.workspacePanels,
+          [sessionId]: { ...current, dismissed: visible, opened: visible ? current.opened : true },
+        },
+      };
     });
   },
 

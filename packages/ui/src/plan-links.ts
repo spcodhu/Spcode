@@ -1,7 +1,8 @@
 export type PlanMarkdownPart =
   | { kind: "text"; key: string; text: string }
   | { kind: "plan"; key: string; path: string; label: string }
-  | { kind: "file"; key: string; path: string; label: string };
+  | { kind: "file"; key: string; path: string; label: string }
+  | { kind: "image"; key: string; path: string; label: string };
 
 const LINK_PATTERN = /\[([^\]]+)]\(([^)]+)\)/g;
 const EXTENSIONLESS_FILENAMES = new Set([
@@ -157,20 +158,23 @@ function maskMarkdownCode(text: string): string {
  * 把计划链接和模型给出的本地文件链接拆成独立入口，其它 Markdown 原样渲染。
  * 这里只做识别，不读取文件；桌面端仍须经过主进程的工作区路径守卫。
  */
-export function splitPlanLinks(text: string): PlanMarkdownPart[] {
+export function splitPlanLinks(text: string, options?: { includeImages?: boolean }): PlanMarkdownPart[] {
   const parts: PlanMarkdownPart[] = [];
   const linkText = maskMarkdownCode(text);
   let cursor = 0;
   for (const match of linkText.matchAll(LINK_PATTERN)) {
     const index = match.index ?? 0;
-    // 图片语法 ![alt](path) 不是文件预览入口
-    if (text[index - 1] === "!") continue;
+    const isImage = text[index - 1] === "!";
+    // 普通消息仍交给 Streamdown 处理图片；只有工作区预览显式要求时才拆出本地图片，
+    // 由桌面端经主进程路径守卫加载，避免 file:/相对路径被安全白名单显示为 Image blocked。
+    if (isImage && !options?.includeImages) continue;
     const link = classifyDestination(match[2] ?? "");
     if (!link) continue;
-    if (index > cursor) parts.push({ kind: "text", key: `text-${cursor}`, text: text.slice(cursor, index) });
+    const start = isImage ? index - 1 : index;
+    if (start > cursor) parts.push({ kind: "text", key: `text-${cursor}`, text: text.slice(cursor, start) });
     parts.push({
-      kind: link.kind,
-      key: `${link.kind}-${index}`,
+      kind: isImage ? "image" : link.kind,
+      key: `${isImage ? "image" : link.kind}-${start}`,
       path: link.path,
       label: match[1] || link.path,
     });

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { readWorkspaceFile, WorkspaceFileError } from "../src/main/workspace-file.js";
+import { readWorkspaceFile, readWorkspaceImage, WorkspaceFileError } from "../src/main/workspace-file.js";
 
 let root = "";
 let cwd = "";
@@ -22,6 +22,12 @@ beforeAll(() => {
   writeFileSync(join(root, "outside.txt"), "secret outside cwd", "utf-8");
   writeFileSync(join(cwd, "huge.txt"), "x".repeat(2 * 1024 * 1024 + 1), "utf-8");
   writeFileSync(join(cwd, "bin.dat"), Buffer.from([0, 1, 2, 3, 0, 5]));
+  const png = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+    "base64",
+  );
+  writeFileSync(join(cwd, "nested", "diagram.png"), png);
+  writeFileSync(join(cwd, "nested", "fake.png"), "not a real png", "utf-8");
 });
 
 afterAll(() => {
@@ -100,6 +106,24 @@ describe("工作区文件预览读取边界", () => {
       return undefined;
     })();
     expect(binary?.code).toBe("binary");
+  });
+
+  it("Markdown 图片相对所属文档目录解析，并校验真实图片签名", () => {
+    const result = readWorkspaceImage("diagram.png", cwd, join(cwd, "nested", "bar.md"), home);
+    expect(result.path).toBe(realpathSync(join(cwd, "nested", "diagram.png")));
+    expect(result.mimeType).toBe("image/png");
+    expect(Buffer.from(result.data, "base64").subarray(0, 8)).toEqual(
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    );
+    expect(() => readWorkspaceImage("fake.png", cwd, join(cwd, "nested", "bar.md"), home)).toThrow(
+      /Invalid image file/,
+    );
+    expect(() => readWorkspaceImage("../../outside.txt", cwd, join(cwd, "nested", "bar.md"), home)).toThrow(
+      /outside the session workspace/,
+    );
+    expect(() => readWorkspaceImage("diagram.png", cwd, join(root, "outside.txt"), home)).toThrow(
+      /outside the session workspace/,
+    );
   });
 
   it.runIf(process.platform !== "win32")("符号链接真实路径逃出 cwd 时拒绝", () => {

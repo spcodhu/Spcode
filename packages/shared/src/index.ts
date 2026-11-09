@@ -872,6 +872,8 @@ export const IPC = {
   planRead: "spcode:plan-read",
   /** renderer -> main (invoke)：右侧工作区面板预览——只读会话 cwd 内的文本文件，凭证/过大/二进制均拒 */
   workspaceFileRead: "spcode:workspace-file-read",
+  /** renderer -> main (invoke)：Markdown 内本地位图预览，按所属文档目录解析并复用工作区路径守卫 */
+  workspaceImageRead: "spcode:workspace-image-read",
   /** renderer -> main (invoke)：输入框草稿全量读/写（渲染层防抖保存） */
   getComposerDrafts: "spcode:get-composer-drafts",
   setComposerDrafts: "spcode:set-composer-drafts",

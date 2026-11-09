@@ -8,6 +8,7 @@ function seed(planMode: boolean) {
       "s-plan": {
         files: [{ path: "/tmp/plans/s-plan.md", label: "PLAN.md", kind: "plan", text: "# plan" }],
         activePath: "/tmp/plans/s-plan.md",
+        opened: true,
         dismissed: false,
       },
     },
