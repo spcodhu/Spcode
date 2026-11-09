@@ -101,37 +101,6 @@ export function WorkspacePanel({ width = 560 }: { width?: number }) {
   );
 }
 
-/** 面板关闭时始终可唤回；没有任务或文件时也允许打开查看空态。 */
-export function WorkspacePanelLauncher() {
-  const { t } = useTranslation("chat");
-  const activeSessionId = useStore((s) => s.activeSessionId);
-  const visible = useStore((s) => {
-    const id = s.activeSessionId;
-    return !!id && workspacePanelVisible(s.sessions[id], s.workspacePanels[id]);
-  });
-  const toggleWorkspacePanel = useStore((s) => s.toggleWorkspacePanel);
-  const running = useStore((s) => {
-    const id = s.activeSessionId;
-    return id ? s.sessions[id]?.todos.some((todo) => todo.status === "in_progress") === true : false;
-  });
-  if (!activeSessionId || visible) return null;
-  return (
-    <button
-      type="button"
-      data-testid="workspace-panel-toggle"
-      onClick={toggleWorkspacePanel}
-      title={t("workspace.open")}
-      aria-label={t("workspace.open")}
-      className="fixed right-4 top-1/2 z-30 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-2xl border border-border bg-bg-elevated text-text-secondary shadow-xl transition-all hover:-translate-y-[52%] hover:border-border-strong hover:text-accent"
-    >
-      <Icon name="panelRight" size={18} />
-      {running && (
-        <span aria-hidden className="absolute right-2 top-2 h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
-      )}
-    </button>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // 任务清单：左右留白的悬浮卡片；有任务时默认展开，固定高度，清单内部滚动。
 // ---------------------------------------------------------------------------

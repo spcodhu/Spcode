@@ -12,7 +12,7 @@ import { Sidebar } from "./components/Sidebar";
 import { ToastRegion } from "./components/ToastRegion";
 import { TopBar } from "./components/TopBar";
 import { closeTopModal } from "./components/ui/Modal";
-import { WorkspacePanel, WorkspacePanelLauncher } from "./components/WorkspacePanel";
+import { WorkspacePanel } from "./components/WorkspacePanel";
 import {
   constrainLayoutWidths,
   DEFAULT_LAYOUT_WIDTHS,
@@ -142,7 +142,6 @@ export default function App() {
         <ErrorBoundary label={t("workspace.panelTitle")}>
           <WorkspacePanel width={layout.plan} />
         </ErrorBoundary>
-        <WorkspacePanelLauncher />
         {forkDialogFor && <ForkDialog sourceId={forkDialogFor} onClose={() => setForkDialogFor(null)} />}
         {settingsOpen && <SettingsPage onClose={() => setSettingsOpen(false)} />}
         {searchOpen && <SearchPalette onClose={() => setSearchOpen(false)} />}

@@ -272,7 +272,7 @@ test("任务卡片左右留白、默认展开且固定高度，多项任务在�
   await app.close();
 });
 
-test("空会话也能通过右侧悬浮按钮打开、关闭并再次打开工作区", async () => {
+test("空会话也能通过顶栏按钮打开、关闭并再次打开工作区", async () => {
   const app = await launchApp({ seed: seedEmpty });
   const window = await app.firstWindow();
   await window.locator("div.group", { hasText: "E2E 空工作区" }).first().click();
@@ -280,6 +280,14 @@ test("空会话也能通过右侧悬浮按钮打开、关闭并再次打开工�
   await expect(panel).toHaveCount(0);
   const launcher = window.getByTestId("workspace-panel-toggle");
   await expect(launcher).toBeVisible({ timeout: 15000 });
+  const launcherBox = await launcher.boundingBox();
+  const usageBox = await window.getByTestId("session-usage-chip").boundingBox();
+  expect(launcherBox).not.toBeNull();
+  expect(usageBox).not.toBeNull();
+  expect(launcherBox!.width).toBeLessThanOrEqual(28);
+  expect(launcherBox!.height).toBeLessThanOrEqual(28);
+  expect(launcherBox!.x + launcherBox!.width).toBeLessThanOrEqual(usageBox!.x);
+  expect(Math.abs(launcherBox!.y + launcherBox!.height / 2 - (usageBox!.y + usageBox!.height / 2))).toBeLessThan(6);
   await launcher.click();
   await expect(panel).toBeVisible();
   await expect(panel.getByTestId("workspace-empty")).toBeVisible();
@@ -290,7 +298,7 @@ test("空会话也能通过右侧悬浮按钮打开、关闭并再次打开工�
   await app.close();
 });
 
-test("工具调用可在右侧预览文件，多标签与悬浮按钮唤回不丢状态，任务清单位于顶部", async () => {
+test("工具调用可在右侧预览文件，多标签与顶栏按钮唤回不丢状态，任务清单位于顶部", async () => {
   const app = await launchApp({ seed });
   const window = await app.firstWindow();
   await window.locator("div.group", { hasText: TITLE }).first().click();
@@ -331,7 +339,7 @@ test("工具调用可在右侧预览文件，多标签与悬浮按钮唤回不�
   await panel.getByTestId("workspace-delivered-file").filter({ hasText: "notes.txt" }).click();
   await expect(panel.getByTestId("workspace-file-content")).toContainText(NOTES_TEXT);
 
-  // 右侧悬浮按钮收起/唤回只改变可见性，不清空文件标签和当前预览。
+  // 顶栏按钮唤回只改变可见性，不清空文件标签和当前预览。
   await window.getByTestId("workspace-panel-close").click();
   await expect(panel).toHaveCount(0);
   await window.getByTestId("workspace-panel-toggle").click();

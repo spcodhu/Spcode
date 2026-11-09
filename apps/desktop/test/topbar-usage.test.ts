@@ -95,6 +95,8 @@ describe("TopBar 会话用量", () => {
       useStore.setState({ sessions: { s1: session({ unpricedCount: 1, count: 1 }) } });
     });
     expect(container.textContent).toContain("$—");
-    expect(container.querySelector("[title]")?.getAttribute("title")).toContain("含未定价调用");
+    expect(container.querySelector('[data-testid="session-usage-chip"]')?.getAttribute("title")).toContain(
+      "含未定价调用",
+    );
   });
 });
