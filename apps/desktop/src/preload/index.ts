@@ -28,6 +28,7 @@ import {
   type UpdateState,
   type WebFetchConfig,
   type WindowChromeState,
+  type WindowCloseAction,
 } from "@spcode/shared";
 import { contextBridge, ipcRenderer } from "electron";
 
@@ -89,6 +90,9 @@ export interface SpcodeApi {
   onWindowChromeChanged(cb: (state: WindowChromeState) => void): () => void;
   /** 共享 Modal 遮罩显隐：Windows 原生窗口按钮随遮罩切换配色 */
   windowModalOverlaySet(open: boolean): Promise<void>;
+  /** Windows 用户点窗口叉号后的关闭确认与选择 */
+  onWindowCloseRequested(cb: () => void): () => void;
+  windowCloseResolve(action: WindowCloseAction): Promise<void>;
   readPlanFile(path: string): Promise<string>;
   /** 右侧工作区面板预览：主进程按 sessionId 查注册表确定 cwd/scratch，渲染层不能指定目录 */
   readWorkspaceFile(path: string, sessionId: string): Promise<{ path: string; text: string }>;
@@ -242,6 +246,14 @@ const api: SpcodeApi = {
   },
   windowModalOverlaySet(open) {
     return ipcRenderer.invoke(IPC.windowModalOverlaySet, open);
+  },
+  onWindowCloseRequested(cb) {
+    const listener = () => cb();
+    ipcRenderer.on(IPC.windowCloseRequested, listener);
+    return () => ipcRenderer.removeListener(IPC.windowCloseRequested, listener);
+  },
+  windowCloseResolve(action) {
+    return ipcRenderer.invoke(IPC.windowCloseResolve, action);
   },
   readPlanFile(path) {
     return ipcRenderer.invoke(IPC.planRead, path);

@@ -1,3 +1,4 @@
+import type { WindowCloseAction } from "@spcode/shared";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChatView } from "./components/ChatView";
@@ -12,6 +13,7 @@ import { Sidebar } from "./components/Sidebar";
 import { ToastRegion } from "./components/ToastRegion";
 import { TopBar } from "./components/TopBar";
 import { closeTopModal } from "./components/ui/Modal";
+import { WindowCloseDialog } from "./components/WindowCloseDialog";
 import { WorkspacePanel } from "./components/WorkspacePanel";
 import {
   constrainLayoutWidths,
@@ -33,6 +35,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [windowCloseOpen, setWindowCloseOpen] = useState(false);
   // 右侧工作区面板是否占位：有已打开文件、任务清单或计划模式任一就算（与 WorkspacePanel 自身的显示判断同源）
   const workspaceOpen = useStore((s) => {
     const id = s.activeSessionId;
@@ -62,6 +65,13 @@ export default function App() {
     // StrictMode 会挂载→卸载→重挂载：卸载时退订，保证任意时刻只有一个事件监听器
     return () => teardownHostEvents();
   }, []);
+
+  useEffect(() => window.spcode.onWindowCloseRequested(() => setWindowCloseOpen(true)), []);
+
+  const resolveWindowClose = (action: WindowCloseAction) => {
+    setWindowCloseOpen(false);
+    void window.spcode.windowCloseResolve(action).catch(() => setWindowCloseOpen(true));
+  };
 
   // 快捷键：Cmd+, 切换设置；Cmd+K 用搜索替换当前弹层；Esc 只关闭最上层。
   useEffect(() => {
@@ -146,6 +156,7 @@ export default function App() {
         {settingsOpen && <SettingsPage onClose={() => setSettingsOpen(false)} />}
         {searchOpen && <SearchPalette onClose={() => setSearchOpen(false)} />}
         {scheduleOpen && <SchedulePage onClose={() => setScheduleOpen(false)} />}
+        {windowCloseOpen && <WindowCloseDialog onAction={resolveWindowClose} />}
         <ToastRegion />
       </div>
     </ErrorBoundary>

@@ -27,6 +27,7 @@ import {
   type SessionMode,
   type WebFetchConfig,
   type WindowChromeState,
+  type WindowCloseAction,
 } from "@spcode/shared";
 import { executeSearch, isAdvancedSearchReady } from "@spcode/shared/advanced-search";
 import { i18n, setLocale } from "@spcode/shared/i18n";
@@ -60,6 +61,7 @@ import { redactSettingsForRenderer, restoreMaskedSecrets, SettingsStore } from "
 import { downloadUpdate, getUpdateState, ignoreVersion, installUpdate, setupAutoUpdater } from "./updater.js";
 import { UsageLedger } from "./usage-ledger.js";
 import { nativeWindowChromeOptions, windowsTitleBarOverlay } from "./window-chrome.js";
+import { WindowCloseController } from "./window-close.js";
 import { readWorkspaceFile, readWorkspaceImage } from "./workspace-file.js";
 
 /** pickFiles 的文本文件扩展名白名单（不在名单内的靠二进制唿探判决） */
@@ -148,6 +150,7 @@ const notifier = new Notifier({
 let mainWindow: BrowserWindow | null = null;
 /** 网页 Modal 位于原生 Windows 窗口按钮之下，需显式同步遮罩配色。 */
 let windowModalOpen = false;
+const windowCloseController = new WindowCloseController();
 /** E2E 后台模式：窗口不显示不抢焦点（只由 e2e/helpers.ts 设置） */
 const backgroundE2E = process.env.SPCODE_E2E_BACKGROUND === "1";
 
@@ -186,6 +189,15 @@ function createWindow(): void {
 
   // Windows 不保留应用菜单，避免 Alt 再次唤出与主题不一致的原生菜单条。
   if (process.platform === "win32") mainWindow.removeMenu();
+
+  mainWindow.on("close", (event) => {
+    const request = windowCloseController.request(process.platform);
+    if (request === "allow") return;
+    event.preventDefault();
+    if (request === "confirm" && mainWindow && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send(IPC.windowCloseRequested);
+    }
+  });
 
   // 原生全屏事件发生后读取权威状态；仅渲染层据此调整 macOS 红绿灯留白
   const publishWindowChrome = () => {
@@ -662,6 +674,14 @@ function registerIpc(): void {
     windowModalOpen = open === true;
     applyWindowsTitleBarOverlay();
   });
+  ipcMain.handle(IPC.windowCloseResolve, (_e, action: WindowCloseAction) => {
+    if (!["quit", "minimize", "cancel"].includes(action)) return;
+    const resolution = windowCloseController.resolve(action);
+    const win = mainWindow;
+    if (resolution === "ignore" || !win || win.isDestroyed()) return;
+    if (resolution === "minimize") win.minimize();
+    if (resolution === "quit") win.close();
+  });
 
   // 更新：状态查询 / 手动下载 / 重启安装 / 忽略版本（状态推送见 setupAutoUpdater 的 onState）
   ipcMain.handle(IPC.updateGetState, () => getUpdateState());
@@ -909,6 +929,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  windowCloseController.allowWithoutConfirmation();
   runRetries.stop();
   void remote.stop();
   void bridge.dispose();

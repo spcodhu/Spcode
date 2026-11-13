@@ -107,3 +107,35 @@ test("Windows 设置遮罩同步原生窗口按钮配色", async () => {
     .toBe("#FFFFFF");
   await app.close();
 });
+
+test("Windows 点关闭后需确认，可取消、最小化继续运行或完全退出", async () => {
+  test.skip(process.platform !== "win32", "窗口关闭确认仅在 Windows 验收");
+  const app = await launchApp();
+  const window = await app.firstWindow();
+  const closeWindow = () =>
+    app.evaluate(({ BrowserWindow }) => {
+      BrowserWindow.getAllWindows()[0]!.close();
+    });
+
+  await closeWindow();
+  await expect(window.getByTestId("window-close-dialog")).toBeVisible();
+  expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isDestroyed())).toBe(false);
+  await window.getByTestId("window-close-cancel").click();
+  await expect(window.getByTestId("window-close-dialog")).toHaveCount(0);
+  expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isMinimized())).toBe(false);
+
+  await closeWindow();
+  await window.getByTestId("window-close-minimize").click();
+  await expect
+    .poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isMinimized()))
+    .toBe(true);
+  // 窗口最小化后渲染进程与主进程都保持存活，未走 before-quit 的宿主清理。
+  await expect(window.getByTestId("brand")).toBeVisible();
+  expect(app.process().exitCode).toBeNull();
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.restore());
+
+  await closeWindow();
+  const exited = new Promise<number | null>((resolve) => app.process().once("exit", (code) => resolve(code)));
+  await window.getByTestId("window-close-quit").click();
+  expect(await exited).toBe(0);
+});

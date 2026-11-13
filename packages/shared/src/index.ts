@@ -828,6 +828,8 @@ export interface WindowChromeState {
   fullScreen: boolean;
 }
 
+export type WindowCloseAction = "quit" | "minimize" | "cancel";
+
 /** 操作系统登录项的真实状态；不以本地 JSON 代替 OS 状态。 */
 export interface AutoLaunchStatus {
   supported: boolean;
@@ -920,6 +922,9 @@ export const IPC = {
   windowChromeChanged: "spcode:window-chrome-changed",
   /** main <- renderer：共享 Modal 遮罩显隐，用于同步 Windows 原生窗口按钮配色 */
   windowModalOverlaySet: "spcode:window-modal-overlay-set",
+  /** Windows 用户点窗口叉号：主进程请求确认，渲染层返回退出/最小化/取消 */
+  windowCloseRequested: "spcode:window-close-requested",
+  windowCloseResolve: "spcode:window-close-resolve",
   /** main -> renderer：更新状态机变化推送（UpdateState） */
   updateState: "spcode:update-state",
   /** renderer -> main (invoke)：更新状态查询 / 手动下载 / 重启安装 / 忽略版本 */
