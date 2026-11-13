@@ -8,7 +8,10 @@ export function TopBar() {
   const session = useStore((s) => (s.activeSessionId ? s.sessions[s.activeSessionId] : undefined));
 
   return (
-    <header className="titlebar-drag flex h-12 shrink-0 items-center gap-2 border-b border-border bg-bg-main px-4">
+    <header
+      data-testid="main-titlebar"
+      className="titlebar-drag window-controls-overlay-inset flex h-12 shrink-0 items-center gap-2 border-b border-border bg-bg-main px-4"
+    >
       {session ? (
         <>
           {/* 面包屑：空间/模式 > 会话标题 */}

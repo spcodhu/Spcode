@@ -59,6 +59,7 @@ import { searchSessions } from "./session-search.js";
 import { redactSettingsForRenderer, restoreMaskedSecrets, SettingsStore } from "./settings-store.js";
 import { downloadUpdate, getUpdateState, ignoreVersion, installUpdate, setupAutoUpdater } from "./updater.js";
 import { UsageLedger } from "./usage-ledger.js";
+import { nativeWindowChromeOptions, windowsTitleBarOverlay } from "./window-chrome.js";
 import { readWorkspaceFile, readWorkspaceImage } from "./workspace-file.js";
 
 /** pickFiles 的文本文件扩展名白名单（不在名单内的靠二进制唿探判决） */
@@ -161,8 +162,7 @@ function createWindow(): void {
     title: "Spcod",
     ...(devIcon ? { icon: devIcon } : {}),
     backgroundColor: "#0b0f14",
-    titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 14, y: 14 },
+    ...nativeWindowChromeOptions(process.platform, settings.get()),
     show: !backgroundE2E,
     focusable: !backgroundE2E,
     skipTaskbar: backgroundE2E,
@@ -176,6 +176,9 @@ function createWindow(): void {
       sandbox: true,
     },
   });
+
+  // Windows 不保留应用菜单，避免 Alt 再次唤出与主题不一致的原生菜单条。
+  if (process.platform === "win32") mainWindow.removeMenu();
 
   // 原生全屏事件发生后读取权威状态；仅渲染层据此调整 macOS 红绿灯留白
   const publishWindowChrome = () => {
@@ -660,6 +663,9 @@ function registerIpc(): void {
   ipcMain.handle(IPC.setSettings, async (_e, patch: Partial<AppSettings>) => {
     // 掩码密钥还原（渲染层只见过掩码；评审 R3-C8）
     const next = settings.set(restoreMaskedSecrets(patch, settings.get()));
+    if (process.platform === "win32" && ("themeId" in patch || "customTheme" in patch)) {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setTitleBarOverlay(windowsTitleBarOverlay(next));
+    }
     if ("locale" in patch) {
       setLocale(next.locale);
       bridge.push({ type: "locale.set", payload: { locale: next.locale } });

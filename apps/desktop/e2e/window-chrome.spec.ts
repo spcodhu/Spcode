@@ -1,9 +1,8 @@
 import { expect, test } from "@playwright/test";
 import { launchApp } from "./helpers";
 
-test.skip(process.platform !== "darwin", "原生红绿灯行为仅在 macOS 验收");
-
 test("macOS 全屏时取消红绿灯留白，退出后恢复", async () => {
+  test.skip(process.platform !== "darwin", "原生红绿灯行为仅在 macOS 验收");
   const app = await launchApp();
   const window = await app.firstWindow();
   const header = window.getByTestId("sidebar-titlebar");
@@ -24,5 +23,27 @@ test("macOS 全屏时取消红绿灯留白，退出后恢复", async () => {
   });
   await expect(header).toHaveAttribute("data-fullscreen", "false", { timeout: 15000 });
   expect(await header.evaluate((el) => getComputedStyle(el).paddingLeft)).toBe("80px");
+  await app.close();
+});
+
+test("Windows 顶栏融合窗口按钮且不显示原生菜单", async () => {
+  test.skip(process.platform !== "win32", "窗口控制按钮覆盖层仅在 Windows 验收");
+  const app = await launchApp();
+  const window = await app.firstWindow();
+  const header = window.getByTestId("main-titlebar");
+  await expect(window.getByTestId("sidebar-titlebar")).toHaveAttribute("data-platform", "win32", { timeout: 15000 });
+
+  const menuVisible = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isMenuBarVisible());
+  expect(menuVisible).toBe(false);
+  await expect
+    .poll(() =>
+      window.evaluate(
+        () =>
+          (navigator as Navigator & { windowControlsOverlay?: { visible: boolean } }).windowControlsOverlay?.visible ===
+          true,
+      ),
+    )
+    .toBe(true);
+  expect(Number.parseFloat(await header.evaluate((el) => getComputedStyle(el).paddingRight))).toBeGreaterThan(100);
   await app.close();
 });
