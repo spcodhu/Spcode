@@ -22,7 +22,7 @@ let snapshot: { root: HTMLElement | null; inert: boolean; ariaHidden: string | n
 
 /** 原生 Windows 窗口按钮在网页遮罩之上，只能由主进程同步其背景色。 */
 function syncNativeModalOverlay(): void {
-  void window.spcode?.windowModalOverlaySet(lockCount > 0).catch(() => {});
+  void window.spcode?.windowModalOverlaySet?.(lockCount > 0)?.catch(() => {});
 }
 
 function lockBackground(): () => void {

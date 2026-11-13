@@ -100,4 +100,21 @@ describe("桌面 Modal", () => {
     });
     expect(document.activeElement).toBe(last);
   });
+
+  it("宿主没有原生配色接口时仍正常开合", async () => {
+    vi.stubGlobal("spcode", {});
+    await act(async () =>
+      root!.render(
+        createElement(
+          Modal,
+          { title: "兼容", layerClassName: "", panelClassName: "" },
+          createElement("button", { type: "button" }, "内容"),
+        ),
+      ),
+    );
+    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+    await act(async () => root!.unmount());
+    root = null;
+    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(0);
+  });
 });
