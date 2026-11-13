@@ -40,7 +40,7 @@ export function WorkspacePanel({ width = 560 }: { width?: number }) {
       style={{ width }}
       aria-label={t("workspace.panelTitle")}
     >
-      <header className="flex h-12 shrink-0 items-center gap-2.5 border-b border-border px-4">
+      <header className="titlebar-drag window-controls-overlay-inset flex h-12 shrink-0 items-center gap-2.5 border-b border-border px-4">
         <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent-soft text-accent">
           <Icon name="panelRight" size={14} />
         </span>
@@ -53,7 +53,7 @@ export function WorkspacePanel({ width = 560 }: { width?: number }) {
           onClick={dismissWorkspacePanel}
           title={t("workspace.close")}
           aria-label={t("workspace.close")}
-          className="rounded-md p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
+          className="titlebar-no-drag rounded-md p-1.5 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-text-primary"
         >
           <Icon name="x" size={14} />
         </button>

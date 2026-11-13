@@ -45,5 +45,32 @@ test("Windows 顶栏融合窗口按钮且不显示原生菜单", async () => {
     )
     .toBe(true);
   expect(Number.parseFloat(await header.evaluate((el) => getComputedStyle(el).paddingRight))).toBeGreaterThan(100);
+
+  // 回归截图：工作区开关与缓存/计费框都不能伸进最小化、最大化、关闭按钮区域。
+  await window.getByRole("button", { name: /新建聊天/ }).click();
+  const usageChip = window.getByTestId("session-usage-chip");
+  await expect(usageChip).toBeVisible();
+  const overlayLeft = await window.evaluate(() => {
+    const overlay = (
+      navigator as Navigator & {
+        windowControlsOverlay?: { getBoundingClientRect: () => DOMRect };
+      }
+    ).windowControlsOverlay;
+    return overlay?.getBoundingClientRect().left;
+  });
+  expect(overlayLeft).toBeDefined();
+  for (const testId of ["workspace-panel-toggle", "session-usage-chip"]) {
+    const box = await window.getByTestId(testId).boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x + box!.width).toBeLessThanOrEqual(overlayLeft!);
+  }
+
+  // 工作区展开后，系统按钮覆盖的是右侧工作区顶栏，关闭按钮同样必须避开。
+  await window.getByTestId("workspace-panel-toggle").click();
+  const closeButton = window.getByTestId("workspace-panel-close");
+  await expect(closeButton).toBeVisible();
+  const closeBox = await closeButton.boundingBox();
+  expect(closeBox).not.toBeNull();
+  expect(closeBox!.x + closeBox!.width).toBeLessThanOrEqual(overlayLeft!);
   await app.close();
 });

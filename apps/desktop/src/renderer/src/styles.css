@@ -114,11 +114,10 @@ select:focus-visible,
   -webkit-app-region: no-drag;
 }
 
-/* Windows 窗口控制按钮覆盖在顶栏右侧，内容不能伸进原生按钮的不可交互区域。 */
-@media (display-mode: window-controls-overlay) {
-  .window-controls-overlay-inset {
-    padding-right: calc(100vw - env(titlebar-area-width, 100vw) + 8px);
-  }
+/* Windows 窗口控制按钮覆盖在顶栏右侧，内容不能伸进原生按钮的不可交互区域。
+   直接使用 overlay 的 env 安全区；非 overlay 环境回退后仍保持原有 16px 右内边距。 */
+.window-controls-overlay-inset {
+  padding-right: max(16px, calc(100vw - env(titlebar-area-width, 100vw) + 8px));
 }
 
 /* 滚动条 */
