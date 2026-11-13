@@ -25,6 +25,8 @@ const UPDATE_REPO = "Spcode";
 
 let currentState: UpdateState = { status: "idle" };
 let onStateChange: ((s: UpdateState) => void) | null = null;
+/** 后台检查期间的网络错误只记录日志，不能伪装成用户下载失败。 */
+let checkingForUpdates = false;
 /** 正在/即将下载的版本（download-progress 事件不携带版本号，需自行跟踪） */
 let pendingVersion = "";
 
@@ -99,6 +101,9 @@ export function setupAutoUpdater(opts: {
     setState({ status: "downloaded", version: info.version });
   });
   autoUpdater.on("error", (e) => {
+    // electron-updater 的检查与下载共用 error 事件。检查失败时当前并没有可下载的更新，
+    // 保持原状态（通常 idle）；真正的下载/安装错误仍展示重试入口。
+    if (checkingForUpdates) return;
     console.warn("[updater] error", e);
     setState({ status: "error", message: e instanceof Error ? e.message : String(e) });
   });
@@ -107,9 +112,16 @@ export function setupAutoUpdater(opts: {
   const check = () => {
     if (!opts.isEnabled()) return;
     autoUpdater.allowPrerelease = resolveAllowPrerelease(opts.getBetaUpdates(), app.getVersion());
-    void autoUpdater.checkForUpdates().catch((e) => {
-      console.warn("[updater] check failed", e);
-    });
+    checkingForUpdates = true;
+    void autoUpdater
+      .checkForUpdates()
+      .catch((e) => {
+        console.warn("[updater] check failed", e);
+      })
+      .finally(() => {
+        // electron-updater 会先同步发出 error，再拒绝 checkForUpdates Promise。
+        checkingForUpdates = false;
+      });
   };
   check();
   // 每 4 小时复查；unref 防止这个定时器本身拖住进程退出
