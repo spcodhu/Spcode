@@ -33,7 +33,8 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Test
-        run: pnpm --filter @spcode/desktop test
+        # 失败用例同步写入 GitHub Annotations，公开检查接口即可定位，不再只有 exit code 1。
+        run: pnpm --filter @spcode/desktop exec vitest run --reporter=default --reporter=github-actions
 
       - name: Build mobile PWA
         run: pnpm --filter @spcode/mobile build
