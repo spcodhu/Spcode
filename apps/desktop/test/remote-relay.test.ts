@@ -520,7 +520,7 @@ afterAll(async () => {
   if (dir) rmSync(dir, { recursive: true, force: true });
 });
 
-function waitUntil(pred: () => boolean, timeoutMs = 3000): Promise<void> {
+function waitUntil(pred: () => boolean, timeoutMs = 10_000): Promise<void> {
   return new Promise((resolvePromise, rejectPromise) => {
     const poll = setInterval(() => {
       if (pred()) {

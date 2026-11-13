@@ -1,9 +1,12 @@
 /**
  * SSRF 防护单测（评审 R3-C7）：私网/回环/保留段判定、数字 IP 变体、URL 校验。
- * 全部离线可跑（域名用例走 .invalid 必 NXDOMAIN，fail-closed 不依赖网络）。
+ * 全部离线可跑（DNS 失败用 mock 注入，不依赖本机解析器）。
  */
-import { describe, expect, it } from "vitest";
+import { lookup } from "node:dns/promises";
+import { describe, expect, it, vi } from "vitest";
 import { assertPublicHttpUrl, isPrivateHost, isPrivateIp } from "../src/agent-host/tools/ssrf.js";
+
+vi.mock("node:dns/promises", () => ({ lookup: vi.fn() }));
 
 describe("isPrivateIp", () => {
   it("回环/私网/链路本地/CGNAT/保留段全部命中", () => {
@@ -76,8 +79,10 @@ describe("assertPublicHttpUrl", () => {
     expect((await assertPublicHttpUrl("https://1.1.1.1/")).ok).toBe(true);
   });
 
-  it(".invalid 域名 DNS 必失败 → fail-closed 拒绝（离线也可跑）", async () => {
+  it("DNS 解析失败 → fail-closed 拒绝（不依赖本机 DNS）", async () => {
+    vi.mocked(lookup).mockRejectedValueOnce(new Error("getaddrinfo ENOTFOUND nonexistent-host-xyz.invalid"));
     const r = await assertPublicHttpUrl("https://nonexistent-host-xyz.invalid/");
+    expect(lookup).toHaveBeenCalledWith("nonexistent-host-xyz.invalid", { all: true });
     expect(r.ok).toBe(false);
   });
 });
