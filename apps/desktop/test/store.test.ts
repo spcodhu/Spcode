@@ -7,6 +7,7 @@ import {
   type Segment,
   teardownHostEvents,
   useStore,
+  workspacePanelVisible,
 } from "../src/renderer/src/store.js";
 
 /**
@@ -502,6 +503,61 @@ describe("session.todo 持久化镜像", () => {
     useStore.getState().applyHostEvent({ type: "session.todo", sessionId: "s-todo-live", todos });
     expect(useStore.getState().sessions["s-todo-live"]?.todos).toEqual(todos);
     expect(useStore.getState().registrySessions[0]?.todos).toEqual(todos);
+  });
+});
+
+describe("工作区面板自动展开", () => {
+  const visible = (sessionId: string) => {
+    const state = useStore.getState();
+    return workspacePanelVisible(state.sessions[sessionId], state.workspacePanels[sessionId]);
+  };
+
+  it("新会话没有待办时，发送消息不自动展开", async () => {
+    stubSpcodeApi();
+    seedSession("s-workspace-empty");
+    await useStore.getState().sendPrompt("只聊天，不创建任务");
+    expect(visible("s-workspace-empty")).toBe(false);
+  });
+
+  it("有待办且用户未关闭时，面板自动展开", () => {
+    stubSpcodeApi();
+    seedSession("s-workspace-todo");
+    useStore.getState().applyHostEvent({
+      type: "session.todo",
+      sessionId: "s-workspace-todo",
+      todos: [{ content: "实现功能", activeForm: "正在实现功能", status: "in_progress" }],
+    });
+    expect(visible("s-workspace-todo")).toBe(true);
+  });
+
+  it("手动关闭后，再次发送和待办更新都不重开，仅手动打开恢复", async () => {
+    stubSpcodeApi();
+    seedSession("s-workspace-dismissed");
+    useStore.getState().applyHostEvent({
+      type: "session.todo",
+      sessionId: "s-workspace-dismissed",
+      todos: [{ content: "第一项", activeForm: "正在处理第一项", status: "in_progress" }],
+    });
+    expect(visible("s-workspace-dismissed")).toBe(true);
+
+    useStore.getState().dismissWorkspacePanel();
+    expect(visible("s-workspace-dismissed")).toBe(false);
+    await useStore.getState().sendPrompt("继续，但保持面板关闭");
+    expect(useStore.getState().workspacePanels["s-workspace-dismissed"]?.dismissed).toBe(true);
+    expect(visible("s-workspace-dismissed")).toBe(false);
+
+    useStore.getState().applyHostEvent({
+      type: "session.todo",
+      sessionId: "s-workspace-dismissed",
+      todos: [
+        { content: "第一项", activeForm: "正在处理第一项", status: "completed" },
+        { content: "第二项", activeForm: "正在处理第二项", status: "in_progress" },
+      ],
+    });
+    expect(visible("s-workspace-dismissed")).toBe(false);
+
+    useStore.getState().toggleWorkspacePanel();
+    expect(visible("s-workspace-dismissed")).toBe(true);
   });
 });
 

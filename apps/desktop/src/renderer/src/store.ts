@@ -245,7 +245,7 @@ export interface WorkspacePanelState {
   activePath: string | null;
   /** 用户通过右侧悬浮按钮显式打开过；即使暂无文件/任务也保持面板可见并展示空态。 */
   opened: boolean;
-  /** 用户主动收起过面板（header 的关闭按钮）；发新消息/再次打开文件时复位 */
+  /** 用户主动收起过面板；仅用户再次打开面板/文件时复位，发送新消息不复位。 */
   dismissed: boolean;
 }
 
@@ -260,7 +260,7 @@ export function workspacePanelVisible(
   panel: WorkspacePanelState | undefined,
 ): boolean {
   if (!session || panel?.dismissed) return false;
-  return panel?.opened === true || (panel?.files.length ?? 0) > 0 || session.todos.length > 0 || session.planMode;
+  return panel?.opened === true || (panel?.files.length ?? 0) > 0 || session.todos.length > 0 || session.planMode === true;
 }
 
 interface StoreState {
@@ -1444,13 +1444,6 @@ export const useStore = create<StoreState>((set, get) => ({
         }
       }),
     );
-    // 新一轮任务开始：给工作区面板一次重新露出的机会（用户之前关过不代表这次也不想看；
-    // 该轮若不产生任务清单/新文件，可见性公式仍为假，这里只是换回 dismissed=false 不会异常显示）
-    set((s) => {
-      const current = s.workspacePanels[sessionId];
-      if (!current?.dismissed) return s;
-      return { workspacePanels: { ...s.workspacePanels, [sessionId]: { ...current, dismissed: false } } };
-    });
     // 侧栏标题即时兜底更新（AI RenameSession 之后可覆盖）
     set((s) => ({
       registrySessions: s.registrySessions.map((r) =>

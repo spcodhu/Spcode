@@ -298,6 +298,66 @@ test("空会话也能通过顶栏按钮打开、关闭并再次打开工作区",
   await app.close();
 });
 
+test("无待办时发送不自动打开，手动关闭后再次发送也保持关闭", async () => {
+  const app = await launchApp({ seed: seedEmpty });
+  const window = await app.firstWindow();
+  await window.locator("div.group", { hasText: "E2E 空工作区" }).first().click();
+  const panel = window.getByTestId("workspace-panel");
+  const launcher = window.getByTestId("workspace-panel-toggle");
+  const composer = window.getByTestId("composer-input");
+  await expect(panel).toHaveCount(0);
+
+  await composer.fill("只回复一句话");
+  await window.getByTestId("composer-send").click();
+  await expect(window.getByText("只回复一句话", { exact: true })).toBeVisible();
+  await expect(panel).toHaveCount(0);
+
+  await launcher.click();
+  await expect(panel).toBeVisible();
+  await window.getByTestId("workspace-panel-close").click();
+  await expect(panel).toHaveCount(0);
+  await composer.fill("再次发送也保持关闭");
+  await window.getByTestId("composer-send").click();
+  await expect(window.getByText("再次发送也保持关闭", { exact: true })).toBeVisible();
+  await expect(panel).toHaveCount(0);
+
+  await launcher.click();
+  await expect(panel).toBeVisible();
+  await app.close();
+});
+
+test("有待办的工作区手动关闭后，发送消息与待办更新都不重新打开", async () => {
+  const app = await launchApp({ seed });
+  const window = await app.firstWindow();
+  await window.locator("div.group", { hasText: TITLE }).first().click();
+  const panel = window.getByTestId("workspace-panel");
+  await expect(panel).toBeVisible({ timeout: 15000 });
+  await window.getByTestId("workspace-panel-close").click();
+  await expect(panel).toHaveCount(0);
+
+  await window.getByTestId("composer-input").fill("继续处理但保持面板关闭");
+  await window.getByTestId("composer-send").click();
+  await expect(window.getByText("继续处理但保持面板关闭", { exact: true })).toBeVisible();
+  await expect(panel).toHaveCount(0);
+
+  await app.evaluate(({ BrowserWindow }, sessionId) => {
+    BrowserWindow.getAllWindows()[0]?.webContents.send("spcode:host-event", {
+      type: "session.todo",
+      sessionId,
+      todos: [
+        { content: "已完成任务", activeForm: "正在完成任务", status: "completed" },
+        { content: "新的待办", activeForm: "正在处理新的待办", status: "in_progress" },
+      ],
+    });
+  }, SESSION_ID);
+  await expect(panel).toHaveCount(0);
+
+  await window.getByTestId("workspace-panel-toggle").click();
+  await expect(panel).toBeVisible();
+  await expect(panel.getByTestId("workspace-todo-toggle")).toContainText("1/2");
+  await app.close();
+});
+
 test("工具调用可在右侧预览文件，多标签与顶栏按钮唤回不丢状态，任务清单位于顶部", async () => {
   const app = await launchApp({ seed });
   const window = await app.firstWindow();
