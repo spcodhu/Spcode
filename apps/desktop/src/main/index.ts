@@ -146,11 +146,18 @@ const notifier = new Notifier({
 });
 
 let mainWindow: BrowserWindow | null = null;
+/** 网页 Modal 位于原生 Windows 窗口按钮之下，需显式同步遮罩配色。 */
+let windowModalOpen = false;
 /** E2E 后台模式：窗口不显示不抢焦点（只由 e2e/helpers.ts 设置） */
 const backgroundE2E = process.env.SPCODE_E2E_BACKGROUND === "1";
 
 function windowChromeOf(win: BrowserWindow | null): WindowChromeState {
   return { platform: process.platform, fullScreen: win?.isFullScreen() ?? false };
+}
+
+function applyWindowsTitleBarOverlay(): void {
+  if (process.platform !== "win32" || !mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.setTitleBarOverlay(windowsTitleBarOverlay(settings.get(), windowModalOpen));
 }
 
 function createWindow(): void {
@@ -651,6 +658,10 @@ function registerIpc(): void {
   });
   ipcMain.handle(IPC.getAppVersion, () => app.getVersion());
   ipcMain.handle(IPC.windowChromeGet, () => windowChromeOf(mainWindow));
+  ipcMain.handle(IPC.windowModalOverlaySet, (_e, open: boolean) => {
+    windowModalOpen = open === true;
+    applyWindowsTitleBarOverlay();
+  });
 
   // 更新：状态查询 / 手动下载 / 重启安装 / 忽略版本（状态推送见 setupAutoUpdater 的 onState）
   ipcMain.handle(IPC.updateGetState, () => getUpdateState());
@@ -664,7 +675,7 @@ function registerIpc(): void {
     // 掩码密钥还原（渲染层只见过掩码；评审 R3-C8）
     const next = settings.set(restoreMaskedSecrets(patch, settings.get()));
     if (process.platform === "win32" && ("themeId" in patch || "customTheme" in patch)) {
-      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setTitleBarOverlay(windowsTitleBarOverlay(next));
+      applyWindowsTitleBarOverlay();
     }
     if ("locale" in patch) {
       setLocale(next.locale);

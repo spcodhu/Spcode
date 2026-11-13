@@ -50,15 +50,20 @@ function StackExample() {
 
 describe("桌面 Modal", () => {
   it("Esc 只关闭顶层，全部关闭后恢复背景与触发点", async () => {
+    const windowModalOverlaySet = vi.fn<(open: boolean) => Promise<void>>().mockResolvedValue();
+    vi.stubGlobal("spcode", { windowModalOverlaySet });
     await act(async () => root!.render(createElement(StackExample)));
     expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(2);
     expect(appRoot.inert).toBe(true);
+    expect(windowModalOverlaySet).toHaveBeenCalledTimes(1);
+    expect(windowModalOverlaySet).toHaveBeenLastCalledWith(true);
 
     await act(async () => {
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     });
     expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1);
     expect(appRoot.inert).toBe(true);
+    expect(windowModalOverlaySet).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
@@ -66,6 +71,8 @@ describe("桌面 Modal", () => {
     expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(0);
     expect(appRoot.inert).toBe(false);
     expect(document.activeElement).toBe(trigger);
+    expect(windowModalOverlaySet).toHaveBeenCalledTimes(2);
+    expect(windowModalOverlaySet).toHaveBeenLastCalledWith(false);
   });
 
   it("Tab 在首个与末尾控件之间循环", async () => {

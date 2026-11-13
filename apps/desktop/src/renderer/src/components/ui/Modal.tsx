@@ -20,6 +20,11 @@ const stack: ModalEntry[] = [];
 let lockCount = 0;
 let snapshot: { root: HTMLElement | null; inert: boolean; ariaHidden: string | null; overflow: string } | null = null;
 
+/** 原生 Windows 窗口按钮在网页遮罩之上，只能由主进程同步其背景色。 */
+function syncNativeModalOverlay(): void {
+  void window.spcode?.windowModalOverlaySet(lockCount > 0).catch(() => {});
+}
+
 function lockBackground(): () => void {
   if (lockCount === 0) {
     const root = document.getElementById("root");
@@ -36,11 +41,13 @@ function lockBackground(): () => void {
     document.body.style.overflow = "hidden";
   }
   lockCount += 1;
+  if (lockCount === 1) syncNativeModalOverlay();
   let released = false;
   return () => {
     if (released) return;
     released = true;
     lockCount = Math.max(0, lockCount - 1);
+    if (lockCount === 0) syncNativeModalOverlay();
     if (lockCount > 0 || !snapshot) return;
     const current = snapshot;
     snapshot = null;

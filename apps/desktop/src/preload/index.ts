@@ -87,6 +87,8 @@ export interface SpcodeApi {
   /** 原生窗口平台与全屏状态；用于 macOS 非全屏红绿灯 inset 自适应 */
   getWindowChrome(): Promise<WindowChromeState>;
   onWindowChromeChanged(cb: (state: WindowChromeState) => void): () => void;
+  /** 共享 Modal 遮罩显隐：Windows 原生窗口按钮随遮罩切换配色 */
+  windowModalOverlaySet(open: boolean): Promise<void>;
   readPlanFile(path: string): Promise<string>;
   /** 右侧工作区面板预览：主进程按 sessionId 查注册表确定 cwd/scratch，渲染层不能指定目录 */
   readWorkspaceFile(path: string, sessionId: string): Promise<{ path: string; text: string }>;
@@ -237,6 +239,9 @@ const api: SpcodeApi = {
     const listener = (_e: unknown, state: WindowChromeState) => cb(state);
     ipcRenderer.on(IPC.windowChromeChanged, listener);
     return () => ipcRenderer.removeListener(IPC.windowChromeChanged, listener);
+  },
+  windowModalOverlaySet(open) {
+    return ipcRenderer.invoke(IPC.windowModalOverlaySet, open);
   },
   readPlanFile(path) {
     return ipcRenderer.invoke(IPC.planRead, path);

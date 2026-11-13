@@ -918,6 +918,8 @@ export const IPC = {
   /** main -> renderer：原生窗口平台与全屏状态（macOS 红绿灯 inset 自适应） */
   windowChromeGet: "spcode:window-chrome-get",
   windowChromeChanged: "spcode:window-chrome-changed",
+  /** main <- renderer：共享 Modal 遮罩显隐，用于同步 Windows 原生窗口按钮配色 */
+  windowModalOverlaySet: "spcode:window-modal-overlay-set",
   /** main -> renderer：更新状态机变化推送（UpdateState） */
   updateState: "spcode:update-state",
   /** renderer -> main (invoke)：更新状态查询 / 手动下载 / 重启安装 / 忽略版本 */

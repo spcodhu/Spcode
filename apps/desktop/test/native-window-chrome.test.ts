@@ -38,4 +38,38 @@ describe("原生窗口标题栏", () => {
       }),
     ).toEqual({ color: "#112233", symbolColor: "#B0B0B8", height: 48 });
   });
+
+  it("Modal 打开时，窗口按钮背景与 black/55 网页遮罩一致", () => {
+    expect(windowsTitleBarOverlay(DEFAULT_SETTINGS, true)).toEqual({
+      color: "#737373",
+      symbolColor: "#FFFFFF",
+      height: 48,
+    });
+    expect(windowsTitleBarOverlay({ ...DEFAULT_SETTINGS, themeId: "spcode-dark" }, true)).toEqual({
+      color: "#0C0C0E",
+      symbolColor: "#FFFFFF",
+      height: 48,
+    });
+  });
+
+  it("Modal 遮罩支持自定义十六进制与 RGB 主题色", () => {
+    expect(
+      windowsTitleBarOverlay(
+        {
+          themeId: "spcode-light",
+          customTheme: { name: "自定义", base: "light", colors: { bgMain: "#112233" } },
+        },
+        true,
+      ).color,
+    ).toBe("#080F17");
+    expect(
+      windowsTitleBarOverlay(
+        {
+          themeId: "spcode-light",
+          customTheme: { name: "RGB", base: "light", colors: { bgMain: "rgb(255, 255, 255)" } },
+        },
+        true,
+      ).color,
+    ).toBe("#737373");
+  });
 });
