@@ -81,6 +81,41 @@ jobs:
           merge-multiple: true
           path: dist
 
+      - name: 校验更新元数据引用的安装包
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from urllib.parse import unquote
+          import re
+          import sys
+
+          metadata_files = sorted(Path("dist").glob("latest*.yml"))
+          if not metadata_files:
+              print("::error::未找到 latest*.yml 自动更新元数据")
+              sys.exit(1)
+
+          missing = set()
+          for metadata in metadata_files:
+              references = set()
+              for line in metadata.read_text(encoding="utf-8").splitlines():
+                  match = re.match(r"^\s*(?:-\s+)?(?:path|url):\s*(.+?)\s*$", line)
+                  if not match:
+                      continue
+                  name = unquote(match.group(1).strip().strip('"').strip("'"))
+                  references.add(name)
+                  if not (metadata.parent / name).is_file():
+                      missing.add((metadata.name, name))
+              if not references:
+                  print(f"::error::{metadata.name} 没有 path/url 安装包引用")
+                  sys.exit(1)
+
+          if missing:
+              for metadata, name in sorted(missing):
+                  print(f"::error::{metadata} 引用了不存在的 Release 资产：{name}")
+              sys.exit(1)
+          print("自动更新元数据与安装包文件名一致")
+          PY
+
       - name: 创建/更新 GitHub Release 并上传全部产物
         uses: softprops/action-gh-release@v2
         with:

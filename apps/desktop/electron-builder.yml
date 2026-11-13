@@ -45,6 +45,8 @@ win:
       arch: [x64]
 
 nsis:
+  # GitHub 会把空格资产名改写为点号，而 latest.yml 使用连字符安全名；直接生成安全名避免更新 404。
+  artifactName: "${productName}-Setup-${version}.${ext}"
   oneClick: false
   allowToChangeInstallationDirectory: true
   shortcutName: Spcod
