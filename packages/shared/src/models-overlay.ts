@@ -1,13 +1,13 @@
 /**
- * 自定义模型层：设置页「添加模型」与 models.json 的合成功能（通用机制，不写死任何模型）。
+ * 自定义供应商 / 模型层：设置页管理 models.custom.json，并与手写 models.json 合成。
  *
- * 背景：pi 引擎的模型目录是随包发布的静态 JSON，新模型从发布到被上游收录可能滞后
- * 数周。本模块提供通用逃生舱：用户在任意 provider 详情页填写 模型 ID / 显示名 /
- * 上下文长度 / 推理 / 视觉 即可添加模型，按该 provider 默认协议请求。
+ * 背景：既支持 Pi 内置目录之外的兼容供应商，也支持在目录更新滞后时为已有 provider
+ * 背景：既支持 Pi 内置目录之外的兼容供应商，也支持在目录更新滞后时为已有 provider
+ * 手动补充模型；供应商级 api/baseUrl 由该供应商的全部模型继承。
  *
  * 数据流（两个用户文件，职责分离）：
  *   agent/models.json          用户手写，只读（pi 原生配置入口；坏文件由 pi 自行报错）
- *   agent/models.custom.json   设置页「添加模型」读写（本模块唯一改写对象）
+ *   agent/models.custom.json   设置页供应商 / 模型管理读写
  *   agent/models.managed.json  受管合成 = models.json ∪ models.custom.json → ModelRuntime
  *
  * 纯函数、无 Node 依赖：文件读写留在 agent-host，便于单元测试。
@@ -33,6 +33,9 @@ export interface ModelsJsonModelEntry {
 
 /** models.json 中单个 provider 条目（只声明我们关心的字段，其余原样透传） */
 export interface ModelsJsonProviderEntry {
+  name?: string;
+  baseUrl?: string;
+  api?: string;
   models?: ModelsJsonModelEntry[];
   [key: string]: unknown;
 }
@@ -40,6 +43,65 @@ export interface ModelsJsonProviderEntry {
 export interface ModelsJsonFile {
   providers: Record<string, ModelsJsonProviderEntry>;
   [key: string]: unknown;
+}
+
+/** Pi 当前内置的协议实现；自定义协议仍需 provider extension，不在此表单伪装支持。 */
+export const CUSTOM_PROVIDER_APIS = [
+  "openai-completions",
+  "openai-responses",
+  "anthropic-messages",
+  "google-generative-ai",
+  "google-vertex",
+  "mistral-conversations",
+  "azure-openai-responses",
+  "openai-codex-responses",
+  "bedrock-converse-stream",
+  "pi-messages",
+] as const;
+
+export type CustomProviderValidationError =
+  | "models.providerInvalidId"
+  | "models.providerNameRequired"
+  | "models.providerInvalidBaseUrl"
+  | "models.providerInvalidApi";
+
+/** 自定义供应商校验：ID 用作对象键与跨端模型 key，必须稳定且不含路径分隔符。 */
+export function validateCustomProviderInput(input: {
+  provider: string;
+  name: string;
+  baseUrl: string;
+  api: string;
+}): CustomProviderValidationError | null {
+  const id = input.provider.trim();
+  if (
+    !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(id) ||
+    id === "__proto__" ||
+    id === "prototype" ||
+    id === "constructor"
+  ) {
+    return "models.providerInvalidId";
+  }
+  if (!input.name.trim() || input.name.trim().length > 128) return "models.providerNameRequired";
+  const baseUrl = input.baseUrl.trim();
+  try {
+    const url = new URL(baseUrl);
+    if ((url.protocol !== "https:" && url.protocol !== "http:") || baseUrl.length > 2048) {
+      return "models.providerInvalidBaseUrl";
+    }
+  } catch {
+    return "models.providerInvalidBaseUrl";
+  }
+  if (!(CUSTOM_PROVIDER_APIS as readonly string[]).includes(input.api.trim())) return "models.providerInvalidApi";
+  return null;
+}
+
+/** 供应商表单只生成非密钥字段；apiKey 由宿主单独写入 auth.json。 */
+export function buildCustomProviderEntry(input: {
+  name: string;
+  baseUrl: string;
+  api: string;
+}): ModelsJsonProviderEntry {
+  return { name: input.name.trim(), baseUrl: input.baseUrl.trim(), api: input.api.trim(), models: [] };
 }
 
 /** 合成结果：受管文件内容 + 来源/可删性判定表（"provider\0modelId"，不在表内 = builtin） */
@@ -65,7 +127,7 @@ export function parseModelsJson(text: string | undefined | null): ModelsJsonFile
 /**
  * 合成受管 models.json：手写与 UI 两个文件合并，同 provider 的 models 按 id 去重、
  * 后者胜（UI 文件在手写之后 → UI 同 ID 覆盖手写，对齐 pi applyModelsJson 语义）。
- * provider 级字段以 UI 文件为先（UI 文件仅由添加模型写入，实际只含 models）。
+ * provider 级字段以 UI 文件为先（完整供应商与模型 overlay 共用同一合成规则）。
  */
 export function composeManagedModelsJson(
   handwritten: ModelsJsonFile | null,

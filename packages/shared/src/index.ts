@@ -42,6 +42,17 @@ export interface AddCustomModelInput {
   vision: boolean;
 }
 
+/** 设置页新增 / 编辑自定义供应商；apiKey 只写入 auth.json，不进入模型目录文件。 */
+export interface CustomProviderInput {
+  /** 稳定标识，创建后不可修改 */
+  provider: string;
+  name: string;
+  baseUrl: string;
+  api: string;
+  /** 新增时可选；编辑时空值表示保持现有凭证不变 */
+  apiKey?: string;
+}
+
 /** 模型目录条目（models.catalog 响应元素） */
 export interface CatalogModel {
   provider: string;
@@ -61,6 +72,11 @@ export interface CatalogProvider {
   provider: string;
   name: string;
   configured: boolean;
+  /** 是否由设置页创建；仅这类供应商可经 UI 编辑 / 删除 */
+  custom: boolean;
+  /** 自定义供应商的可编辑配置，不返回 apiKey */
+  baseUrl?: string;
+  api?: string;
   models: CatalogModel[];
 }
 
@@ -474,10 +490,15 @@ export type HostCommand =
   | { id: string; type: "models.catalogSyncStatus" }
   /** 设置页「自动检查模型目录更新」开关下发（主进程 → 宿主） */
   | { type: "modelCatalog.setAutoSync"; payload: { enabled: boolean } }
-  /** 设置页「添加模型」：追加到用户 models.json（同 id 覆盖），仅自定义模型可删 */
+  /** 设置页「添加模型」：追加到 models.custom.json（同 id 覆盖），仅 UI 自定义模型可删 */
   | { id: string; type: "models.addModel"; payload: AddCustomModelInput }
-  /** 仅允许删除用户 models.json 里声明的自定义模型；内置/官方补丁模型返回错误 */
+  /** 仅允许删除 models.custom.json 里声明的自定义模型；内置/官方补丁模型返回错误 */
   | { id: string; type: "models.removeModel"; payload: { provider: string; modelId: string } }
+  /** 新增 / 编辑完整自定义供应商；ID 创建后固定，密钥单独走 auth.json */
+  | { id: string; type: "models.addProvider"; payload: CustomProviderInput }
+  | { id: string; type: "models.updateProvider"; payload: CustomProviderInput }
+  /** 仅允许删除设置页创建的供应商，同时删除其本地凭证 */
+  | { id: string; type: "models.removeProvider"; payload: { provider: string } }
   | { id: string; type: "memory.read" }
   /**
    * 沙盒运行状态查询（设置页可观测性）：返回内核边界是否真的生效、不可用的原因。

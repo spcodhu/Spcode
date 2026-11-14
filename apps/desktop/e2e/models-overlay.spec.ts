@@ -7,6 +7,49 @@ import { launchApp } from "./helpers";
  * 用户无需手改配置文件，设置页填写模型 ID 即可用上新模型（此处以 k3.1-pro 为例）。
  * 断言锚 role/placeholder/aria-label，不绑展示文案以外的结构。
  */
+test.describe("自定义供应商 E2E", () => {
+  test("新增 Pi 目录外供应商 → 添加模型 → 编辑端点与协议 → 删除闭环", async () => {
+    const app = await launchApp();
+    const window = await app.firstWindow();
+    window.on("dialog", (d) => void d.accept());
+
+    await window.getByRole("button", { name: /新建聊天/ }).click();
+    await expect(window.getByPlaceholder(/说点什么/)).toBeVisible({ timeout: 15000 });
+    await window.getByTitle("设置", { exact: true }).click();
+    await window.getByRole("button", { name: "模型", exact: true }).click();
+
+    await window.getByTestId("models-add-provider").click();
+    await expect(window.getByTestId("provider-form-modal")).toBeVisible();
+    await window.getByTestId("provider-id-input").fill("acme-ai");
+    await window.getByTestId("provider-name-input").fill("Acme AI");
+    await window.getByTestId("provider-base-url-input").fill("https://api.acme.test/v1");
+    await window.getByTestId("provider-api-key-input").fill("test-key");
+    await window.getByTestId("provider-save").click();
+
+    await expect(window.getByRole("heading", { name: "Acme AI", exact: true })).toBeVisible({ timeout: 15000 });
+    await window.getByPlaceholder(/gpt-5\.2/).fill("acme-chat");
+    await window.getByPlaceholder("262144").fill("128000");
+    await window.getByRole("button", { name: "添加", exact: true }).click();
+    await expect(window.getByText("acme-chat", { exact: true })).toBeVisible({ timeout: 15000 });
+
+    await window.getByTestId("provider-edit").click();
+    await expect(window.getByTestId("provider-id-input")).toBeDisabled();
+    await window.getByTestId("provider-name-input").fill("Acme Updated");
+    await window.getByTestId("provider-base-url-input").fill("http://localhost:4000/v1");
+    await window.getByTestId("provider-api-select").click();
+    await window.getByRole("option", { name: "openai-responses", exact: true }).click();
+    await window.getByTestId("provider-save").click();
+    await expect(window.getByRole("heading", { name: "Acme Updated", exact: true })).toBeVisible({ timeout: 15000 });
+    await expect(window.getByText("acme-chat", { exact: true })).toBeVisible();
+
+    await window.getByTestId("provider-delete").click();
+    await expect(window.getByRole("button", { name: "配置 Acme Updated", exact: true })).toHaveCount(0, {
+      timeout: 15000,
+    });
+    await app.close();
+  });
+});
+
 test.describe("自定义模型 E2E", () => {
   test("打开供应商详情 → 手动添加 k3.1-pro → 自定义标签与删除 → 删除生效；内置模型不可删", async () => {
     const app = await launchApp();

@@ -8,19 +8,25 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildCustomModelEntry,
+  buildCustomProviderEntry,
   composeManagedModelsJson,
   parseModelsJson,
   sourceOf,
+  validateCustomProviderInput,
   validateModelInput,
 } from "@spcode/shared";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   addCustomModel,
+  addCustomProvider,
   createModelOverlayStore,
+  customProviderConfig,
   isRemovable,
   removeCustomModel,
+  removeCustomProvider,
   sourceOfModel,
   syncManagedModelsJson,
+  updateCustomProvider,
 } from "../src/agent-host/model-overlay.js";
 
 let dir: string;
@@ -99,6 +105,38 @@ describe("parseModelsJson / validateModelInput / buildCustomModelEntry", () => {
   });
 });
 
+describe("自定义供应商校验与条目生成", () => {
+  const valid = {
+    provider: "acme-ai",
+    name: "Acme AI",
+    baseUrl: "https://api.acme.test/v1",
+    api: "openai-completions",
+  };
+
+  it("接受兼容端点并剥离空白；协议不在 Pi 支持列表时拒绝", () => {
+    expect(validateCustomProviderInput(valid)).toBeNull();
+    expect(buildCustomProviderEntry({ ...valid, name: " Acme AI " })).toEqual({
+      name: "Acme AI",
+      baseUrl: valid.baseUrl,
+      api: valid.api,
+      models: [],
+    });
+    expect(validateCustomProviderInput({ ...valid, api: "made-up-protocol" })).toBe("models.providerInvalidApi");
+  });
+
+  it("拒绝不稳定 ID、空名称与非 HTTP(S) URL", () => {
+    for (const provider of ["", "has/slash", "has space", "__proto__", "-leading"]) {
+      expect(validateCustomProviderInput({ ...valid, provider })).toBe("models.providerInvalidId");
+    }
+    expect(validateCustomProviderInput({ ...valid, name: " " })).toBe("models.providerNameRequired");
+    expect(validateCustomProviderInput({ ...valid, baseUrl: "file:///tmp/model" })).toBe(
+      "models.providerInvalidBaseUrl",
+    );
+    expect(validateCustomProviderInput({ ...valid, baseUrl: "not a URL" })).toBe("models.providerInvalidBaseUrl");
+    expect(validateCustomProviderInput({ ...valid, baseUrl: "http://localhost:11434/v1" })).toBeNull();
+  });
+});
+
 describe("ModelOverlayStore（临时目录，真实文件读写）", () => {
   const setup = () => {
     dir = mkdtempSync(join(tmpdir(), "spcode-overlay-"));
@@ -154,6 +192,76 @@ describe("ModelOverlayStore（临时目录，真实文件读写）", () => {
     expect(() => addCustomModel(store, { ...input, modelId: "a/b" })).toThrow("models.invalidId");
   });
 
+  it("自定义供应商完整生命周期：新增不写密钥、编辑保留模型、删除只影响 UI 条目", () => {
+    const store = setup();
+    addCustomProvider(store, {
+      provider: "acme-ai",
+      name: "Acme AI",
+      baseUrl: "https://api.acme.test/v1",
+      api: "openai-completions",
+      apiKey: "must-not-enter-catalog",
+    });
+    let custom = JSON.parse(readFileSync(store.customPath, "utf-8"));
+    expect(custom.providers["acme-ai"].apiKey).toBeUndefined();
+    expect(customProviderConfig(store, "acme-ai")).toEqual({
+      provider: "acme-ai",
+      name: "Acme AI",
+      baseUrl: "https://api.acme.test/v1",
+      api: "openai-completions",
+    });
+
+    addCustomModel(store, {
+      provider: "acme-ai",
+      modelId: "acme-chat",
+      contextWindow: 128000,
+      reasoning: false,
+      vision: false,
+    });
+    updateCustomProvider(store, {
+      provider: "acme-ai",
+      name: "Acme Updated",
+      baseUrl: "http://localhost:4000/v1",
+      api: "openai-responses",
+    });
+    custom = JSON.parse(readFileSync(store.customPath, "utf-8"));
+    expect(custom.providers["acme-ai"]).toMatchObject({
+      name: "Acme Updated",
+      baseUrl: "http://localhost:4000/v1",
+      api: "openai-responses",
+    });
+    expect(custom.providers["acme-ai"].models.map((m: { id: string }) => m.id)).toEqual(["acme-chat"]);
+
+    removeCustomProvider(store, "acme-ai");
+    custom = JSON.parse(readFileSync(store.customPath, "utf-8"));
+    expect(custom.providers["acme-ai"]).toBeUndefined();
+    expect(customProviderConfig(store, "acme-ai")).toBeUndefined();
+    expect(() => removeCustomProvider(store, "acme-ai")).toThrow("models.providerNotEditable");
+  });
+
+  it("手写供应商与只有模型 overlay 的内置供应商不可经供应商 CRUD 删除", () => {
+    const store = setup();
+    writeFileSync(
+      store.userPath,
+      JSON.stringify({
+        providers: { handwritten: { name: "Handwritten", baseUrl: "http://localhost", api: "openai-completions" } },
+      }),
+      "utf-8",
+    );
+    syncManagedModelsJson(store);
+    expect(() =>
+      addCustomProvider(store, {
+        provider: "handwritten",
+        name: "Duplicate",
+        baseUrl: "https://example.com",
+        api: "openai-completions",
+      }),
+    ).toThrow("models.providerExists");
+    expect(() => removeCustomProvider(store, "handwritten")).toThrow("models.providerNotEditable");
+
+    addCustomModel(store, { provider: "kimi-coding", modelId: "m", contextWindow: 1, reasoning: false, vision: false });
+    expect(() => removeCustomProvider(store, "kimi-coding")).toThrow("models.providerNotEditable");
+  });
+
   it("removeCustomModel：删除 UI 添加的模型；手写与内置模型拒绝删除", () => {
     const store = setup();
     writeFileSync(
@@ -172,6 +280,57 @@ describe("ModelOverlayStore（临时目录，真实文件读写）", () => {
 });
 
 describe("与真实 ModelRuntime 集成（allowModelNetwork=false）", () => {
+  it("Pi 目录外供应商：新增、加模型、编辑协议与删除均经 refresh 即时生效", async () => {
+    const { ModelRuntime } = await import("@earendil-works/pi-coding-agent");
+    dir = mkdtempSync(join(tmpdir(), "spcode-provider-rt-"));
+    const store = createModelOverlayStore(dir);
+    syncManagedModelsJson(store);
+    const rt = await ModelRuntime.create({
+      authPath: join(dir, "auth.json"),
+      modelsPath: store.managedPath,
+      allowModelNetwork: false,
+    });
+    addCustomProvider(store, {
+      provider: "acme-ai",
+      name: "Acme AI",
+      baseUrl: "https://api.acme.test/v1",
+      api: "openai-completions",
+    });
+    await rt.refresh({ allowNetwork: false });
+    expect(rt.getProvider("acme-ai")).toMatchObject({ id: "acme-ai", name: "Acme AI" });
+
+    addCustomModel(store, {
+      provider: "acme-ai",
+      modelId: "acme-chat",
+      contextWindow: 128000,
+      reasoning: false,
+      vision: false,
+    });
+    await rt.refresh({ allowNetwork: false });
+    expect(rt.getModel("acme-ai", "acme-chat")).toMatchObject({
+      provider: "acme-ai",
+      id: "acme-chat",
+      api: "openai-completions",
+      baseUrl: "https://api.acme.test/v1",
+    });
+
+    updateCustomProvider(store, {
+      provider: "acme-ai",
+      name: "Acme Updated",
+      baseUrl: "http://localhost:4000/v1",
+      api: "openai-responses",
+    });
+    await rt.refresh({ allowNetwork: false });
+    expect(rt.getModel("acme-ai", "acme-chat")).toMatchObject({
+      api: "openai-responses",
+      baseUrl: "http://localhost:4000/v1",
+    });
+
+    removeCustomProvider(store, "acme-ai");
+    await rt.refresh({ allowNetwork: false });
+    expect(rt.getProvider("acme-ai")).toBeUndefined();
+  }, 30_000);
+
   it("添加任意模型 → refresh 即出现在目录 → 删除后消失；内置模型不受影响", async () => {
     const { ModelRuntime } = await import("@earendil-works/pi-coding-agent");
     dir = mkdtempSync(join(tmpdir(), "spcode-overlay-rt-"));

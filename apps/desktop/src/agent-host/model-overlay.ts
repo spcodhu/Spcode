@@ -1,13 +1,13 @@
 /**
- * 自定义模型的宿主侧管理：受管 models.managed.json 的生成与维护（通用机制）。
+ * 自定义供应商与模型的宿主侧管理：受管 models.managed.json 的生成与维护（通用机制）。
  *
- * 用户在设置页为任意 provider 添加模型 → 写 models.custom.json → 与手写 models.json
- * 合成为受管文件交给 ModelRuntime。pi 引擎目录滞后（新模型发布到上游收录可能
- * 相隔数周）时，用户无需手改配置文件即可用上新模型。
+ * 用户在设置页添加供应商 / 模型 → 写 models.custom.json → 与手写 models.json
+ * 合成为受管文件交给 ModelRuntime。既可接入 Pi 目录外的兼容端点，也可在
+ * pi 目录更新滞后时为已有供应商补充新模型。
  *
  * 数据流（两个用户文件，职责分离）：
  *   agent/models.json          用户手写，只读（pi 原生配置入口；坏文件由 pi 自行报错）
- *   agent/models.custom.json   设置页「添加模型」读写（本模块唯一改写对象）
+ *   agent/models.custom.json   设置页供应商 / 模型管理读写（本模块唯一改写对象）
  *   agent/models.managed.json  受管合成 = models.json ∪ models.custom.json → ModelRuntime
  *
  * 设计要点：
@@ -18,13 +18,16 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ModelSource } from "@spcode/shared";
+import type { ModelSource, ModelsJsonProviderEntry } from "@spcode/shared";
 import {
   type AddCustomModelInput,
   buildCustomModelEntry,
+  buildCustomProviderEntry,
+  type CustomProviderInput,
   composeManagedModelsJson,
   parseModelsJson,
   sourceOf,
+  validateCustomProviderInput,
   validateModelInput,
 } from "@spcode/shared";
 import { writeJsonFileAtomic } from "@spcode/shared/node";
@@ -32,11 +35,13 @@ import { writeJsonFileAtomic } from "@spcode/shared/node";
 export interface ModelOverlayStore {
   /** 用户手写 models.json（只读） */
   userPath: string;
-  /** 设置页「添加模型」的专属文件（读写） */
+  /** 设置页供应商 / 模型管理的专属文件（读写） */
   customPath: string;
   managedPath: string;
   sources: Map<string, ModelSource>;
   removable: Set<string>;
+  /** 设置页创建的完整供应商（仅安全配置字段，不含 apiKey） */
+  customProviders: Map<string, Omit<CustomProviderInput, "apiKey">>;
 }
 
 export function createModelOverlayStore(agentDir: string): ModelOverlayStore {
@@ -46,6 +51,7 @@ export function createModelOverlayStore(agentDir: string): ModelOverlayStore {
     managedPath: join(agentDir, "models.managed.json"),
     sources: new Map(),
     removable: new Set(),
+    customProviders: new Map(),
   };
 }
 
@@ -60,13 +66,80 @@ function readModelsFile(path: string): ReturnType<typeof parseModelsJson> {
 
 /** 重新合成受管文件并刷新判定表。启动时与每次增删后调用。 */
 export function syncManagedModelsJson(store: ModelOverlayStore): void {
-  const { content, sources, removable } = composeManagedModelsJson(
-    readModelsFile(store.userPath),
-    readModelsFile(store.customPath),
-  );
+  const handwritten = readModelsFile(store.userPath);
+  const uiAdded = readModelsFile(store.customPath);
+  const { content, sources, removable } = composeManagedModelsJson(handwritten, uiAdded);
   store.sources = sources;
   store.removable = removable;
+  store.customProviders.clear();
+  for (const [provider, entry] of Object.entries(uiAdded?.providers ?? {})) {
+    if (isUiCustomProviderEntry(entry)) {
+      store.customProviders.set(provider, {
+        provider,
+        name: entry.name,
+        baseUrl: entry.baseUrl,
+        api: entry.api,
+      });
+    }
+  }
   writeJsonFileAtomic(store.managedPath, content);
+}
+
+/** 只有带完整供应商字段的 UI 条目可编辑；只有 models 的旧条目仍是内置供应商的模型 overlay。 */
+function isUiCustomProviderEntry(entry: {
+  name?: unknown;
+  baseUrl?: unknown;
+  api?: unknown;
+}): entry is ModelsJsonProviderEntry & { name: string; baseUrl: string; api: string } {
+  return typeof entry.name === "string" && typeof entry.baseUrl === "string" && typeof entry.api === "string";
+}
+
+export function customProviderConfig(
+  store: ModelOverlayStore,
+  provider: string,
+): Omit<CustomProviderInput, "apiKey"> | undefined {
+  return store.customProviders.get(provider);
+}
+
+/** 新增完整供应商；宿主还会拒绝与 Pi 内置供应商同 ID。 */
+export function addCustomProvider(store: ModelOverlayStore, input: CustomProviderInput): void {
+  const invalid = validateCustomProviderInput(input);
+  if (invalid) throw new Error(invalid);
+  const provider = input.provider.trim();
+  const data = readModelsFile(store.customPath) ?? { providers: {} };
+  if (data.providers[provider] || readModelsFile(store.userPath)?.providers[provider]) {
+    throw new Error("models.providerExists");
+  }
+  data.providers[provider] = buildCustomProviderEntry(input);
+  writeJsonFileAtomic(store.customPath, data);
+  syncManagedModelsJson(store);
+}
+
+/** 编辑名称 / Base URL / 协议，保留既有模型与其他 Pi 兼容字段；ID 不可变。 */
+export function updateCustomProvider(store: ModelOverlayStore, input: CustomProviderInput): void {
+  const invalid = validateCustomProviderInput(input);
+  if (invalid) throw new Error(invalid);
+  const provider = input.provider.trim();
+  const data = readModelsFile(store.customPath);
+  const current = data?.providers[provider];
+  if (!data || !current || !isUiCustomProviderEntry(current)) throw new Error("models.providerNotEditable");
+  data.providers[provider] = {
+    ...current,
+    ...buildCustomProviderEntry(input),
+    models: current.models ?? [],
+  };
+  writeJsonFileAtomic(store.customPath, data);
+  syncManagedModelsJson(store);
+}
+
+/** 仅删除设置页创建的完整供应商；手写配置与内置供应商拒绝删除。 */
+export function removeCustomProvider(store: ModelOverlayStore, provider: string): void {
+  const data = readModelsFile(store.customPath);
+  const current = data?.providers[provider];
+  if (!data || !current || !isUiCustomProviderEntry(current)) throw new Error("models.providerNotEditable");
+  delete data.providers[provider];
+  writeJsonFileAtomic(store.customPath, data);
+  syncManagedModelsJson(store);
 }
 
 export function sourceOfModel(store: ModelOverlayStore, provider: string, modelId: string): ModelSource {

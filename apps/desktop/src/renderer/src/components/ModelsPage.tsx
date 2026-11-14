@@ -2,14 +2,17 @@ import type {
   AddCustomModelInput,
   CatalogModel,
   CatalogProvider,
+  CustomProviderInput,
   ModelCatalogSyncStatus,
   ModelPriceRates,
 } from "@spcode/shared";
-import { validateModelInput } from "@spcode/shared";
+import { CUSTOM_PROVIDER_APIS, validateCustomProviderInput, validateModelInput } from "@spcode/shared";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
+import { Modal } from "./ui/Modal";
+import { Select } from "./ui/Select";
 import { Switch } from "./ui/Switch";
 
 export type { CatalogModel, CatalogProvider };
@@ -24,6 +27,7 @@ export function ModelsPage() {
   const refreshModels = useStore((s) => s.refreshModels);
   const [catalog, setCatalog] = useState<CatalogProvider[]>([]);
   const [detail, setDetail] = useState<string | null>(null);
+  const [providerEditor, setProviderEditor] = useState<{ provider?: CatalogProvider } | null>(null);
   const [syncStatus, setSyncStatus] = useState<ModelCatalogSyncStatus | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -90,6 +94,13 @@ export function ModelsPage() {
 
   const detailProvider = detail ? catalog.find((c) => c.provider === detail) : null;
 
+  const removeProvider = async (provider: CatalogProvider) => {
+    if (!window.confirm(t("models.removeProviderConfirm", { name: provider.name }))) return;
+    await window.spcode.command({ type: "models.removeProvider", payload: { provider: provider.provider } });
+    setDetail(null);
+    handleChanged();
+  };
+
   return (
     <div>
       {detailProvider ? (
@@ -99,12 +110,22 @@ export function ModelsPage() {
           onToggleModel={toggleModel}
           onBack={() => setDetail(null)}
           onChanged={handleChanged}
+          onEdit={() => setProviderEditor({ provider: detailProvider })}
+          onRemove={() => void removeProvider(detailProvider)}
         />
       ) : (
         <>
           <PageHeader title={t("nav.models")} subtitle={t("models.description")} />
 
-          <div className="mb-4 flex items-center gap-3">
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              data-testid="models-add-provider"
+              onClick={() => setProviderEditor({})}
+              className="rounded-lg bg-accent px-3 py-1.5 text-[12px] text-on-accent hover:bg-accent-dim"
+            >
+              {t("models.addProvider")}
+            </button>
             <button
               type="button"
               data-testid="models-refresh-catalog"
@@ -166,6 +187,17 @@ export function ModelsPage() {
           </div>
         </>
       )}
+      {providerEditor && (
+        <ProviderFormModal
+          provider={providerEditor.provider}
+          onClose={() => setProviderEditor(null)}
+          onSaved={(providerId) => {
+            setProviderEditor(null);
+            setDetail(providerId);
+            handleChanged();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -201,6 +233,11 @@ function ProviderRow({
       >
         {provider.name}
       </button>
+      {provider.custom && (
+        <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] text-text-secondary">
+          {t("models.sourceCustom")}
+        </span>
+      )}
       {enabled && provider.configured && (
         <span className="shrink-0 text-[12px] text-text-tertiary">
           {t("models.enabledCount", { count: enabledCount })}
@@ -234,6 +271,8 @@ function ProviderDetail({
   onToggleModel,
   onBack,
   onChanged,
+  onEdit,
+  onRemove,
 }: {
   provider: CatalogProvider;
   disabledModels: Set<string>;
@@ -241,6 +280,8 @@ function ProviderDetail({
   onBack: () => void;
   /** 目录变化（存密钥 / 增删模型）后重拉目录与可用模型列表 */
   onChanged: () => void;
+  onEdit: () => void;
+  onRemove: () => void;
 }) {
   const { t } = useTranslation("settings");
   const [key, setKey] = useState("");
@@ -293,7 +334,29 @@ function ProviderDetail({
         <Icon name="chevronRight" size={13} style={{ transform: "rotate(180deg)" }} />
         {t("back")}
       </button>
-      <h1 className="text-[22px] font-semibold text-text-primary">{provider.name}</h1>
+      <div className="flex flex-wrap items-center gap-2">
+        <h1 className="text-[22px] font-semibold text-text-primary">{provider.name}</h1>
+        {provider.custom && (
+          <>
+            <button
+              type="button"
+              data-testid="provider-edit"
+              onClick={onEdit}
+              className="rounded-lg border border-border px-2.5 py-1 text-[12px] text-text-secondary hover:bg-bg-hover"
+            >
+              {t("models.editProvider")}
+            </button>
+            <button
+              type="button"
+              data-testid="provider-delete"
+              onClick={onRemove}
+              className="rounded-lg border border-danger/40 px-2.5 py-1 text-[12px] text-danger hover:bg-danger/10"
+            >
+              {t("models.deleteProvider")}
+            </button>
+          </>
+        )}
+      </div>
       <p className="mt-1 text-[13px] text-text-tertiary">{t("models.detailDescription")}</p>
 
       <div className="mt-5 flex items-center gap-2 rounded-xl border border-border bg-bg-elevated px-4 py-3">
@@ -425,6 +488,159 @@ function ProviderDetail({
 
       <AddModelForm provider={provider.provider} onAdded={onChanged} />
     </div>
+  );
+}
+
+/** 新增 / 编辑 Pi 内置目录之外的兼容供应商；密钥只经宿主写入 auth.json。 */
+function ProviderFormModal({
+  provider,
+  onClose,
+  onSaved,
+}: {
+  provider?: CatalogProvider;
+  onClose: () => void;
+  onSaved: (provider: string) => void;
+}) {
+  const { t } = useTranslation("settings");
+  const [providerId, setProviderId] = useState(provider?.provider ?? "");
+  const [name, setName] = useState(provider?.name ?? "");
+  const [baseUrl, setBaseUrl] = useState(provider?.baseUrl ?? "");
+  const [api, setApi] = useState(provider?.api ?? CUSTOM_PROVIDER_APIS[0]);
+  const [apiKey, setApiKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [attempted, setAttempted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const input: CustomProviderInput = {
+    provider: providerId.trim(),
+    name: name.trim(),
+    baseUrl: baseUrl.trim(),
+    api,
+    ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+  };
+  const validationError = validateCustomProviderInput(input);
+  const shownError = error ?? (attempted ? validationError : null);
+
+  const submit = async () => {
+    setAttempted(true);
+    if (validationError || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      if (provider) await window.spcode.command({ type: "models.updateProvider", payload: input });
+      else await window.spcode.command({ type: "models.addProvider", payload: input });
+      onSaved(input.provider);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      title={t(provider ? "models.editProvider" : "models.addProvider")}
+      description={t("models.providerFormDescription")}
+      onClose={onClose}
+      busy={busy}
+      layerClassName="items-center justify-center"
+      panelClassName="w-[580px] max-w-[92vw] rounded-2xl border border-border-strong bg-bg-main p-6 shadow-2xl"
+      testId="provider-form-modal"
+    >
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
+        <h2 className="text-[18px] font-semibold text-text-primary">
+          {t(provider ? "models.editProvider" : "models.addProvider")}
+        </h2>
+        <p className="mt-1 text-[12px] leading-5 text-text-tertiary">{t("models.providerFormDescription")}</p>
+        <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <label className="block">
+            <span className="mb-1 block text-[12px] text-text-secondary">{t("models.providerId")}</span>
+            <input
+              value={providerId}
+              disabled={!!provider}
+              data-modal-initial-focus={!provider ? true : undefined}
+              data-testid="provider-id-input"
+              onChange={(event) => setProviderId(event.target.value)}
+              placeholder={t("models.providerIdPlaceholder")}
+              className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-[13px] outline-none placeholder:text-text-tertiary focus:border-accent disabled:opacity-60"
+            />
+            <span className="mt-1 block text-[11px] text-text-tertiary">{t("models.providerIdHint")}</span>
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[12px] text-text-secondary">{t("models.providerName")}</span>
+            <input
+              value={name}
+              data-modal-initial-focus={provider ? true : undefined}
+              data-testid="provider-name-input"
+              onChange={(event) => setName(event.target.value)}
+              placeholder={t("models.providerNamePlaceholder")}
+              className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-[13px] outline-none placeholder:text-text-tertiary focus:border-accent"
+            />
+          </label>
+          <label className="block sm:col-span-2">
+            <span className="mb-1 block text-[12px] text-text-secondary">{t("models.providerBaseUrl")}</span>
+            <input
+              value={baseUrl}
+              data-testid="provider-base-url-input"
+              onChange={(event) => setBaseUrl(event.target.value)}
+              placeholder={t("models.providerBaseUrlPlaceholder")}
+              inputMode="url"
+              className="mono w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-[13px] outline-none placeholder:text-text-tertiary focus:border-accent"
+            />
+          </label>
+          <div>
+            <span className="mb-1 block text-[12px] text-text-secondary">{t("models.providerApi")}</span>
+            <Select
+              value={api}
+              options={CUSTOM_PROVIDER_APIS.map((value) => ({ value }))}
+              onChange={setApi}
+              label={t("models.providerApi")}
+              testId="provider-api-select"
+            />
+          </div>
+          <label className="block">
+            <span className="mb-1 block text-[12px] text-text-secondary">{t("models.providerApiKey")}</span>
+            <input
+              type="password"
+              value={apiKey}
+              data-testid="provider-api-key-input"
+              onChange={(event) => setApiKey(event.target.value)}
+              placeholder={t(provider?.configured ? "models.providerKeyKeep" : "models.providerKeyOptional")}
+              autoComplete="off"
+              className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-[13px] outline-none placeholder:text-text-tertiary focus:border-accent"
+            />
+          </label>
+        </div>
+        <p className="mt-3 text-[11px] leading-5 text-text-tertiary">{t("models.providerKeyHint")}</p>
+        {shownError && (
+          <p role="alert" className="mt-3 text-[12px] text-danger">
+            {shownError.startsWith("models.") ? t(shownError as "models.providerInvalidId") : shownError}
+          </p>
+        )}
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            className="rounded-lg border border-border px-4 py-2 text-[12px] text-text-secondary hover:bg-bg-hover disabled:opacity-40"
+          >
+            {t("cancel")}
+          </button>
+          <button
+            type="submit"
+            data-testid="provider-save"
+            disabled={busy}
+            className="rounded-lg bg-accent px-4 py-2 text-[12px] text-on-accent hover:bg-accent-dim disabled:opacity-40"
+          >
+            {busy ? t("saving") : t("save")}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 

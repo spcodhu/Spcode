@@ -46,11 +46,15 @@ import { getMcpManager } from "./mcp.js";
 import { MemoryStore } from "./memory-store.js";
 import {
   addCustomModel,
+  addCustomProvider,
   createModelOverlayStore,
+  customProviderConfig,
   isRemovable,
   removeCustomModel,
+  removeCustomProvider,
   sourceOfModel,
   syncManagedModelsJson,
+  updateCustomProvider,
 } from "./model-overlay.js";
 import { getSandboxService } from "./sandbox/manager.js";
 import { SessionController } from "./session-controller.js";
@@ -575,20 +579,26 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
       case "models.catalog": {
         // 全量模型目录（含未配置密钥的厂商），模型设置页用；source/removable 区分来源与可删性
         const rt = await getRuntime();
-        const catalog = rt.getProviders().map((p) => ({
-          provider: p.id,
-          name: p.name ?? p.id,
-          configured: rt.hasConfiguredAuth(p.id),
-          models: rt.getModels(p.id).map((m) => ({
-            provider: m.provider,
-            modelId: m.id,
-            displayName: m.name ?? m.id,
-            reasoning: !!m.reasoning,
-            ...catalogPricing(modelOverlay, m),
-            source: sourceOfModel(modelOverlay, m.provider, m.id),
-            removable: isRemovable(modelOverlay, m.provider, m.id),
-          })),
-        }));
+        const catalog = rt.getProviders().map((p) => {
+          const custom = customProviderConfig(modelOverlay, p.id);
+          return {
+            provider: p.id,
+            name: custom?.name ?? p.name ?? p.id,
+            configured: rt.hasConfiguredAuth(p.id),
+            custom: !!custom,
+            baseUrl: custom?.baseUrl,
+            api: custom?.api,
+            models: rt.getModels(p.id).map((m) => ({
+              provider: m.provider,
+              modelId: m.id,
+              displayName: m.name ?? m.id,
+              reasoning: !!m.reasoning,
+              ...catalogPricing(modelOverlay, m),
+              source: sourceOfModel(modelOverlay, m.provider, m.id),
+              removable: isRemovable(modelOverlay, m.provider, m.id),
+            })),
+          };
+        });
         respond(id, true, catalog);
         break;
       }
@@ -623,6 +633,41 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
       case "models.removeModel": {
         const rt = await getRuntime();
         removeCustomModel(modelOverlay, cmd.payload.provider, cmd.payload.modelId);
+        await rt.refresh({ allowNetwork: false });
+        respond(id, true);
+        break;
+      }
+      case "models.addProvider": {
+        const rt = await getRuntime();
+        const provider = cmd.payload.provider.trim();
+        if (rt.getProvider(provider)) throw new Error("models.providerExists");
+        addCustomProvider(modelOverlay, cmd.payload);
+        await rt.refresh({ allowNetwork: false });
+        if (cmd.payload.apiKey?.trim()) await persistApiKey(rt, provider, cmd.payload.apiKey.trim());
+        respond(id, true);
+        break;
+      }
+      case "models.updateProvider": {
+        const rt = await getRuntime();
+        updateCustomProvider(modelOverlay, cmd.payload);
+        await rt.refresh({ allowNetwork: false });
+        if (cmd.payload.apiKey?.trim()) {
+          await persistApiKey(rt, cmd.payload.provider.trim(), cmd.payload.apiKey.trim());
+        }
+        respond(id, true);
+        break;
+      }
+      case "models.removeProvider": {
+        const rt = await getRuntime();
+        const provider = cmd.payload.provider;
+        // 先验证归属再动凭证，避免伪造命令删除内置 / 手写供应商的 API Key。
+        if (!customProviderConfig(modelOverlay, provider)) throw new Error("models.providerNotEditable");
+        try {
+          await rt.logout(provider);
+        } catch (err) {
+          if (!(err instanceof CredentialSynchronizationError)) throw err;
+        }
+        removeCustomProvider(modelOverlay, provider);
         await rt.refresh({ allowNetwork: false });
         respond(id, true);
         break;
