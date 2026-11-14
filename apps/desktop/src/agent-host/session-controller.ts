@@ -32,7 +32,12 @@ import type {
   UsageRecord,
   WebFetchConfig,
 } from "@spcode/shared";
-import { DEFAULT_PERMISSION_MODE } from "@spcode/shared";
+import {
+  DEFAULT_PERMISSION_MODE,
+  parseRunGuardCustomDetails,
+  RUN_GUARD_CUSTOM_TYPE,
+  type RunGuardPause,
+} from "@spcode/shared";
 import { isAdvancedSearchReady } from "@spcode/shared/advanced-search";
 import { getLocale } from "@spcode/shared/i18n";
 import { resolveSpcodeHome } from "@spcode/shared/node";
@@ -49,6 +54,7 @@ import {
   PLAN_MODE_ON_MESSAGE,
   PLAN_MODE_TOOLS,
 } from "./plan-mode.js";
+import { RunGuard } from "./run-guard.js";
 import { createSandboxedBashTool } from "./sandbox/bash-tool.js";
 import { createGuardedFsTools, type FsGuardPolicy } from "./sandbox/fs-guard.js";
 import { getSandboxService } from "./sandbox/manager.js";
@@ -210,6 +216,10 @@ export interface SessionControllerOptions {
    * 主进程下发新配置后活跃会话即时生效。缺省时 pi 自建（读 ~/.spcode/agent/settings.json）。
    */
   piSettings?: SettingsManager;
+  /** 每次任务运行的模型回合上限；getter 让活跃会话读取最新设置 */
+  getMaxModelTurns?: () => number;
+  /** 运行保护暂停事件（先于 agent_settled） */
+  emitRunGuard?: (pause: RunGuardPause) => void;
   requestPermission: (req: PermissionRequest) => Promise<boolean>;
   askQuestion: (req: QuestionRequest) => Promise<QuestionAnswers>;
 }
@@ -248,6 +258,7 @@ export class SessionController {
       isResumed: boolean;
     },
     private readonly emitUsageCb: (usage: UsageRecord) => void,
+    private readonly runGuard: RunGuard,
   ) {}
 
   static async create(opts: SessionControllerOptions): Promise<SessionController> {
@@ -380,7 +391,28 @@ export class SessionController {
         isResumed: !!opts.sessionFile,
       },
       opts.emitUsage,
+      new RunGuard(opts.getMaxModelTurns, {
+        appendContext: async (content, details) => {
+          await session.sendCustomMessage(
+            { customType: RUN_GUARD_CUSTOM_TYPE, content, display: false, details },
+            { triggerTurn: false },
+          );
+        },
+        emitPause: (pause) => opts.emitRunGuard?.(pause),
+      }),
     );
+
+    // 保留 AgentSession 已安装的扩展 finishTurn，再叠加安全裁决；暂停优先于扩展续跑。
+    const previousFinishTurn = session.agent.finishTurn;
+    session.agent.finishTurn = async (turn, signal) => {
+      const previous = (await previousFinishTurn?.(turn, signal)) ?? undefined;
+      if (previous?.action === "end") return previous;
+      const decision = await ctl.runGuard.finishTurn(
+        turn,
+        turn.message.stopReason === "toolUse" || previous?.action === "continue",
+      );
+      return decision ?? previous;
+    };
 
     // 初始工具集：正常态摘除 WritePlan；恢复的计划态会话重注一次落盘即结束约定。
     const initialPlanMode = opts.planMode === true;
@@ -550,10 +582,41 @@ export class SessionController {
     if (this.firstUserText === null && text.trim()) this.firstUserText = text.trim();
     const imageContents = images?.map((img) => ({ type: "image" as const, data: img.data, mimeType: img.mimeType }));
     if (this.running || this.session.isStreaming) {
+      this.runGuard.resetRepeatChain();
       await this.session.steer(text, imageContents);
       return;
     }
+    this.runGuard.reset();
     await this.session.prompt(text, imageContents?.length ? { images: imageContents } : undefined);
+  }
+
+  /** 用户在保护错误卡上明确继续：追加可审计指令并走 AgentSession 完整运行生命周期。 */
+  async continueAfterGuard(): Promise<void> {
+    if (this.isRunning()) throw new Error("Cannot continue a running session");
+    const pause = this.runGuard.lastPause ?? this.persistedGuardPause();
+    if (!pause) throw new Error("No paused run to continue");
+    this.runGuard.reset();
+    await this.session.sendCustomMessage(
+      {
+        customType: RUN_GUARD_CUSTOM_TYPE,
+        content:
+          "The user explicitly chose to continue after a harness safety pause. " +
+          "Reassess the latest tool result and completed work; do not resume a repeated call or spend unnecessary turns.",
+        display: false,
+        details: { kind: "continue", pause },
+      },
+      { triggerTurn: true },
+    );
+  }
+
+  private persistedGuardPause(): RunGuardPause | null {
+    for (let i = this.session.messages.length - 1; i >= 0; i--) {
+      const message = this.session.messages[i];
+      if (message?.role !== "custom" || message.customType !== RUN_GUARD_CUSTOM_TYPE) continue;
+      const details = parseRunGuardCustomDetails(message.details);
+      if (details?.kind === "pause") return details.pause;
+    }
+    return null;
   }
 
   /**

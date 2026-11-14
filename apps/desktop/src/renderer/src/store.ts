@@ -21,6 +21,7 @@ import type {
   PermissionMode,
   PermissionRequest,
   QuestionRequest,
+  RunGuardPause,
   ScheduledRunRetry,
   ScheduledRunRetryInput,
   SessionInfo,
@@ -32,7 +33,7 @@ import type {
   UsageAggregate,
   UsageRecord,
 } from "@spcode/shared";
-import { baseName, cleanSessionTitle } from "@spcode/shared";
+import { baseName, cleanSessionTitle, parseRunGuardCustomDetails, RUN_GUARD_CUSTOM_TYPE } from "@spcode/shared";
 import {
   getLocale,
   i18n,
@@ -108,6 +109,8 @@ export interface ChatMessage {
         raw?: string;
         /** >0 表示自动重试过 N 次仍失败 */
         attempt?: number;
+        /** 运行保护暂停：错误卡提供从当前上下文继续的按钮 */
+        guard?: RunGuardPause;
       };
 }
 
@@ -214,6 +217,8 @@ export interface SessionState {
    * 若随后 auto_retry 成功则清除；到 agent_settled 仍是错误才插入错误卡。
    */
   pendingError?: { message: string; at: number };
+  /** 运行保护已暂停、等待 agent_settled 落卡的信息 */
+  pendingGuard?: RunGuardPause;
   /** 引擎自动重试状态（auto_retry_start/end 驱动；运行状态条据此显示「Ns 后重试」） */
   retry?: { attempt: number; maxAttempts: number; delayMs: number; errorMessage: string };
   /** 上一次运行自动重试耗尽时的尝试次数（错误卡标注「重试 N 次后仍失败」） */
@@ -260,7 +265,9 @@ export function workspacePanelVisible(
   panel: WorkspacePanelState | undefined,
 ): boolean {
   if (!session || panel?.dismissed) return false;
-  return panel?.opened === true || (panel?.files.length ?? 0) > 0 || session.todos.length > 0 || session.planMode === true;
+  return (
+    panel?.opened === true || (panel?.files.length ?? 0) > 0 || session.todos.length > 0 || session.planMode === true
+  );
 }
 
 interface StoreState {
@@ -313,6 +320,8 @@ interface StoreState {
   setActive(id: string): void;
   sendPrompt(text: string, images?: ImageAttachment[], files?: { name: string; size: number }[]): Promise<boolean>;
   abort(): Promise<void>;
+  /** 用户明确继续被运行保护暂停的会话 */
+  continueRun(sessionId: string): Promise<void>;
   /** 手动压缩当前会话上下文（结果与异常都以会话内 notice 呈现，不使用全局提示） */
   compactSession(): Promise<void>;
   setModel(ref: ModelRef): Promise<void>;
@@ -488,14 +497,25 @@ function makeCompactionNotice(
 
 function relocalizeNoticeMessage(message: ChatMessage): ChatMessage {
   if (message.notice?.kind === "runError") {
-    const info = classifyRunError(message.notice.raw);
+    const guard = message.notice.guard;
+    const info = guard
+      ? {
+          title: i18n.t(`errors:run.${guard.reason}.title`),
+          hint: i18n.t(`errors:run.${guard.reason}.hint`),
+        }
+      : classifyRunError(message.notice.raw);
     const text = message.notice.attempt
       ? i18n.t("integration:run.retryFailed", { title: info.title, count: message.notice.attempt })
       : info.title;
     return {
       ...message,
       segments: message.segments.map((segment) => (segment.kind === "text" ? { ...segment, text } : segment)),
-      notice: { ...message.notice, title: info.title, hint: info.hint },
+      notice: {
+        ...message.notice,
+        title: info.title,
+        hint: info.hint,
+        raw: guard ? runGuardRaw(guard) : message.notice.raw,
+      },
     };
   }
   if (message.notice?.kind === "compaction") {
@@ -547,6 +567,31 @@ export function makeRunErrorNotice(raw: string, attempt?: number): ChatMessage {
       raw,
       ...(attempt && attempt > 0 ? { attempt } : {}),
     },
+  };
+}
+
+/** 运行保护暂停也复用 runError 卡；guard 字段提供续跑与结构化历史回放。 */
+function runGuardRaw(pause: RunGuardPause): string {
+  return pause.reason === "maxTurns"
+    ? i18n.t("errors:run.maxTurns.details", { turnCount: pause.turnCount, limit: pause.limit ?? 0 })
+    : i18n.t("errors:run.repeatTool.details", {
+        toolName: pause.toolName ?? "unknown",
+        repeatCount: pause.repeatCount ?? 0,
+        arguments: pause.argumentsPreview ?? "{}",
+      });
+}
+
+export function makeRunGuardNotice(pause: RunGuardPause): ChatMessage {
+  const kind = pause.reason;
+  const title = i18n.t(`errors:run.${kind}.title`);
+  const hint = i18n.t(`errors:run.${kind}.hint`);
+  const raw = runGuardRaw(pause);
+  return {
+    id: nextMsgId(),
+    role: "notice",
+    segments: [{ kind: "text", id: nextMsgId(), text: title }],
+    streaming: false,
+    notice: { kind: "runError", errorKind: kind, title, hint, raw, guard: pause },
   };
 }
 
@@ -811,6 +856,7 @@ export function applySessionEvent(session: SessionState, event: Record<string, u
       session.running = true;
       session.runStartedAt = Date.now();
       session.pendingError = undefined;
+      session.pendingGuard = undefined;
       session.retry = undefined;
       session.retryFailed = undefined;
       break;
@@ -862,10 +908,13 @@ export function applySessionEvent(session: SessionState, event: Record<string, u
       // 回合以错误收场（额度不足/鉴权失败/限流耗尽…）：落一张持久的错误卡。
       // 这是唯一提示通道——旧实现什么都不显示，任务“凭空中断”。
       const err = session.pendingError;
+      const guard = session.pendingGuard;
       const attempts = session.retryFailed;
       session.pendingError = undefined;
+      session.pendingGuard = undefined;
       session.retryFailed = undefined;
-      if (err) session.messages.push(makeRunErrorNotice(err.message, attempts));
+      if (guard) session.messages.push(makeRunGuardNotice(guard));
+      else if (err) session.messages.push(makeRunErrorNotice(err.message, attempts));
       break;
     }
   }
@@ -921,6 +970,8 @@ export function historyToMessages(messages: unknown[]): ChatMessage[] {
       stopReason?: string;
       errorMessage?: string;
       timestamp?: number;
+      customType?: string;
+      details?: unknown;
     };
     if (m.role === "compactionSummary") {
       // 压缩检查点：回放为分隔线（压缩前的历史已折叠成摘要，可从线上展开查看）
@@ -951,6 +1002,9 @@ export function historyToMessages(messages: unknown[]): ChatMessage[] {
           streaming: false,
         });
       }
+    } else if (m.role === "custom" && m.customType === RUN_GUARD_CUSTOM_TYPE) {
+      const details = parseRunGuardCustomDetails(m.details);
+      if (details?.kind === "pause") out.push(makeRunGuardNotice(details.pause));
     } else if (m.role === "assistant") {
       // 错误回合：content 可能为空（额度/鉴权类不可重试），但也可能已流出一部分正文——
       // 先回放已有的段，再追加错误卡；否则重启后「任务被中断」的痕迹会彻底消失（旧实现的坑）。
@@ -1485,6 +1539,11 @@ export const useStore = create<StoreState>((set, get) => ({
     await window.spcode.command({ type: "session.abort", payload: { sessionId: activeSessionId } });
   },
 
+  async continueRun(sessionId) {
+    if (!get().sessions[sessionId] || get().sessions[sessionId]?.running) return;
+    await window.spcode.command({ type: "session.continue", payload: { sessionId } });
+  },
+
   async compactSession() {
     const { activeSessionId } = get();
     if (!activeSessionId) return;
@@ -1814,6 +1873,10 @@ export const useStore = create<StoreState>((set, get) => ({
         case "session.usage":
           // 原始 usage 只用于主进程落账与远程透传；聚合由 summary、上下文由 session.context 负责
           return s;
+        case "session.runGuard":
+          return touchSession(s, event.sessionId, (draft) => {
+            draft.pendingGuard = event.pause;
+          });
         case "session.usage.summary":
           return touchSession(s, event.sessionId, (draft) => {
             const revision = event.snapshot.revision;

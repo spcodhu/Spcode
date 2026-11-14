@@ -6,7 +6,7 @@ import type {
   SandboxStatusReport,
   WebFetchConfig,
 } from "@spcode/shared";
-import { baseName } from "@spcode/shared";
+import { baseName, DEFAULT_MAX_MODEL_TURNS } from "@spcode/shared";
 import { inferMapping, isAdvancedSearchReady, PRESET_ENDPOINTS } from "@spcode/shared/advanced-search";
 import { getLocale, localeProfile, resolveLocale } from "@spcode/shared/i18n";
 import { DEEPSEEK_FETCH_ENDPOINT, isWebFetchReady } from "@spcode/shared/web-fetch";
@@ -177,6 +177,22 @@ function GeneralPage() {
         onChange={(v) => void saveSettings({ defaultThinkingLevel: v })}
         className="w-56"
       />
+
+      <SectionTitle>{t("general.runGuard")}</SectionTitle>
+      <div className="rounded-xl border border-border bg-bg-elevated px-4 py-3" data-testid="run-guard-settings">
+        <TokenField
+          label={t("general.maxModelTurns")}
+          desc={t("general.maxModelTurnsDescription")}
+          value={settings?.maxModelTurns ?? DEFAULT_MAX_MODEL_TURNS}
+          min={1}
+          step={1}
+          testId="max-model-turns"
+          invalidMessage={t("general.maxModelTurnsInvalid", { min: 1 })}
+          onCommit={(maxModelTurns) => void saveSettings({ maxModelTurns })}
+        />
+        <div className="my-3 h-px bg-border" />
+        <p className="text-[12px] leading-5 text-text-tertiary">{t("general.repeatToolGuard")}</p>
+      </div>
 
       <SectionTitle>{t("nav.memory")}</SectionTitle>
       <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-bg-elevated px-4 py-3">
@@ -1052,12 +1068,18 @@ function TokenField({
   desc,
   value,
   min,
+  step = 1024,
+  testId,
+  invalidMessage,
   onCommit,
 }: {
   label: string;
   desc: string;
   value: number;
   min: number;
+  step?: number;
+  testId?: string;
+  invalidMessage?: string;
   onCommit: (v: number) => void;
 }) {
   const { t } = useTranslation("settings");
@@ -1085,13 +1107,16 @@ function TokenField({
       <div>
         <div className="text-[14px] text-text-primary">{label}</div>
         <div className="mt-0.5 text-[12px] text-text-tertiary">{desc}</div>
-        {invalid && <div className="mt-1 text-[12px] text-danger">{t("compaction.invalid", { min })}</div>}
+        {invalid && (
+          <div className="mt-1 text-[12px] text-danger">{invalidMessage ?? t("compaction.invalid", { min })}</div>
+        )}
       </div>
       <input
         type="number"
         min={min}
-        step={1024}
+        step={step}
         value={text}
+        data-testid={testId}
         onChange={(e) => setText(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {

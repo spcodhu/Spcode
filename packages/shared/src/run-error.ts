@@ -12,7 +12,15 @@
 
 import { getLocale, i18n } from "./i18n/index.js";
 
-export type RunErrorKind = "quota" | "auth" | "rateLimit" | "overflow" | "network" | "other";
+export type RunErrorKind =
+  | "quota"
+  | "auth"
+  | "rateLimit"
+  | "overflow"
+  | "network"
+  | "maxTurns"
+  | "repeatTool"
+  | "other";
 
 export interface RunErrorInfo {
   kind: RunErrorKind;

@@ -91,6 +91,7 @@ export interface ModelCatalogSyncStatus {
 }
 
 export * from "./models-overlay.js";
+export * from "./run-guard.js";
 
 // ---------------------------------------------------------------------------
 // 会话
@@ -423,6 +424,8 @@ export type HostCommand =
       };
     }
   | { id: string; type: "session.prompt"; payload: { sessionId: string; text: string; images?: ImageAttachment[] } }
+  /** 用户在运行保护错误卡上明确选择继续；通过 AgentSession 开启新的受保护运行 */
+  | { id: string; type: "session.continue"; payload: { sessionId: string } }
   | {
       id: string;
       /** 导出会话上下文（handoff）：落盘 transcript.md + session.jsonl + handoff.md，返回接力提示词 */
@@ -527,6 +530,8 @@ export type HostCommand =
   | { type: "pricing.setConfig"; payload: { config: ModelPricingOverrides } }
   | { id: string; type: "auth.setApiKey"; payload: { provider: string; apiKey: string } }
   | { id: string; type: "auth.listProviders" }
+  /** 每次任务运行的模型回合上限；主进程变更后实时下发 */
+  | { type: "runGuard.setConfig"; payload: { maxTurns: number } }
   | { type: "permission.reply"; payload: { requestId: string; approved: boolean } }
   | { type: "question.reply"; payload: { requestId: string; answers: QuestionAnswers } }
   | { type: "shutdown" };
@@ -557,6 +562,8 @@ export type HostEvent =
       sandbox: SessionInfo["sandbox"];
     }
   | { type: "session.todo"; sessionId: string; todos: TodoItem[] }
+  /** 运行保护暂停；渲染层在随后的 agent_settled 落持久错误卡 */
+  | { type: "session.runGuard"; sessionId: string; pause: import("./run-guard.js").RunGuardPause }
   /** AI 通过 RenameSession 工具主动起的会话标题 */
   | { type: "session.renamed"; sessionId: string; title: string }
   /** 手机端切换已有会话模型后，主进程广播权威模型与思考档位，双端同步 */
@@ -1038,6 +1045,7 @@ export type { Locale } from "./i18n/types.js";
 
 import { getLocale, i18n } from "./i18n/index.js";
 import { DEFAULT_NETWORK_PROXY_SETTINGS } from "./proxy.js";
+import { DEFAULT_MAX_MODEL_TURNS } from "./run-guard.js";
 
 export interface AppSettings {
   locale: import("./i18n/types.js").Locale;
@@ -1066,6 +1074,8 @@ export interface AppSettings {
   memoryDistill: boolean;
   /** 自动检查模型目录更新：启动后静默联网刷新一次 pi 远程目录补丁（失败静默，可关） */
   modelCatalogAutoSync: boolean;
+  /** 每次任务运行允许的模型回合上限；用户继续后开启新预算 */
+  maxModelTurns: number;
   /** 模型行悬浮时显示配额卡片 */
   quickQuota: boolean;
   /** 模型单价覆盖（provider/modelId → USD/1M token 四项费率），只影响新产生的用量 */
@@ -1248,6 +1258,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   desktopNotifications: true,
   memoryDistill: true,
   modelCatalogAutoSync: true,
+  maxModelTurns: DEFAULT_MAX_MODEL_TURNS,
   quickQuota: true,
   modelPricing: {},
   disabledProviders: [],

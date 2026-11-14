@@ -287,6 +287,7 @@ function RunErrorCard({ message, sessionId }: { message: ChatMessage; sessionId:
   const scheduled = useStore((state) => (state.runRetries ?? []).find((retry) => retry.sessionId === sessionId));
   const scheduleRunRetry = useStore((state) => state.scheduleRunRetry);
   const cancelRunRetry = useStore((state) => state.cancelRunRetry);
+  const continueRun = useStore((state) => state.continueRun);
   const [open, setOpen] = useState(false);
   const [exactTime, setExactTime] = useState(() => localDateTimeInput(Date.now() + 3 * 3_600_000));
   const [busy, setBusy] = useState(false);
@@ -304,7 +305,21 @@ function RunErrorCard({ message, sessionId }: { message: ChatMessage; sessionId:
   const hasLaterActivity = messages
     .slice(Math.max(0, noticeIndex + 1))
     .some((item) => item.role === "user" || item.role === "assistant");
-  const canSchedule = noticeIndex >= 0 && !hasLaterActivity && !session?.running && !!source;
+  const canSchedule = !notice.guard && noticeIndex >= 0 && !hasLaterActivity && !session?.running && !!source;
+  const canContinueGuard = !!notice.guard && !!session && noticeIndex >= 0 && !hasLaterActivity && !session.running;
+
+  const continueGuard = async () => {
+    if (!canContinueGuard || busy) return;
+    setBusy(true);
+    setRetryError(null);
+    try {
+      await continueRun(sessionId);
+    } catch (error) {
+      setRetryError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const schedule = async (runAt: number) => {
     if (!source || busy) return;
@@ -355,6 +370,25 @@ function RunErrorCard({ message, sessionId }: { message: ChatMessage; sessionId:
             >
               {notice.raw}
             </pre>
+          )}
+          {canContinueGuard && (
+            <div className="mt-3 border-t border-danger/20 pt-3" data-testid="run-guard-actions">
+              <p className="mb-2 text-[11.5px] text-text-tertiary">{t("message.guardContinueHint")}</p>
+              <button
+                type="button"
+                data-testid="run-guard-continue"
+                disabled={busy}
+                onClick={() => void continueGuard()}
+                className="rounded-lg bg-accent px-3 py-1.5 text-[12px] text-on-accent hover:bg-accent-dim disabled:opacity-40"
+              >
+                {t("message.guardContinue")}
+              </button>
+              {retryError && (
+                <div role="alert" className="mt-2 text-[12px] text-danger" data-testid="run-guard-error">
+                  {retryError}
+                </div>
+              )}
+            </div>
           )}
           {canSchedule && (
             <div className="mt-3 border-t border-danger/20 pt-3">

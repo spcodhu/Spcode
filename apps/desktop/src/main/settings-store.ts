@@ -43,6 +43,9 @@ export function sanitizeAppSettings(input: Partial<AppSettings>): Partial<AppSet
   for (const k of ["memoryDistill", "quickQuota", "autoUpdate", "betaUpdates", "modelCatalogAutoSync"] as const) {
     if (out[k] !== undefined && typeof out[k] !== "boolean") delete out[k];
   }
+  if (out.maxModelTurns !== undefined && (!Number.isSafeInteger(out.maxModelTurns) || out.maxModelTurns < 1)) {
+    delete out.maxModelTurns;
+  }
   if (out.themeMigrationVersion !== undefined && !Number.isSafeInteger(out.themeMigrationVersion)) {
     delete out.themeMigrationVersion;
   }

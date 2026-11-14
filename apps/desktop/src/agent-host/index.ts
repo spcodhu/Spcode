@@ -36,7 +36,12 @@ import type {
   SandboxStatusReport,
   WebFetchConfig,
 } from "@spcode/shared";
-import { DEFAULT_COMPACTION_SETTINGS, DEFAULT_SANDBOX_SETTINGS, sanitizeModelPricing } from "@spcode/shared";
+import {
+  DEFAULT_COMPACTION_SETTINGS,
+  DEFAULT_MAX_MODEL_TURNS,
+  DEFAULT_SANDBOX_SETTINGS,
+  sanitizeModelPricing,
+} from "@spcode/shared";
 import { getLocale, i18n, setLocale } from "@spcode/shared/i18n";
 import { resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
 import { configureNetworkProxy } from "../network-proxy.js";
@@ -100,6 +105,8 @@ let modelRuntime: ModelRuntime | null = null;
 let memoryStore: MemoryStore | null = null;
 /** 模型目录自动同步开关（主进程设置页经 modelCatalog.setAutoSync 下发；宿主重启后由主进程重推） */
 let modelCatalogAutoSync = true;
+/** 每次任务运行的模型回合预算；所有活跃会话在下一次 finishTurn 读取最新值 */
+let maxModelTurns = DEFAULT_MAX_MODEL_TURNS;
 /** 最近一次模型目录联网刷新的状态（供 models.catalogSyncStatus 查询） */
 const catalogSync: ModelCatalogSyncStatus = {
   lastSyncedAt: null,
@@ -428,6 +435,8 @@ async function createController(params: {
     planMode: params.planMode,
     permissionMode: params.permissionMode,
     noTitleAutomation: params.noTitleAutomation,
+    getMaxModelTurns: () => maxModelTurns,
+    emitRunGuard: (pause) => emit({ type: "session.runGuard", sessionId: params.sessionId, pause }),
     emitEvent: (event) => emit({ type: "session.event", sessionId: params.sessionId, event }),
     emitUsage: (usage) =>
       emit({
@@ -543,6 +552,14 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
 
   if (cmd.type === "modelCatalog.setAutoSync") {
     modelCatalogAutoSync = cmd.payload.enabled;
+    return;
+  }
+
+  if (cmd.type === "runGuard.setConfig") {
+    maxModelTurns =
+      Number.isSafeInteger(cmd.payload.maxTurns) && cmd.payload.maxTurns > 0
+        ? cmd.payload.maxTurns
+        : DEFAULT_MAX_MODEL_TURNS;
     return;
   }
 
@@ -896,6 +913,19 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         if (!ctl) throw new Error(i18n.t("integration:session.missing", { id: cmd.payload.sessionId }));
         // prompt 是长任务：立即响应"已接受"，结果通过事件流推送
         void ctl.prompt(cmd.payload.text, cmd.payload.images).catch((err) => {
+          emit({
+            type: "host.error",
+            message: i18n.t("integration:host.promptFailed", { error: String(err?.message ?? err) }),
+          });
+        });
+        respond(id, true, { accepted: true });
+        break;
+      }
+      case "session.continue": {
+        const ctl = await getOrRevive(cmd.payload.sessionId);
+        if (!ctl) throw new Error(i18n.t("integration:session.missing", { id: cmd.payload.sessionId }));
+        // 与 prompt 一样只确认接纳；运行进度与结束仍由事件流推送
+        void ctl.continueAfterGuard().catch((err) => {
           emit({
             type: "host.error",
             message: i18n.t("integration:host.promptFailed", { error: String(err?.message ?? err) }),

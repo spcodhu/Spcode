@@ -714,6 +714,10 @@ function registerIpc(): void {
     if ("modelCatalogAutoSync" in patch) {
       bridge.push({ type: "modelCatalog.setAutoSync", payload: { enabled: next.modelCatalogAutoSync } });
     }
+    // 活跃会话在下一次 finishTurn 读取最新回合预算
+    if ("maxModelTurns" in patch) {
+      bridge.push({ type: "runGuard.setConfig", payload: { maxTurns: next.maxModelTurns } });
+    }
     // 高级搜索配置实时下发宿主（对己创建会话不生效，新会话生效——工具列表创建时固定）
     if ("advancedSearch" in patch) {
       bridge.push({ type: "search.setAdvancedConfig", payload: { config: next.advancedSearch } });
@@ -887,6 +891,7 @@ if (!app.requestSingleInstanceLock()) {
         bridge.push({ type: "locale.set", payload: { locale: settings.get().locale } });
         bridge.push({ type: "memory.setDistillEnabled", payload: { enabled: settings.get().memoryDistill } });
         bridge.push({ type: "modelCatalog.setAutoSync", payload: { enabled: settings.get().modelCatalogAutoSync } });
+        bridge.push({ type: "runGuard.setConfig", payload: { maxTurns: settings.get().maxModelTurns } });
         bridge.push({ type: "proxy.setConfig", payload: { config: settings.get().proxy } });
         bridge.push({ type: "search.setAdvancedConfig", payload: { config: settings.get().advancedSearch } });
         bridge.push({ type: "webfetch.setConfig", payload: { config: settings.get().webFetch } });
