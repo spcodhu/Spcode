@@ -7,7 +7,7 @@ import type {
   ModelPriceRates,
 } from "@spcode/shared";
 import { CUSTOM_PROVIDER_APIS, validateCustomProviderInput, validateModelInput } from "@spcode/shared";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
@@ -296,6 +296,7 @@ function ProviderDetail({
   const [key, setKey] = useState("");
   const [saved, setSaved] = useState(false);
   const [pricingFor, setPricingFor] = useState<string | null>(null);
+  const [editingModel, setEditingModel] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
 
@@ -315,6 +316,7 @@ function ProviderDetail({
       type: "models.removeModel",
       payload: { provider: m.provider, modelId: m.modelId },
     });
+    setEditingModel(null);
     onChanged();
   };
 
@@ -449,14 +451,31 @@ function ProviderDetail({
                   {t("models.pricing")}
                 </button>
                 {m.removable && (
-                  <button
-                    type="button"
-                    onClick={() => void removeModel(m)}
-                    aria-label={t("models.delete", { name: m.displayName })}
-                    className="shrink-0 text-text-tertiary hover:text-danger"
-                  >
-                    <Icon name="trash" size={14} />
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      data-testid="model-edit"
+                      data-model={k}
+                      aria-expanded={editingModel === k}
+                      aria-label={t("models.editNamed", { name: m.displayName })}
+                      onClick={() => {
+                        setEditingModel(editingModel === k ? null : k);
+                        setPricingFor(null);
+                      }}
+                      className="flex h-7 shrink-0 items-center gap-1 rounded-lg border border-border bg-bg-main px-2.5 text-[11px] font-medium text-text-secondary transition-colors hover:border-accent/40 hover:bg-accent-soft hover:text-accent"
+                    >
+                      <Icon name="pen" size={12} />
+                      {t("models.edit")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void removeModel(m)}
+                      aria-label={t("models.delete", { name: m.displayName })}
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border text-text-tertiary transition-colors hover:border-danger/30 hover:bg-danger/10 hover:text-danger"
+                    >
+                      <Icon name="trash" size={13} />
+                    </button>
+                  </>
                 )}
                 <button
                   type="button"
@@ -476,6 +495,18 @@ function ProviderDetail({
                 </button>
               </div>
               {pricingFor === k && <ModelPricingEditor key={k} model={m} modelKey={k} />}
+              {editingModel === k && (
+                <AddModelForm
+                  key={`edit-${k}`}
+                  provider={m.provider}
+                  model={m}
+                  onAdded={() => {
+                    setEditingModel(null);
+                    onChanged();
+                  }}
+                  onCancel={() => setEditingModel(null)}
+                />
+              )}
             </div>
           );
         })}
@@ -762,16 +793,30 @@ function ModelPricingEditor({ model, modelKey }: { model: CatalogModel; modelKey
 }
 
 // ---------------------------------------------------------------------------
-// 添加自定义模型：表单写入 models.custom.json，按 provider 默认协议请求
+// 添加 / 编辑自定义模型：写入 models.custom.json，按 provider 默认协议请求
 // ---------------------------------------------------------------------------
 
-function AddModelForm({ provider, onAdded }: { provider: string; onAdded: () => void }) {
+function AddModelForm({
+  provider,
+  onAdded,
+  model,
+  onCancel,
+}: {
+  provider: string;
+  onAdded: () => void;
+  /** 传入时进入编辑模式：ID 固定，其余字段回填后通过同 ID 覆盖保存 */
+  model?: CatalogModel;
+  onCancel?: () => void;
+}) {
   const { t } = useTranslation("settings");
-  const [modelId, setModelId] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [context, setContext] = useState("");
-  const [reasoning, setReasoning] = useState(true);
-  const [vision, setVision] = useState(false);
+  const fieldId = useId();
+  const [modelId, setModelId] = useState(model?.modelId ?? "");
+  const [displayName, setDisplayName] = useState(
+    model && model.displayName !== model.modelId ? model.displayName : "",
+  );
+  const [context, setContext] = useState(model?.contextWindow ? String(model.contextWindow) : "");
+  const [reasoning, setReasoning] = useState(model?.reasoning ?? true);
+  const [vision, setVision] = useState(model?.vision ?? false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -798,8 +843,13 @@ function AddModelForm({ provider, onAdded }: { provider: string; onAdded: () => 
     };
     try {
       await window.spcode.command({ type: "models.addModel", payload });
-      setModelId("");
-      setDisplayName("");
+      if (!model) {
+        setModelId("");
+        setDisplayName("");
+        setContext("");
+        setReasoning(true);
+        setVision(false);
+      }
       onAdded();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -809,22 +859,31 @@ function AddModelForm({ provider, onAdded }: { provider: string; onAdded: () => 
   };
 
   return (
-    <div className="mt-6 rounded-xl border border-border bg-bg-elevated p-4">
-      <div className="text-[13px] font-semibold text-text-secondary">{t("models.addModel")}</div>
+    <div
+      data-testid={model ? "custom-model-edit-form" : "custom-model-add-form"}
+      className={`rounded-xl border p-4 ${model ? "mt-1 border-accent/30 bg-bg-main" : "mt-6 border-border bg-bg-elevated"}`}
+    >
+      <div className="flex items-center gap-2 text-[13px] font-semibold text-text-secondary">
+        {model && <Icon name="pen" size={13} className="text-accent" />}
+        {t(model ? "models.editModel" : "models.addModel")}
+      </div>
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
         <label className="block">
           <span className="mb-1 block text-[12px] text-text-tertiary">{t("models.addModelId")}</span>
           <input
             value={modelId}
+            disabled={!!model}
+            data-testid="custom-model-id-input"
             onChange={(e) => setModelId(e.target.value)}
             placeholder={t("models.addModelIdPlaceholder")}
-            className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-[13px] outline-none placeholder:text-text-tertiary focus:border-accent"
+            className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-[13px] outline-none placeholder:text-text-tertiary focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
           />
         </label>
         <label className="block">
           <span className="mb-1 block text-[12px] text-text-tertiary">{t("models.addModelName")}</span>
           <input
             value={displayName}
+            data-testid="custom-model-name-input"
             onChange={(e) => setDisplayName(e.target.value)}
             placeholder={t("models.addModelNamePlaceholder")}
             className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-[13px] outline-none placeholder:text-text-tertiary focus:border-accent"
@@ -836,6 +895,7 @@ function AddModelForm({ provider, onAdded }: { provider: string; onAdded: () => 
             type="number"
             min={1}
             value={context}
+            data-testid="custom-model-context-input"
             onChange={(e) => setContext(e.target.value)}
             placeholder="262144"
             className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-[13px] outline-none placeholder:text-text-tertiary focus:border-accent"
@@ -843,24 +903,44 @@ function AddModelForm({ provider, onAdded }: { provider: string; onAdded: () => 
         </label>
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2">
-        <label htmlFor="model-reasoning" className="flex items-center gap-2 text-[13px] text-text-secondary">
-          <Switch id="model-reasoning" on={reasoning} onChange={setReasoning} label={t("models.addModelReasoning")} />
+        <label htmlFor={`${fieldId}-reasoning`} className="flex items-center gap-2 text-[13px] text-text-secondary">
+          <Switch
+            id={`${fieldId}-reasoning`}
+            on={reasoning}
+            onChange={setReasoning}
+            label={t("models.addModelReasoning")}
+          />
           {t("models.addModelReasoning")}
         </label>
-        <label htmlFor="model-vision" className="flex items-center gap-2 text-[13px] text-text-secondary">
-          <Switch id="model-vision" on={vision} onChange={setVision} label={t("models.addModelVision")} />
+        <label htmlFor={`${fieldId}-vision`} className="flex items-center gap-2 text-[13px] text-text-secondary">
+          <Switch id={`${fieldId}-vision`} on={vision} onChange={setVision} label={t("models.addModelVision")} />
           {t("models.addModelVision")}
         </label>
-        <button
-          type="button"
-          onClick={() => void submit()}
-          disabled={!!validationError || !modelId.trim() || !context.trim() || busy}
-          className="ml-auto rounded-lg bg-accent px-4 py-1.5 text-[12px] text-on-accent hover:bg-accent-dim disabled:opacity-40"
-        >
-          {t("models.addModelSubmit")}
-        </button>
+        <div className="ml-auto flex items-center gap-2">
+          {onCancel && (
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={busy}
+              className="rounded-lg border border-border px-3 py-1.5 text-[12px] text-text-secondary hover:bg-bg-hover disabled:opacity-40"
+            >
+              {t("cancel")}
+            </button>
+          )}
+          <button
+            type="button"
+            data-testid="custom-model-submit"
+            onClick={() => void submit()}
+            disabled={!!validationError || !modelId.trim() || !context.trim() || busy}
+            className="rounded-lg bg-accent px-4 py-1.5 text-[12px] text-on-accent hover:bg-accent-dim disabled:opacity-40"
+          >
+            {busy ? t("saving") : t(model ? "models.saveModel" : "models.addModelSubmit")}
+          </button>
+        </div>
       </div>
-      <p className="mt-2 text-[12px] text-text-tertiary">{t("models.addModelHint")}</p>
+      <p className="mt-2 text-[12px] text-text-tertiary">
+        {t(model ? "models.editModelHint" : "models.addModelHint")}
+      </p>
       {(validationError || error) && (
         <p className="mt-1 text-[12px] text-danger">
           {validationError ? t(validationError) : t(error as "models.notRemovable")}

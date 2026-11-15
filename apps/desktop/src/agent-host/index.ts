@@ -610,6 +610,8 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
               modelId: m.id,
               displayName: m.name ?? m.id,
               reasoning: !!m.reasoning,
+              contextWindow: m.contextWindow ?? 0,
+              vision: m.input?.includes("image") ?? false,
               ...catalogPricing(modelOverlay, m),
               source: sourceOfModel(modelOverlay, m.provider, m.id),
               removable: isRemovable(modelOverlay, m.provider, m.id),

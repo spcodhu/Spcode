@@ -59,12 +59,15 @@ export interface CatalogModel {
   modelId: string;
   displayName: string;
   reasoning: boolean;
+  /** 编辑自定义模型时回填表单 */
+  contextWindow: number;
+  vision: boolean;
   /** 目录默认单价与定价可信状态 */
   cost: ModelPriceRates;
   priceKnown: boolean;
   /** pi 内置 / 官方补丁 / 用户自定义（手写 models.json 与 UI 添加都算） */
   source: import("./models-overlay.js").ModelSource;
-  /** 仅 UI 添加（models.custom.json）的模型可经 models.removeModel 删除 */
+  /** 仅 UI 添加（models.custom.json）的模型可经 UI 编辑 / 删除 */
   removable: boolean;
 }
 

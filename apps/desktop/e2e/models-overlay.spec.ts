@@ -77,7 +77,7 @@ test.describe("内置供应商配置删除 E2E", () => {
 });
 
 test.describe("自定义模型 E2E", () => {
-  test("打开供应商详情 → 手动添加 k3.1-pro → 自定义标签与删除 → 删除生效；内置模型不可删", async () => {
+  test("添加自定义模型后可再次编辑并持久化全部字段，删除与内置模型保护仍生效", async () => {
     const app = await launchApp();
     const window = await app.firstWindow();
     window.on("dialog", (d) => void d.accept());
@@ -101,9 +101,41 @@ test.describe("自定义模型 E2E", () => {
     // 自定义标签区分 pi 官方目录模型与用户手动添加
     await expect(window.getByText("自定义").first()).toBeVisible();
 
+    // 行内编辑入口：回填已有配置，ID 固定，其余字段均可修改
+    const editButton = window.locator('[data-testid="model-edit"][data-model="kimi-coding/k3.1-pro"]');
+    await expect(editButton).toBeVisible();
+    await editButton.click();
+    let form = window.getByTestId("custom-model-edit-form");
+    await expect(form.getByTestId("custom-model-id-input")).toHaveValue("k3.1-pro");
+    await expect(form.getByTestId("custom-model-id-input")).toBeDisabled();
+    await expect(form.getByTestId("custom-model-context-input")).toHaveValue("262144");
+    await form.getByTestId("custom-model-name-input").fill("k3.1-pro-renamed");
+    await form.getByTestId("custom-model-context-input").fill("128000");
+    await form.getByRole("switch", { name: "推理模型", exact: true }).click();
+    await form.getByRole("switch", { name: "支持视觉", exact: true }).click();
+    await form.getByTestId("custom-model-submit").click();
+    await expect(window.getByText("k3.1-pro-renamed", { exact: true })).toBeVisible({ timeout: 15000 });
+
+    // 再次打开验证不是只改了展示层：目录返回值已持久化全部编辑字段
+    await editButton.click();
+    form = window.getByTestId("custom-model-edit-form");
+    await expect(form.getByTestId("custom-model-name-input")).toHaveValue("k3.1-pro-renamed");
+    await expect(form.getByTestId("custom-model-context-input")).toHaveValue("128000");
+    await expect(form.getByRole("switch", { name: "推理模型", exact: true })).toHaveAttribute(
+      "aria-checked",
+      "false",
+    );
+    await expect(form.getByRole("switch", { name: "支持视觉", exact: true })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await form.getByRole("button", { name: "取消", exact: true }).click();
+
     // 删除：确认后行消失
-    await window.getByRole("button", { name: "删除 k3.1-pro" }).click();
-    await expect(window.getByText("k3.1-pro", { exact: true })).toHaveCount(0, { timeout: 15000 });
+    await window.getByRole("button", { name: "删除 k3.1-pro-renamed" }).click();
+    await expect(window.locator('[data-testid="model-edit"][data-model="kimi-coding/k3.1-pro"]')).toHaveCount(0, {
+      timeout: 15000,
+    });
 
     // 内置模型不可删：Kimi K3 行内没有删除按钮（同容器内断言）
     const builtinRow = window.getByText("Kimi K3", { exact: true }).locator("..");
