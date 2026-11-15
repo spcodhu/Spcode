@@ -121,14 +121,8 @@ test.describe("自定义模型 E2E", () => {
     form = window.getByTestId("custom-model-edit-form");
     await expect(form.getByTestId("custom-model-name-input")).toHaveValue("k3.1-pro-renamed");
     await expect(form.getByTestId("custom-model-context-input")).toHaveValue("128000");
-    await expect(form.getByRole("switch", { name: "推理模型", exact: true })).toHaveAttribute(
-      "aria-checked",
-      "false",
-    );
-    await expect(form.getByRole("switch", { name: "支持视觉", exact: true })).toHaveAttribute(
-      "aria-checked",
-      "true",
-    );
+    await expect(form.getByRole("switch", { name: "推理模型", exact: true })).toHaveAttribute("aria-checked", "false");
+    await expect(form.getByRole("switch", { name: "支持视觉", exact: true })).toHaveAttribute("aria-checked", "true");
     await form.getByRole("button", { name: "取消", exact: true }).click();
 
     // 删除：确认后行消失

@@ -170,7 +170,9 @@ export function filterEnabledModels<T extends { provider: string; modelId: strin
 ): T[] {
   const providers = new Set(disabledProviders);
   const modelKeys = new Set(disabledModels);
-  return models.filter((model) => !providers.has(model.provider) && !modelKeys.has(`${model.provider}/${model.modelId}`));
+  return models.filter(
+    (model) => !providers.has(model.provider) && !modelKeys.has(`${model.provider}/${model.modelId}`),
+  );
 }
 
 /** 判定合成目录里某模型的来源（builtin = 两个用户文件都没声明） */

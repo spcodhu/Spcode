@@ -811,9 +811,7 @@ function AddModelForm({
   const { t } = useTranslation("settings");
   const fieldId = useId();
   const [modelId, setModelId] = useState(model?.modelId ?? "");
-  const [displayName, setDisplayName] = useState(
-    model && model.displayName !== model.modelId ? model.displayName : "",
-  );
+  const [displayName, setDisplayName] = useState(model && model.displayName !== model.modelId ? model.displayName : "");
   const [context, setContext] = useState(model?.contextWindow ? String(model.contextWindow) : "");
   const [reasoning, setReasoning] = useState(model?.reasoning ?? true);
   const [vision, setVision] = useState(model?.vision ?? false);
@@ -938,9 +936,7 @@ function AddModelForm({
           </button>
         </div>
       </div>
-      <p className="mt-2 text-[12px] text-text-tertiary">
-        {t(model ? "models.editModelHint" : "models.addModelHint")}
-      </p>
+      <p className="mt-2 text-[12px] text-text-tertiary">{t(model ? "models.editModelHint" : "models.addModelHint")}</p>
       {(validationError || error) && (
         <p className="mt-1 text-[12px] text-danger">
           {validationError ? t(validationError) : t(error as "models.notRemovable")}
