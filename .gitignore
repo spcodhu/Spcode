@@ -18,3 +18,4 @@ ci-job.log
 /spcod-relay/
 /.release-work/
 /SPCOD_RELEASE_BLOG.md
+/docs/code-signing.md
