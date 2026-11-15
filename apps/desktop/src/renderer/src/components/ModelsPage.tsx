@@ -99,7 +99,8 @@ export function ModelsPage() {
   const detailProvider = detail ? catalog.find((c) => c.provider === detail) : null;
 
   const removeProvider = async (provider: CatalogProvider) => {
-    if (!window.confirm(t("models.removeProviderConfirm", { name: provider.name }))) return;
+    const confirmKey = provider.custom ? "models.removeProviderConfirm" : "models.removeConfiguredProviderConfirm";
+    if (!window.confirm(t(confirmKey, { name: provider.name }))) return;
     await window.spcode.command({ type: "models.removeProvider", payload: { provider: provider.provider } });
     setDetail(null);
     handleChanged();
@@ -155,7 +156,7 @@ export function ModelsPage() {
           </div>
 
           <GroupTitle>{t("models.configured")}</GroupTitle>
-          <div className="space-y-2">
+          <div className="space-y-2" data-testid="configured-providers">
             {catalog.filter((p) => p.configured).length === 0 && (
               <div className="text-[12px] text-text-tertiary">{t("models.empty")}</div>
             )}
@@ -174,7 +175,7 @@ export function ModelsPage() {
           </div>
 
           <GroupTitle>{t("models.unconfigured")}</GroupTitle>
-          <div className="space-y-2">
+          <div className="space-y-2" data-testid="unconfigured-providers">
             {catalog
               .filter((p) => !p.configured)
               .map((p) => (
@@ -225,7 +226,11 @@ function ProviderRow({
 }) {
   const { t } = useTranslation("settings");
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-border bg-bg-elevated px-4 py-3">
+    <div
+      data-testid="provider-row"
+      data-provider={provider.provider}
+      className="flex items-center gap-3 rounded-xl border border-border bg-bg-elevated px-4 py-3"
+    >
       <span className="text-text-tertiary" aria-hidden>
         ⠿
       </span>
@@ -341,24 +346,24 @@ function ProviderDetail({
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="text-[22px] font-semibold text-text-primary">{provider.name}</h1>
         {provider.custom && (
-          <>
-            <button
-              type="button"
-              data-testid="provider-edit"
-              onClick={onEdit}
-              className="rounded-lg border border-border px-2.5 py-1 text-[12px] text-text-secondary hover:bg-bg-hover"
-            >
-              {t("models.editProvider")}
-            </button>
-            <button
-              type="button"
-              data-testid="provider-delete"
-              onClick={onRemove}
-              className="rounded-lg border border-danger/40 px-2.5 py-1 text-[12px] text-danger hover:bg-danger/10"
-            >
-              {t("models.deleteProvider")}
-            </button>
-          </>
+          <button
+            type="button"
+            data-testid="provider-edit"
+            onClick={onEdit}
+            className="rounded-lg border border-border px-2.5 py-1 text-[12px] text-text-secondary hover:bg-bg-hover"
+          >
+            {t("models.editProvider")}
+          </button>
+        )}
+        {(provider.custom || provider.configured) && (
+          <button
+            type="button"
+            data-testid="provider-delete"
+            onClick={onRemove}
+            className="rounded-lg border border-danger/40 px-2.5 py-1 text-[12px] text-danger hover:bg-danger/10"
+          >
+            {t("models.deleteProvider")}
+          </button>
         )}
       </div>
       <p className="mt-1 text-[13px] text-text-tertiary">{t("models.detailDescription")}</p>

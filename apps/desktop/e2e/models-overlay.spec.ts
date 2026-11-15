@@ -50,6 +50,32 @@ test.describe("自定义供应商 E2E", () => {
   });
 });
 
+test.describe("内置供应商配置删除 E2E", () => {
+  test("删除本地密钥后移出已配置分组，目录保留可重新配置", async () => {
+    const app = await launchApp();
+    const window = await app.firstWindow();
+    window.on("dialog", (dialog) => void dialog.accept());
+
+    await window.getByRole("button", { name: /新建聊天/ }).click();
+    await expect(window.getByPlaceholder(/说点什么/)).toBeVisible({ timeout: 15000 });
+    await window.getByTitle("设置", { exact: true }).click();
+    await window.getByRole("button", { name: "模型", exact: true }).click();
+    await window.getByRole("button", { name: "配置 DeepSeek", exact: true }).click();
+    await window.locator('input[type="password"]').fill("sk-e2e-remove-provider");
+    await window.getByRole("button", { name: "保存", exact: true }).click();
+
+    await expect(window.getByTestId("provider-delete")).toBeVisible({ timeout: 15000 });
+    await window.getByTestId("provider-delete").click();
+    await expect(
+      window.getByTestId("configured-providers").locator('[data-testid="provider-row"][data-provider="deepseek"]'),
+    ).toHaveCount(0, { timeout: 15000 });
+    await expect(
+      window.getByTestId("unconfigured-providers").locator('[data-testid="provider-row"][data-provider="deepseek"]'),
+    ).toBeVisible();
+    await app.close();
+  });
+});
+
 test.describe("自定义模型 E2E", () => {
   test("打开供应商详情 → 手动添加 k3.1-pro → 自定义标签与删除 → 删除生效；内置模型不可删", async () => {
     const app = await launchApp();

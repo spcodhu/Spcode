@@ -677,14 +677,15 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
       case "models.removeProvider": {
         const rt = await getRuntime();
         const provider = cmd.payload.provider;
-        // 先验证归属再动凭证，避免伪造命令删除内置 / 手写供应商的 API Key。
-        if (!customProviderConfig(modelOverlay, provider)) throw new Error("models.providerNotEditable");
+        const custom = customProviderConfig(modelOverlay, provider);
+        // 内置 / 手写供应商删除的是本地凭证与“已配置”状态；设置页创建的供应商连目录条目一起删除。
+        if (!custom && !rt.getProvider(provider)) throw new Error("models.providerNotFound");
         try {
           await rt.logout(provider);
         } catch (err) {
           if (!(err instanceof CredentialSynchronizationError)) throw err;
         }
-        removeCustomProvider(modelOverlay, provider);
+        if (custom) removeCustomProvider(modelOverlay, provider);
         await rt.refresh({ allowNetwork: false });
         respond(id, true);
         break;

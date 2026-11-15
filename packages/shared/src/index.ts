@@ -72,7 +72,7 @@ export interface CatalogProvider {
   provider: string;
   name: string;
   configured: boolean;
-  /** 是否由设置页创建；仅这类供应商可经 UI 编辑 / 删除 */
+  /** 是否由设置页创建；仅这类供应商可编辑，删除时会同时移除目录条目 */
   custom: boolean;
   /** 自定义供应商的可编辑配置，不返回 apiKey */
   baseUrl?: string;
@@ -500,7 +500,7 @@ export type HostCommand =
   /** 新增 / 编辑完整自定义供应商；ID 创建后固定，密钥单独走 auth.json */
   | { id: string; type: "models.addProvider"; payload: CustomProviderInput }
   | { id: string; type: "models.updateProvider"; payload: CustomProviderInput }
-  /** 仅允许删除设置页创建的供应商，同时删除其本地凭证 */
+  /** 自定义供应商删除目录与本地凭证；内置 / 手写供应商仅删除本地凭证，移出已配置分组 */
   | { id: string; type: "models.removeProvider"; payload: { provider: string } }
   | { id: string; type: "memory.read" }
   /**

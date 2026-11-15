@@ -278,6 +278,8 @@ export const zhCN = {
   "models.editProvider": "编辑供应商",
   "models.deleteProvider": "删除供应商",
   "models.removeProviderConfirm": "删除自定义供应商「{{name}}」及其本地 API Key？其中的模型也会一并移除。",
+  "models.removeConfiguredProviderConfirm":
+    "删除供应商「{{name}}」的本地 API Key 与登录配置？删除后会移出“已配置密钥”分组，内置模型目录保留，可稍后重新配置。",
   "models.providerFormDescription": "接入 Pi 内置目录之外、但使用 Pi 已支持协议的端点；保存后直接添加模型。",
   "models.providerId": "供应商 ID",
   "models.providerIdPlaceholder": "例如 acme-ai",
@@ -297,6 +299,7 @@ export const zhCN = {
   "models.providerInvalidApi": "请选择 Pi 支持的协议类型",
   "models.providerExists": "该供应商 ID 已存在，请更换 ID",
   "models.providerNotEditable": "仅设置页创建的自定义供应商可编辑或删除",
+  "models.providerNotFound": "供应商不存在",
   "models.addModel": "添加模型",
   "models.addModelId": "模型 ID / 请求名",
   "models.addModelIdPlaceholder": "例如 gpt-5.2",
@@ -860,6 +863,8 @@ export const en = {
   "models.deleteProvider": "Delete provider",
   "models.removeProviderConfirm":
     'Delete custom provider "{{name}}" and its local API Key? Its models will also be removed.',
+  "models.removeConfiguredProviderConfirm":
+    'Remove the local API Key and sign-in configuration for "{{name}}"? It will leave the configured group. The built-in catalog remains available for future setup.',
   "models.providerFormDescription":
     "Connect an endpoint outside Pi's built-in catalog that speaks a Pi-supported API. Add models immediately after saving.",
   "models.providerId": "Provider ID",
@@ -882,6 +887,7 @@ export const en = {
   "models.providerInvalidApi": "Choose an API protocol supported by Pi",
   "models.providerExists": "That provider ID already exists. Choose another ID.",
   "models.providerNotEditable": "Only custom providers created here can be edited or deleted",
+  "models.providerNotFound": "Provider not found",
   "models.addModel": "Add model",
   "models.addModelId": "Model ID / request name",
   "models.addModelIdPlaceholder": "e.g. gpt-5.2",
