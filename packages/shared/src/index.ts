@@ -93,6 +93,7 @@ export interface ModelCatalogSyncStatus {
   inProgress: boolean;
 }
 
+export * from "./image-hints.js";
 export * from "./models-overlay.js";
 export * from "./run-guard.js";
 

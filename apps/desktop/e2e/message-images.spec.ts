@@ -36,7 +36,10 @@ function seed(home: string): void {
             mimeType: "image/png",
             name: `图${index}.png`,
           })),
-          { type: "text", text: "这四张图并排展示" },
+          {
+            type: "text",
+            text: "这四张图并排展示\n\n[Image: original 2218x1174, displayed at 2000x1059. Multiply coordinates by 1.11 to map to original image.]",
+          },
         ],
       },
     }),
@@ -68,6 +71,8 @@ test("多图单行溢出横滚，预览支持缩放与切图复位", async () =>
   const strip = window.getByTestId("message-image-strip");
   await expect(strip).toBeVisible({ timeout: 15000 });
   await expect(window.getByTestId("message-image")).toHaveCount(4);
+  // 引擎给模型的图片坐标映射提示不应作为用户正文渲染
+  await expect(window.getByText(/Multiply coordinates by/)).toHaveCount(0);
   expect(await strip.evaluate((element) => getComputedStyle(element).flexWrap)).toBe("nowrap");
   expect(await strip.evaluate((element) => getComputedStyle(element).overflowX)).toBe("auto");
   const sizes = await strip.evaluate((element) => ({

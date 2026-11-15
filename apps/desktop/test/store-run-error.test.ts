@@ -10,6 +10,7 @@ import {
   applySessionEvent,
   historyToMessages,
   makeRunErrorNotice,
+  messageText,
   type SessionState,
   useStore,
 } from "../src/renderer/src/store.js";
@@ -170,6 +171,41 @@ describe("applySessionEvent：错误回合的可见性", () => {
       role: "user",
       images: [{ mimeType: "image/png", data: "aGVsbG8=" }],
     });
+  });
+
+  it("图片消息的引擎坐标提示不显示，并能正确认领本地乐观消息", () => {
+    const originalImage = { name: "原图.png", mimeType: "image/png", data: "b3JpZ2luYWw=" };
+    const optimisticMessage = {
+      id: "local-message",
+      role: "user" as const,
+      timestamp: 1,
+      segments: [{ kind: "text" as const, id: "local-segment", text: "看看截图" }],
+      images: [originalImage],
+      streaming: false,
+      optimistic: true,
+    };
+    const s = makeSession({ messages: [optimisticMessage] });
+    applySessionEvent(s, {
+      type: "message_end",
+      message: {
+        role: "user",
+        timestamp: 2,
+        content: [
+          {
+            type: "text",
+            text: "看看截图\n\n[Image: original 2218x1174, displayed at 2000x1059. Multiply coordinates by 1.11 to map to original image.]",
+          },
+          { type: "image", data: "cmVzaXplZA==", mimeType: "image/png" },
+        ],
+      },
+    });
+
+    expect(s.messages).toHaveLength(1);
+    expect(s.messages[0]?.id).toBe("local-message");
+    expect(s.messages[0]?.timestamp).toBe(2);
+    expect(s.messages[0]?.images).toEqual([originalImage]);
+    expect(s.messages[0]?.optimistic).toBeUndefined();
+    expect(messageText(s.messages[0]!)).toBe("看看截图");
   });
 
   it("额度不足回合：agent_settled 落一张 runError 卡，且空 assistant 占位被清掉", () => {

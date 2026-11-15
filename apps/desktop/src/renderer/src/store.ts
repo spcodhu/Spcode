@@ -33,7 +33,13 @@ import type {
   UsageAggregate,
   UsageRecord,
 } from "@spcode/shared";
-import { baseName, cleanSessionTitle, parseRunGuardCustomDetails, RUN_GUARD_CUSTOM_TYPE } from "@spcode/shared";
+import {
+  baseName,
+  cleanSessionTitle,
+  parseRunGuardCustomDetails,
+  RUN_GUARD_CUSTOM_TYPE,
+  stripImageProcessingHints,
+} from "@spcode/shared";
 import {
   getLocale,
   i18n,
@@ -730,11 +736,6 @@ export function applySessionEvent(session: SessionState, event: Record<string, u
         timestamp?: number;
       };
       if (msg.role === "user") {
-        const segments = contentToSegments(msg.content);
-        const text = segments
-          .filter((s): s is Extract<Segment, { kind: "text" }> => s.kind === "text")
-          .map((s) => s.text)
-          .join("\n\n");
         const images = Array.isArray(msg.content)
           ? (msg.content as PiContentBlock[])
               .filter((block) => block.type === "image" && block.data)
@@ -744,6 +745,15 @@ export function applySessionEvent(session: SessionState, event: Record<string, u
                 data: block.data!,
               }))
           : [];
+        const rawText = Array.isArray(msg.content)
+          ? (msg.content as PiContentBlock[])
+              .filter((block) => block.type === "text" && block.text)
+              .map((block) => block.text)
+              .join("\n\n")
+          : "";
+        // 引擎会为大图追加坐标映射提示给模型；UI 只保留用户原文，模型上下文不受影响。
+        const text = images.length > 0 ? stripImageProcessingHints(rawText) : rawText;
+        const segments: Segment[] = text ? [{ kind: "text", id: nextMsgId(), text }] : [];
         let optimistic: ChatMessage | undefined;
         for (let i = session.messages.length - 1; i >= 0; i--) {
           const candidate = session.messages[i]!;
@@ -983,7 +993,7 @@ export function historyToMessages(messages: unknown[]): ChatMessage[] {
       );
     } else if (m.role === "user") {
       const blocks = Array.isArray(m.content) ? (m.content as PiContentBlock[]) : [];
-      const text = blocks
+      const rawText = blocks
         .filter((b) => b.type === "text" && b.text)
         .map((b) => b.text)
         .join("\n");
@@ -995,6 +1005,7 @@ export function historyToMessages(messages: unknown[]): ChatMessage[] {
           mimeType: b.mimeType || "image/png",
           data: b.data as string,
         }));
+      const text = images.length > 0 ? stripImageProcessingHints(rawText) : rawText;
       if (text || images.length > 0) {
         out.push({
           id: nextMsgId(),

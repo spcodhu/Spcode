@@ -112,6 +112,24 @@ describe("historyToMessages", () => {
     expect(out[2]?.images).toEqual([{ name: "image-1", mimeType: "image/jpeg", data: "aW1nMg==" }]);
     expect(messageText(out[2]!)).toBe("");
   });
+  it("隐藏引擎图片缩放坐标提示，但保留用户原文与无图消息原文", () => {
+    const hint =
+      "[Image: original 2218x1174, displayed at 2000x1059. Multiply coordinates by 1.11 to map to original image.]";
+    const messages = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: `看看截图\n\n${hint}` },
+          { type: "image", data: "cmVzaXplZA==", mimeType: "image/png" },
+        ],
+      },
+      { role: "user", content: [{ type: "text", text: `无图消息保留\n${hint}` }] },
+    ];
+    const out = historyToMessages(messages);
+    expect(messageText(out[0]!)).toBe("看看截图");
+    expect(out[0]?.images).toEqual([{ name: "image-1", mimeType: "image/png", data: "cmVzaXplZA==" }]);
+    expect(messageText(out[1]!)).toBe(`无图消息保留\n${hint}`);
+  });
 });
 
 describe("historyToMessages：compactionSummary 回放", () => {

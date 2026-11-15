@@ -47,6 +47,28 @@ describe("手机历史转换", () => {
     ]);
   });
 
+  it("图片消息剥离引擎坐标提示，纯图片消息不生成空文本块", () => {
+    const hint =
+      "[Image: original 2218x1174, displayed at 2000x1059. Multiply coordinates by 1.11 to map to original image.]";
+    const chunks = historyToRemoteChunks([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: `看看截图\n\n${hint}` },
+          { type: "image", data: "cmVzaXplZA==", mimeType: "image/png" },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: hint },
+          { type: "image", data: "cmVzaXplZA==", mimeType: "image/png" },
+        ],
+      },
+    ]);
+    expect(chunks).toEqual([{ kind: "user", chunk: "看看截图" }]);
+  });
+
   it("工具失败状态与 unified patch 随历史恢复", () => {
     const chunks = historyToRemoteChunks([
       {

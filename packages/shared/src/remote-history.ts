@@ -3,6 +3,7 @@
  * 文本保持原顺序与原文；工具调用与结果合并为一步步快照，不传图片载荷。
  */
 
+import { stripImageProcessingHints } from "./image-hints.js";
 import type { RemoteHistoryChunk, RemoteHistoryPage, RemoteToolCall } from "./remote.js";
 
 export const REMOTE_HISTORY_PAGE_CHUNKS = 80;
@@ -118,10 +119,16 @@ export function historyToRemoteChunks(messages: unknown[]): RemoteHistoryChunk[]
       errorMessage?: unknown;
     };
     if (message.role === "user") {
-      const text = textBlocks(message.content)
+      const hasImage = Array.isArray(message.content)
+        ? message.content.some(
+            (block) => !!block && typeof block === "object" && (block as { type?: unknown }).type === "image",
+          )
+        : false;
+      const rawText = textBlocks(message.content)
         .filter((block) => block.type === "text")
         .map((block) => block.text)
         .join("\n");
+      const text = hasImage ? stripImageProcessingHints(rawText) : rawText;
       if (text) push("user", text);
       continue;
     }
