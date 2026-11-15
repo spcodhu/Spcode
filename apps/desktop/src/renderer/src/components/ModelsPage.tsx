@@ -458,11 +458,22 @@ function ProviderDetail({
                     <Icon name="trash" size={14} />
                   </button>
                 )}
-                <Switch
-                  on={enabled}
-                  onChange={(v) => onToggleModel(k, v)}
-                  label={t("enableName", { name: m.displayName })}
-                />
+                <button
+                  type="button"
+                  data-testid="model-enabled-toggle"
+                  data-model={k}
+                  aria-pressed={enabled}
+                  aria-label={t(enabled ? "models.disableNamed" : "models.enableNamed", { name: m.displayName })}
+                  onClick={() => onToggleModel(k, !enabled)}
+                  className={`flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 text-[11px] font-medium transition-colors ${
+                    enabled
+                      ? "border-accent/25 bg-accent-soft text-accent hover:border-danger/30 hover:bg-danger/10 hover:text-danger"
+                      : "border-border bg-bg-main text-text-secondary hover:border-accent/40 hover:bg-accent-soft hover:text-accent"
+                  }`}
+                >
+                  <Icon name={enabled ? "check" : "plus"} size={12} strokeWidth={2.2} />
+                  {t(enabled ? "models.disableModel" : "models.enableModel")}
+                </button>
               </div>
               {pricingFor === k && <ModelPricingEditor key={k} model={m} modelKey={k} />}
             </div>

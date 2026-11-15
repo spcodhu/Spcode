@@ -85,3 +85,43 @@ test("模型菜单：按供应商分组、搜索过滤、键盘导航、选中�
 
   await app.close();
 });
+
+test("模型菜单：连续停用多个模型后全部隐藏，保留仍启用的模型", async () => {
+  const app = await launchApp();
+  const window = await app.firstWindow();
+
+  await window.getByRole("button", { name: /新建聊天/ }).click();
+  await expect(window.getByPlaceholder(/说点什么/)).toBeVisible({ timeout: 15000 });
+  await window.getByTitle("设置", { exact: true }).click();
+  await window.getByRole("button", { name: "模型", exact: true }).click();
+  await configureProvider(window, "Kimi For Coding");
+  await window.getByRole("button", { name: "配置 Kimi For Coding", exact: true }).click();
+
+  const toggles = window.getByTestId("model-enabled-toggle");
+  await expect(toggles.nth(2)).toBeVisible({ timeout: 15000 });
+  const disabledIds = [
+    (await toggles.nth(0).getAttribute("data-model"))!.slice("kimi-coding/".length),
+    (await toggles.nth(1).getAttribute("data-model"))!.slice("kimi-coding/".length),
+  ];
+  const enabledId = (await toggles.nth(2).getAttribute("data-model"))!.slice("kimi-coding/".length);
+
+  // 不等待第一轮保存返回就连续点击，覆盖 disabledModels 旧闭包相互覆盖的竞态。
+  await toggles.nth(0).click();
+  await toggles.nth(1).click();
+  await expect(toggles.nth(0)).toHaveAttribute("aria-pressed", "false");
+  await expect(toggles.nth(1)).toHaveAttribute("aria-pressed", "false");
+  await window.getByRole("button", { name: "返回", exact: true }).click();
+  await window.getByTitle("关闭设置").click();
+
+  await window.getByTestId("composer-model-menu").click();
+  await window.getByTestId("composer-open-models").click();
+  for (const modelId of disabledIds) {
+    await expect(
+      window.locator(`[data-testid="composer-model-option"][data-provider="kimi-coding"][data-model="${modelId}"]`),
+    ).toHaveCount(0);
+  }
+  await expect(
+    window.locator(`[data-testid="composer-model-option"][data-provider="kimi-coding"][data-model="${enabledId}"]`),
+  ).toHaveCount(1);
+  await app.close();
+});
