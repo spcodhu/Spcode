@@ -125,3 +125,52 @@ test("模型菜单：连续停用多个模型后全部隐藏，保留仍启用�
   ).toHaveCount(1);
   await app.close();
 });
+
+test("供应商模型批量操作：全部取消启用后从会话消失，全部启用后恢复", async () => {
+  const app = await launchApp();
+  const window = await app.firstWindow();
+
+  await window.getByRole("button", { name: /新建聊天/ }).click();
+  await expect(window.getByPlaceholder(/说点什么/)).toBeVisible({ timeout: 15000 });
+  await window.getByTitle("设置", { exact: true }).click();
+  await window.getByRole("button", { name: "模型", exact: true }).click();
+  await configureProvider(window, "Kimi For Coding");
+  await window.getByRole("button", { name: "配置 Kimi For Coding", exact: true }).click();
+
+  const toggles = window.getByTestId("model-enabled-toggle");
+  await expect(toggles.first()).toBeVisible({ timeout: 15000 });
+  const totalCount = await toggles.count();
+  await expect(window.getByTestId("models-enable-all")).toBeDisabled();
+
+  await window.getByTestId("models-disable-all").click();
+  await expect
+    .poll(
+      async () => await toggles.evaluateAll((els) => els.every((el) => el.getAttribute("aria-pressed") === "false")),
+    )
+    .toBe(true);
+  await window.getByRole("button", { name: "返回", exact: true }).click();
+  await window.getByTitle("关闭设置").click();
+
+  await window.getByTestId("composer-model-menu").click();
+  await window.getByTestId("composer-open-models").click();
+  await expect(window.locator('[data-testid="composer-model-option"][data-provider="kimi-coding"]')).toHaveCount(0);
+  await window.keyboard.press("Escape");
+  await window.keyboard.press("Escape");
+
+  await window.getByTitle("设置", { exact: true }).click();
+  await window.getByRole("button", { name: "模型", exact: true }).click();
+  await window.getByRole("button", { name: "配置 Kimi For Coding", exact: true }).click();
+  await window.getByTestId("models-enable-all").click();
+  await expect
+    .poll(async () => await toggles.evaluateAll((els) => els.every((el) => el.getAttribute("aria-pressed") === "true")))
+    .toBe(true);
+  await window.getByRole("button", { name: "返回", exact: true }).click();
+  await window.getByTitle("关闭设置").click();
+
+  await window.getByTestId("composer-model-menu").click();
+  await window.getByTestId("composer-open-models").click();
+  await expect(window.locator('[data-testid="composer-model-option"][data-provider="kimi-coding"]')).toHaveCount(
+    totalCount,
+  );
+  await app.close();
+});

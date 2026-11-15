@@ -93,6 +93,18 @@ export function ModelsPage() {
     });
   };
 
+  const toggleModels = (keys: string[], enable: boolean) => {
+    if (keys.length === 0) return;
+    void saveSettings((current) => {
+      const next = new Set(current?.disabledModels ?? []);
+      for (const key of keys) {
+        if (enable) next.delete(key);
+        else next.add(key);
+      }
+      return { disabledModels: [...next] };
+    });
+  };
+
   const enabledCount = (p: CatalogProvider) =>
     p.models.filter((m) => !disabledModels.has(`${m.provider}/${m.modelId}`)).length;
 
@@ -113,6 +125,7 @@ export function ModelsPage() {
           provider={detailProvider}
           disabledModels={disabledModels}
           onToggleModel={toggleModel}
+          onToggleModels={toggleModels}
           onBack={() => setDetail(null)}
           onChanged={handleChanged}
           onEdit={() => setProviderEditor({ provider: detailProvider })}
@@ -278,6 +291,7 @@ function ProviderDetail({
   provider,
   disabledModels,
   onToggleModel,
+  onToggleModels,
   onBack,
   onChanged,
   onEdit,
@@ -286,6 +300,7 @@ function ProviderDetail({
   provider: CatalogProvider;
   disabledModels: Set<string>;
   onToggleModel: (key: string, enable: boolean) => void;
+  onToggleModels: (keys: string[], enable: boolean) => void;
   onBack: () => void;
   /** 目录变化（存密钥 / 增删模型）后重拉目录与可用模型列表 */
   onChanged: () => void;
@@ -334,6 +349,9 @@ function ProviderDetail({
     currentPage * MODELS_PAGE_SIZE,
     currentPage * MODELS_PAGE_SIZE + MODELS_PAGE_SIZE,
   );
+  const allModelKeys = useMemo(() => provider.models.map((m) => `${m.provider}/${m.modelId}`), [provider.models]);
+  const allEnabled = allModelKeys.length > 0 && allModelKeys.every((key) => !disabledModels.has(key));
+  const allDisabled = allModelKeys.length > 0 && allModelKeys.every((key) => disabledModels.has(key));
 
   return (
     <div>
@@ -389,8 +407,38 @@ function ProviderDetail({
         </button>
       </div>
 
-      <div className="mb-2 mt-6 text-[13px] font-semibold text-text-secondary">
-        {t("models.availableCount", { count: filteredModels.length })}
+      <div className="mb-2 mt-6 flex flex-wrap items-center justify-between gap-2">
+        <div className="text-[13px] font-semibold text-text-secondary">
+          {t("models.availableCount", { count: filteredModels.length })}
+        </div>
+        {allModelKeys.length > 0 && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              data-testid="models-enable-all"
+              disabled={allEnabled}
+              aria-label={t("models.enableAll")}
+              title={t("models.enableAllTitle", { count: allModelKeys.length })}
+              onClick={() => onToggleModels(allModelKeys, true)}
+              className="flex h-7 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 border-border bg-bg-main text-text-secondary hover:border-accent/40 hover:bg-accent-soft hover:text-accent"
+            >
+              <Icon name="check" size={12} strokeWidth={2.2} />
+              {t("models.enableAll")}
+            </button>
+            <button
+              type="button"
+              data-testid="models-disable-all"
+              disabled={allDisabled}
+              aria-label={t("models.disableAll")}
+              title={t("models.disableAllTitle", { count: allModelKeys.length })}
+              onClick={() => onToggleModels(allModelKeys, false)}
+              className="flex h-7 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 border-border bg-bg-main text-text-secondary hover:border-danger/30 hover:bg-danger/10 hover:text-danger"
+            >
+              <Icon name="x" size={12} strokeWidth={2.2} />
+              {t("models.disableAll")}
+            </button>
+          </div>
+        )}
       </div>
       {provider.models.length > 5 && (
         <div className="relative mb-3">
