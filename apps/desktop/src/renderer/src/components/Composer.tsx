@@ -6,6 +6,7 @@ import type {
   ModelRef,
   PermissionMode,
 } from "@spcode/shared";
+import { filterEnabledModels } from "@spcode/shared";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { buildFileBlocks, type DraftFile } from "../file-blocks";
@@ -237,10 +238,10 @@ export function Composer({ sessionId }: { sessionId: string }) {
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
   }, []);
-  const enabledModels = models.filter(
-    (m) =>
-      !(settings?.disabledProviders ?? []).includes(m.provider) &&
-      !(settings?.disabledModels ?? []).includes(`${m.provider}/${m.modelId}`),
+  const enabledModels = filterEnabledModels(
+    models,
+    settings?.disabledProviders,
+    settings?.disabledModels,
   );
 
   /** 预览区内容（分屏/预览共用；空态给轻提示） */

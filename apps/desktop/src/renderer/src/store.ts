@@ -259,6 +259,9 @@ const EMPTY_WORKSPACE_PANEL: WorkspacePanelState = { files: [], activePath: null
 /** 最多同时缓存的已打开文件数（超出淠汰最早打开的那个，够用且不无限增长） */
 const MAX_WORKSPACE_FILES = 8;
 
+/** 函数式补丁在设置保存队列执行时读取最新状态，避免快速连续操作相互覆盖。 */
+export type SettingsPatch = Partial<AppSettings> | ((current: AppSettings | null) => Partial<AppSettings>);
+
 /** 面板是否应该显示：显式打开、有已打开文件、任务清单或计划模式任一即可；收起状态优先。 */
 export function workspacePanelVisible(
   session: Pick<SessionState, "todos" | "planMode"> | undefined,
@@ -349,7 +352,7 @@ interface StoreState {
   refreshModels(): Promise<void>;
   /** 重新拉取会话注册表（定时任务新建会话 / sessions.changed 事件后调用） */
   refreshSessions(): Promise<void>;
-  saveSettings(patch: Partial<AppSettings>): Promise<void>;
+  saveSettings(patch: SettingsPatch): Promise<void>;
   scheduleRunRetry(input: ScheduledRunRetryInput): Promise<ScheduledRunRetry>;
   cancelRunRetry(id: string): Promise<void>;
 }
@@ -1801,7 +1804,10 @@ export const useStore = create<StoreState>((set, get) => ({
 
   async saveSettings(patch) {
     const save = settingsSaveQueue.then(async () => {
-      const next = await window.spcode.setSettings(patch);
+      // 函数式补丁必须到队列真正执行时再计算：连续停用多个模型时，
+      // 每次都基于上一次的权威结果累加，避免旧闭包把先前的 disabledModels 覆盖掉。
+      const resolved = typeof patch === "function" ? patch(get().settings) : patch;
+      const next = await window.spcode.setSettings(resolved);
       set({ settings: { ...next, locale: getLocale() } });
     });
     settingsSaveQueue = save.catch(() => {});

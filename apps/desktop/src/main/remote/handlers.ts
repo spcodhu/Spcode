@@ -11,6 +11,7 @@ import {
   type AppSettings,
   baseName,
   cleanSessionTitle,
+  filterEnabledModels,
   type HostCommand,
   type HostEvent,
   type ModelInfo,
@@ -69,13 +70,8 @@ export async function handleRemoteCommand(cmd: RemoteCommand, deps: RemoteHandle
     case "models.list": {
       const settings = deps.settings.get();
       const models = await deps.bridge.call<ModelInfo[]>(withId({ type: "models.list" }));
-      const disabledProviders = new Set(settings.disabledProviders);
-      const disabledModels = new Set(settings.disabledModels);
       return {
-        models: (models ?? []).filter(
-          (model) =>
-            !disabledProviders.has(model.provider) && !disabledModels.has(`${model.provider}/${model.modelId}`),
-        ),
+        models: filterEnabledModels(models ?? [], settings.disabledProviders, settings.disabledModels),
         defaultModel: settings.defaultModel,
       };
     }

@@ -159,6 +159,20 @@ export function composeManagedModelsJson(
   return { content: { providers }, sources, removable };
 }
 
+/**
+ * 会话、定时任务与远程端共用的模型可见性口径：
+ * 供应商停用则其全部模型隐藏，单模型停用只隐藏对应 provider/modelId。
+ */
+export function filterEnabledModels<T extends { provider: string; modelId: string }>(
+  models: readonly T[],
+  disabledProviders: readonly string[] = [],
+  disabledModels: readonly string[] = [],
+): T[] {
+  const providers = new Set(disabledProviders);
+  const modelKeys = new Set(disabledModels);
+  return models.filter((model) => !providers.has(model.provider) && !modelKeys.has(`${model.provider}/${model.modelId}`));
+}
+
 /** 判定合成目录里某模型的来源（builtin = 两个用户文件都没声明） */
 export function sourceOf(sources: Map<string, ModelSource>, provider: string, modelId: string): ModelSource {
   return sources.get(`${provider}\0${modelId}`) ?? "builtin";

@@ -76,17 +76,21 @@ export function ModelsPage() {
   const disabledModels = useMemo(() => new Set(settings?.disabledModels ?? []), [settings]);
 
   const toggleProvider = (id: string, enable: boolean) => {
-    const next = new Set(disabledProviders);
-    if (enable) next.delete(id);
-    else next.add(id);
-    void saveSettings({ disabledProviders: [...next] });
+    void saveSettings((current) => {
+      const next = new Set(current?.disabledProviders ?? []);
+      if (enable) next.delete(id);
+      else next.add(id);
+      return { disabledProviders: [...next] };
+    });
   };
 
   const toggleModel = (key: string, enable: boolean) => {
-    const next = new Set(disabledModels);
-    if (enable) next.delete(key);
-    else next.add(key);
-    void saveSettings({ disabledModels: [...next] });
+    void saveSettings((current) => {
+      const next = new Set(current?.disabledModels ?? []);
+      if (enable) next.delete(key);
+      else next.add(key);
+      return { disabledModels: [...next] };
+    });
   };
 
   const enabledCount = (p: CatalogProvider) =>

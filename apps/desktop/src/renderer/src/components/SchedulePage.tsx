@@ -11,6 +11,7 @@ import {
   DEFAULT_SCHEDULE_PERMISSION_MODE,
   describeNextScheduleRun,
   describeSchedule,
+  filterEnabledModels,
   nextScheduleRunAt,
 } from "@spcode/shared";
 import { getLocale } from "@spcode/shared/i18n";
@@ -306,11 +307,7 @@ function TaskForm({
   const registrySessions = useStore((s) => s.registrySessions);
   const models = useStore((s) => s.models) ?? [];
   const settings = useStore((s) => s.settings);
-  const enabledModels = models.filter(
-    (model) =>
-      !(settings?.disabledProviders ?? []).includes(model.provider) &&
-      !(settings?.disabledModels ?? []).includes(`${model.provider}/${model.modelId}`),
-  );
+  const enabledModels = filterEnabledModels(models, settings?.disabledProviders, settings?.disabledModels);
   const weekdayOptions = [1, 2, 3, 4, 5, 6, 0].map((day) => ({
     value: String(day),
     label: new Intl.DateTimeFormat(getLocale(), { weekday: "short" }).format(new Date(2024, 0, 7 + day)),

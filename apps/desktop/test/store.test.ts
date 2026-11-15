@@ -1,3 +1,4 @@
+import { DEFAULT_SETTINGS } from "@spcode/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   type ChatMessage,
@@ -836,6 +837,31 @@ describe("groupMessagesForRender：notice 分组", () => {
     ]);
     expect(items.map((i) => i.kind)).toEqual(["user", "run", "notice", "run"]);
     expect(items[3]?.kind === "run" && items[3].messages.map((m) => m.id)).toEqual(["a2"]);
+  });
+});
+
+describe("saveSettings 连续函数式补丁", () => {
+  it("每个补丁在队列执行时读取最新设置，快速停用多个模型不会互相覆盖", async () => {
+    stubSpcodeApi();
+    let persisted = { ...DEFAULT_SETTINGS };
+    const patches: Partial<typeof DEFAULT_SETTINGS>[] = [];
+    Object.assign(window.spcode, {
+      setSettings: vi.fn(async (patch: Partial<typeof DEFAULT_SETTINGS>) => {
+        patches.push(patch);
+        persisted = { ...persisted, ...patch };
+        return persisted;
+      }),
+    });
+    useStore.setState({ settings: { ...DEFAULT_SETTINGS } });
+
+    const disable = (modelKey: string) =>
+      useStore.getState().saveSettings((current) => ({
+        disabledModels: [...new Set([...(current?.disabledModels ?? []), modelKey])],
+      }));
+    await Promise.all([disable("p/a"), disable("p/b"), disable("p/c")]);
+
+    expect(patches.map((patch) => patch.disabledModels)).toEqual([["p/a"], ["p/a", "p/b"], ["p/a", "p/b", "p/c"]]);
+    expect(useStore.getState().settings?.disabledModels).toEqual(["p/a", "p/b", "p/c"]);
   });
 });
 

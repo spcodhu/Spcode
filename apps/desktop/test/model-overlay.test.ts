@@ -10,6 +10,7 @@ import {
   buildCustomModelEntry,
   buildCustomProviderEntry,
   composeManagedModelsJson,
+  filterEnabledModels,
   parseModelsJson,
   sourceOf,
   validateCustomProviderInput,
@@ -33,6 +34,23 @@ let dir: string;
 afterEach(() => {
   if (dir) rmSync(dir, { recursive: true, force: true });
   dir = "";
+});
+
+describe("filterEnabledModels（全端统一可见性）", () => {
+  it("同时过滤停用供应商与精确的 provider/modelId，不影响同 ID 的其他供应商", () => {
+    const models = [
+      { provider: "p", modelId: "on" },
+      { provider: "p", modelId: "off" },
+      { provider: "other", modelId: "off" },
+      { provider: "blocked", modelId: "on" },
+      { provider: "openrouter", modelId: "vendor/model:free" },
+    ];
+    expect(
+      filterEnabledModels(models, ["blocked"], ["p/off", "openrouter/vendor/model:free"]).map(
+        (model) => `${model.provider}/${model.modelId}`,
+      ),
+    ).toEqual(["p/on", "other/off"]);
+  });
 });
 
 describe("composeManagedModelsJson（纯函数）", () => {

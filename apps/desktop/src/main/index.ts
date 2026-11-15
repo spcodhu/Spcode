@@ -13,10 +13,12 @@ import {
   type ComposerDraft,
   cleanSessionTitle,
   deriveProjectPermissionRules,
+  filterEnabledModels,
   type HostCommand,
   type HostCommandInput,
   type HostEvent,
   IPC,
+  type ModelInfo,
   normalizeProjectCwd,
   type PickedFile,
   type SandboxStatusReport,
@@ -457,6 +459,11 @@ function registerIpc(): void {
           registry.upsert(buildForkRegistryEntry(source, cmd.payload));
           bridge.emitLocal({ type: "sessions.changed" });
         }
+      }
+      // 桌面端可用模型与远程端使用同一启用口径；未过滤的全量目录只走 models.catalog。
+      if (cmd.type === "models.list" && Array.isArray(result)) {
+        const current = settings.get();
+        return filterEnabledModels(result as ModelInfo[], current.disabledProviders, current.disabledModels);
       }
       backfillSessionFile(cmd, result, registry);
       return result;

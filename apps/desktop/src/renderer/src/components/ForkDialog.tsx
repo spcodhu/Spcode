@@ -1,4 +1,5 @@
 import type { ModelRef } from "@spcode/shared";
+import { filterEnabledModels } from "@spcode/shared";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useStore } from "../store";
@@ -42,12 +43,7 @@ export function ForkDialog({ sourceId, onClose }: { sourceId: string; onClose: (
 
   /** 可选模型：过滤掉设置里停用的厂商/模型（与 Composer 口径一致） */
   const enabledModels = useMemo(
-    () =>
-      models.filter(
-        (m) =>
-          !(settings?.disabledProviders ?? []).includes(m.provider) &&
-          !(settings?.disabledModels ?? []).includes(`${m.provider}/${m.modelId}`),
-      ),
+    () => filterEnabledModels(models, settings?.disabledProviders, settings?.disabledModels),
     [models, settings],
   );
 
