@@ -38,6 +38,8 @@ export interface AddCustomModelInput {
   modelId: string;
   displayName?: string;
   contextWindow: number;
+  /** 缺省沿用既有 131072；在线导入可显式使用预览中的保守默认值 */
+  maxTokens?: number;
   reasoning: boolean;
   vision: boolean;
   /** 模型级系统消息角色；缺省表示保持已有配置，新模型等同 auto */
@@ -63,6 +65,7 @@ export interface CatalogModel {
   reasoning: boolean;
   /** 编辑自定义模型时回填表单 */
   contextWindow: number;
+  maxTokens?: number;
   vision: boolean;
   /** 实际请求协议与模型级系统消息角色显式配置 */
   api?: string;
@@ -89,6 +92,29 @@ export interface CatalogProvider {
 }
 
 /** 模型目录联网刷新状态（models.catalogSyncStatus 响应） */
+/** 自定义供应商在线发现返回的安全元数据；不包含凭证或原始响应头。 */
+export interface DiscoveredModel {
+  id: string;
+  displayName?: string;
+  status?: string;
+  contextWindow?: number;
+  maxTokens?: number;
+  reasoning?: boolean;
+  vision?: boolean;
+}
+
+export interface ModelDiscoveryResult {
+  provider: string;
+  models: DiscoveredModel[];
+  warnings?: string[];
+  truncated?: boolean;
+}
+
+export interface ModelImportResult {
+  added: string[];
+  skipped: string[];
+}
+
 export interface ModelCatalogSyncStatus {
   /** 最近一次成功联网检查的时间戳（ms）；null = 从未成功检查过 */
   lastSyncedAt: number | null;
@@ -498,6 +524,10 @@ export type HostCommand =
   | { id: string; type: "models.catalog" }
   /** 模型页「刷新模型目录」按钮：强制联网刷新所有已配置供应商的 pi 远程目录补丁 */
   | { id: string; type: "models.refreshCatalog" }
+  /** 用户显式获取自定义供应商的在线模型列表；只读，不写配置 */
+  | { id: string; type: "models.discoverModels"; payload: { provider: string } }
+  /** 批量导入已选模型；已有 ID 跳过，单次原子写入 */
+  | { id: string; type: "models.importModels"; payload: { provider: string; models: AddCustomModelInput[] } }
   /** 查询最近一次模型目录联网刷新的状态（时间/错误/进行中） */
   | { id: string; type: "models.catalogSyncStatus" }
   /** 设置页「自动检查模型目录更新」开关下发（主进程 → 宿主） */

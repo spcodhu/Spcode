@@ -18,7 +18,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ModelSource, ModelsJsonModelEntry, ModelsJsonProviderEntry } from "@spcode/shared";
+import type { ModelImportResult, ModelSource, ModelsJsonModelEntry, ModelsJsonProviderEntry } from "@spcode/shared";
 import {
   type AddCustomModelInput,
   buildCustomModelEntry,
@@ -167,6 +167,14 @@ export function isRemovable(store: ModelOverlayStore, provider: string, modelId:
 }
 
 /** 添加/覆盖自定义模型：写 models.custom.json → 重新合成。返回模型 key。 */
+function makeCustomModelEntry(input: AddCustomModelInput, existing?: ModelsJsonModelEntry): ModelsJsonModelEntry {
+  const modelId = input.modelId.trim();
+  const entry = buildCustomModelEntry({ ...input, modelId });
+  const compat = withSystemMessageRole(existing?.compat, input.systemMessageRole);
+  if (compat) entry.compat = compat;
+  return entry;
+}
+
 export function addCustomModel(store: ModelOverlayStore, input: AddCustomModelInput): string {
   const invalid = validateModelInput(input);
   if (invalid) throw new Error(invalid);
@@ -176,9 +184,7 @@ export function addCustomModel(store: ModelOverlayStore, input: AddCustomModelIn
   const providerEntry = data.providers[input.provider] ?? {};
   const models = [...(providerEntry.models ?? [])];
   const idx = models.findIndex((m) => m?.id === modelId);
-  const entry = buildCustomModelEntry({ ...input, modelId });
-  const compat = withSystemMessageRole(idx >= 0 ? models[idx]?.compat : undefined, input.systemMessageRole);
-  if (compat) entry.compat = compat;
+  const entry = makeCustomModelEntry(input, idx >= 0 ? models[idx] : undefined);
   if (idx >= 0) models[idx] = entry;
   else models.push(entry);
   data.providers[input.provider] = { ...providerEntry, models };
@@ -186,6 +192,47 @@ export function addCustomModel(store: ModelOverlayStore, input: AddCustomModelIn
   writeJsonFileAtomic(store.customPath, data);
   syncManagedModelsJson(store);
   return `${input.provider}/${modelId}`;
+}
+
+/** 在线发现的批量导入：整批预校验、已有 ID 跳过、单次原子写入与合成。 */
+export function addCustomModels(
+  store: ModelOverlayStore,
+  provider: string,
+  inputs: readonly AddCustomModelInput[],
+): ModelImportResult {
+  if (!customProviderConfig(store, provider)) throw new Error("models.providerNotEditable");
+  const data = readModelsFile(store.customPath);
+  const providerEntry = data?.providers[provider];
+  if (!data || !providerEntry || !isUiCustomProviderEntry(providerEntry)) {
+    throw new Error("models.providerNotEditable");
+  }
+
+  const models = [...(providerEntry.models ?? [])];
+  const existingIds = new Set(models.map((model) => model.id));
+  const batchIds = new Set<string>();
+  const added: string[] = [];
+  const skipped: string[] = [];
+  for (const input of inputs) {
+    if (input.provider !== provider) throw new Error("models.providerMismatch");
+    const invalid = validateModelInput(input);
+    if (invalid) throw new Error(invalid);
+    const modelId = input.modelId.trim();
+    if (batchIds.has(modelId)) throw new Error("models.duplicateModel");
+    batchIds.add(modelId);
+    if (existingIds.has(modelId)) {
+      skipped.push(modelId);
+      continue;
+    }
+    models.push(makeCustomModelEntry({ ...input, modelId }));
+    existingIds.add(modelId);
+    added.push(modelId);
+  }
+  if (added.length > 0) {
+    data.providers[provider] = { ...providerEntry, models };
+    writeJsonFileAtomic(store.customPath, data);
+    syncManagedModelsJson(store);
+  }
+  return { added, skipped };
 }
 
 /** 仅允许删除 models.custom.json 里声明的模型；手写/内置/补丁模型抛错。 */

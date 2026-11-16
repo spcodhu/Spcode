@@ -3,12 +3,12 @@
  * 背景：pi 引擎目录是随包静态 JSON，新模型发布到上游收录可能相隔数周；
  * 本功能让用户在设置页为任意 provider 添加模型，无需手改配置文件。
  */
-import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { normalizeContext } from "@earendil-works/pi-ai";
-import { streamSimple } from "@earendil-works/pi-ai/api/openai-completions";
+
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { normalizeContext } from "@earendil-works/pi-ai";
+import { streamSimple } from "@earendil-works/pi-ai/api/openai-completions";
 import {
   buildCustomModelEntry,
   buildCustomProviderEntry,
@@ -24,6 +24,7 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 import {
   addCustomModel,
+  addCustomModels,
   addCustomProvider,
   createModelOverlayStore,
   customProviderConfig,
@@ -103,11 +104,13 @@ describe("parseModelsJson / validateModelInput / buildCustomModelEntry", () => {
     expect(parseModelsJson("")).toBeNull();
   });
 
-  it("模型 ID 校验：空 / 含斜线拒绝；上下文需为正数", () => {
+  it("模型 ID 校验：空 / 控制字符拒绝，合法斜线保留；上下文与最大输出需为正数", () => {
     expect(validateModelInput({ modelId: "  ", contextWindow: 1 })).toBe("models.invalidId");
-    expect(validateModelInput({ modelId: "a/b", contextWindow: 1 })).toBe("models.invalidId");
+    expect(validateModelInput({ modelId: "a\0b", contextWindow: 1 })).toBe("models.invalidId");
+    expect(validateModelInput({ modelId: "vendor/model:free", contextWindow: 1 })).toBeNull();
     expect(validateModelInput({ modelId: "k3.1-pro", contextWindow: 0 })).toBe("models.invalidContext");
-    expect(validateModelInput({ modelId: "k3.1-pro", contextWindow: 262144 })).toBeNull();
+    expect(validateModelInput({ modelId: "k3.1-pro", contextWindow: 1, maxTokens: 0 })).toBe("models.invalidMaxTokens");
+    expect(validateModelInput({ modelId: "k3.1-pro", contextWindow: 262144, maxTokens: 16384 })).toBeNull();
   });
 
   it("表单条目：留空名称省略字段；推理开关决定思考档位映射；视觉决定 input；通用不写死", () => {
@@ -142,9 +145,9 @@ describe("模型级 system / developer 配置", () => {
         "developer",
       ),
     ).toEqual({ supportsDeveloperRole: true, maxTokensField: "max_tokens", supportsUsageInStreaming: false });
-    expect(
-      withSystemMessageRole({ supportsDeveloperRole: true, maxTokensField: "max_tokens" }, "auto"),
-    ).toEqual({ maxTokensField: "max_tokens" });
+    expect(withSystemMessageRole({ supportsDeveloperRole: true, maxTokensField: "max_tokens" }, "auto")).toEqual({
+      maxTokensField: "max_tokens",
+    });
   });
 
   it("UI 编辑保留其他 compat；旧载荷缺省角色时保留，显式 auto 才移除", () => {
@@ -208,18 +211,22 @@ describe("模型级 system / developer 配置", () => {
         compat: supportsDeveloperRole === undefined ? undefined : { supportsDeveloperRole },
       };
       let payload: { messages?: { role?: string }[] } | undefined;
-      const events = streamSimple(model, normalizeContext({
-        systemPrompt: "You are helpful.",
-        messages: [{ role: "user", content: "hello", timestamp: Date.now() }],
-      }), {
-        apiKey: "test-key",
-        reasoning: "high",
-        maxRetries: 0,
-        onPayload: (value) => {
-          payload = value as { messages?: { role?: string }[] };
-          throw new Error("capture only: stop before network");
+      const events = streamSimple(
+        model,
+        normalizeContext({
+          systemPrompt: "You are helpful.",
+          messages: [{ role: "user", content: "hello", timestamp: Date.now() }],
+        }),
+        {
+          apiKey: "test-key",
+          reasoning: "high",
+          maxRetries: 0,
+          onPayload: (value) => {
+            payload = value as { messages?: { role?: string }[] };
+            throw new Error("capture only: stop before network");
+          },
         },
-      });
+      );
       for await (const _event of events) {
         // onPayload 主动中止，仅检查真实构造的请求体。
       }
@@ -316,7 +323,60 @@ describe("ModelOverlayStore（临时目录，真实文件读写）", () => {
     const custom = JSON.parse(readFileSync(store.customPath, "utf-8"));
     expect(custom.providers["kimi-coding"].models).toHaveLength(1);
     expect(custom.providers["kimi-coding"].models[0].contextWindow).toBe(999);
-    expect(() => addCustomModel(store, { ...input, modelId: "a/b" })).toThrow("models.invalidId");
+    expect(() => addCustomModel(store, { ...input, modelId: "a\0b" })).toThrow("models.invalidId");
+  });
+
+  it("批量导入只跳过已有模型，整批校验并保留已有 compat；支持带斜线 ID", () => {
+    const store = setup();
+    addCustomProvider(store, {
+      provider: "acme-ai",
+      name: "Acme",
+      baseUrl: "https://api.acme.test/v1",
+      api: "openai-completions",
+    });
+    const existing = {
+      provider: "acme-ai",
+      modelId: "existing",
+      contextWindow: 32000,
+      maxTokens: 4096,
+      reasoning: true,
+      vision: false,
+      systemMessageRole: "system" as const,
+    };
+    addCustomModel(store, existing);
+    const result = addCustomModels(store, "acme-ai", [
+      { ...existing, contextWindow: 999999, systemMessageRole: "developer" },
+      { ...existing, modelId: "new-chat", maxTokens: 8192, systemMessageRole: "auto" },
+      { ...existing, modelId: "deepseek/deepseek-flash", maxTokens: 16384, systemMessageRole: "developer" },
+    ]);
+    expect(result).toEqual({ added: ["new-chat", "deepseek/deepseek-flash"], skipped: ["existing"] });
+    const custom = JSON.parse(readFileSync(store.customPath, "utf-8"));
+    const models = custom.providers["acme-ai"].models;
+    expect(models).toHaveLength(3);
+    expect(models.find((model: { id: string }) => model.id === "existing")).toMatchObject({
+      contextWindow: 32000,
+      maxTokens: 4096,
+      compat: { supportsDeveloperRole: false },
+    });
+    expect(models.find((model: { id: string }) => model.id === "deepseek/deepseek-flash")).toMatchObject({
+      maxTokens: 16384,
+      compat: { supportsDeveloperRole: true },
+    });
+    const beforeInvalid = readFileSync(store.customPath, "utf-8");
+    expect(() =>
+      addCustomModels(store, "acme-ai", [
+        { ...existing, modelId: "would-be-written" },
+        { ...existing, modelId: "invalid", maxTokens: 0 },
+      ]),
+    ).toThrow("models.invalidMaxTokens");
+    expect(readFileSync(store.customPath, "utf-8")).toBe(beforeInvalid);
+    expect(() =>
+      addCustomModels(store, "acme-ai", [
+        { ...existing, modelId: "duplicate" },
+        { ...existing, modelId: "duplicate" },
+      ]),
+    ).toThrow("models.duplicateModel");
+    expect(readFileSync(store.customPath, "utf-8")).toBe(beforeInvalid);
   });
 
   it("自定义供应商完整生命周期：新增不写密钥、编辑保留模型、删除只影响 UI 条目", () => {

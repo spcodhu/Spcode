@@ -41,6 +41,7 @@ import {
   DEFAULT_MAX_MODEL_TURNS,
   DEFAULT_SANDBOX_SETTINGS,
   sanitizeModelPricing,
+  supportsModelDiscovery,
   systemMessageRoleFromCompat,
 } from "@spcode/shared";
 import { getLocale, i18n, setLocale } from "@spcode/shared/i18n";
@@ -50,8 +51,10 @@ import { exportSessionContext } from "./export-context.js";
 import { HibernationManager } from "./hibernation.js";
 import { getMcpManager } from "./mcp.js";
 import { MemoryStore } from "./memory-store.js";
+import { discoverModels as discoverProviderModels } from "./model-discovery.js";
 import {
   addCustomModel,
+  addCustomModels,
   addCustomProvider,
   createModelOverlayStore,
   customModelConfig,
@@ -618,6 +621,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
                 displayName: m.name ?? m.id,
                 reasoning: !!m.reasoning,
                 contextWindow: m.contextWindow ?? 0,
+                maxTokens: m.maxTokens ?? 0,
                 vision: m.input?.includes("image") ?? false,
                 api: m.api,
                 systemMessageRole: systemMessageRoleFromCompat(roleCompat),
@@ -651,12 +655,37 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         respond(id, true, { ...catalogSync });
         break;
       }
+      case "models.discoverModels": {
+        const rt = await getRuntime();
+        const provider = cmd.payload.provider;
+        const custom = customProviderConfig(modelOverlay, provider);
+        if (!custom) throw new Error("models.providerNotEditable");
+        if (!supportsModelDiscovery(custom.api)) throw new Error("models.discoveryUnsupported");
+        const resolution = await rt.getAuth(provider);
+        if (!resolution) throw new Error("models.discoveryAuthRequired");
+        const result = await discoverProviderModels({
+          provider,
+          api: custom.api,
+          baseUrl: resolution.auth.baseUrl ?? custom.baseUrl,
+          apiKey: resolution.auth.apiKey,
+          headers: resolution.auth.headers,
+        });
+        respond(id, true, result);
+        break;
+      }
       case "models.addModel": {
         const rt = await getRuntime();
         addCustomModel(modelOverlay, cmd.payload);
         // refresh() 内部重读受管 models.json 并 rebuildProviders —— 新模型即时进目录，无需重建 runtime
         await rt.refresh({ allowNetwork: false });
         respond(id, true);
+        break;
+      }
+      case "models.importModels": {
+        const rt = await getRuntime();
+        const result = addCustomModels(modelOverlay, cmd.payload.provider, cmd.payload.models);
+        if (result.added.length > 0) await rt.refresh({ allowNetwork: false });
+        respond(id, true, result);
         break;
       }
       case "models.removeModel": {

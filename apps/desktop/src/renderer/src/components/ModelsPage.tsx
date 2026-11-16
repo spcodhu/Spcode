@@ -7,11 +7,17 @@ import type {
   ModelPriceRates,
   SystemMessageRole,
 } from "@spcode/shared";
-import { CUSTOM_PROVIDER_APIS, validateCustomProviderInput, validateModelInput } from "@spcode/shared";
+import {
+  CUSTOM_PROVIDER_APIS,
+  supportsModelDiscovery,
+  validateCustomProviderInput,
+  validateModelInput,
+} from "@spcode/shared";
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
+import { ModelDiscoveryModal } from "./ModelDiscoveryModal";
 import { Modal } from "./ui/Modal";
 import { Select } from "./ui/Select";
 import { Switch } from "./ui/Switch";
@@ -313,6 +319,7 @@ function ProviderDetail({
   const [saved, setSaved] = useState(false);
   const [pricingFor, setPricingFor] = useState<string | null>(null);
   const [editingModel, setEditingModel] = useState<string | null>(null);
+  const [discoveryOpen, setDiscoveryOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
 
@@ -412,6 +419,25 @@ function ProviderDetail({
         <div className="text-[13px] font-semibold text-text-secondary">
           {t("models.availableCount", { count: filteredModels.length })}
         </div>
+        {provider.custom && (
+          <button
+            type="button"
+            data-testid="models-discover"
+            disabled={!provider.configured || !supportsModelDiscovery(provider.api)}
+            title={t(
+              !supportsModelDiscovery(provider.api)
+                ? "models.discoveryUnsupported"
+                : !provider.configured
+                  ? "models.discoveryAuthRequired"
+                  : "models.discoverModels",
+            )}
+            onClick={() => setDiscoveryOpen(true)}
+            className="flex h-7 shrink-0 items-center gap-1.5 rounded-lg border border-border bg-bg-main px-2.5 text-[11px] font-medium text-text-secondary transition-colors hover:border-accent/40 hover:bg-accent-soft hover:text-accent disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Icon name="refresh" size={12} />
+            {t("models.discoverModels")}
+          </button>
+        )}
         {allModelKeys.length > 0 && (
           <div className="flex items-center gap-2">
             <button
@@ -588,6 +614,9 @@ function ProviderDetail({
       )}
 
       <AddModelForm provider={provider.provider} api={provider.api ?? provider.models[0]?.api} onAdded={onChanged} />
+      {discoveryOpen && (
+        <ModelDiscoveryModal provider={provider} onClose={() => setDiscoveryOpen(false)} onImported={onChanged} />
+      )}
     </div>
   );
 }
@@ -865,21 +894,23 @@ function AddModelForm({
   const [modelId, setModelId] = useState(model?.modelId ?? "");
   const [displayName, setDisplayName] = useState(model && model.displayName !== model.modelId ? model.displayName : "");
   const [context, setContext] = useState(model?.contextWindow ? String(model.contextWindow) : "");
+  const [maxTokens, setMaxTokens] = useState(model?.maxTokens ? String(model.maxTokens) : "131072");
   const [reasoning, setReasoning] = useState(model?.reasoning ?? true);
   const [vision, setVision] = useState(model?.vision ?? false);
-  const [systemMessageRole, setSystemMessageRole] = useState<SystemMessageRole>(
-    model?.systemMessageRole ?? "auto",
-  );
+  const [systemMessageRole, setSystemMessageRole] = useState<SystemMessageRole>(model?.systemMessageRole ?? "auto");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const ctxNum = Number(context);
+  const maxTokensNum = Number(maxTokens);
   // 空输入不报错（未填状态）；有内容后按通用规则校验；上下文为空单独提示必填，
   // 避免 placeholder 被误认为已填值时报出「范围不符」的误导文案
   const validationError = modelId.trim()
     ? !context.trim()
       ? "models.contextRequired"
-      : validateModelInput({ modelId, contextWindow: ctxNum })
+      : !maxTokens.trim()
+        ? "models.maxTokensRequired"
+        : validateModelInput({ modelId, contextWindow: ctxNum, maxTokens: maxTokensNum })
     : null;
 
   const submit = async () => {
@@ -891,6 +922,7 @@ function AddModelForm({
       modelId: modelId.trim(),
       displayName: displayName.trim() || undefined,
       contextWindow: ctxNum,
+      maxTokens: maxTokensNum,
       reasoning,
       vision,
       systemMessageRole,
@@ -901,6 +933,7 @@ function AddModelForm({
         setModelId("");
         setDisplayName("");
         setContext("");
+        setMaxTokens("131072");
         setReasoning(true);
         setVision(false);
         setSystemMessageRole("auto");
@@ -922,7 +955,7 @@ function AddModelForm({
         {model && <Icon name="pen" size={13} className="text-accent" />}
         {t(model ? "models.editModel" : "models.addModel")}
       </div>
-      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="block">
           <span className="mb-1 block text-[12px] text-text-tertiary">{t("models.addModelId")}</span>
           <input
@@ -953,6 +986,18 @@ function AddModelForm({
             data-testid="custom-model-context-input"
             onChange={(e) => setContext(e.target.value)}
             placeholder="262144"
+            className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-[13px] outline-none placeholder:text-text-tertiary focus:border-accent"
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-[12px] text-text-tertiary">{t("models.addModelMaxTokens")}</span>
+          <input
+            type="number"
+            min={1}
+            value={maxTokens}
+            data-testid="custom-model-max-tokens-input"
+            onChange={(e) => setMaxTokens(e.target.value)}
+            placeholder="131072"
             className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-[13px] outline-none placeholder:text-text-tertiary focus:border-accent"
           />
         </label>
@@ -1005,7 +1050,7 @@ function AddModelForm({
             type="button"
             data-testid="custom-model-submit"
             onClick={() => void submit()}
-            disabled={!!validationError || !modelId.trim() || !context.trim() || busy}
+            disabled={!!validationError || !modelId.trim() || !context.trim() || !maxTokens.trim() || busy}
             className="rounded-lg bg-accent px-4 py-1.5 text-[12px] text-on-accent hover:bg-accent-dim disabled:opacity-40"
           >
             {busy ? t("saving") : t(model ? "models.saveModel" : "models.addModelSubmit")}

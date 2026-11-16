@@ -381,6 +381,8 @@ function registerIpc(): void {
     "models.updateProvider": 60_000,
     "models.removeProvider": 60_000,
     "models.refreshCatalog": 30_000, // pi.dev 单请求 4s 超时 + 重试 + 代理转发余量
+    "models.discoverModels": 60_000, // 标准列表接口可能有分页；单请求自身 15s 超时
+    "models.importModels": 60_000,
     "session.compact": 180_000, // 评审 R3-C11：LLM 压缩大上下文常超 30s（压缩实际会继续，误报错误最迷惑）
   };
 

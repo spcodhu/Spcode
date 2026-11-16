@@ -16,7 +16,9 @@
 export type SystemMessageRole = "auto" | "system" | "developer";
 
 /** OpenAI 兼容模型的系统消息角色显式配置；缺省值用于继承供应商与 Pi 自动检测。 */
-export function systemMessageRoleFromCompat(compat: { supportsDeveloperRole?: unknown } | undefined): SystemMessageRole {
+export function systemMessageRoleFromCompat(
+  compat: { supportsDeveloperRole?: unknown } | undefined,
+): SystemMessageRole {
   if (compat?.supportsDeveloperRole === false) return "system";
   if (compat?.supportsDeveloperRole === true) return "developer";
   return "auto";
@@ -79,6 +81,19 @@ export const CUSTOM_PROVIDER_APIS = [
   "bedrock-converse-stream",
   "pi-messages",
 ] as const;
+
+/** 有标准、可由 Host 直接请求的模型列表协议；其他云控制面不伪装支持。 */
+export const MODEL_DISCOVERY_APIS = [
+  "openai-completions",
+  "openai-responses",
+  "anthropic-messages",
+  "google-generative-ai",
+  "mistral-conversations",
+] as const;
+
+export function supportsModelDiscovery(api: string | undefined): boolean {
+  return !!api && (MODEL_DISCOVERY_APIS as readonly string[]).includes(api);
+}
 
 export type CustomProviderValidationError =
   | "models.providerInvalidId"
@@ -207,6 +222,7 @@ export function buildCustomModelEntry(input: {
   modelId: string;
   displayName?: string;
   contextWindow: number;
+  maxTokens?: number;
   reasoning: boolean;
   vision: boolean;
 }): ModelsJsonModelEntry {
@@ -233,7 +249,7 @@ export function buildCustomModelEntry(input: {
     // 订阅 provider 不按 token 计价；按量 provider 的自定义模型仅影响用量展示精度
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: input.contextWindow,
-    maxTokens: 131072,
+    maxTokens: input.maxTokens ?? 131072,
   };
 }
 
@@ -241,11 +257,23 @@ export function buildCustomModelEntry(input: {
 export function validateModelInput(input: {
   modelId: string;
   contextWindow: number;
-}): "models.invalidId" | "models.invalidContext" | null {
+  maxTokens?: number;
+}): "models.invalidId" | "models.invalidContext" | "models.invalidMaxTokens" | null {
   const id = input.modelId.trim();
-  if (!id || id.includes("/") || id.includes("\0") || id.length > 128) return "models.invalidId";
+  // 模型 ID 不是文件路径；OpenRouter / TokenHub 等合法 ID 可包含 /。内部合成键使用 NUL 分隔。
+  const hasControlCharacter = [...id].some((char) => {
+    const code = char.charCodeAt(0);
+    return code <= 0x1f || code === 0x7f;
+  });
+  if (!id || hasControlCharacter || id.length > 128) return "models.invalidId";
   if (!Number.isFinite(input.contextWindow) || input.contextWindow <= 0 || input.contextWindow > 10_000_000) {
     return "models.invalidContext";
+  }
+  if (
+    input.maxTokens !== undefined &&
+    (!Number.isFinite(input.maxTokens) || input.maxTokens <= 0 || input.maxTokens > 10_000_000)
+  ) {
+    return "models.invalidMaxTokens";
   }
   return null;
 }
