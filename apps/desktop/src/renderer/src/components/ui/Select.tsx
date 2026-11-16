@@ -145,6 +145,7 @@ export function Select({
         aria-expanded={open}
         aria-controls={listboxId}
         data-testid={testId}
+        data-value={value}
         className="flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-border bg-bg-elevated px-3 text-[13px] text-text-primary transition-colors hover:border-border-strong"
       >
         <span>{current?.label ?? current?.value ?? t("common.select")}</span>
@@ -172,6 +173,7 @@ export function Select({
                 key={o.value}
                 type="button"
                 role="option"
+                data-value={o.value}
                 aria-selected={selected}
                 tabIndex={o.value === activeValue ? 0 : -1}
                 onKeyDown={(e) => onOptionKeyDown(e, o.value, index)}

@@ -40,6 +40,8 @@ export interface AddCustomModelInput {
   contextWindow: number;
   reasoning: boolean;
   vision: boolean;
+  /** 模型级系统消息角色；缺省表示保持已有配置，新模型等同 auto */
+  systemMessageRole?: import("./models-overlay.js").SystemMessageRole;
 }
 
 /** 设置页新增 / 编辑自定义供应商；apiKey 只写入 auth.json，不进入模型目录文件。 */
@@ -62,6 +64,9 @@ export interface CatalogModel {
   /** 编辑自定义模型时回填表单 */
   contextWindow: number;
   vision: boolean;
+  /** 实际请求协议与模型级系统消息角色显式配置 */
+  api?: string;
+  systemMessageRole?: import("./models-overlay.js").SystemMessageRole;
   /** 目录默认单价与定价可信状态 */
   cost: ModelPriceRates;
   priceKnown: boolean;

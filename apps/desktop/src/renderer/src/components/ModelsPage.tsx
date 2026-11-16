@@ -5,6 +5,7 @@ import type {
   CustomProviderInput,
   ModelCatalogSyncStatus,
   ModelPriceRates,
+  SystemMessageRole,
 } from "@spcode/shared";
 import { CUSTOM_PROVIDER_APIS, validateCustomProviderInput, validateModelInput } from "@spcode/shared";
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
@@ -548,6 +549,7 @@ function ProviderDetail({
                   key={`edit-${k}`}
                   provider={m.provider}
                   model={m}
+                  api={m.api}
                   onAdded={() => {
                     setEditingModel(null);
                     onChanged();
@@ -585,7 +587,7 @@ function ProviderDetail({
         </div>
       )}
 
-      <AddModelForm provider={provider.provider} onAdded={onChanged} />
+      <AddModelForm provider={provider.provider} api={provider.api ?? provider.models[0]?.api} onAdded={onChanged} />
     </div>
   );
 }
@@ -846,11 +848,13 @@ function ModelPricingEditor({ model, modelKey }: { model: CatalogModel; modelKey
 
 function AddModelForm({
   provider,
+  api,
   onAdded,
   model,
   onCancel,
 }: {
   provider: string;
+  api?: string;
   onAdded: () => void;
   /** 传入时进入编辑模式：ID 固定，其余字段回填后通过同 ID 覆盖保存 */
   model?: CatalogModel;
@@ -863,6 +867,9 @@ function AddModelForm({
   const [context, setContext] = useState(model?.contextWindow ? String(model.contextWindow) : "");
   const [reasoning, setReasoning] = useState(model?.reasoning ?? true);
   const [vision, setVision] = useState(model?.vision ?? false);
+  const [systemMessageRole, setSystemMessageRole] = useState<SystemMessageRole>(
+    model?.systemMessageRole ?? "auto",
+  );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -886,6 +893,7 @@ function AddModelForm({
       contextWindow: ctxNum,
       reasoning,
       vision,
+      systemMessageRole,
     };
     try {
       await window.spcode.command({ type: "models.addModel", payload });
@@ -895,6 +903,7 @@ function AddModelForm({
         setContext("");
         setReasoning(true);
         setVision(false);
+        setSystemMessageRole("auto");
       }
       onAdded();
     } catch (e) {
@@ -948,6 +957,25 @@ function AddModelForm({
           />
         </label>
       </div>
+      {["openai-completions", "openai-responses", "azure-openai-responses", "openai-codex-responses"].includes(
+        api ?? "",
+      ) && (
+        <div className="mt-3 max-w-md">
+          <span className="mb-1 block text-[12px] text-text-tertiary">{t("models.systemMessageRole")}</span>
+          <Select
+            value={systemMessageRole}
+            options={[
+              { value: "auto", label: t("models.systemMessageRoleAuto") },
+              { value: "system", label: "system" },
+              { value: "developer", label: t("models.systemMessageRoleDeveloper") },
+            ]}
+            onChange={(value) => setSystemMessageRole(value as SystemMessageRole)}
+            label={t("models.systemMessageRole")}
+            testId="custom-model-system-role-select"
+          />
+          <p className="mt-1 text-[11px] leading-snug text-text-tertiary">{t("models.systemMessageRoleHint")}</p>
+        </div>
+      )}
       <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2">
         <label htmlFor={`${fieldId}-reasoning`} className="flex items-center gap-2 text-[13px] text-text-secondary">
           <Switch

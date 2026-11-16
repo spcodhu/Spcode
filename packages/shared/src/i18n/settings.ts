@@ -321,6 +321,10 @@ export const zhCN = {
   "models.addModelContext": "上下文长度（tokens）",
   "models.addModelReasoning": "推理模型",
   "models.addModelVision": "支持视觉",
+  "models.systemMessageRole": "系统消息角色",
+  "models.systemMessageRoleAuto": "自动（供应商 / Pi 检测）",
+  "models.systemMessageRoleDeveloper": "developer（推理模型使用）",
+  "models.systemMessageRoleHint": "不接受 developer 的模型（如 TokenHub Kimi）请选择 system；Chat Completions 仅推理模型会使用 developer。",
   "models.addModelSubmit": "添加",
   "models.addModelHint": "按该供应商默认协议请求；同 ID 将覆盖已有模型。仅支持思考模式的模型请保持「推理模型」开启。",
   "models.contextRequired": "请填写上下文长度（tokens）",
@@ -922,6 +926,11 @@ export const en = {
   "models.addModelContext": "Context window (tokens)",
   "models.addModelReasoning": "Reasoning model",
   "models.addModelVision": "Vision input",
+  "models.systemMessageRole": "System message role",
+  "models.systemMessageRoleAuto": "Auto (provider / Pi detection)",
+  "models.systemMessageRoleDeveloper": "developer (reasoning models)",
+  "models.systemMessageRoleHint":
+    "Choose system for models that reject developer (such as TokenHub Kimi). Chat Completions uses developer only for reasoning models.",
   "models.addModelSubmit": "Add",
   "models.addModelHint":
     'Requests use the provider\'s default protocol; same ID overwrites an existing model. Keep "Reasoning model" on for thinking-only models.',

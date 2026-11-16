@@ -3,6 +3,9 @@
  * 背景：pi 引擎目录是随包静态 JSON，新模型发布到上游收录可能相隔数周；
  * 本功能让用户在设置页为任意 provider 添加模型，无需手改配置文件。
  */
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { normalizeContext } from "@earendil-works/pi-ai";
+import { streamSimple } from "@earendil-works/pi-ai/api/openai-completions";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,8 +16,10 @@ import {
   filterEnabledModels,
   parseModelsJson,
   sourceOf,
+  systemMessageRoleFromCompat,
   validateCustomProviderInput,
   validateModelInput,
+  withSystemMessageRole,
 } from "@spcode/shared";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -120,6 +125,110 @@ describe("parseModelsJson / validateModelInput / buildCustomModelEntry", () => {
     expect(full.name).toBe("Another");
     expect(full.thinkingLevelMap?.max).toBe("max");
     expect(full.input).toEqual(["text", "image"]);
+  });
+});
+
+describe("模型级 system / developer 配置", () => {
+  it("三态只映射 supportsDeveloperRole，auto 清理角色键但保留其他 compat", () => {
+    expect(systemMessageRoleFromCompat(undefined)).toBe("auto");
+    expect(systemMessageRoleFromCompat({ supportsDeveloperRole: false })).toBe("system");
+    expect(systemMessageRoleFromCompat({ supportsDeveloperRole: true })).toBe("developer");
+    expect(withSystemMessageRole(undefined, "auto")).toBeUndefined();
+    expect(withSystemMessageRole(undefined, "system")).toEqual({ supportsDeveloperRole: false });
+    expect(withSystemMessageRole(undefined, "developer")).toEqual({ supportsDeveloperRole: true });
+    expect(
+      withSystemMessageRole(
+        { supportsDeveloperRole: false, maxTokensField: "max_tokens", supportsUsageInStreaming: false },
+        "developer",
+      ),
+    ).toEqual({ supportsDeveloperRole: true, maxTokensField: "max_tokens", supportsUsageInStreaming: false });
+    expect(
+      withSystemMessageRole({ supportsDeveloperRole: true, maxTokensField: "max_tokens" }, "auto"),
+    ).toEqual({ maxTokensField: "max_tokens" });
+  });
+
+  it("UI 编辑保留其他 compat；旧载荷缺省角色时保留，显式 auto 才移除", () => {
+    dir = mkdtempSync(join(tmpdir(), "spcode-role-overlay-"));
+    const store = createModelOverlayStore(dir);
+    writeFileSync(
+      store.customPath,
+      JSON.stringify({
+        providers: {
+          "acme-ai": {
+            name: "Acme",
+            baseUrl: "https://api.acme.test/v1",
+            api: "openai-completions",
+            models: [
+              {
+                id: "m",
+                contextWindow: 100,
+                reasoning: true,
+                compat: { supportsDeveloperRole: false, maxTokensField: "max_tokens" },
+              },
+            ],
+          },
+        },
+      }),
+      "utf-8",
+    );
+    syncManagedModelsJson(store);
+    const input = {
+      provider: "acme-ai",
+      modelId: "m",
+      contextWindow: 200,
+      reasoning: true,
+      vision: false,
+    };
+    addCustomModel(store, input);
+    let model = JSON.parse(readFileSync(store.customPath, "utf-8")).providers["acme-ai"].models[0];
+    expect(model.compat).toEqual({ supportsDeveloperRole: false, maxTokensField: "max_tokens" });
+
+    addCustomModel(store, { ...input, systemMessageRole: "developer" });
+    model = JSON.parse(readFileSync(store.customPath, "utf-8")).providers["acme-ai"].models[0];
+    expect(model.compat).toEqual({ supportsDeveloperRole: true, maxTokensField: "max_tokens" });
+
+    addCustomModel(store, { ...input, systemMessageRole: "auto" });
+    model = JSON.parse(readFileSync(store.customPath, "utf-8")).providers["acme-ai"].models[0];
+    expect(model.compat).toEqual({ maxTokensField: "max_tokens" });
+  });
+
+  it("真实 Pi 请求体按模型 compat 发送 system / developer，auto 保持默认", async () => {
+    const capture = async (supportsDeveloperRole?: boolean) => {
+      const model = {
+        provider: "acme-ai",
+        id: "m",
+        name: "m",
+        api: "openai-completions" as const,
+        baseUrl: "https://api.acme.test/v1",
+        reasoning: true,
+        input: ["text" as const],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 128000,
+        maxTokens: 16384,
+        compat: supportsDeveloperRole === undefined ? undefined : { supportsDeveloperRole },
+      };
+      let payload: { messages?: { role?: string }[] } | undefined;
+      const events = streamSimple(model, normalizeContext({
+        systemPrompt: "You are helpful.",
+        messages: [{ role: "user", content: "hello", timestamp: Date.now() }],
+      }), {
+        apiKey: "test-key",
+        reasoning: "high",
+        maxRetries: 0,
+        onPayload: (value) => {
+          payload = value as { messages?: { role?: string }[] };
+          throw new Error("capture only: stop before network");
+        },
+      });
+      for await (const _event of events) {
+        // onPayload 主动中止，仅检查真实构造的请求体。
+      }
+      return payload;
+    };
+
+    expect((await capture(false))?.messages?.[0]?.role).toBe("system");
+    expect((await capture(true))?.messages?.[0]?.role).toBe("developer");
+    expect((await capture())?.messages?.[0]?.role).toBe("developer");
   });
 });
 

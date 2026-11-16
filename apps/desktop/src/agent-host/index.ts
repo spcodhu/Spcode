@@ -41,6 +41,7 @@ import {
   DEFAULT_MAX_MODEL_TURNS,
   DEFAULT_SANDBOX_SETTINGS,
   sanitizeModelPricing,
+  systemMessageRoleFromCompat,
 } from "@spcode/shared";
 import { getLocale, i18n, setLocale } from "@spcode/shared/i18n";
 import { resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
@@ -53,6 +54,7 @@ import {
   addCustomModel,
   addCustomProvider,
   createModelOverlayStore,
+  customModelConfig,
   customProviderConfig,
   isRemovable,
   removeCustomModel,
@@ -605,17 +607,25 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
             custom: !!custom,
             baseUrl: custom?.baseUrl,
             api: custom?.api,
-            models: rt.getModels(p.id).map((m) => ({
-              provider: m.provider,
-              modelId: m.id,
-              displayName: m.name ?? m.id,
-              reasoning: !!m.reasoning,
-              contextWindow: m.contextWindow ?? 0,
-              vision: m.input?.includes("image") ?? false,
-              ...catalogPricing(modelOverlay, m),
-              source: sourceOfModel(modelOverlay, m.provider, m.id),
-              removable: isRemovable(modelOverlay, m.provider, m.id),
-            })),
+            models: rt.getModels(p.id).map((m) => {
+              const rawCustom = customModelConfig(modelOverlay, m.provider, m.id);
+              const roleCompat = rawCustom
+                ? rawCustom.compat
+                : (m.compat as { supportsDeveloperRole?: unknown } | undefined);
+              return {
+                provider: m.provider,
+                modelId: m.id,
+                displayName: m.name ?? m.id,
+                reasoning: !!m.reasoning,
+                contextWindow: m.contextWindow ?? 0,
+                vision: m.input?.includes("image") ?? false,
+                api: m.api,
+                systemMessageRole: systemMessageRoleFromCompat(roleCompat),
+                ...catalogPricing(modelOverlay, m),
+                source: sourceOfModel(modelOverlay, m.provider, m.id),
+                removable: isRemovable(modelOverlay, m.provider, m.id),
+              };
+            }),
           };
         });
         respond(id, true, catalog);

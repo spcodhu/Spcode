@@ -13,6 +13,27 @@
  * 纯函数、无 Node 依赖：文件读写留在 agent-host，便于单元测试。
  */
 
+export type SystemMessageRole = "auto" | "system" | "developer";
+
+/** OpenAI 兼容模型的系统消息角色显式配置；缺省值用于继承供应商与 Pi 自动检测。 */
+export function systemMessageRoleFromCompat(compat: { supportsDeveloperRole?: unknown } | undefined): SystemMessageRole {
+  if (compat?.supportsDeveloperRole === false) return "system";
+  if (compat?.supportsDeveloperRole === true) return "developer";
+  return "auto";
+}
+
+/** 只修改角色兼容键，保留用户手写的其他 compat；undefined 表示旧调用方未携带该字段。 */
+export function withSystemMessageRole(
+  compat: Record<string, unknown> | undefined,
+  role: SystemMessageRole | undefined,
+): Record<string, unknown> | undefined {
+  const next = { ...compat };
+  if (role === "system") next.supportsDeveloperRole = false;
+  else if (role === "developer") next.supportsDeveloperRole = true;
+  else if (role === "auto") delete next.supportsDeveloperRole;
+  return Object.keys(next).length > 0 ? next : undefined;
+}
+
 /** 模型条目的来源：pi 内置目录 / 用户自定义（手写 models.json 与 UI 添加） */
 export type ModelSource = "builtin" | "custom";
 

@@ -18,7 +18,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ModelSource, ModelsJsonProviderEntry } from "@spcode/shared";
+import type { ModelSource, ModelsJsonModelEntry, ModelsJsonProviderEntry } from "@spcode/shared";
 import {
   type AddCustomModelInput,
   buildCustomModelEntry,
@@ -29,6 +29,7 @@ import {
   sourceOf,
   validateCustomProviderInput,
   validateModelInput,
+  withSystemMessageRole,
 } from "@spcode/shared";
 import { writeJsonFileAtomic } from "@spcode/shared/node";
 
@@ -40,6 +41,8 @@ export interface ModelOverlayStore {
   managedPath: string;
   sources: Map<string, ModelSource>;
   removable: Set<string>;
+  /** UI 文件的原始模型条目：目录回填必须读显式覆盖，而非供应商合并后的结果 */
+  customModels: Map<string, ModelsJsonModelEntry>;
   /** 设置页创建的完整供应商（仅安全配置字段，不含 apiKey） */
   customProviders: Map<string, Omit<CustomProviderInput, "apiKey">>;
 }
@@ -51,6 +54,7 @@ export function createModelOverlayStore(agentDir: string): ModelOverlayStore {
     managedPath: join(agentDir, "models.managed.json"),
     sources: new Map(),
     removable: new Set(),
+    customModels: new Map(),
     customProviders: new Map(),
   };
 }
@@ -72,7 +76,11 @@ export function syncManagedModelsJson(store: ModelOverlayStore): void {
   store.sources = sources;
   store.removable = removable;
   store.customProviders.clear();
+  store.customModels.clear();
   for (const [provider, entry] of Object.entries(uiAdded?.providers ?? {})) {
+    for (const model of entry.models ?? []) {
+      if (model && typeof model.id === "string") store.customModels.set(`${provider}\0${model.id}`, model);
+    }
     if (isUiCustomProviderEntry(entry)) {
       store.customProviders.set(provider, {
         provider,
@@ -99,6 +107,14 @@ export function customProviderConfig(
   provider: string,
 ): Omit<CustomProviderInput, "apiKey"> | undefined {
   return store.customProviders.get(provider);
+}
+
+export function customModelConfig(
+  store: ModelOverlayStore,
+  provider: string,
+  modelId: string,
+): ModelsJsonModelEntry | undefined {
+  return store.customModels.get(`${provider}\0${modelId}`);
 }
 
 /** 新增完整供应商；宿主还会拒绝与 Pi 内置供应商同 ID。 */
@@ -155,12 +171,14 @@ export function addCustomModel(store: ModelOverlayStore, input: AddCustomModelIn
   const invalid = validateModelInput(input);
   if (invalid) throw new Error(invalid);
   const modelId = input.modelId.trim();
-  const entry = buildCustomModelEntry({ ...input, modelId });
 
   const data = readModelsFile(store.customPath) ?? { providers: {} };
   const providerEntry = data.providers[input.provider] ?? {};
   const models = [...(providerEntry.models ?? [])];
   const idx = models.findIndex((m) => m?.id === modelId);
+  const entry = buildCustomModelEntry({ ...input, modelId });
+  const compat = withSystemMessageRole(idx >= 0 ? models[idx]?.compat : undefined, input.systemMessageRole);
+  if (compat) entry.compat = compat;
   if (idx >= 0) models[idx] = entry;
   else models.push(entry);
   data.providers[input.provider] = { ...providerEntry, models };

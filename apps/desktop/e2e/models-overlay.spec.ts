@@ -29,8 +29,30 @@ test.describe("自定义供应商 E2E", () => {
     await expect(window.getByRole("heading", { name: "Acme AI", exact: true })).toBeVisible({ timeout: 15000 });
     await window.getByPlaceholder(/gpt-5\.2/).fill("acme-chat");
     await window.getByPlaceholder("262144").fill("128000");
+    const addForm = window.getByTestId("custom-model-add-form");
+    await addForm.getByTestId("custom-model-system-role-select").click();
+    await addForm.locator('[role="option"][data-value="system"]').click();
     await window.getByRole("button", { name: "添加", exact: true }).click();
     await expect(window.getByText("acme-chat", { exact: true })).toBeVisible({ timeout: 15000 });
+
+    // 模型级角色配置持久化：system → developer → auto，每次均从 Host 目录重新回填
+    const editModel = window.locator('[data-testid="model-edit"][data-model="acme-ai/acme-chat"]');
+    await editModel.click();
+    let modelForm = window.getByTestId("custom-model-edit-form");
+    await expect(modelForm.getByTestId("custom-model-system-role-select")).toHaveAttribute("data-value", "system");
+    await modelForm.getByTestId("custom-model-system-role-select").click();
+    await modelForm.locator('[role="option"][data-value="developer"]').click();
+    await modelForm.getByTestId("custom-model-submit").click();
+    await editModel.click();
+    modelForm = window.getByTestId("custom-model-edit-form");
+    await expect(modelForm.getByTestId("custom-model-system-role-select")).toHaveAttribute("data-value", "developer");
+    await modelForm.getByTestId("custom-model-system-role-select").click();
+    await modelForm.locator('[role="option"][data-value="auto"]').click();
+    await modelForm.getByTestId("custom-model-submit").click();
+    await editModel.click();
+    modelForm = window.getByTestId("custom-model-edit-form");
+    await expect(modelForm.getByTestId("custom-model-system-role-select")).toHaveAttribute("data-value", "auto");
+    await modelForm.getByRole("button", { name: "取消", exact: true }).click();
 
     await window.getByTestId("provider-edit").click();
     await expect(window.getByTestId("provider-id-input")).toBeDisabled();
