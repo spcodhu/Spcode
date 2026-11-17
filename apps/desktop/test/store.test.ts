@@ -865,6 +865,23 @@ describe("saveSettings 连续函数式补丁", () => {
   });
 });
 
+describe("createSession 模型启用过滤", () => {
+  it("默认模型已停用时不把停用模型带进新草稿", async () => {
+    useStore.setState({
+      sessions: {},
+      sessionOrder: [],
+      activeSessionId: null,
+      settings: {
+        ...DEFAULT_SETTINGS,
+        defaultModel: { provider: "p", modelId: "off" },
+        disabledModels: ["p/off"],
+      },
+    });
+    const id = await useStore.getState().createSession("chat", "");
+    expect(useStore.getState().sessions[id]?.meta.model).toBeNull();
+  });
+});
+
 describe("compactSession 手动压缩", () => {
   it("向宿主发送 session.compact 命令；运行中/草稿会话不发送", async () => {
     stubSpcodeApi();

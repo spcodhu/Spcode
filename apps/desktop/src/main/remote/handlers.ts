@@ -14,6 +14,7 @@ import {
   filterEnabledModels,
   type HostCommand,
   type HostEvent,
+  isModelEnabled,
   type ModelInfo,
   type RemoteCommand,
   type ScheduleTask,
@@ -72,7 +73,10 @@ export async function handleRemoteCommand(cmd: RemoteCommand, deps: RemoteHandle
       const models = await deps.bridge.call<ModelInfo[]>(withId({ type: "models.list" }));
       return {
         models: filterEnabledModels(models ?? [], settings.disabledProviders, settings.disabledModels),
-        defaultModel: settings.defaultModel,
+        // 远程端与桌面端同口径：停用的默认模型不能继续被新会话使用。
+        defaultModel: isModelEnabled(settings.defaultModel, settings.disabledProviders, settings.disabledModels)
+          ? settings.defaultModel
+          : null,
       };
     }
     case "session.history": {
@@ -190,8 +194,12 @@ async function createSession(
   const sessionId = randomUUID();
   const mode: SessionMode = cmd.mode;
   const cwd = cmd.mode === "project" ? (cmd.cwd ?? "") : "";
-  const model = cmd.model ?? deps.settings.get().defaultModel;
-  const thinkingLevel = deps.settings.get().defaultThinkingLevel;
+  const settings = deps.settings.get();
+  const requestedModel = cmd.model ?? settings.defaultModel;
+  const model = isModelEnabled(requestedModel, settings.disabledProviders, settings.disabledModels)
+    ? requestedModel
+    : null;
+  const thinkingLevel = settings.defaultThinkingLevel;
   const now = Date.now();
   deps.registry.upsert({
     id: sessionId,

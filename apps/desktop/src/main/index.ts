@@ -18,6 +18,7 @@ import {
   type HostCommandInput,
   type HostEvent,
   IPC,
+  isModelEnabled,
   type ModelInfo,
   normalizeProjectCwd,
   type PickedFile,
@@ -394,8 +395,15 @@ function registerIpc(): void {
     // 创建/恢复会话时写入注册表
     if (cmd.type === "session.create") {
       const now = Date.now();
+      const current = settings.get();
+      const requestedModel = cmd.payload.model ?? current.defaultModel;
+      const model = isModelEnabled(requestedModel, current.disabledProviders, current.disabledModels)
+        ? requestedModel
+        : undefined;
+      // 停用模型不得进入新会话：即使旧草稿仍带着它，也在主进程边界归一为“未选择”。
+      cmd.payload.model = model;
       // 新会话继承设置页的默认档位（单会话随后可在输入框覆盖）
-      cmd.payload.permissionMode = cmd.payload.permissionMode ?? settings.get().permissionMode;
+      cmd.payload.permissionMode = cmd.payload.permissionMode ?? current.permissionMode;
       registry.upsert({
         id: cmd.payload.sessionId,
         mode: cmd.payload.mode,
@@ -405,8 +413,8 @@ function registerIpc(): void {
             ? i18n.t("common:newChat")
             : baseName(cmd.payload.cwd) || i18n.t("common:newProject"),
         titleKind: "default",
-        model: cmd.payload.model ?? settings.get().defaultModel,
-        thinkingLevel: cmd.payload.thinkingLevel ?? settings.get().defaultThinkingLevel,
+        model: model ?? null,
+        thinkingLevel: cmd.payload.thinkingLevel ?? current.defaultThinkingLevel,
         permissionMode: cmd.payload.permissionMode,
         sessionFile: null,
         createdAt: now,

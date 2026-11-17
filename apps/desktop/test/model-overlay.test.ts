@@ -14,6 +14,7 @@ import {
   buildCustomProviderEntry,
   composeManagedModelsJson,
   filterEnabledModels,
+  isModelEnabled,
   parseModelsJson,
   sourceOf,
   systemMessageRoleFromCompat,
@@ -56,6 +57,14 @@ describe("filterEnabledModels（全端统一可见性）", () => {
         (model) => `${model.provider}/${model.modelId}`,
       ),
     ).toEqual(["p/on", "other/off"]);
+  });
+
+  it("单模型启用判断区分供应商/模型停用与缺省模型", () => {
+    expect(isModelEnabled({ provider: "p", modelId: "on" }, ["blocked"], ["p/off"])).toBe(true);
+    expect(isModelEnabled({ provider: "p", modelId: "off" }, ["blocked"], ["p/off"])).toBe(false);
+    expect(isModelEnabled({ provider: "blocked", modelId: "on" }, ["blocked"], [])).toBe(false);
+    expect(isModelEnabled(null, [], [])).toBe(false);
+    expect(isModelEnabled(undefined, [], [])).toBe(false);
   });
 });
 

@@ -36,6 +36,7 @@ import type {
 import {
   baseName,
   cleanSessionTitle,
+  isModelEnabled,
   parseRunGuardCustomDetails,
   RUN_GUARD_CUSTOM_TYPE,
   stripImageProcessingHints,
@@ -1203,7 +1204,10 @@ export const useStore = create<StoreState>((set, get) => ({
     const settings = get().settings;
     const id = `draft-${crypto.randomUUID()}`;
     const now = Date.now();
-    const model = settings?.defaultModel ?? null;
+    const requestedModel = settings?.defaultModel ?? null;
+    const model = isModelEnabled(requestedModel, settings?.disabledProviders, settings?.disabledModels)
+      ? requestedModel
+      : null;
     const thinkingLevel = settings?.defaultThinkingLevel ?? "off";
     const meta: SessionMeta = {
       id,

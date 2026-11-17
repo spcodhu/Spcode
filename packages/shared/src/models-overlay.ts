@@ -211,6 +211,15 @@ export function filterEnabledModels<T extends { provider: string; modelId: strin
   );
 }
 
+/** 单个模型是否处于启用状态；缺省模型（null/undefined）视为不可执行。 */
+export function isModelEnabled<T extends { provider: string; modelId: string }>(
+  model: T | null | undefined,
+  disabledProviders: readonly string[] = [],
+  disabledModels: readonly string[] = [],
+): model is T {
+  return !!model && filterEnabledModels([model], disabledProviders, disabledModels).length > 0;
+}
+
 /** 判定合成目录里某模型的来源（builtin = 两个用户文件都没声明） */
 export function sourceOf(sources: Map<string, ModelSource>, provider: string, modelId: string): ModelSource {
   return sources.get(`${provider}\0${modelId}`) ?? "builtin";

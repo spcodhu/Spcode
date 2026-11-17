@@ -133,6 +133,19 @@ describe("定时任务执行器", () => {
     expect(registryEntries[0]).toMatchObject({ id: "new-session", title: "日报", model, permissionMode: "never" });
   });
 
+  it("停用的任务模型不会进入新会话", async () => {
+    const { deps, calls, registryEntries } = setup();
+    deps.settings.get = () => ({
+      defaultModel: null,
+      defaultThinkingLevel: "medium",
+      permissionMode: "auto",
+      disabledModels: ["demo/off"],
+    });
+    await runScheduledTask(task({ model: { provider: "demo", modelId: "off" } }), deps);
+    expect((calls[0] as Extract<HostCommand, { type: "session.create" }>).payload.model).toBeUndefined();
+    expect(registryEntries[0]?.model).toBeNull();
+  });
+
   it("错误重试在会话忙时顺延，空闲时原样重发文本和图片", async () => {
     const retry = {
       id: "retry-1",

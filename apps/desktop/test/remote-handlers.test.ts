@@ -156,6 +156,21 @@ describe("session.create 链路", () => {
     expect(entry.title).toBe("帮我写一个脚本");
   });
 
+  it("停用的默认模型不会进入远程新会话", async () => {
+    const { deps, bridgeCalls } = makeDeps();
+    deps.settings.get = () => ({
+      ...DEFAULT_SETTINGS,
+      defaultModel: { provider: "p", modelId: "off" },
+      disabledModels: ["p/off"],
+    });
+    await handleRemoteCommand({ type: "session.create", mode: "chat" }, deps);
+    const createCmd = bridgeCalls.find((call) => call.type === "session.create") as Extract<
+      HostCommand,
+      { type: "session.create" }
+    >;
+    expect(createCmd.payload.model).toBeUndefined();
+  });
+
   it("project 模式：cwd 传递，标题兜底为目录名", async () => {
     const { deps, bridgeCalls, registry } = makeDeps();
     const result = (await handleRemoteCommand(
@@ -264,6 +279,17 @@ describe("session.history / prompt / abort / subscribe", () => {
     };
     expect(result.models.map((model) => `${model.provider}/${model.modelId}`)).toEqual(["p/on"]);
     expect(result.defaultModel).toEqual({ provider: "p", modelId: "on" });
+  });
+
+  it("停用的默认模型在远程目录响应中归一为 null", async () => {
+    const d = makeDeps();
+    d.deps.settings.get = () => ({
+      ...DEFAULT_SETTINGS,
+      defaultModel: { provider: "p", modelId: "off" },
+      disabledModels: ["p/off"],
+    });
+    const result = (await handleRemoteCommand({ type: "models.list" }, d.deps)) as { defaultModel: unknown };
+    expect(result.defaultModel).toBeNull();
   });
 });
 

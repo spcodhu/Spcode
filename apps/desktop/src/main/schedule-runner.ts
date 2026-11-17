@@ -11,7 +11,7 @@ import type {
   SessionInfo,
   SessionMode,
 } from "@spcode/shared";
-import { DEFAULT_SCHEDULE_PERMISSION_MODE } from "@spcode/shared";
+import { DEFAULT_SCHEDULE_PERMISSION_MODE, isModelEnabled } from "@spcode/shared";
 import { i18n } from "@spcode/shared/i18n";
 import { backfillSessionFile, type RegistryLike } from "./session-helpers.js";
 
@@ -23,7 +23,8 @@ export interface ScheduleRunnerDeps {
   registry: RegistryLike;
   bridge: ScheduleRunnerBridge;
   settings: {
-    get(): Pick<AppSettings, "defaultModel" | "defaultThinkingLevel" | "permissionMode">;
+    get(): Pick<AppSettings, "defaultModel" | "defaultThinkingLevel" | "permissionMode"> &
+      Partial<Pick<AppSettings, "disabledProviders" | "disabledModels">>;
   };
   /** 测试注入；生产使用随机 UUID。 */
   newSessionId?: () => string;
@@ -92,6 +93,10 @@ export async function runScheduledTask(task: ScheduleTask, deps: ScheduleRunnerD
   const cwd = task.target.kind === "project" ? task.target.cwd : "";
   const current = deps.settings.get();
   const permissionMode = task.permissionMode ?? DEFAULT_SCHEDULE_PERMISSION_MODE;
+  const requestedModel = task.model ?? current.defaultModel;
+  const model = isModelEnabled(requestedModel, current.disabledProviders, current.disabledModels)
+    ? requestedModel
+    : null;
   const now = Date.now();
   deps.registry.upsert({
     id: sessionId,
@@ -99,7 +104,7 @@ export async function runScheduledTask(task: ScheduleTask, deps: ScheduleRunnerD
     cwd,
     title: task.name,
     titleKind: "custom",
-    model: task.model ?? current.defaultModel,
+    model,
     thinkingLevel: current.defaultThinkingLevel,
     permissionMode,
     sessionFile: null,
@@ -113,7 +118,7 @@ export async function runScheduledTask(task: ScheduleTask, deps: ScheduleRunnerD
       sessionId,
       mode,
       cwd,
-      model: task.model ?? current.defaultModel ?? undefined,
+      model: model ?? undefined,
       thinkingLevel: current.defaultThinkingLevel,
       permissionMode,
       noTitleAutomation: true,
