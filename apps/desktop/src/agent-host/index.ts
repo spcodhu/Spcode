@@ -193,11 +193,17 @@ async function backgroundCatalogSync(rt: ModelRuntime): Promise<void> {
   try {
     await rt.refresh({ allowNetwork: true });
     catalogSync.lastSyncedAt = Date.now();
+    refreshSessionModels();
   } catch (err) {
     catalogSync.lastError = err instanceof Error ? err.message : String(err);
   } finally {
     catalogSync.inProgress = false;
   }
+}
+
+/** 目录刷新后让活跃会话静默换用最新模型对象：设置页编辑 compat/baseUrl 等无需重开会话即生效。 */
+function refreshSessionModels(): void {
+  for (const ctl of sessions.values()) ctl.refreshModelFromRegistry();
 }
 
 /**
@@ -643,6 +649,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         try {
           await rt.refresh({ allowNetwork: true, force: true });
           catalogSync.lastSyncedAt = Date.now();
+          refreshSessionModels();
         } catch (err) {
           catalogSync.lastError = err instanceof Error ? err.message : String(err);
         } finally {
@@ -678,6 +685,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         addCustomModel(modelOverlay, cmd.payload);
         // refresh() 内部重读受管 models.json 并 rebuildProviders —— 新模型即时进目录，无需重建 runtime
         await rt.refresh({ allowNetwork: false });
+        refreshSessionModels();
         respond(id, true);
         break;
       }
@@ -709,6 +717,7 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
         const rt = await getRuntime();
         updateCustomProvider(modelOverlay, cmd.payload);
         await rt.refresh({ allowNetwork: false });
+        refreshSessionModels();
         if (cmd.payload.apiKey?.trim()) {
           await persistApiKey(rt, cmd.payload.provider.trim(), cmd.payload.apiKey.trim());
         }

@@ -724,6 +724,18 @@ export class SessionController {
     await this.session.setModel(model as Model<never>);
   }
 
+  /**
+   * 目录刷新后静默换用最新模型对象（设置页编辑 compat/baseUrl 等对活跃会话即时生效）。
+   * 不走 setModel：避免向会话树追加 model_change 记录、触发切换事件与鉴权检查。
+   */
+  refreshModelFromRegistry(): void {
+    const current = this.session.model;
+    if (!current) return;
+    const fresh = this.runtime.getModel(current.provider, current.id);
+    if (!fresh || fresh === current) return;
+    this.session.agent.state.model = fresh;
+  }
+
   setThinkingLevel(level: string): void {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     this.session.setThinkingLevel(level as any);
