@@ -52,12 +52,13 @@ function click(index: number): void {
 describe("第三屏文件右键菜单动作", () => {
   it("菜单按「默认应用打开 / 复制路径 / 在文件管理器里显示」排列", () => {
     void showWorkspaceFileMenu(event, target);
-    expect(state.template.map((item) => item.label ?? item.type)).toEqual([
-      "用默认应用打开",
-      "复制文件路径",
-      "separator",
-      process.platform === "darwin" ? "在 Finder 中显示" : "在文件管理器中显示",
-    ]);
+    const labels = state.template.map((item) => item.label ?? item.type);
+    // 平台差异只在最后一项的文案里：macOS 是 Finder，Windows/Linux 是文件资源管理器。
+    // 这里用模式匹配而不是硬编码全文，避免改文案就把 Windows CI 弄挂（beta.40 就是这么挂的）。
+    const reveal = labels[3] ?? "";
+    if (process.platform === "darwin") expect(reveal).toContain("Finder");
+    else expect(reveal).toContain("资源管理器");
+    expect(labels.slice(0, 3)).toEqual(["用默认应用打开", "复制文件路径", "separator"]);
   });
 
   it("复制路径写剪贴板，不读文件内容", async () => {

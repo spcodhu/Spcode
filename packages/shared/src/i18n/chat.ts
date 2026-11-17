@@ -281,7 +281,7 @@ export const zhCN = {
   "workspace.openDefault": "用默认应用打开",
   "workspace.copyPath": "复制文件路径",
   "workspace.revealInFinder": "在 Finder 中显示",
-  "workspace.revealInExplorer": "在资源管理器中显示",
+  "workspace.revealInExplorer": "在文件资源管理器中显示",
   "workspace.fileMenuUnavailable": "该窗口已关闭，无法弹出文件菜单",
   "workspace.fileMenuFailed": "文件操作失败：{{error}}",
   "workspace.fileUnavailableSession": "当前会话已关闭，无法操作该文件",
