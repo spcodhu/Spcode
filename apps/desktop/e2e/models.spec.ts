@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { launchApp } from "./helpers";
 
 /**
@@ -8,100 +8,87 @@ import { launchApp } from "./helpers";
  * 覆盖 pi 引擎目录滞后（新模型发布到上游收录可能相隔数周）场景：
  * 用户无需手改配置文件，设置页填写模型 ID 即可用上新模型（此处以 k3.1-pro 为例）。
  * 断言锚 role/placeholder/aria-label，不绑展示文案以外的结构。
+ *
+ * 合并说明：原 models-overlay.spec.ts（4 例）与 model-menu.spec.ts（3 例）收敛为 3 例，
+ * 只保留必须真跑 Electron 的端到端价值（主进程 IPC、真实落盘、整树联动）。
+ * 「模型菜单：按供应商分组、搜索过滤、键盘导航、选中定位与焦点归还」已由单测
+ * model-menu.test.ts 完整覆盖，纯展示断言不再重复跑 Electron。
  */
-test.describe("自定义供应商 E2E", () => {
-  test("新增 Pi 目录外供应商 → 添加模型 → 编辑端点与协议 → 删除闭环", async () => {
-    const app = await launchApp();
-    const window = await app.firstWindow();
-    window.on("dialog", (d) => void d.accept());
 
-    await window.getByRole("button", { name: /新建聊天/ }).click();
-    await expect(window.getByPlaceholder(/说点什么/)).toBeVisible({ timeout: 15000 });
-    await window.getByTitle("设置", { exact: true }).click();
-    await window.getByRole("button", { name: "模型", exact: true }).click();
+/** 配置两个本地假密钥即可看到模型目录，不会发起真实模型请求。 */
+async function configureProvider(window: Page, name: string) {
+  await window.getByRole("button", { name: `配置 ${name}`, exact: true }).click();
+  await window.locator('input[type="password"]').fill("sk-e2e-model-menu");
+  await window.getByRole("button", { name: "保存", exact: true }).click();
+  await window.getByRole("button", { name: "返回", exact: true }).click();
+}
 
-    await window.getByTestId("models-add-provider").click();
-    await expect(window.getByTestId("provider-form-modal")).toBeVisible();
-    await window.getByTestId("provider-id-input").fill("acme-ai");
-    await window.getByTestId("provider-name-input").fill("Acme AI");
-    await window.getByTestId("provider-base-url-input").fill("https://api.acme.test/v1");
-    await window.getByTestId("provider-api-key-input").fill("test-key");
-    await window.getByTestId("provider-save").click();
+test("自定义供应商：新增→添加模型→编辑端点与协议→删除闭环", async () => {
+  const app = await launchApp();
+  const window = await app.firstWindow();
+  window.on("dialog", (d) => void d.accept());
 
-    await expect(window.getByRole("heading", { name: "Acme AI", exact: true })).toBeVisible({ timeout: 15000 });
-    await window.getByPlaceholder(/gpt-5\.2/).fill("acme-chat");
-    await window.getByPlaceholder("262144").fill("128000");
-    const addForm = window.getByTestId("custom-model-add-form");
-    await addForm.getByTestId("custom-model-system-role-select").click();
-    await addForm.locator('[role="option"][data-value="system"]').click();
-    await window.getByRole("button", { name: "添加", exact: true }).click();
-    await expect(window.getByText("acme-chat", { exact: true })).toBeVisible({ timeout: 15000 });
+  await window.getByRole("button", { name: /新建聊天/ }).click();
+  await expect(window.getByPlaceholder(/说点什么/)).toBeVisible({ timeout: 15000 });
+  await window.getByTitle("设置", { exact: true }).click();
+  await window.getByRole("button", { name: "模型", exact: true }).click();
 
-    // 模型级角色配置持久化：system → developer → auto，每次均从 Host 目录重新回填
-    const editModel = window.locator('[data-testid="model-edit"][data-model="acme-ai/acme-chat"]');
-    await editModel.click();
-    let modelForm = window.getByTestId("custom-model-edit-form");
-    await expect(modelForm.getByTestId("custom-model-system-role-select")).toHaveAttribute("data-value", "system");
-    await modelForm.getByTestId("custom-model-system-role-select").click();
-    await modelForm.locator('[role="option"][data-value="developer"]').click();
-    await modelForm.getByTestId("custom-model-submit").click();
-    await editModel.click();
-    modelForm = window.getByTestId("custom-model-edit-form");
-    await expect(modelForm.getByTestId("custom-model-system-role-select")).toHaveAttribute("data-value", "developer");
-    await modelForm.getByTestId("custom-model-system-role-select").click();
-    await modelForm.locator('[role="option"][data-value="auto"]').click();
-    await modelForm.getByTestId("custom-model-submit").click();
-    await editModel.click();
-    modelForm = window.getByTestId("custom-model-edit-form");
-    await expect(modelForm.getByTestId("custom-model-system-role-select")).toHaveAttribute("data-value", "auto");
-    await modelForm.getByRole("button", { name: "取消", exact: true }).click();
+  await window.getByTestId("models-add-provider").click();
+  await expect(window.getByTestId("provider-form-modal")).toBeVisible();
+  await window.getByTestId("provider-id-input").fill("acme-ai");
+  await window.getByTestId("provider-name-input").fill("Acme AI");
+  await window.getByTestId("provider-base-url-input").fill("https://api.acme.test/v1");
+  await window.getByTestId("provider-api-key-input").fill("test-key");
+  await window.getByTestId("provider-save").click();
 
-    await window.getByTestId("provider-edit").click();
-    await expect(window.getByTestId("provider-id-input")).toBeDisabled();
-    await window.getByTestId("provider-name-input").fill("Acme Updated");
-    await window.getByTestId("provider-base-url-input").fill("http://localhost:4000/v1");
-    await window.getByTestId("provider-api-select").click();
-    await window.getByRole("option", { name: "openai-responses", exact: true }).click();
-    await window.getByTestId("provider-save").click();
-    await expect(window.getByRole("heading", { name: "Acme Updated", exact: true })).toBeVisible({ timeout: 15000 });
-    await expect(window.getByText("acme-chat", { exact: true })).toBeVisible();
+  await expect(window.getByRole("heading", { name: "Acme AI", exact: true })).toBeVisible({ timeout: 15000 });
+  await window.getByPlaceholder(/gpt-5\.2/).fill("acme-chat");
+  await window.getByPlaceholder("262144").fill("128000");
+  const addForm = window.getByTestId("custom-model-add-form");
+  await addForm.getByTestId("custom-model-system-role-select").click();
+  await addForm.locator('[role="option"][data-value="system"]').click();
+  await window.getByRole("button", { name: "添加", exact: true }).click();
+  await expect(window.getByText("acme-chat", { exact: true })).toBeVisible({ timeout: 15000 });
 
-    await window.getByTestId("provider-delete").click();
-    await expect(window.getByRole("button", { name: "配置 Acme Updated", exact: true })).toHaveCount(0, {
-      timeout: 15000,
-    });
-    await app.close();
+  // 模型级角色配置持久化：system → developer → auto，每次均从 Host 目录重新回填
+  const editModel = window.locator('[data-testid="model-edit"][data-model="acme-ai/acme-chat"]');
+  await editModel.click();
+  let modelForm = window.getByTestId("custom-model-edit-form");
+  await expect(modelForm.getByTestId("custom-model-system-role-select")).toHaveAttribute("data-value", "system");
+  await modelForm.getByTestId("custom-model-system-role-select").click();
+  await modelForm.locator('[role="option"][data-value="developer"]').click();
+  await modelForm.getByTestId("custom-model-submit").click();
+  await editModel.click();
+  modelForm = window.getByTestId("custom-model-edit-form");
+  await expect(modelForm.getByTestId("custom-model-system-role-select")).toHaveAttribute("data-value", "developer");
+  await modelForm.getByTestId("custom-model-system-role-select").click();
+  await modelForm.locator('[role="option"][data-value="auto"]').click();
+  await modelForm.getByTestId("custom-model-submit").click();
+  await editModel.click();
+  modelForm = window.getByTestId("custom-model-edit-form");
+  await expect(modelForm.getByTestId("custom-model-system-role-select")).toHaveAttribute("data-value", "auto");
+  await modelForm.getByRole("button", { name: "取消", exact: true }).click();
+
+  await window.getByTestId("provider-edit").click();
+  await expect(window.getByTestId("provider-id-input")).toBeDisabled();
+  await window.getByTestId("provider-name-input").fill("Acme Updated");
+  await window.getByTestId("provider-base-url-input").fill("http://localhost:4000/v1");
+  await window.getByTestId("provider-api-select").click();
+  await window.getByRole("option", { name: "openai-responses", exact: true }).click();
+  await window.getByTestId("provider-save").click();
+  await expect(window.getByRole("heading", { name: "Acme Updated", exact: true })).toBeVisible({ timeout: 15000 });
+  await expect(window.getByText("acme-chat", { exact: true })).toBeVisible();
+
+  await window.getByTestId("provider-delete").click();
+  await expect(window.getByRole("button", { name: "配置 Acme Updated", exact: true })).toHaveCount(0, {
+    timeout: 15000,
   });
+  await app.close();
 });
 
-test.describe("内置供应商配置删除 E2E", () => {
-  test("删除本地密钥后移出已配置分组，目录保留可重新配置", async () => {
-    const app = await launchApp();
-    const window = await app.firstWindow();
-    window.on("dialog", (dialog) => void dialog.accept());
-
-    await window.getByRole("button", { name: /新建聊天/ }).click();
-    await expect(window.getByPlaceholder(/说点什么/)).toBeVisible({ timeout: 15000 });
-    await window.getByTitle("设置", { exact: true }).click();
-    await window.getByRole("button", { name: "模型", exact: true }).click();
-    await window.getByRole("button", { name: "配置 DeepSeek", exact: true }).click();
-    await window.locator('input[type="password"]').fill("sk-e2e-remove-provider");
-    await window.getByRole("button", { name: "保存", exact: true }).click();
-
-    await expect(window.getByTestId("provider-delete")).toBeVisible({ timeout: 15000 });
-    await window.getByTestId("provider-delete").click();
-    await expect(
-      window.getByTestId("configured-providers").locator('[data-testid="provider-row"][data-provider="deepseek"]'),
-    ).toHaveCount(0, { timeout: 15000 });
-    await expect(
-      window.getByTestId("unconfigured-providers").locator('[data-testid="provider-row"][data-provider="deepseek"]'),
-    ).toBeVisible();
-    await app.close();
-  });
-});
-
-test.describe("自定义模型 E2E", () => {
-  test("添加自定义模型后可再次编辑并持久化全部字段，删除与内置模型保护仍生效", async () => {
+test("自定义模型：编辑持久化与删除保护，在线发现导入不覆盖已有模型", async () => {
+  // 场景一：添加自定义模型后可再次编辑并持久化全部字段，删除与内置模型保护仍生效
+  {
     const app = await launchApp();
     const window = await app.firstWindow();
     window.on("dialog", (d) => void d.accept());
@@ -163,11 +150,10 @@ test.describe("自定义模型 E2E", () => {
     await expect(builtinRow.getByRole("button", { name: /^删除 / })).toHaveCount(0);
 
     await app.close();
-  });
-});
+  }
 
-test.describe("在线模型发现 E2E", () => {
-  test("本地 OpenAI 列表 → 预览选择 → 批量导入与回填；错误脱敏且不覆盖已有模型", async () => {
+  // 场景二：本地 OpenAI 列表 → 预览选择 → 批量导入与回填；错误脱敏且不覆盖已有模型
+  {
     let failDiscovery = false;
     const requests: { path: string; authorization: string | null }[] = [];
     const server = createServer((request, response) => {
@@ -288,5 +274,125 @@ test.describe("在线模型发现 E2E", () => {
       if (app) await app.close();
       await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
     }
-  });
+  }
+});
+
+test("内置供应商移除本地密钥，停用模型/供应商批量生效", async () => {
+  // 场景一：删除本地密钥后移出已配置分组，目录保留可重新配置
+  {
+    const app = await launchApp();
+    const window = await app.firstWindow();
+    window.on("dialog", (dialog) => void dialog.accept());
+
+    await window.getByRole("button", { name: /新建聊天/ }).click();
+    await expect(window.getByPlaceholder(/说点什么/)).toBeVisible({ timeout: 15000 });
+    await window.getByTitle("设置", { exact: true }).click();
+    await window.getByRole("button", { name: "模型", exact: true }).click();
+    await window.getByRole("button", { name: "配置 DeepSeek", exact: true }).click();
+    await window.locator('input[type="password"]').fill("sk-e2e-remove-provider");
+    await window.getByRole("button", { name: "保存", exact: true }).click();
+
+    await expect(window.getByTestId("provider-delete")).toBeVisible({ timeout: 15000 });
+    await window.getByTestId("provider-delete").click();
+    await expect(
+      window.getByTestId("configured-providers").locator('[data-testid="provider-row"][data-provider="deepseek"]'),
+    ).toHaveCount(0, { timeout: 15000 });
+    await expect(
+      window.getByTestId("unconfigured-providers").locator('[data-testid="provider-row"][data-provider="deepseek"]'),
+    ).toBeVisible();
+    await app.close();
+  }
+
+  // 场景二：连续停用多个模型后全部隐藏，保留仍启用的模型
+  {
+    const app = await launchApp();
+    const window = await app.firstWindow();
+
+    await window.getByRole("button", { name: /新建聊天/ }).click();
+    await expect(window.getByPlaceholder(/说点什么/)).toBeVisible({ timeout: 15000 });
+    await window.getByTitle("设置", { exact: true }).click();
+    await window.getByRole("button", { name: "模型", exact: true }).click();
+    await configureProvider(window, "Kimi For Coding");
+    await window.getByRole("button", { name: "配置 Kimi For Coding", exact: true }).click();
+
+    const toggles = window.getByTestId("model-enabled-toggle");
+    await expect(toggles.nth(2)).toBeVisible({ timeout: 15000 });
+    const disabledIds = [
+      (await toggles.nth(0).getAttribute("data-model"))!.slice("kimi-coding/".length),
+      (await toggles.nth(1).getAttribute("data-model"))!.slice("kimi-coding/".length),
+    ];
+    const enabledId = (await toggles.nth(2).getAttribute("data-model"))!.slice("kimi-coding/".length);
+
+    // 不等待第一轮保存返回就连续点击，覆盖 disabledModels 旧闭包相互覆盖的竞态。
+    await toggles.nth(0).click();
+    await toggles.nth(1).click();
+    await expect(toggles.nth(0)).toHaveAttribute("aria-pressed", "false");
+    await expect(toggles.nth(1)).toHaveAttribute("aria-pressed", "false");
+    await window.getByRole("button", { name: "返回", exact: true }).click();
+    await window.getByTitle("关闭设置").click();
+
+    await window.getByTestId("composer-model-menu").click();
+    await window.getByTestId("composer-open-models").click();
+    for (const modelId of disabledIds) {
+      await expect(
+        window.locator(`[data-testid="composer-model-option"][data-provider="kimi-coding"][data-model="${modelId}"]`),
+      ).toHaveCount(0);
+    }
+    await expect(
+      window.locator(`[data-testid="composer-model-option"][data-provider="kimi-coding"][data-model="${enabledId}"]`),
+    ).toHaveCount(1);
+    await app.close();
+  }
+
+  // 场景三：供应商模型批量操作，全部取消启用后从会话消失，全部启用后恢复
+  {
+    const app = await launchApp();
+    const window = await app.firstWindow();
+
+    await window.getByRole("button", { name: /新建聊天/ }).click();
+    await expect(window.getByPlaceholder(/说点什么/)).toBeVisible({ timeout: 15000 });
+    await window.getByTitle("设置", { exact: true }).click();
+    await window.getByRole("button", { name: "模型", exact: true }).click();
+    await configureProvider(window, "Kimi For Coding");
+    await window.getByRole("button", { name: "配置 Kimi For Coding", exact: true }).click();
+
+    const toggles = window.getByTestId("model-enabled-toggle");
+    await expect(toggles.first()).toBeVisible({ timeout: 15000 });
+    const totalCount = await toggles.count();
+    await expect(window.getByTestId("models-enable-all")).toBeDisabled();
+
+    await window.getByTestId("models-disable-all").click();
+    await expect
+      .poll(
+        async () => await toggles.evaluateAll((els) => els.every((el) => el.getAttribute("aria-pressed") === "false")),
+      )
+      .toBe(true);
+    await window.getByRole("button", { name: "返回", exact: true }).click();
+    await window.getByTitle("关闭设置").click();
+
+    await window.getByTestId("composer-model-menu").click();
+    await window.getByTestId("composer-open-models").click();
+    await expect(window.locator('[data-testid="composer-model-option"][data-provider="kimi-coding"]')).toHaveCount(0);
+    await window.keyboard.press("Escape");
+    await window.keyboard.press("Escape");
+
+    await window.getByTitle("设置", { exact: true }).click();
+    await window.getByRole("button", { name: "模型", exact: true }).click();
+    await window.getByRole("button", { name: "配置 Kimi For Coding", exact: true }).click();
+    await window.getByTestId("models-enable-all").click();
+    await expect
+      .poll(
+        async () => await toggles.evaluateAll((els) => els.every((el) => el.getAttribute("aria-pressed") === "true")),
+      )
+      .toBe(true);
+    await window.getByRole("button", { name: "返回", exact: true }).click();
+    await window.getByTitle("关闭设置").click();
+
+    await window.getByTestId("composer-model-menu").click();
+    await window.getByTestId("composer-open-models").click();
+    await expect(window.locator('[data-testid="composer-model-option"][data-provider="kimi-coding"]')).toHaveCount(
+      totalCount,
+    );
+    await app.close();
+  }
 });

@@ -6,6 +6,9 @@ import { launchApp } from "./helpers";
 /**
  * Fork 会话 + 导出会话上下文的 e2e：预置注册表条目与真实 pi 会话文件，
  * 不依赖模型/网络（Fork 走 forkFrom 文件复制 + 无模型 createAgentSession；导出是纯文件读）。
+ *
+ * 合并说明：原 session-fork-export.spec.ts（3 例）收敛为 2 例，
+ * 「菜单入口 + 空会话禁用」与「确认 Fork 后出现分叉会话」合并为一条用例（各自 launch）。
  */
 
 const PROJECT_CWD = "/tmp/spcode-e2e-project";
@@ -85,8 +88,9 @@ function seed(home: string): void {
   writeFileSync(join(home, "sessions.json"), JSON.stringify(registry, null, 2), "utf-8");
 }
 
-test.describe("Fork 会话 + 导出上下文", () => {
-  test("会话菜单出现 Fork/导出入口；空会话两项禁用", async () => {
+test("Fork 会话：菜单入口与空会话禁用，确认后出现分叉会话且原会话保留", async () => {
+  // 场景一：会话菜单出现 Fork/导出入口；空会话两项禁用
+  {
     const app = await launchApp({ seed });
     const window = await app.firstWindow();
 
@@ -112,55 +116,10 @@ test.describe("Fork 会话 + 导出上下文", () => {
     await expect(window.getByRole("menuitem", { name: "删除会话", exact: true })).toBeEnabled();
 
     await app.close();
-  });
+  }
 
-  test("导出会话上下文：落盘三件套并给出接力提示词反馈", async () => {
-    let home = "";
-    const app = await launchApp({
-      seed: (h) => {
-        home = h;
-        seed(h);
-      },
-    });
-    const window = await app.firstWindow();
-
-    const row = window.locator("div.group", { hasText: "E2E 预置会话" }).first();
-    await expect(row).toBeVisible({ timeout: 15000 });
-    await row.hover();
-    await row.getByTitle("会话操作").click();
-    await window.getByRole("menuitem", { name: "导出会话上下文", exact: true }).click();
-
-    // UI 反馈先断言：notice 8 秒自动消失，必须在文件检查之前完成
-    // （剪贴板在 headless 下可能被拒走 handoff.md 兜底文案，两种都算成功）
-    await expect(window.getByText(/接力提示词已复制|提示词已保存/)).toBeVisible({ timeout: 20000 });
-
-    // 导出目录落盘三件套（等三个文件都写完，消除写盘竞态）
-    await expect
-      .poll(
-        () => {
-          const dir = join(home, "exports");
-          if (!existsSync(dir) || readdirSync(dir).length === 0) return false;
-          const first = join(dir, readdirSync(dir)[0]!);
-          return ["session.jsonl", "transcript.md", "handoff.md"].every((f) => existsSync(join(first, f)));
-        },
-        { timeout: 15000 },
-      )
-      .toBe(true);
-    const exportDir = join(home, "exports", readdirSync(join(home, "exports"))[0]!);
-    expect(existsSync(join(exportDir, "session.jsonl"))).toBe(true);
-    expect(existsSync(join(exportDir, "handoff.md"))).toBe(true);
-    const transcript = readFileSync(join(exportDir, "transcript.md"), "utf-8");
-    expect(transcript).toContain("你好，帮我看下这个项目");
-    expect(transcript).toContain("好的，这是一个 E2E 预置项目。");
-    // 接力提示词指路 transcript/JSONL + handoff 指令
-    const prompt = readFileSync(join(exportDir, "handoff.md"), "utf-8");
-    expect(prompt).toContain(join(exportDir, "transcript.md"));
-    expect(prompt).toContain("conversation history that has already taken place");
-
-    await app.close();
-  });
-
-  test("Fork 会话：弹窗确认后侧栏出现分叉会话，原会话保留", async () => {
+  // 场景二：Fork 会话，弹窗确认后侧栏出现分叉会话，原会话保留
+  {
     const app = await launchApp({ seed });
     const window = await app.firstWindow();
 
@@ -181,5 +140,51 @@ test.describe("Fork 会话 + 导出上下文", () => {
     await expect(window.getByText("E2E 预置会话", { exact: true }).first()).toBeVisible();
 
     await app.close();
+  }
+});
+
+test("导出会话上下文：落盘三件套并给出接力提示词反馈", async () => {
+  let home = "";
+  const app = await launchApp({
+    seed: (h) => {
+      home = h;
+      seed(h);
+    },
   });
+  const window = await app.firstWindow();
+
+  const row = window.locator("div.group", { hasText: "E2E 预置会话" }).first();
+  await expect(row).toBeVisible({ timeout: 15000 });
+  await row.hover();
+  await row.getByTitle("会话操作").click();
+  await window.getByRole("menuitem", { name: "导出会话上下文", exact: true }).click();
+
+  // UI 反馈先断言：notice 8 秒自动消失，必须在文件检查之前完成
+  // （剪贴板在 headless 下可能被拒走 handoff.md 兜底文案，两种都算成功）
+  await expect(window.getByText(/接力提示词已复制|提示词已保存/)).toBeVisible({ timeout: 20000 });
+
+  // 导出目录落盘三件套（等三个文件都写完，消除写盘竞态）
+  await expect
+    .poll(
+      () => {
+        const dir = join(home, "exports");
+        if (!existsSync(dir) || readdirSync(dir).length === 0) return false;
+        const first = join(dir, readdirSync(dir)[0]!);
+        return ["session.jsonl", "transcript.md", "handoff.md"].every((f) => existsSync(join(first, f)));
+      },
+      { timeout: 15000 },
+    )
+    .toBe(true);
+  const exportDir = join(home, "exports", readdirSync(join(home, "exports"))[0]!);
+  expect(existsSync(join(exportDir, "session.jsonl"))).toBe(true);
+  expect(existsSync(join(exportDir, "handoff.md"))).toBe(true);
+  const transcript = readFileSync(join(exportDir, "transcript.md"), "utf-8");
+  expect(transcript).toContain("你好，帮我看下这个项目");
+  expect(transcript).toContain("好的，这是一个 E2E 预置项目。");
+  // 接力提示词指路 transcript/JSONL + handoff 指令
+  const prompt = readFileSync(join(exportDir, "handoff.md"), "utf-8");
+  expect(prompt).toContain(join(exportDir, "transcript.md"));
+  expect(prompt).toContain("conversation history that has already taken place");
+
+  await app.close();
 });

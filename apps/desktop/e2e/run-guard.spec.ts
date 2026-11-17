@@ -88,20 +88,3 @@ test("疑似死循环复用错误卡，展示原因并允许用户选择继续",
   await expect(window.getByTestId("run-retry-toggle")).toHaveCount(0);
   await app.close();
 });
-
-test("设置页模型最大调用次数默认 2000，并可编辑持久化", async () => {
-  const app = await launchApp();
-  const window = await app.firstWindow();
-  await window.getByTitle("设置", { exact: true }).click();
-  const input = window.getByTestId("max-model-turns");
-  await expect(input).toBeVisible();
-  await expect(input).toHaveValue("2000");
-  await input.fill("25");
-  await input.press("Enter");
-  await expect(input).toHaveValue("25");
-
-  await window.keyboard.press("Escape");
-  await window.getByTitle("设置", { exact: true }).click();
-  await expect(window.getByTestId("max-model-turns")).toHaveValue("25");
-  await app.close();
-});

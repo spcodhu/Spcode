@@ -1,3 +1,7 @@
+/**
+ * 三栏布局 E2E（原 layout.spec.ts）：分隔条拖动与持久化、窄栏主操作固定，
+ * 需要真实 Chromium 窗口尺寸与 localStorage 跨重启，故保留在 e2e。
+ */
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
