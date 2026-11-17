@@ -86,7 +86,11 @@ function endpoint(baseUrl: string, suffix: "models" | "v1/models"): URL {
   if (url.username || url.password || (url.protocol !== "http:" && url.protocol !== "https:")) {
     throw new Error("models.providerInvalidBaseUrl");
   }
-  url.pathname = `${url.pathname.replace(/\/+$/u, "")}/${suffix}`;
+  const basePath = url.pathname.replace(/\/+$/u, "");
+  // Anthropic/Mistral 的标准地址不带 /v1，但用户也可能把 /v1 填进 Base URL；
+  // 这里统一避免 /v1/v1/models，同时保留 OpenAI 根地址的 /models 形态。
+  const normalizedSuffix = suffix.startsWith("v1/") && /(?:^|\/)v1$/u.test(basePath) ? suffix.slice(3) : suffix;
+  url.pathname = `${basePath}/${normalizedSuffix}`;
   url.search = "";
   url.hash = "";
   return url;
@@ -215,7 +219,7 @@ async function discoverAnthropic(
   let afterId: string | undefined;
   const seenCursors = new Set<string>();
   for (let page = 0; page < MAX_PAGES; page++) {
-    const url = endpoint(input.baseUrl, "models");
+    const url = endpoint(input.baseUrl, "v1/models");
     url.searchParams.set("limit", "100");
     if (afterId) url.searchParams.set("after_id", afterId);
     const payload = record(await requestJson(url, headers, fetchImpl, secrets));

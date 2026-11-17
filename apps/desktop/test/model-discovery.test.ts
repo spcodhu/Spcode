@@ -74,6 +74,7 @@ describe("自定义供应商模型发现", () => {
       implementation,
     );
     expect(calls).toHaveLength(2);
+    expect(calls[0]?.url.href).toBe("https://api.anthropic.test/v1/models?limit=100");
     expect(calls[1]?.url.searchParams.get("after_id")).toBe("claude-one");
     const headers = new Headers(calls[0]?.init?.headers);
     expect(headers.get("x-api-key")).toBe("secret-key");
@@ -86,6 +87,15 @@ describe("自定义供应商模型发现", () => {
       vision: true,
     });
     expect(result.models[1]?.id).toBe("claude-two");
+  });
+
+  it("Anthropic Base URL 已带 /v1 时不重复拼接", async () => {
+    const { implementation, calls } = mockFetch(() => json({ data: [], has_more: false }));
+    await discoverModels(
+      { ...base, api: "anthropic-messages", baseUrl: "https://api.anthropic.test/v1" },
+      implementation,
+    );
+    expect(calls[0]?.url.href).toBe("https://api.anthropic.test/v1/models?limit=100");
   });
 
   it("Gemini：x-goog-api-key、pageToken、models/ 前缀与 token 限制", async () => {
