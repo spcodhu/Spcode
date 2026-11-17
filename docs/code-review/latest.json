@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "status": "pass",
-  "reviewedCommit": "2323ac48b219eeede613f6df88b3f1768c7ec00a",
+  "reviewedCommit": "89d38139d56211ae690fa2c89502b0e03ef2faa2",
   "baseline": "v0.1.0-beta.39",
   "date": "2026-11-17",
   "reviewer": "agent",
@@ -12,5 +12,5 @@
     "p2": 13
   },
   "openP1Accepted": null,
-  "note": ""
+  "note": "beta.40 Windows 单测失败后的跟进：仅测试断言 + 菜单文案 + 版本号，按流程 §1「只改测试」抽查后重记台账；失败 tag v0.1.0-beta.40 保留不动，改发 v0.1.0-beta.41"
 }
