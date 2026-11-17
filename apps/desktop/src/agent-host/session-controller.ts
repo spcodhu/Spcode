@@ -170,6 +170,24 @@ export function extractCommand(args: unknown): string | null {
   return null;
 }
 
+/**
+ * 判断本轮结束后引擎是否还会发起下一次模型请求（评审 R4 P1-1）。
+ *
+ * 不能只看 stopReason=toolUse：截断的 length 回合仍可能带工具调用并继续，
+ * steering/follow-up 队列也会在 finishTurn 之后被引擎 drain；只看 stopReason
+ * 会让 maxModelTurns 在这些隐式续跑路径上失效。
+ */
+export function shouldContinueRunGuard(
+  stopReason: string | undefined,
+  hasToolCalls: boolean,
+  extensionContinue: boolean,
+  hasQueuedMessages: boolean,
+): boolean {
+  return (
+    stopReason === "toolUse" || (stopReason === "length" && hasToolCalls) || extensionContinue || hasQueuedMessages
+  );
+}
+
 export interface SessionControllerOptions {
   sessionId: string;
   cwd: string;
@@ -409,8 +427,16 @@ export class SessionController {
       if (previous?.action === "end") return previous;
       const decision = await ctl.runGuard.finishTurn(
         turn,
-        turn.message.stopReason === "toolUse" || previous?.action === "continue",
+        shouldContinueRunGuard(
+          turn.message.stopReason,
+          turn.message.content.some((block) => block.type === "toolCall"),
+          previous?.action === "continue",
+          session.agent.hasQueuedMessages(),
+        ),
       );
+      // 暂停时若 steering/follow-up 仍排队，AgentSession 会在本轮 end 后再次 continue。
+      // 先清空队列，保证安全暂停不会再发出一次模型请求（评审 R4 P1-1）。
+      if (decision?.action === "end" && ctl.runGuard.lastPause) session.clearQueue();
       return decision ?? previous;
     };
 

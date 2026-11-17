@@ -14,7 +14,7 @@ import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryStore } from "../src/agent-host/memory-store.js";
 import { canonicalizeToolArguments, RunGuard } from "../src/agent-host/run-guard.js";
-import { SessionController } from "../src/agent-host/session-controller.js";
+import { SessionController, shouldContinueRunGuard } from "../src/agent-host/session-controller.js";
 import { sanitizeAppSettings } from "../src/main/settings-store.js";
 
 function usage() {
@@ -68,6 +68,17 @@ function guardHarness(maxTurns = 2000) {
   });
   return { guard, contexts, pauses };
 }
+
+describe("RunGuard 续跑判定（评审 R4 P1-1）", () => {
+  it("覆盖截断工具调用、扩展续跑和排队消息，不把自然停止误判为续跑", () => {
+    expect(shouldContinueRunGuard("toolUse", true, false, false)).toBe(true);
+    expect(shouldContinueRunGuard("length", true, false, false)).toBe(true);
+    expect(shouldContinueRunGuard("length", false, false, false)).toBe(false);
+    expect(shouldContinueRunGuard("stop", false, true, false)).toBe(true);
+    expect(shouldContinueRunGuard("stop", false, false, true)).toBe(true);
+    expect(shouldContinueRunGuard("stop", false, false, false)).toBe(false);
+  });
+});
 
 describe("RunGuard 连续相同工具调用检测", () => {
   it("参数深度规范化；第 3 次提醒、第 5 次暂停，之后不再发起新回合", async () => {
@@ -142,6 +153,38 @@ describe("RunGuard 模型回合预算与设置", () => {
     }
   });
 });
+
+async function createTestRuntime(dir: string): Promise<ModelRuntime> {
+  writeFileSync(
+    join(dir, "models.json"),
+    JSON.stringify({
+      providers: {
+        test: {
+          name: "Test",
+          baseUrl: "https://test.invalid/v1",
+          api: "openai-completions",
+          apiKey: "test-key",
+          models: [
+            {
+              id: "test-model",
+              name: "Test model",
+              reasoning: false,
+              input: ["text"],
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+              contextWindow: 100000,
+              maxTokens: 4096,
+            },
+          ],
+        },
+      },
+    }),
+  );
+  return ModelRuntime.create({
+    authPath: join(dir, "auth.json"),
+    modelsPath: join(dir, "models.json"),
+    allowModelNetwork: false,
+  });
+}
 
 describe("SessionController 运行保护集成", () => {
   let dir = "";
@@ -252,6 +295,61 @@ describe("SessionController 运行保护集成", () => {
         );
       }),
     ).toBe(true);
+    await ctl.dispose();
+  }, 30_000);
+
+  it("暂停时清空排队 steer，不再发起下一轮模型请求", async () => {
+    dir = mkdtempSync(join(tmpdir(), "spcode-run-guard-queue-"));
+    const runtime = await createTestRuntime(dir);
+    const script: AssistantMessage[] = [
+      assistant([{ type: "toolCall", id: "call-queued", name: "mcp__test__probe", arguments: { q: 1 } }]),
+      assistant([{ type: "text", text: "must not be requested" }], "stop"),
+    ];
+    const streamMock = vi.spyOn(runtime, "streamSimple").mockImplementation(() => {
+      const next = script.shift();
+      if (!next) throw new Error("Guard allowed an unexpected extra model call");
+      return streamOf(next);
+    });
+    let ctl: SessionController;
+    let queued = 0;
+    const probe: ToolDefinition = {
+      name: "mcp__test__probe",
+      label: "probe",
+      description: "test probe",
+      parameters: Type.Object({}),
+      execute: async () => {
+        await ctl.prompt("queued while running");
+        queued += 1;
+        return { content: [{ type: "text", text: "done" }] };
+      },
+    };
+    const pauses: RunGuardPause[] = [];
+    ctl = await SessionController.create({
+      sessionId: "guard-queue-integration",
+      cwd: join(dir, "scratch"),
+      agentDir: dir,
+      modelRuntime: runtime,
+      modelRef: { provider: "test", modelId: "test-model" },
+      memoryStore: new MemoryStore(join(dir, "home")),
+      noTitleAutomation: true,
+      isDistillEnabled: () => false,
+      getMaxModelTurns: () => 1,
+      getMcpTools: () => [probe],
+      emitRunGuard: (pause) => pauses.push(pause),
+      emitEvent: () => {},
+      emitUsage: () => {},
+      emitTodo: () => {},
+      emitPlanMode: () => {},
+      emitPlan: () => {},
+      requestPermission: async () => true,
+      askQuestion: async () => ({}),
+    });
+
+    await ctl.prompt("run with a queued steer");
+    expect(queued).toBe(1);
+    expect(streamMock).toHaveBeenCalledTimes(1);
+    expect(pauses).toEqual([{ reason: "maxTurns", turnCount: 1, limit: 1 }]);
+    expect(ctl.isRunning()).toBe(false);
     await ctl.dispose();
   }, 30_000);
 });
