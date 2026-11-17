@@ -1,5 +1,8 @@
 # Spcode Harness 代码评审报告（v0.1.0）
 
+> **历史报告**：本文件保留 R1/R2（2026-09-30）结论，R3 之后的现状已过时。
+> 最新结论见 [CODE-REVIEW-R4.md](CODE-REVIEW-R4.md)（2026-11-17，基线 `6d31824`）。
+
 > 评审人视角：高级架构师 · 面向 toC/toB 兼顾的长期项目
 > 评审范围：`apps/desktop`（main / preload / agent-host / renderer）、`packages/shared`、构建打包、CI、测试、文档
 > 代码规模：约 8,800 行 TypeScript（不含 node_modules / release 产物），49 个源文件
