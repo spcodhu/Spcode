@@ -137,6 +137,8 @@ describe("工作区文件预览读取边界", () => {
     expect(resolveWorkspaceFilePath("huge.txt", cwd, home)).toBe(realpathSync(join(cwd, "huge.txt")));
     expect(() => resolveWorkspaceFilePath("../outside.txt", cwd, home)).toThrow(/outside the session workspace/);
     expect(() => resolveWorkspaceFilePath("missing.ts", cwd, home)).toThrow(/File not found/);
+    // 目录不是文件：菜单不能把它当可打开/可复制的文件目标
+    expect(() => resolveWorkspaceFilePath("nested", cwd, home)).toThrow(/Not a file/);
     expect(() => resolveWorkspaceFilePath("auth.json", join(home, "agent"), home)).toThrow(/protected/);
   });
 

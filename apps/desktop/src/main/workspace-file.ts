@@ -163,11 +163,14 @@ export function readWorkspaceFile(
  */
 export function resolveWorkspaceFilePath(rawPath: string, cwd: string, spcodeHome = resolveSpcodeHome()): string {
   const real = resolvePreviewPath(rawPath, cwd, spcodeHome);
+  let info: ReturnType<typeof statSync>;
   try {
-    statSync(real);
+    info = statSync(real);
   } catch {
     throw new WorkspaceFileError("not-found", `File not found: ${rawPath}`);
   }
+  // 与预览同口径：目录不是「文件」，菜单不应把它当可打开目标（评审 R5 P2-3）
+  if (!info.isFile()) throw new WorkspaceFileError("not-found", `Not a file: ${rawPath}`);
   return real;
 }
 

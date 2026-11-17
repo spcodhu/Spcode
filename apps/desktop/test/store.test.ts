@@ -903,3 +903,128 @@ describe("compactSession 手动压缩", () => {
     expect(spy.mock.calls.some((c) => (c[0] as { type?: string }).type === "session.compact")).toBe(false);
   });
 });
+
+describe("安全暂停丢弃插话时退回输入框（评审 R5 P1-1）", () => {
+  it("摘掉乐观气泡并把原文拼回草稿，暂停卡保留丢弃条数", () => {
+    const sessionId = "s-dropped-steer";
+    useStore.setState((s) => ({
+      activeSessionId: sessionId,
+      composerDrafts: {
+        [sessionId]: { text: "已有的草稿", attachments: [], files: [], inputMode: "plain", updatedAt: 0 },
+      },
+      sessions: {
+        ...s.sessions,
+        [sessionId]: {
+          meta: {
+            id: sessionId,
+            mode: "chat" as const,
+            cwd: "",
+            title: "t",
+            model: null,
+            thinkingLevel: "off",
+            createdAt: 0,
+            updatedAt: 0,
+          },
+          messages: [
+            {
+              id: "u-optimistic",
+              role: "user" as const,
+              segments: [{ kind: "text" as const, id: "seg1", text: "先等等，改个方向" }],
+              streaming: false,
+              optimistic: true,
+            },
+            {
+              id: "u-kept",
+              role: "user" as const,
+              segments: [{ kind: "text" as const, id: "seg2", text: "正常已发出的消息" }],
+              streaming: false,
+            },
+          ],
+          supportedThinkingLevels: [],
+          todos: [],
+        } as never,
+      },
+    }));
+
+    useStore.getState().applyHostEvent({
+      type: "session.runGuard",
+      sessionId,
+      pause: { reason: "maxTurns", turnCount: 2000, limit: 2000, droppedSteering: ["先等等，改个方向"] },
+    } as never);
+
+    const session = useStore.getState().sessions[sessionId];
+    // 乐观气泡被摘掉（引擎从未收到这条，留着就会「UI 有、历史里没」）
+    expect(session?.messages.map((m) => m.id)).toEqual(["u-kept"]);
+    // 原文退回输入框，且不覆盖用户原有草稿
+    expect(useStore.getState().composerDrafts[sessionId]?.text).toBe("已有的草稿\n\n先等等，改个方向");
+    expect(session?.pendingGuard?.droppedSteering).toEqual(["先等等，改个方向"]);
+  });
+
+  it("没有丢弃内容时不动草稿与消息", () => {
+    const sessionId = "s-no-drop";
+    useStore.setState((s) => ({
+      sessions: {
+        ...s.sessions,
+        [sessionId]: {
+          meta: {
+            id: sessionId,
+            mode: "chat" as const,
+            cwd: "",
+            title: "t",
+            model: null,
+            thinkingLevel: "off",
+            createdAt: 0,
+            updatedAt: 0,
+          },
+          messages: [],
+          supportedThinkingLevels: [],
+          todos: [],
+        } as never,
+      },
+    }));
+    useStore.getState().applyHostEvent({
+      type: "session.runGuard",
+      sessionId,
+      pause: { reason: "repeatTool", turnCount: 5, toolName: "read", repeatCount: 5 },
+    } as never);
+    expect(useStore.getState().composerDrafts[sessionId]).toBeUndefined();
+    expect(useStore.getState().sessions[sessionId]?.pendingGuard?.droppedSteering).toBeUndefined();
+  });
+
+  it("纯图片插话同样回收：摘掉气泡并把图片回填草稿", () => {
+    const sessionId = "s-dropped-image";
+    const image = { name: "shot.png", mimeType: "image/png", data: "AAAA" };
+    useStore.setState((s) => ({
+      sessions: {
+        ...s.sessions,
+        [sessionId]: {
+          meta: {
+            id: sessionId,
+            mode: "chat" as const,
+            cwd: "",
+            title: "t",
+            model: null,
+            thinkingLevel: "off",
+            createdAt: 0,
+            updatedAt: 0,
+          },
+          messages: [
+            { id: "u-img", role: "user" as const, segments: [], images: [image], streaming: false, optimistic: true },
+          ],
+          supportedThinkingLevels: [],
+          todos: [],
+        } as never,
+      },
+    }));
+
+    useStore.getState().applyHostEvent({
+      type: "session.runGuard",
+      sessionId,
+      pause: { reason: "maxTurns", turnCount: 2000, limit: 2000 },
+    } as never);
+
+    // 引擎队列只存文本，这里靠「未认领的乐观气泡」把图片找回来
+    expect(useStore.getState().sessions[sessionId]?.messages).toHaveLength(0);
+    expect(useStore.getState().composerDrafts[sessionId]?.attachments).toEqual([image]);
+  });
+});

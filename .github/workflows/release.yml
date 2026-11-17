@@ -19,6 +19,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 门禁要比对「台账评审提交」到「tag 提交」的增量，浅克隆取不到历史会直接报错
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:

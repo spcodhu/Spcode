@@ -348,7 +348,14 @@ describe("SessionController 运行保护集成", () => {
     await ctl.prompt("run with a queued steer");
     expect(queued).toBe(1);
     expect(streamMock).toHaveBeenCalledTimes(1);
-    expect(pauses).toEqual([{ reason: "maxTurns", turnCount: 1, limit: 1 }]);
+    // 暂停事件先发一次，清空队列后再发一次带丢弃原文的版本（评审 R5 P1-1）
+    expect(pauses[0]).toEqual({ reason: "maxTurns", turnCount: 1, limit: 1 });
+    expect(pauses.at(-1)).toEqual({
+      reason: "maxTurns",
+      turnCount: 1,
+      limit: 1,
+      droppedSteering: ["queued while running"],
+    });
     expect(ctl.isRunning()).toBe(false);
     await ctl.dispose();
   }, 30_000);

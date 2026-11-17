@@ -436,7 +436,15 @@ export class SessionController {
       );
       // 暂停时若 steering/follow-up 仍排队，AgentSession 会在本轮 end 后再次 continue。
       // 先清空队列，保证安全暂停不会再发出一次模型请求（评审 R4 P1-1）。
-      if (decision?.action === "end" && ctl.runGuard.lastPause) session.clearQueue();
+      // 被清空的插话是用户刚发的内容，引擎不会落盘——必须回传渲染层退回输入框，
+      // 否则用户以为模型已看到，实际消息被静默吞掉（评审 R5 P1-1）。
+      if (decision?.action === "end" && ctl.runGuard.lastPause) {
+        const dropped = session.clearQueue();
+        const texts = [...dropped.steering, ...dropped.followUp]
+          .map((text) => text.trim())
+          .filter((text) => text.length > 0);
+        if (texts.length > 0) opts.emitRunGuard?.({ ...ctl.runGuard.lastPause, droppedSteering: texts });
+      }
       return decision ?? previous;
     };
 

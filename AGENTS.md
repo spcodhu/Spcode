@@ -13,6 +13,7 @@
 - 日常功能 / 修复提交一律不触发发布：不打 tag、不碰版本号，安安静静提交即可（push/PR 会自动跑 CI 的 lint+typecheck+单测；e2e 仍为手动触发）。
 - 只有用户明确要求"发布版本"时才走发布流程；发布前**必须主动询问本次是测试版还是稳定版**。
 - 发布动作：推进 `apps/desktop/package.json` 的 `version`（测试版加 `-beta.N` 后缀）→ **过评审门禁** → 提交 → 打同名 `v*` tag → 推 tag 触发 release.yml。release.yml 统一 `prerelease: false`，最新构建始终占 GitHub Latest 位，beta 与稳定版只靠版本号后缀区分。
+  - 提交顺序：代码与版本号先提交，评审覆盖那个提交（`reviewedCommit`）；报告与台账再作为一个只改 `docs/code-review/**` 的提交落在后面。门禁显式允许这段尾巴，但中间只要动了代码/测试就必须重新增量评审。
 - **发版前评审是硬门禁**（测试版/稳定版都算）：
   - 流程与 token 预算见 [docs/code-review/README.md](docs/code-review/README.md)：`pnpm review:context` → 分区域评审（子代理/新会话）→ 实跑验证日志落盘 → 写 `docs/code-review/R<N>-<date>.md` → `pnpm review:record` 记台账。
   - 基线固定是**上一个 release tag**，只审增量，不做全量通读；评审与整改分两个会话。

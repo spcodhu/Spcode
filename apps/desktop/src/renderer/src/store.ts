@@ -1068,6 +1068,66 @@ export function composerDraftKeyOf(session: SessionState | undefined, sessionId:
   return sessionId;
 }
 
+/**
+ * 安全暂停丢弃的插话退回输入框（评审 R5 P1-1）：引擎不会落盘这些原文，
+ * 不退回就会「UI 有乐观气泡、历史里没有、模型也没看到」。
+ */
+function restoreDroppedDrafts(
+  state: StoreState,
+  sessionId: string,
+  dropped: { text: string[]; attachments: ImageAttachment[]; fileNames: string[] },
+): Record<string, ComposerDraft> {
+  const key = composerDraftKeyOf(state.sessions[sessionId], sessionId);
+  const prev = state.composerDrafts[key];
+  // 文件附件的内容不在消息里（只存展示元信息）；若回填文本里已带 <file> 全文就不必再提醒
+  const embedded = dropped.text.some((text) => text.includes("<file"));
+  const fileNote =
+    dropped.fileNames.length > 0 && !embedded
+      ? i18n.t("chat:message.droppedFiles", { names: dropped.fileNames.join("、") })
+      : "";
+  const text = [prev?.text ?? "", ...dropped.text, fileNote].filter((part) => part.trim()).join("\n\n");
+  return {
+    ...state.composerDrafts,
+    [key]: {
+      text,
+      attachments: [...(prev?.attachments ?? []), ...dropped.attachments],
+      files: prev?.files ?? [],
+      inputMode: prev?.inputMode ?? "plain",
+      updatedAt: Date.now(),
+    },
+  };
+}
+
+/**
+ * 回收未送达的乐观用户气泡，交回它们的原文与图片/文件附件。
+ *
+ * 判定依据：乐观气泡只会在引擎真发出去（`message_end` role=user）后被认领，
+ * 因此安全暂停结束时还带 `optimistic` 的用户消息必然从未送达模型——
+ * 包括纯图片插话（引擎队列只存文本，`clearQueue()` 回传里根本没有它们，评审 R5 P1-1）。
+ */
+function takeUndeliveredOptimistic(messages: ChatMessage[]): {
+  messages: ChatMessage[];
+  texts: string[];
+  attachments: ImageAttachment[];
+  fileNames: string[];
+} {
+  const texts: string[] = [];
+  const attachments: ImageAttachment[] = [];
+  const fileNames: string[] = [];
+  let removed = false;
+  const kept = messages.filter((message) => {
+    if (message.role !== "user" || !message.optimistic) return true;
+    removed = true;
+    const text = messageText(message).trim();
+    if (text) texts.push(text);
+    if (message.images?.length) attachments.push(...message.images);
+    if (message.files?.length) fileNames.push(...message.files.map((file) => file.name));
+    return false;
+  });
+  if (!removed) return { messages, texts: [], attachments: [], fileNames: [] };
+  return { messages: kept, texts, attachments, fileNames };
+}
+
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
@@ -1907,10 +1967,37 @@ export const useStore = create<StoreState>((set, get) => ({
         case "session.usage":
           // 原始 usage 只用于主进程落账与远程透传；聚合由 summary、上下文由 session.context 负责
           return s;
-        case "session.runGuard":
-          return touchSession(s, event.sessionId, (draft) => {
+        case "session.runGuard": {
+          const reported = (event.pause.droppedSteering ?? []).map((text) => text.trim()).filter((text) => text);
+          const next = touchSession(s, event.sessionId, (draft) => {
             draft.pendingGuard = event.pause;
           });
+          // 会话已不在 state 里（被关掉/切成草稿）：不要凭空写孤儿草稿
+          if (next === s) return next;
+          // 引擎只回传文本，纯图片插话靠「未认领的乐观气泡」回收（评审 R5 P1-1）
+          const current = next.sessions[event.sessionId]?.messages ?? [];
+          const taken = takeUndeliveredOptimistic(current);
+          // 引擎回传的是拼好 <file> 附件的最终文本，和本地原文不完全相同：
+          // 只要它包含某条乐观原文就算同一条，避免同一插话被退回两遍
+          const extra = reported.filter((text) => !taken.texts.some((own) => text.includes(own)));
+          const restore = {
+            text: [...taken.texts, ...extra],
+            attachments: taken.attachments,
+            fileNames: taken.fileNames,
+          };
+          if (restore.text.length === 0 && restore.attachments.length === 0 && restore.fileNames.length === 0)
+            return next;
+          const withMessages =
+            taken.messages === current
+              ? next
+              : touchSession(next, event.sessionId, (draft) => {
+                  draft.messages = taken.messages;
+                });
+          return {
+            ...withMessages,
+            composerDrafts: restoreDroppedDrafts(withMessages, event.sessionId, restore),
+          };
+        }
         case "session.usage.summary":
           return touchSession(s, event.sessionId, (draft) => {
             const revision = event.snapshot.revision;

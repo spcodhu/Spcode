@@ -17,6 +17,12 @@ export interface RunGuardPause {
   toolName?: string;
   repeatCount?: number;
   argumentsPreview?: string;
+  /**
+   * 安全暂停被丢弃的排队插话（steering/follow-up 原文）。
+   * 引擎在暂停时不会发出这些消息，宿主把它们回传渲染层退回输入框，
+   * 否则用户插话会被静默吞掉。
+   */
+  droppedSteering?: string[];
 }
 
 export type RunGuardCustomDetails =
@@ -30,11 +36,17 @@ export function parseRunGuardPause(value: unknown): RunGuardPause | null {
   const src = value as Partial<RunGuardPause>;
   if (src.reason !== "maxTurns" && src.reason !== "repeatTool") return null;
   if (typeof src.turnCount !== "number" || !Number.isSafeInteger(src.turnCount) || src.turnCount < 1) return null;
+  // 被丢弃的插话原文（可选）：只保留非空字符串，防止坏数据往渲染层塞垃圾
+  const dropped = Array.isArray(src.droppedSteering)
+    ? src.droppedSteering.filter((text): text is string => typeof text === "string" && text.trim().length > 0)
+    : [];
+  const droppedField = dropped.length > 0 ? { droppedSteering: dropped } : {};
   if (src.reason === "maxTurns") {
     return {
       reason: src.reason,
       turnCount: src.turnCount,
       ...(typeof src.limit === "number" ? { limit: src.limit } : {}),
+      ...droppedField,
     };
   }
   if (typeof src.toolName !== "string" || typeof src.repeatCount !== "number") return null;
@@ -44,6 +56,7 @@ export function parseRunGuardPause(value: unknown): RunGuardPause | null {
     toolName: src.toolName,
     repeatCount: src.repeatCount,
     ...(typeof src.argumentsPreview === "string" ? { argumentsPreview: src.argumentsPreview } : {}),
+    ...droppedField,
   };
 }
 

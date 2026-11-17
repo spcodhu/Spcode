@@ -56,11 +56,18 @@ pnpm review:context            # 产物在 .review/：context.md / diff.patch / 
    pnpm review:record --status pass --report docs/code-review/R5-2026-11-17.md --p0 0 --p1 0 --p2 7
    ```
 
-6. **过门禁 → 发版**：
+6. **提交报告与台账，再过门禁 → 发版**：
 
    ```bash
+   git add docs/code-review && git commit -m "文档: 新增 R<N> 代码评审报告"
    pnpm release:gate     # 本地自检；打 tag 后 release.yml 的 review-gate job 再校验一次
    ```
+
+   > 门禁读的是**目标提交里的台账**（CI 与本地同一语义），并且允许
+   > `reviewedCommit..tag` 之间只有 `docs/code-review/**` 的「尾巴」：
+   > 评审结论只能在被评代码提交之后落盘，这一步本身不算产品改动。
+   > 但只要期间又改了代码/测试，就必须重新增量评审（门禁会点名改了哪些文件）。
+   > 提交前想偷看结果可以加 `--worktree`，它才读工作区台账。
 
 ## 3. Token 预算（硬性）
 

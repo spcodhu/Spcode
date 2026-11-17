@@ -132,8 +132,10 @@ describe("Plan / 本地文件 Markdown 链接拆分", () => {
   });
 
   it("紧邻行内代码时补空格，避免两个 code span 被合并", () => {
-    const encoded = encodeLocalMedia("先看 `README` [源码](src/a.ts)");
-    expect(encoded).toMatch(/^先看 `README` `spcode-media:[^`]+`$/);
+    // 链接前缀无空格才会命中补空格分支（评审 R5 P2-6：旧用例自带空格，等于没测）
+    expect(encodeLocalMedia("先看`README`[源码](src/a.ts)")).toMatch(/^先看`README` `spcode-media:[^`]+`$/);
+    // 链接后缀紧贴行内代码时同样要隔开
+    expect(encodeLocalMedia("[源码](src/a.ts)`尾注`")).toMatch(/^`spcode-media:[^`]+` `尾注`$/);
   });
 
   it("普通行内代码与非法占位符不会被误认为文件入口", () => {

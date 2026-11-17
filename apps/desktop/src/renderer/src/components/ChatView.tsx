@@ -20,21 +20,33 @@ export function ChatView({ sessionId }: { sessionId: string }) {
   const nearBottomRef = useRef(true);
   /** 离开底部时露出悬浮「回到最新」按钮（模型输出中尤其实用） */
   const [awayFromBottom, setAwayFromBottom] = useState(false);
+  /** 平滑回底期间忽略滚动反馈（到点后用截止时间兑底，避免动画被打断后永久卡住） */
+  const jumpGuardUntilRef = useRef(0);
   const msgCount = session?.messages.length ?? 0;
   const lastLen = lastMessageLength(session?.messages);
 
-  const handleScroll = () => {
+  /** 按当前滚动位置同步「是否离开底部」；guard 窗口内只吸收动画自身的反馈 */
+  const syncScrollState = () => {
     const el = scrollRef.current;
     if (!el) return;
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
     nearBottomRef.current = distance < 80;
-    setAwayFromBottom(distance >= 160);
+    if (Date.now() < jumpGuardUntilRef.current) {
+      // 动画自身触发的滚动不参与判定：旧距离会让按钮又亮一下
+      if (distance < 8) jumpGuardUntilRef.current = 0;
+      else return;
+    }
+    setAwayFromBottom(distance >= 80);
   };
 
   const jumpToLatest = () => {
     nearBottomRef.current = true;
+    // 用户中途滚轮/触控板打断动画时，截止时间一过就恢复正常判定，不会永久不再出按钮；
+    // 到点再主动量一次：被打断后若用户不再滚动，不会再有 scroll 事件把按钮唤醒
+    jumpGuardUntilRef.current = Date.now() + 800;
     setAwayFromBottom(false);
     bottomRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+    window.setTimeout(syncScrollState, 820);
   };
 
   // 内容增长（新消息/流式 delta）时吸底——仅当用户本来就停在底部附近
@@ -72,7 +84,7 @@ export function ChatView({ sessionId }: { sessionId: string }) {
       <div className="relative min-h-0 flex-1">
         {/* overflow-x-hidden：兜底拦住任何横向溢出（长串无断行文本等），
             页面级横滚条会破坏布局并出现在输入框上方 */}
-        <div ref={scrollRef} onScroll={handleScroll} className="h-full overflow-y-auto overflow-x-hidden">
+        <div ref={scrollRef} onScroll={syncScrollState} className="h-full overflow-y-auto overflow-x-hidden">
           <div
             ref={contentRef}
             className={`mx-auto max-w-3xl px-6 py-6 ${isEmpty ? "relative flex min-h-full flex-col justify-center" : ""}`}

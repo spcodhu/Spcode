@@ -362,6 +362,12 @@ function RunErrorCard({ message, sessionId }: { message: ChatMessage; sessionId:
               {t("message.retryExhausted", { count: notice.attempt })}
             </div>
           ) : null}
+          {/* 安全暂停丢掉排队插话时明确告知：它们已退回输入框，不是丢了而是没发出 */}
+          {notice.guard?.droppedSteering?.length ? (
+            <div className="mt-1 text-[11.5px] text-text-tertiary" data-testid="run-guard-dropped">
+              {t("message.droppedSteering", { count: notice.guard.droppedSteering.length })}
+            </div>
+          ) : null}
           {/* 原始错误直接铺在外面：排查时最想看的就是这句话，多一次点击都是阻碍 */}
           {notice.raw && (
             <pre

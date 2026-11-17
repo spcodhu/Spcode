@@ -37,13 +37,26 @@ function git(...args) {
 
 function tryGit(...args) {
   try {
-    return git(...args);
+    return execFileSync("git", args, {
+      cwd,
+      encoding: "utf8",
+      maxBuffer: 256 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
   } catch {
     return "";
   }
 }
 
-const lastTag = tryGit("describe", "--tags", "--abbrev=0").trim();
+// HEAD 本身就是 tag 时（刚发完版接着评审）要退到上一个 tag，否则基线==HEAD 得出空增量
+const describeBase = () => {
+  const own = tryGit("describe", "--tags", "--exact-match", "HEAD").trim();
+  const tag = own
+    ? tryGit("describe", "--tags", "--abbrev=0", "HEAD^").trim()
+    : tryGit("describe", "--tags", "--abbrev=0").trim();
+  return tag;
+};
+const lastTag = describeBase();
 const base = arg("base", lastTag);
 if (!base) {
   console.error("找不到上一个 tag，也没有传 --base；增量评审必须有基线。");
@@ -62,13 +75,23 @@ const commits = tryGit("log", "--oneline", "--no-decorate", range)
   .split("\n")
   .filter(Boolean);
 
-const numstat = tryGit("diff", "--numstat", range)
+/** numstat 的改名路径是 `dir/{old => new}` 花括号形式：原样回填给 git diff 会命中 0 行，
+ * 这里统一折叠成改名后的新路径（评审 R5 P2-1）。 */
+function normalizeChangedPath(raw) {
+  if (!raw.includes("=>")) return raw;
+  const braced = raw.match(/^(.*)\{(.*) => (.*)\}(.*)$/);
+  if (!braced) return raw.split(" => ").pop().trim();
+  const [, prefix, , next, suffix] = braced;
+  return `${prefix}${next}${suffix}`.replace(/\/{2,}/g, "/");
+}
+
+const numstat = tryGit("diff", "--numstat", "--find-renames", range)
   .trim()
   .split("\n")
   .filter(Boolean)
   .map((line) => {
     const [add, del, file] = line.split("\t");
-    return { file, add: Number(add) || 0, del: Number(del) || 0 };
+    return { file: normalizeChangedPath(file), add: Number(add) || 0, del: Number(del) || 0 };
   })
   .filter((f) => !area || f.file.includes(area));
 
@@ -193,7 +216,10 @@ ${changed.length > 40 ? `\n其余 ${changed.length - 40} 个文件见 \`git diff
 ## 按区域分布
 
 ${[...buckets.entries()]
-  .map(([key, files]) => `- **${key}**（${files.length}）：${files.map((f) => `\`${f.file.split("/").pop()}\``).join("、")}`)
+  .map(
+    ([key, files]) =>
+      `- **${key}**（${files.length}）：${files.map((f) => `\`${f.file.split("/").slice(-2).join("/")}\``).join("、")}`,
+  )
   .join("\n")}
 
 ## 没有就近单测的源文件（优先人工看）
