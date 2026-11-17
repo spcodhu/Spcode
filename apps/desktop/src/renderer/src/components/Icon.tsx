@@ -18,6 +18,7 @@ const PATHS: Record<string, string> = {
   alert: "M12 3 2 21h20zM12 9v5m0 3h.01",
   plus: "M12 5v14M5 12h14",
   arrowUp: "M12 19V5m-7 7 7-7 7 7",
+  arrowDown: "M12 5v14m-7-7 7 7 7-7",
   folder: "M3 7a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z",
   chat: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z",
   toolbox: "M4 7h16v13H4zm4 0V4h8v3M4 12h16",

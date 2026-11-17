@@ -44,6 +44,26 @@ function seedCodeBlock(home: string): void {
         ],
       },
     }),
+    // 后续多段正文把消息区撑高，供「划上去后回到最新」的悬浮按钮断言使用
+    JSON.stringify({
+      type: "message",
+      id: "a2",
+      parentId: "a1",
+      timestamp: "2026-02-01T00:00:02.000Z",
+      message: {
+        role: "assistant",
+        timestamp: 1769904002000,
+        content: [
+          {
+            type: "text",
+            text: Array.from(
+              { length: 30 },
+              (_, index) => `第 ${index + 1} 段历史正文，用于把会话消息区撑到超过一屏。`,
+            ).join("\n\n"),
+          },
+        ],
+      },
+    }),
   ];
   writeFileSync(sessionFile, `${lines.join("\n")}\n`);
   writeFileSync(
@@ -193,6 +213,9 @@ test("消息渲染：代码块标题栏居中、多图横滚与预览复位、�
   const codeBlock = window.locator('[data-streamdown="code-block"]');
   const copyButton = window.locator('[data-streamdown="code-block-copy-button"]');
   await expect(copyButton).toBeVisible({ timeout: 15000 });
+  // 刚打开会话时吸在底部，不显示悬浮按钮
+  const jump = window.getByTestId("chat-jump-bottom");
+  await expect(jump).toHaveCount(0);
   await codeBlock.screenshot({ path: test.info().outputPath("code-block.png") });
 
   const label = window.locator('[data-streamdown="code-block-header"] span');
@@ -203,6 +226,20 @@ test("消息渲染：代码块标题栏居中、多图横滚与预览复位、�
   const labelCenter = labelBox!.y + labelBox!.height / 2;
   const buttonCenter = buttonBox!.y + buttonBox!.height / 2;
   expect(Math.abs(labelCenter - buttonCenter)).toBeLessThanOrEqual(1);
+
+  // ---- 滚上去后出现悬浮「回到最新」按钮，点击回到底部后隐藏 ----
+  // （上面的元素截图会把消息区滚回顶部，正好顺带覆盖“离开底部就出现”的判定）
+  await expect(jump).toBeVisible();
+  const jumpBox = await jump.boundingBox();
+  const composerBox = await window.getByTestId("composer-input").boundingBox();
+  expect(jumpBox).not.toBeNull();
+  expect(composerBox).not.toBeNull();
+  // 浮在消息区里、位于输入框上方，不遮挡输入
+  expect(jumpBox!.y + jumpBox!.height).toBeLessThan(composerBox!.y);
+  expect(jumpBox!.width).toBeGreaterThanOrEqual(28);
+  await jump.click();
+  await expect(jump).toHaveCount(0);
+  await expect(window.getByText("第 30 段历史正文，用于把会话消息区撑到超过一屏。")).toBeInViewport();
 
   await app.close();
 
