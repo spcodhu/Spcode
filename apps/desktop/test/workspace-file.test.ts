@@ -2,7 +2,12 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { readWorkspaceFile, readWorkspaceImage, WorkspaceFileError } from "../src/main/workspace-file.js";
+import {
+  readWorkspaceFile,
+  readWorkspaceImage,
+  resolveWorkspaceFilePath,
+  WorkspaceFileError,
+} from "../src/main/workspace-file.js";
 
 let root = "";
 let cwd = "";
@@ -124,6 +129,15 @@ describe("工作区文件预览读取边界", () => {
     expect(() => readWorkspaceImage("diagram.png", cwd, join(root, "outside.txt"), home)).toThrow(
       /outside the session workspace/,
     );
+  });
+
+  it("右键菜单用的「只解析不读取」走与预览相同的守卫", () => {
+    expect(resolveWorkspaceFilePath("foo.ts", cwd, home)).toBe(realpathSync(join(cwd, "foo.ts")));
+    // 菜单只做文件动作，不读内容，所以超大/二进制文件也应能解析
+    expect(resolveWorkspaceFilePath("huge.txt", cwd, home)).toBe(realpathSync(join(cwd, "huge.txt")));
+    expect(() => resolveWorkspaceFilePath("../outside.txt", cwd, home)).toThrow(/outside the session workspace/);
+    expect(() => resolveWorkspaceFilePath("missing.ts", cwd, home)).toThrow(/File not found/);
+    expect(() => resolveWorkspaceFilePath("auth.json", join(home, "agent"), home)).toThrow(/protected/);
   });
 
   it.runIf(process.platform !== "win32")("符号链接真实路径逃出 cwd 时拒绝", () => {

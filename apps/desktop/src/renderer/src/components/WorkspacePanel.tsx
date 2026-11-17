@@ -23,6 +23,7 @@ export function WorkspacePanel({ width = 560 }: { width?: number }) {
   const focusWorkspaceFile = useStore((s) => s.focusWorkspaceFile);
   const showWorkspaceLibrary = useStore((s) => s.showWorkspaceLibrary);
   const openWorkspaceFile = useStore((s) => s.openWorkspaceFile);
+  const showWorkspaceFileMenu = useStore((s) => s.showWorkspaceFileMenu);
   const startPlanExecution = useStore((s) => s.startPlanExecution);
   const [starting, setStarting] = useState(false);
   const deliverables = useMemo(() => workspaceDeliverables(session?.messages ?? []), [session?.messages]);
@@ -68,6 +69,7 @@ export function WorkspacePanel({ width = 560 }: { width?: number }) {
           onFocus={focusWorkspaceFile}
           onClose={closeWorkspaceFile}
           onShowLibrary={showWorkspaceLibrary}
+          onContextMenu={(file) => void showWorkspaceFileMenu({ path: file.path, kind: file.kind })}
         />
       )}
 
@@ -75,7 +77,11 @@ export function WorkspacePanel({ width = 560 }: { width?: number }) {
         {activeFile ? (
           <FileContent key={activeFile.path} file={activeFile} />
         ) : (
-          <FileLibrary files={deliverables} onOpen={(file) => void openWorkspaceFile(file)} />
+          <FileLibrary
+            files={deliverables}
+            onOpen={(file) => void openWorkspaceFile(file)}
+            onContextMenu={(file) => void showWorkspaceFileMenu({ path: file.path, kind: file.kind })}
+          />
         )}
       </div>
 
@@ -243,9 +249,11 @@ function TaskRow({ todo }: { todo: TodoItem }) {
 function FileLibrary({
   files,
   onOpen,
+  onContextMenu,
 }: {
   files: WorkspaceDeliverable[];
   onOpen: (file: WorkspaceDeliverable) => void;
+  onContextMenu: (file: WorkspaceDeliverable) => void;
 }) {
   const { t } = useTranslation("chat");
   if (files.length === 0) {
@@ -278,6 +286,10 @@ function FileLibrary({
             data-path={file.path}
             title={file.path}
             onClick={() => onOpen(file)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              onContextMenu(file);
+            }}
             className={`flex w-full items-center gap-3 px-3.5 py-3 text-left transition-colors hover:bg-bg-hover/70 ${
               index > 0 ? "border-t border-border" : ""
             }`}
@@ -305,12 +317,14 @@ function FileTabs({
   onFocus,
   onClose,
   onShowLibrary,
+  onContextMenu,
 }: {
   files: WorkspaceFileTab[];
   activePath: string | null;
   onFocus: (path: string) => void;
   onClose: (path: string) => void;
   onShowLibrary: () => void;
+  onContextMenu: (file: WorkspaceFileTab) => void;
 }) {
   const { t } = useTranslation("chat");
   return (
@@ -345,6 +359,10 @@ function FileTabs({
               data-testid="workspace-file-tab-open"
               title={f.path}
               onClick={() => onFocus(f.path)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                onContextMenu(f);
+              }}
               className="flex min-w-0 items-center gap-1.5"
             >
               <Icon name={f.kind === "plan" ? "clipboard" : "fileText"} size={12} className="shrink-0" />

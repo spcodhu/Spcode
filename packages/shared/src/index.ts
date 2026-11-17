@@ -147,6 +147,17 @@ export type ImageContextMenuResult =
   | { type: "copied" }
   | { type: "saved" | "opened"; path: string };
 
+/** 第三屏文件菜单的目标：计划文件在 plans 目录，普通文件走会话工作区守卫。 */
+export interface WorkspaceFileMenuInput {
+  path: string;
+  kind: "plan" | "file";
+  /** 普通文件必填：主进程按注册表确定 cwd，渲染层不能自己指定目录 */
+  sessionId?: string;
+}
+
+/** 桌面原生文件菜单的操作结果；取消与失败（IPC reject）明确区分。 */
+export type WorkspaceFileMenuResult = { type: "cancelled" } | { type: "opened" | "copied" | "revealed"; path: string };
+
 /**
  * 文件选择结果（IPC pickFiles，Markdown 输入模式「添加文件」用）：
  * - text：文本类文件（扩展名白名单+二进制唿探，≤200KB），渲染层发送时拼进消息文本
@@ -941,6 +952,8 @@ export const IPC = {
   planRead: "spcode:plan-read",
   /** renderer -> main (invoke)：右侧工作区面板预览——只读会话 cwd 内的文本文件，凭证/过大/二进制均拒 */
   workspaceFileRead: "spcode:workspace-file-read",
+  /** renderer -> main (invoke)：第三屏文件右键菜单——默认应用打开 / 复制路径 / 在文件管理器中显示 */
+  workspaceFileMenu: "spcode:workspace-file-menu",
   /** renderer -> main (invoke)：Markdown 内本地位图预览，按所属文档目录解析并复用工作区路径守卫 */
   workspaceImageRead: "spcode:workspace-image-read",
   /** renderer -> main (invoke)：输入框草稿全量读/写（渲染层防抖保存） */

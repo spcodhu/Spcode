@@ -343,6 +343,8 @@ interface StoreState {
   replyQuestion(requestId: string, answers: import("@spcode/shared").QuestionAnswers): void;
   /** 打开一个工作区文件（计划文件走 kind:"plan"；普通文件由主进程按当前会话确定 cwd/scratch） */
   openWorkspaceFile(input: { path: string; kind: "plan" | "file"; label?: string }): Promise<void>;
+  /** 文件右键菜单：默认应用打开 / 复制路径 / 在文件管理器中显示（不弹菜单则静默结束） */
+  showWorkspaceFileMenu(input: { path: string; kind: "plan" | "file" }): Promise<void>;
   /** 切换到已打开的某个文件标签 */
   focusWorkspaceFile(path: string): void;
   /** 保留已打开标签，但回到会话交付文件列表 */
@@ -1739,6 +1741,17 @@ export const useStore = create<StoreState>((set, get) => ({
         };
       });
     } catch (e) {
+      set({ lastError: e instanceof Error ? e.message : String(e) });
+    }
+  },
+
+  async showWorkspaceFileMenu(input) {
+    const sessionId = get().activeSessionId;
+    if (!sessionId) return;
+    try {
+      await window.spcode.showWorkspaceFileMenu({ ...input, sessionId });
+    } catch (e) {
+      // 主进程已把失败原因本地化；这里直接上抬到全局错误提示，不弹窗显式打断
       set({ lastError: e instanceof Error ? e.message : String(e) });
     }
   },

@@ -29,6 +29,8 @@ import {
   type WebFetchConfig,
   type WindowChromeState,
   type WindowCloseAction,
+  type WorkspaceFileMenuInput,
+  type WorkspaceFileMenuResult,
 } from "@spcode/shared";
 import { contextBridge, ipcRenderer } from "electron";
 
@@ -96,6 +98,8 @@ export interface SpcodeApi {
   readPlanFile(path: string): Promise<string>;
   /** 右侧工作区面板预览：主进程按 sessionId 查注册表确定 cwd/scratch，渲染层不能指定目录 */
   readWorkspaceFile(path: string, sessionId: string): Promise<{ path: string; text: string }>;
+  /** 显示原生文件菜单：默认应用打开 / 复制路径 / 在文件管理器中显示 */
+  showWorkspaceFileMenu(input: WorkspaceFileMenuInput): Promise<WorkspaceFileMenuResult>;
   /** Markdown 本地图片：相对路径以 documentPath 所在目录解析，主进程仍只准读当前会话工作区 */
   readWorkspaceImage(
     path: string,
@@ -260,6 +264,9 @@ const api: SpcodeApi = {
   },
   readWorkspaceFile(path, sessionId) {
     return ipcRenderer.invoke(IPC.workspaceFileRead, path, sessionId);
+  },
+  showWorkspaceFileMenu(input) {
+    return ipcRenderer.invoke(IPC.workspaceFileMenu, input);
   },
   readWorkspaceImage(path, sessionId, documentPath) {
     return ipcRenderer.invoke(IPC.workspaceImageRead, path, sessionId, documentPath);

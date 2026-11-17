@@ -31,6 +31,7 @@ import {
   type WebFetchConfig,
   type WindowChromeState,
   type WindowCloseAction,
+  type WorkspaceFileMenuInput,
 } from "@spcode/shared";
 import { executeSearch, isAdvancedSearchReady } from "@spcode/shared/advanced-search";
 import { i18n, setLocale } from "@spcode/shared/i18n";
@@ -42,7 +43,7 @@ import { DraftsStore } from "./drafts-store.js";
 import { showImageContextMenu } from "./image-actions.js";
 import { LoginItemService } from "./login-item.js";
 import { Notifier } from "./notifier.js";
-import { readSessionPlan } from "./plan-file.js";
+import { readSessionPlan, resolveSessionPlanPath } from "./plan-file.js";
 import { applyNetworkProxy, registerNetworkProxyAuthentication } from "./proxy.js";
 import { QuotaService } from "./quota-service.js";
 import { RemoteServer } from "./remote/index.js";
@@ -65,7 +66,8 @@ import { downloadUpdate, getUpdateState, ignoreVersion, installUpdate, setupAuto
 import { UsageLedger } from "./usage-ledger.js";
 import { nativeWindowChromeOptions, windowsTitleBarOverlay } from "./window-chrome.js";
 import { WindowCloseController } from "./window-close.js";
-import { readWorkspaceFile, readWorkspaceImage } from "./workspace-file.js";
+import { readWorkspaceFile, readWorkspaceImage, resolveWorkspaceFilePath } from "./workspace-file.js";
+import { showWorkspaceFileMenu } from "./workspace-file-menu.js";
 
 /** pickFiles 的文本文件扩展名白名单（不在名单内的靠二进制唿探判决） */
 const PICK_TEXT_EXTS = new Set([
@@ -678,6 +680,15 @@ function registerIpc(): void {
     if (!entry) throw new Error("Unknown session for workspace file preview");
     // cwd 不信任渲染层输入：project 以注册表为准，chat 由读取守卫映射到 scratch。
     return readWorkspaceFile(String(path), entry.mode === "chat" ? "" : entry.cwd);
+  });
+  // 第三屏文件右键菜单：先过与预览同一套路径守卫，再弹原生菜单。
+  ipcMain.handle(IPC.workspaceFileMenu, (event, input: WorkspaceFileMenuInput) => {
+    const rawPath = typeof input?.path === "string" ? input.path.trim() : "";
+    if (!rawPath) throw new Error(i18n.t("chat:workspace.fileMenuFailed", { error: "empty path" }));
+    if (input.kind === "plan") return showWorkspaceFileMenu(event, resolveSessionPlanPath(rawPath));
+    const entry = registry.get(String(input.sessionId ?? ""));
+    if (!entry) throw new Error("Unknown session for workspace file menu");
+    return showWorkspaceFileMenu(event, resolveWorkspaceFilePath(rawPath, entry.mode === "chat" ? "" : entry.cwd));
   });
   ipcMain.handle(IPC.workspaceImageRead, (_e, path: string, sessionId: string, documentPath?: string) => {
     const entry = registry.get(String(sessionId));

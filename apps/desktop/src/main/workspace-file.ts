@@ -157,6 +157,20 @@ export function readWorkspaceFile(
   return { path: real, text: buffer.toString("utf-8") };
 }
 
+/**
+ * 只解析不读取：右键菜单（默认应用打开 / 复制路径 / 在文件管理器中显示）需要真实路径，
+ * 但必须走与预览完全相同的边界判定，避免菜单成为任意路径的出口。
+ */
+export function resolveWorkspaceFilePath(rawPath: string, cwd: string, spcodeHome = resolveSpcodeHome()): string {
+  const real = resolvePreviewPath(rawPath, cwd, spcodeHome);
+  try {
+    statSync(real);
+  } catch {
+    throw new WorkspaceFileError("not-found", `File not found: ${rawPath}`);
+  }
+  return real;
+}
+
 const IMAGE_MIME_BY_EXTENSION: Record<string, string> = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
