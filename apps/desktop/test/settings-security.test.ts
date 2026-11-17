@@ -45,6 +45,15 @@ describe("sanitizeAppSettings（fail-safe）", () => {
     }
   });
 
+  it("非法 subagentMode 剔除回落 prefer，三档合法值保留", () => {
+    const out = sanitizeAppSettings({ subagentMode: "yolo" as never });
+    expect(out.subagentMode).toBeUndefined();
+    expect({ ...DEFAULT_SETTINGS, ...out }.subagentMode).toBe("prefer");
+    for (const mode of ["prefer", "direct", "off"] as const) {
+      expect(sanitizeAppSettings({ subagentMode: mode }).subagentMode, mode).toBe(mode);
+    }
+  });
+
   it("类型不符的布尔/字符串/数组字段剔除；permissionRules 滤掉非字符串", () => {
     const out = sanitizeAppSettings({
       memoryDistill: "yes" as never,

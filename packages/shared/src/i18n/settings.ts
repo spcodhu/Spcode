@@ -40,6 +40,16 @@ export const zhCN = {
   "general.modeNeverDescription": "除「沙盒外重试」外全部直接执行；沙盒边界仍生效",
   "general.permissionModeHint": "仅决定新建会话的默认档位；当前会话可在输入框左下角切换",
   "general.thinking": "默认思考强度",
+  "general.subagent": "子代理（Task）",
+  "general.subagentDescription":
+    "控制模型是否把子任务委派给隔离上下文的子代理；每次子代理运行都是独立模型会话，产生额外 token 消耗",
+  "general.subagentPrefer": "倾向子任务",
+  "general.subagentPreferDescription": "把读密集探索与独立子任务委派给子代理，主上下文只留结论（默认行为）",
+  "general.subagentDirect": "倾向直接实现",
+  "general.subagentDirectDescription": "默认自己动手；仅当大规模只读探索会淹没主上下文、或你明确要求委派时才开子任务",
+  "general.subagentOff": "禁用子任务",
+  "general.subagentOffDescription": "摘除 Task 工具，模型在当前会话完成全部工作，子代理零额外开销；需要委派时再切回",
+  "general.subagentHint": "变更对活跃会话在下一模型回合生效；嵌套子代理跟随同一设置",
   "general.runGuard": "运行保护",
   "general.maxModelTurns": "模型最大调用次数",
   "general.maxModelTurnsDescription": "每次任务运行默认最多 2000 个模型回合；达到上限即暂停，用户可明确继续。",
@@ -650,6 +660,20 @@ export const en = {
   "general.modeNeverDescription": "Everything runs directly except unsandboxed retries; sandbox boundaries still apply",
   "general.permissionModeHint": "Only sets the default for new sessions; switch the current session in the composer",
   "general.thinking": "Default thinking level",
+  "general.subagent": "Subagents (Task)",
+  "general.subagentDescription":
+    "Controls whether the model delegates subtasks to isolated subagents; every subagent run is a full model session and costs extra tokens",
+  "general.subagentPrefer": "Prefer subtasks",
+  "general.subagentPreferDescription":
+    "Delegate read-heavy exploration and self-contained subtasks to subagents; keep only conclusions in the main context (default behavior)",
+  "general.subagentDirect": "Prefer direct work",
+  "general.subagentDirectDescription":
+    "Do the work yourself by default; delegate only when large read-only exploration would flood the main context, or when you explicitly ask",
+  "general.subagentOff": "Disable subtasks",
+  "general.subagentOffDescription":
+    "Remove the Task tool; the model does everything in this session with zero subagent overhead; switch back when delegation is needed",
+  "general.subagentHint":
+    "Changes apply to active sessions on the next model turn; nested subagents follow the same setting",
   "general.runGuard": "Run protection",
   "general.maxModelTurns": "Maximum model calls",
   "general.maxModelTurnsDescription":

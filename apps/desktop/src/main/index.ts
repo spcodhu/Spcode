@@ -762,6 +762,10 @@ function registerIpc(): void {
     if ("memoryDistill" in patch) {
       bridge.push({ type: "memory.setDistillEnabled", payload: { enabled: next.memoryDistill } });
     }
+    // 子代理偏好实时下发宿主；活跃会话下一模型回合热更新工具集与引导
+    if ("subagentMode" in patch) {
+      bridge.push({ type: "subagent.setMode", payload: { mode: next.subagentMode } });
+    }
     // 模型目录自动同步开关实时下发宿主
     if ("modelCatalogAutoSync" in patch) {
       bridge.push({ type: "modelCatalog.setAutoSync", payload: { enabled: next.modelCatalogAutoSync } });
@@ -942,6 +946,7 @@ if (!app.requestSingleInstanceLock()) {
       if (event.type === "ready") {
         bridge.push({ type: "locale.set", payload: { locale: settings.get().locale } });
         bridge.push({ type: "memory.setDistillEnabled", payload: { enabled: settings.get().memoryDistill } });
+        bridge.push({ type: "subagent.setMode", payload: { mode: settings.get().subagentMode } });
         bridge.push({ type: "modelCatalog.setAutoSync", payload: { enabled: settings.get().modelCatalogAutoSync } });
         bridge.push({ type: "runGuard.setConfig", payload: { maxTurns: settings.get().maxModelTurns } });
         bridge.push({ type: "proxy.setConfig", payload: { config: settings.get().proxy } });

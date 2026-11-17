@@ -34,12 +34,14 @@ import type {
   QuestionRequest,
   SandboxSettings,
   SandboxStatusReport,
+  SubagentMode,
   WebFetchConfig,
 } from "@spcode/shared";
 import {
   DEFAULT_COMPACTION_SETTINGS,
   DEFAULT_MAX_MODEL_TURNS,
   DEFAULT_SANDBOX_SETTINGS,
+  DEFAULT_SUBAGENT_MODE,
   sanitizeModelPricing,
   supportsModelDiscovery,
   systemMessageRoleFromCompat,
@@ -122,6 +124,8 @@ const catalogSync: ModelCatalogSyncStatus = {
 let modelPricing: ModelPricingOverrides = {};
 /** 记忆蒸馏总开关（主进程设置页经 memory.setDistillEnabled 下发；宿主重启后由主进程重推） */
 let distillEnabled = true;
+/** 子代理偏好三档（主进程设置页经 subagent.setMode 下发；宿主重启后由主进程重推） */
+let subagentMode: SubagentMode = DEFAULT_SUBAGENT_MODE;
 /** 高级搜索配置（主进程设置页经 search.setAdvancedConfig 下发；宿主重启后由主进程重推） */
 let advancedSearchConfig: AdvancedSearchConfig | null = null;
 /** WebFetch 抓取后端配置（主进程设置页经 webfetch.setConfig 下发；宿主重启后由主进程重推） */
@@ -464,6 +468,7 @@ async function createController(params: {
     requestPermission,
     askQuestion,
     isDistillEnabled: () => distillEnabled,
+    getSubagentMode: () => subagentMode,
     getAdvancedSearchConfig: () => advancedSearchConfig,
     getWebFetchConfig: () => webFetchConfig,
     getSandboxSettings: () => sandboxSettings,
@@ -511,6 +516,12 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
   }
   if (cmd.type === "memory.setDistillEnabled") {
     distillEnabled = cmd.payload.enabled;
+    return;
+  }
+  if (cmd.type === "subagent.setMode") {
+    subagentMode = cmd.payload.mode;
+    // 活跃会话热更新工具集；休眠会话唤醒时经 getter 读到最新值
+    for (const ctl of sessions.values()) ctl.setSubagentMode(subagentMode);
     return;
   }
   if (cmd.type === "search.setAdvancedConfig") {

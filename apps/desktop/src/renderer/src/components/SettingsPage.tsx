@@ -178,6 +178,8 @@ function GeneralPage() {
         className="w-56"
       />
 
+      <SubagentModeSection />
+
       <SectionTitle>{t("general.runGuard")}</SectionTitle>
       <div className="rounded-xl border border-border bg-bg-elevated px-4 py-3" data-testid="run-guard-settings">
         <TokenField
@@ -274,6 +276,50 @@ function GeneralPage() {
           onChange={(v) => void saveSettings({ betaUpdates: v })}
           label={t("general.betaUpdates")}
         />
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 子代理（Task）偏好三档：prefer/direct/off，活跃会话热生效
+// ---------------------------------------------------------------------------
+
+function SubagentModeSection() {
+  const { t } = useTranslation("settings");
+  const settings = useStore((s) => s.settings);
+  const saveSettings = useStore((s) => s.saveSettings);
+  const mode = settings?.subagentMode ?? "prefer";
+  const options = [
+    { id: "prefer", label: t("general.subagentPrefer"), desc: t("general.subagentPreferDescription") },
+    { id: "direct", label: t("general.subagentDirect"), desc: t("general.subagentDirectDescription") },
+    { id: "off", label: t("general.subagentOff"), desc: t("general.subagentOffDescription") },
+  ] as const;
+  const current = options.find((o) => o.id === mode) ?? options[0];
+  return (
+    <div data-testid="settings-subagent-mode">
+      <SectionTitle>{t("general.subagent")}</SectionTitle>
+      <div className="rounded-xl border border-border bg-bg-elevated px-4 py-3">
+        <p className="mb-2 text-[12px] leading-5 text-text-tertiary">{t("general.subagentDescription")}</p>
+        <div className="flex gap-2">
+          {options.map((o) => (
+            <button
+              type="button"
+              key={o.id}
+              data-value={o.id}
+              onClick={() => void saveSettings({ subagentMode: o.id })}
+              className={`flex-1 rounded-lg border px-3 py-1.5 text-[13px] transition-colors ${
+                mode === o.id
+                  ? "border-accent/50 bg-accent-soft font-medium text-accent"
+                  : "border-border text-text-secondary hover:bg-bg-hover"
+              }`}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-[12px] leading-5 text-text-tertiary">{current.desc}</p>
+        <p className="mt-1 text-[12px] text-text-tertiary">{t("general.subagentHint")}</p>
       </div>
     </div>
   );

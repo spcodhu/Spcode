@@ -561,6 +561,8 @@ export type HostCommand =
   /** AI 生成主题：可选指定模型与明暗基底（默认跟随当前主题） */
   | { id: string; type: "theme.generate"; payload: { description: string; model?: ModelRef; base?: "light" | "dark" } }
   | { type: "memory.setDistillEnabled"; payload: { enabled: boolean } }
+  /** 子代理偏好三档下发（设置页变更后推送；宿主就绪时重推）；活跃会话下一回合热更新工具集 */
+  | { type: "subagent.setMode"; payload: { mode: SubagentMode } }
   /** 网络代理配置下发；主进程与宿主分别配置各自 Node 网络栈，活跃会话的新请求即时生效 */
   | { type: "proxy.setConfig"; payload: { config: import("./proxy.js").NetworkProxySettings } }
   /** 高级搜索配置下发（设置页变更后推送；宿主就绪时重推） */
@@ -1099,11 +1101,28 @@ import { getLocale, i18n } from "./i18n/index.js";
 import { DEFAULT_NETWORK_PROXY_SETTINGS } from "./proxy.js";
 import { DEFAULT_MAX_MODEL_TURNS } from "./run-guard.js";
 
+/**
+ * 子代理（Task）偏好三档：
+ * - prefer：鼓励委派（出厂默认，保持既有行为）；
+ * - direct：倾向直接实现，仅大规模只读探索或用户明确要求时才委派；
+ * - off：摘除 Task 工具，子代理零额外开销。
+ */
+export type SubagentMode = "prefer" | "direct" | "off";
+
+export const DEFAULT_SUBAGENT_MODE: SubagentMode = "prefer";
+
+/** 枚举归一化：非法值返回 null（调用方回落默认，fail-safe） */
+export function normalizeSubagentMode(value: unknown): SubagentMode | null {
+  return value === "prefer" || value === "direct" || value === "off" ? value : null;
+}
+
 export interface AppSettings {
   locale: import("./i18n/types.js").Locale;
   /** 默认模型 */
   defaultModel: ModelRef | null;
   defaultThinkingLevel: string;
+  /** 子代理（Task）偏好三档；活跃会话热生效（工具集与引导下一模型回合更新） */
+  subagentMode: SubagentMode;
   /** 新会话默认权限模式（三档）；单会话可在输入框左下角覆盖 */
   permissionMode: PermissionMode;
   /** UI 主题 id，spcode-light 为内置默认 */
@@ -1300,6 +1319,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   locale: "zh-CN",
   defaultModel: null,
   defaultThinkingLevel: "medium",
+  subagentMode: DEFAULT_SUBAGENT_MODE,
   permissionMode: DEFAULT_PERMISSION_MODE,
   themeId: "spcode-light",
   themeMigrationVersion: 1,

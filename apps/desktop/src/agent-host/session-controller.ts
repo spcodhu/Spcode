@@ -34,9 +34,11 @@ import type {
 } from "@spcode/shared";
 import {
   DEFAULT_PERMISSION_MODE,
+  DEFAULT_SUBAGENT_MODE,
   parseRunGuardCustomDetails,
   RUN_GUARD_CUSTOM_TYPE,
   type RunGuardPause,
+  type SubagentMode,
 } from "@spcode/shared";
 import { isAdvancedSearchReady } from "@spcode/shared/advanced-search";
 import { getLocale } from "@spcode/shared/i18n";
@@ -59,6 +61,7 @@ import { createSandboxedBashTool } from "./sandbox/bash-tool.js";
 import { createGuardedFsTools, type FsGuardPolicy } from "./sandbox/fs-guard.js";
 import { getSandboxService } from "./sandbox/manager.js";
 import { createManagedPowerShellTool } from "./sandbox/powershell-tool.js";
+import { installSubagentPolicy } from "./subagent-policy.js";
 import { createSessionToolEnvironment } from "./tool-environment.js";
 import { createAdvancedSearchTool } from "./tools/advanced-search.js";
 import { createAskUserQuestionTool } from "./tools/ask-user.js";
@@ -221,6 +224,8 @@ export interface SessionControllerOptions {
   noTitleAutomation?: boolean;
   /** 记忆蒸馏总开关（主进程设置页下发，实时读取） */
   isDistillEnabled?: () => boolean;
+  /** 子代理偏好三档（主进程设置页下发，实时读取；off 摘除 Task，direct 注入偏好引导） */
+  getSubagentMode?: () => SubagentMode;
   /** 高级搜索配置（主进程设置页下发，实时读取；配置完整才注册 AdvancedSearch 工具） */
   getAdvancedSearchConfig?: () => AdvancedSearchConfig | null;
   /** WebFetch 抓取后端配置（主进程设置页下发；工具逐次调用实时读取，活跃会话即时生效） */
@@ -261,7 +266,7 @@ export class SessionController {
     readonly sessionFile: string | null,
     private readonly session: AgentSession,
     private readonly runtime: ModelRuntime,
-    private readonly normalModeTools: string[],
+    private normalModeTools: string[],
     private readonly emitEvent: (e: AgentSessionEvent) => void,
     private readonly emitPlanMode: (enabled: boolean) => void,
     private readonly permissionModeRef: { current: PermissionMode },
@@ -331,7 +336,12 @@ export class SessionController {
     };
 
     const mcpTools = opts.getMcpTools?.() ?? [];
-    const normalModeTools = [...new Set([...NORMAL_MODE_TOOLS, ...mcpTools.map((tool) => tool.name)])];
+    // off 档把 Task 摘出活跃工具集（工具仍注册，支持热启用）；prefer/direct 保留
+    const baseTools =
+      (opts.getSubagentMode?.() ?? DEFAULT_SUBAGENT_MODE) === "off"
+        ? NORMAL_MODE_TOOLS.filter((name) => name !== "Task")
+        : NORMAL_MODE_TOOLS;
+    const normalModeTools = [...new Set([...baseTools, ...mcpTools.map((tool) => tool.name)])];
 
     const { session } = await createAgentSession({
       cwd,
@@ -385,12 +395,14 @@ export class SessionController {
           depth: 0,
           getSandboxSettings: opts.getSandboxSettings,
           getPermissionMode: () => permissionModeRef.current,
+          getSubagentMode: opts.getSubagentMode,
           requestPermission: opts.requestPermission,
           toolEnvironment,
         }),
       ],
     });
     installLanguagePolicy(session.agent);
+    installSubagentPolicy(session.agent, () => opts.getSubagentMode?.() ?? DEFAULT_SUBAGENT_MODE);
 
     const ctl = new SessionController(
       opts.sessionId,
@@ -541,6 +553,14 @@ export class SessionController {
    * 开关计划模式：切换工具集 + 注入状态消息（模型可见、UI 不显示）+ 上抛事件。
    * 运行中切换也安全：工具集对下一个模型请求生效，beforeToolCall 门禁实时读取状态。
    */
+  /** 子代理偏好热更新：重算正常态工具集并刷新活跃工具（计划态只更新存储列表，退出计划态自然带上） */
+  setSubagentMode(mode: SubagentMode): void {
+    const mcpNames = this.normalModeTools.filter((name) => !NORMAL_MODE_TOOLS.includes(name));
+    const base = mode === "off" ? NORMAL_MODE_TOOLS.filter((name) => name !== "Task") : NORMAL_MODE_TOOLS;
+    this.normalModeTools = [...new Set([...base, ...mcpNames])];
+    if (!this.planMode) this.session.setActiveToolsByName(this.normalModeTools);
+  }
+
   async setPlanMode(enabled: boolean): Promise<void> {
     await this.applyPlanMode(enabled);
   }

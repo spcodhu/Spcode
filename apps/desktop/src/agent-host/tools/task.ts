@@ -10,7 +10,13 @@
 import type { Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
-import type { PermissionMode, PermissionRequest, SandboxSettings } from "@spcode/shared";
+import {
+  DEFAULT_SUBAGENT_MODE,
+  type PermissionMode,
+  type PermissionRequest,
+  type SandboxSettings,
+  type SubagentMode,
+} from "@spcode/shared";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 import { type Static, Type } from "typebox";
 import { installLanguagePolicy } from "../language-policy.js";
@@ -19,6 +25,7 @@ import { createSandboxedBashTool } from "../sandbox/bash-tool.js";
 import { createGuardedFsTools, type FsGuardPolicy } from "../sandbox/fs-guard.js";
 import { getSandboxService } from "../sandbox/manager.js";
 import { createManagedPowerShellTool } from "../sandbox/powershell-tool.js";
+import { installSubagentPolicy } from "../subagent-policy.js";
 import type { SessionToolEnvironment } from "../tool-environment.js";
 import { createSessionToolEnvironment } from "../tool-environment.js";
 import { STRICT_PREFER_TOOL_SAMPLING } from "./tool-schema.js";
@@ -27,7 +34,7 @@ import { STRICT_PREFER_TOOL_SAMPLING } from "./tool-schema.js";
 const MAX_TASK_DEPTH = 2;
 
 /** Task 子代理只继承基础执行/检索面；MCP/Web/Todo 等主会话控制工具不透传。 */
-export function taskSessionToolNames(depth: number): string[] {
+export function taskSessionToolNames(depth: number, mode: SubagentMode = DEFAULT_SUBAGENT_MODE): string[] {
   return [
     "read",
     "bash",
@@ -37,7 +44,7 @@ export function taskSessionToolNames(depth: number): string[] {
     "grep",
     "find",
     "ls",
-    ...(depth + 1 < MAX_TASK_DEPTH ? ["Task"] : []),
+    ...(depth + 1 < MAX_TASK_DEPTH && mode !== "off" ? ["Task"] : []),
   ];
 }
 
@@ -65,6 +72,8 @@ export interface TaskToolContext {
   getSandboxSettings?: () => SandboxSettings;
   /** 权限模式 getter（主会话透传；子代理与主会话同档位） */
   getPermissionMode?: () => PermissionMode;
+  /** 子代理偏好 getter（主会话透传；off 时嵌套 Task 不注册，子会话同偏好引导） */
+  getSubagentMode?: () => SubagentMode;
   /** 权限网关通道（主会话透传，评审 R3-C4：子代理的写/危险操作同样弹窗裁决） */
   requestPermission: (req: PermissionRequest) => Promise<boolean>;
   /** 父会话已初始化的统一 Bash 环境；缺省时由子会话自行生成 */
@@ -110,7 +119,9 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
           : []),
         ...createGuardedFsTools(ctx.cwd, getFsPolicy, toolEnvironment.path),
         // 子会话深度 +1；达到上限后子会话不再拿到 Task（评审 P2-5：让条件与头注释同口径）
-        ...(ctx.depth + 1 < MAX_TASK_DEPTH ? [createTaskTool({ ...ctx, depth: ctx.depth + 1 })] : []),
+        ...(ctx.depth + 1 < MAX_TASK_DEPTH && ctx.getSubagentMode?.() !== "off"
+          ? [createTaskTool({ ...ctx, depth: ctx.depth + 1 })]
+          : []),
       ];
       const { session } = await createAgentSession({
         cwd: ctx.cwd,
@@ -123,8 +134,9 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
         excludeTools: process.platform === "win32" ? [] : ["powershell"],
         customTools: customTools.length > 0 ? customTools : undefined,
       });
-      session.setActiveToolsByName(taskSessionToolNames(ctx.depth));
+      session.setActiveToolsByName(taskSessionToolNames(ctx.depth, ctx.getSubagentMode?.()));
       installLanguagePolicy(session.agent);
+      installSubagentPolicy(session.agent, () => ctx.getSubagentMode?.() ?? DEFAULT_SUBAGENT_MODE);
       // 权限网关（R3-C4）：子代理与主会话同一裁决链（计划模式例外——计划模式下 Task 不挂载）
       session.agent.beforeToolCall = createBeforeToolCallGate({
         sessionId: ctx.sessionId,

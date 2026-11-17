@@ -12,6 +12,7 @@ import {
   DEFAULT_SETTINGS,
   normalizePermissionMode,
   normalizeProjectCwd,
+  normalizeSubagentMode,
   SECRET_MASK,
   sanitizeCompactionSettings,
   sanitizeModelPricing,
@@ -38,6 +39,12 @@ export function sanitizeAppSettings(input: Partial<AppSettings>): Partial<AppSet
     const mode = normalizePermissionMode(out.permissionMode);
     if (mode) out.permissionMode = mode;
     else delete out.permissionMode;
+  }
+  // 子代理偏好：非法值剔除（合并时回落默认 prefer）
+  if (out.subagentMode !== undefined) {
+    const mode = normalizeSubagentMode(out.subagentMode);
+    if (mode) out.subagentMode = mode;
+    else delete out.subagentMode;
   }
   // 布尔字段
   for (const k of ["memoryDistill", "quickQuota", "autoUpdate", "betaUpdates", "modelCatalogAutoSync"] as const) {

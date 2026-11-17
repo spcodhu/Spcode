@@ -1,4 +1,5 @@
 /** @vitest-environment jsdom */
+import { DEFAULT_SETTINGS } from "@spcode/shared";
 import { i18n, setLocale } from "@spcode/shared/i18n";
 import { act, createElement, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -79,6 +80,12 @@ beforeEach(() => {
         supported: false,
         openAtLogin: false,
         reason: "unsupported-platform",
+      }),
+      sandboxStatus: vi.fn().mockResolvedValue({
+        state: "disabled",
+        platform: "darwin",
+        enabled: false,
+        allowUnsandboxedCommands: true,
       }),
     },
   });
@@ -263,5 +270,35 @@ describe("记忆页读取状态", () => {
     await click("memory-file-MEMORY.md");
     expect(element("memory-content").textContent).toBe("（空）");
     expect(container.querySelector('[data-testid="memory-load-error"]')).toBeNull();
+  });
+});
+
+describe("子代理三档控件", () => {
+  const buttons = () =>
+    Array.from(element("settings-subagent-mode").querySelectorAll<HTMLButtonElement>("button[data-value]"));
+  const selected = () => buttons().find((b) => b.className.includes("border-accent"))?.dataset.value;
+
+  it("设置未加载默认 prefer 选中；点击 off/direct 下发对应值", async () => {
+    await render(createElement(SettingsPage, { onClose: vi.fn() }));
+    expect(buttons()).toHaveLength(3);
+    expect(selected()).toBe("prefer");
+    await act(async () =>
+      buttons()
+        .find((b) => b.dataset.value === "off")!
+        .click(),
+    );
+    expect(store.saveSettings).toHaveBeenCalledWith({ subagentMode: "off" });
+    await act(async () =>
+      buttons()
+        .find((b) => b.dataset.value === "direct")!
+        .click(),
+    );
+    expect(store.saveSettings).toHaveBeenCalledWith({ subagentMode: "direct" });
+  });
+
+  it("回显已保存档位", async () => {
+    store.settings = { ...DEFAULT_SETTINGS, subagentMode: "direct" };
+    await render(createElement(SettingsPage, { onClose: vi.fn() }));
+    expect(selected()).toBe("direct");
   });
 });
