@@ -9,7 +9,7 @@
  *   3. reviewedCommit 覆盖目标提交：要么完全相等，要么两者的增量**只改评审元数据**
  *      （docs/code-review/**）。评审结论必须在提交之后才能落盘，完全相等不现实；
  *      但只允许台账/报告这几步尾巴，任何产品/测试代码改动都要求重新增量评审；
- *   4. findings.p0 === 0；
+ *   4. findings.p0 === 0，或 openP0Accepted 已记录「用户确认本次不动」的 count 与原因；
  *   5. findings.p1 === 0，或 openP1Accepted 已记录用户确认接受的 count 与原因；
  *   6. report 指向的报告文件存在。
  *
@@ -49,9 +49,10 @@ function fail(lines) {
 修复方式：
   1) pnpm review:context                # 生成增量评审上下文包
   2) 按 docs/code-review/README.md 分阶段评审，报告写到 docs/code-review/R<N>-<date>.md
-  3) pnpm review:record --status pass --report <报告> --p0 0 --p1 0 --p2 <n>
-     有 P1 但用户决定放行时追加：--accept-p1-reason "<原因>"
-  4) 提交报告与台账（这一步本身不算产品改动），再打 tag：门禁只允许
+  3) 把结论交给用户，等明确指令：整改 / 部分整改 / 不整改直接发（未获同意不得改代码）
+  4) pnpm review:record --status pass --report <报告> --p0 <n> --p1 <n> --p2 <n>
+     用户明确「本次不动」时，按级别追加：--accept-p0-reason "<原因>" / --accept-p1-reason "<原因>"
+  5) 提交报告与台账（这一步本身不算产品改动），再打 tag：门禁只允许
      reviewedCommit..tag 之间是 docs/code-review/** 的尾巴
 `);
   process.exit(1);
@@ -142,12 +143,17 @@ const p1 = Number(ledger.findings?.p1 ?? Number.NaN);
 if (!Number.isFinite(p0) || !Number.isFinite(p1)) {
   problems.push("台账 findings.p0 / findings.p1 缺失或不是数字");
 } else {
-  if (p0 > 0) problems.push(`仍有 ${p0} 个未闭环 P0`);
-  if (p1 > 0) {
-    const accepted = ledger.openP1Accepted;
-    const acceptedOk = accepted && accepted.count === p1 && String(accepted.reason ?? "").trim().length > 0;
-    if (!acceptedOk) problems.push(`仍有 ${p1} 个未闭环 P1，且没有用户确认接受的记录`);
-    else console.warn(`⚠ 放行 ${p1} 个 P1（用户确认：${accepted.reason}）`);
+  // P0 / P1 默认都拦；只有在台账里记下「用户确认本次不动」的理由才放行。
+  // 评审发现问题必须先交用户决策，未获同意不得自行整改（docs/code-review/README.md §4.1）。
+  for (const [level, count, accepted] of [
+    ["P0", p0, ledger.openP0Accepted],
+    ["P1", p1, ledger.openP1Accepted],
+  ]) {
+    if (count <= 0) continue;
+    const acceptedOk =
+      accepted && accepted.count === count && String(accepted.reason ?? "").trim().length > 0;
+    if (!acceptedOk) problems.push(`仍有 ${count} 个未闭环 ${level}，且没有用户确认接受的记录`);
+    else console.warn(`⚠ 放行 ${count} 个 ${level}（用户确认：${accepted.reason}）`);
   }
 }
 

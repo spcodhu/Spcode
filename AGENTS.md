@@ -17,7 +17,9 @@
 - **发版前评审是硬门禁**（测试版/稳定版都算）：
   - 流程与 token 预算见 [docs/code-review/README.md](docs/code-review/README.md)：`pnpm review:context` → 分区域评审（子代理/新会话）→ 实跑验证日志落盘 → 写 `docs/code-review/R<N>-<date>.md` → `pnpm review:record` 记台账。
   - 基线固定是**上一个 release tag**，只审增量，不做全量通读；评审与整改分两个会话。
-  - 有问题就中断发布，由用户决定是否整改；P0 一律硬拦，P1 需 `--accept-p1-reason` 明确放行。
+  - **评审阶段只读**：绝不自行整改、不顺手“修个小的”。发现问题先把 P0/P1/P2（位置、证据、影响、建议修复、置信度）交给用户，并给出「整改 / 部分整改 / 不整改直接发」三个选项。
+  - **未获得用户明确同意前不得改任何代码**；用户说「不需要变动」时就不修，直接记台账并发版。用户未回复就先中断发布，不要自己决定。
+  - 用户同意整改后：改完重跑验证并重新记台账；未修项逐条写 `--accept-p0-reason` / `--accept-p1-reason`（理由写清是用户确认本次不动）；P0/P1 默认都拦，只有这两类放行理由能过。
   - `pnpm release:gate` 本地自检；release.yml 的 `review-gate` job 会用 tag 指向的提交再校验一次，台账对不上直接失败（不会打包）。
 - 更新公告：每次发布（正式版/测试版都算）必须先过一遍自上一个版本 tag 以来的全部 Git 提交（`git log <上一tag>..HEAD`），据此拟一份详细的中文更新公告——按新功能/优化/修复分组，说清用户可感知的变化与配置入口，必要时先给用户审查确认或由用户自己出具。公告要落到 GitHub Release 正文：打附注 tag 时带上（`git tag -a --cleanup=verbatim -F <tag> <公告文件>`；**必须保留 `verbatim`**，否则 Git 会把 `##` 分组标题当注释删掉）；release.yml 的 publish 阶段会自动把公告 prepend 到自动生成的 What's Changed 之前，不再单独跑第二条公告工作流。
 - 发布前先在本地跑 `pnpm --filter @spcode/desktop test`（2026-10 曾因改名后没跑测试导致 beta 流水线双平台挂掉）。

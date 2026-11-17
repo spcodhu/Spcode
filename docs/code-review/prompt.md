@@ -31,17 +31,25 @@
    grep -E "Tests|passed|failed|error" /tmp/review-*.log | tail -30
    ```
 5. 写报告 `docs/code-review/R<N>-<YYYY-MM-DD>.md`（模板见 `docs/code-review/README.md` §5），边写边落盘。
-6. 记台账并自检：
+6. **停下来把结论交给我，不要自己改代码**：按 P0/P1/P2 列表（位置 / 证据 / 影响 / 建议修复 / 置信度），并给出三个选项——「全部整改」「部分整改（指明哪几条）」「不整改直接发」。
+7. 等我明确回复后再记台账并自检：
    ```bash
+   # 我同意全部整改 → 你先整改、重跑验证，再用新的 reviewedCommit 记台账
    pnpm review:record --status pass --report docs/code-review/R<N>-<date>.md --p0 0 --p1 0 --p2 <n>
+
+   # 我说「不需要变动」→ 不修，把放行理由写清（理由里注明是我确认的）
+   pnpm review:record --status pass --report docs/code-review/R<N>-<date>.md --p0 <n> --p1 <n> --p2 <n> \
+     --accept-p0-reason "用户确认本次不动，随下版修" --accept-p1-reason "用户确认本次不动"
+
    pnpm release:gate
    ```
-   有未闭环 P1 且我（用户）决定放行时，用 `--accept-p1-reason "<原因>"`；P0 一律不许放行。
+   P0 / P1 默认都拦；只有记下我确认的放行理由才能过。
 
 ## 输出给我
 
 - 一张表：编号 / 级别 / 一句话结论 / 位置 / 置信度 / 建议动作
 - 是否可以发版，以及放行条件
+- **然后停在哪里等我的指令**（整改 / 部分整改 / 不整改直接发），不要自己动手改代码
 - 本轮花了多少（工具调用次数、大致 token 量）
 
 ---

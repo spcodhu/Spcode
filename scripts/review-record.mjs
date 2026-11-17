@@ -6,11 +6,13 @@
  * 用法：
  *   node scripts/review-record.mjs --status pass --report docs/code-review/R5-2026-11-17.md --p0 0 --p1 0 --p2 7
  *   node scripts/review-record.mjs --status blocked --report ... --p1 2
- *   node scripts/review-record.mjs --status pass --p1 2 --accept-p1-reason "P1 仅为文案问题，用户确认随下版修复"
+ *   node scripts/review-record.mjs --status pass --report ... --p1 2 --accept-p1-reason "用户确认本次不动"
+ *   node scripts/review-record.mjs --status pass --report ... --p0 1 --accept-p0-reason "用户确认本次不动，随下版修"
  *
  * 设计约定：
- * - P0 永远不能带病发版，record 阶段直接拒绝；
- * - P1 默认也不允许，只有显式记录「用户已确认接受」的原因才放行；
+ * - 评审发现问题时**先交用户决策**，用户未同意整改就不得改代码（见 docs/code-review/README.md §4.1）；
+ * - P0 / P1 默认都不允许带病发版，只有显式记录「用户已确认本次不动」的原因才放行；
+ * - 放行理由字符串是用户决策的唯一凭据：没拿到用户回复就不要写；
  * - reviewedCommit 必须等于发布提交，否则门禁要求增量复评（这正是降本的关键）。
  */
 import { execFileSync } from "node:child_process";
@@ -46,7 +48,8 @@ const report = arg("report", "");
 const p0 = Number(arg("p0", "0"));
 const p1 = Number(arg("p1", "0"));
 const p2 = Number(arg("p2", "0"));
-const acceptReason = arg("accept-p1-reason", "");
+const acceptP1Reason = arg("accept-p1-reason", "");
+const acceptP0Reason = arg("accept-p0-reason", "");
 const note = arg("note", "");
 const reviewer = arg("reviewer", "agent");
 
@@ -58,13 +61,15 @@ if (!existsSync(resolve(cwd, report))) {
   console.error(`报告文件不存在：${report}`);
   process.exit(1);
 }
-if (status === "pass" && p0 > 0) {
-  console.error("P0 未闭环不能记录为 pass；请先修复，或记录 --status blocked。");
+if (status === "pass" && p0 > 0 && !acceptP0Reason) {
+  console.error(
+    "存在未闭环 P0：默认不允许发版。先整改；用户明确说本次不动时，补 --accept-p0-reason \"<原因>\" 后再记录。",
+  );
   process.exit(1);
 }
-if (status === "pass" && p1 > 0 && !acceptReason) {
+if (status === "pass" && p1 > 0 && !acceptP1Reason) {
   console.error(
-    "存在未闭环 P1：默认不允许发版。若用户已明确决定放行，请补 --accept-p1-reason \"<原因>\" 后再记录。",
+    "存在未闭环 P1：默认不允许发版。先整改；用户明确说本次不动时，补 --accept-p1-reason \"<原因>\" 后再记录。",
   );
   process.exit(1);
 }
@@ -82,11 +87,14 @@ const ledger = {
   reviewer,
   report,
   findings: { p0, p1, p2 },
-  openP1Accepted: p1 > 0 && acceptReason ? { count: p1, reason: acceptReason } : null,
+  openP0Accepted: p0 > 0 && acceptP0Reason ? { count: p0, reason: acceptP0Reason } : null,
+  openP1Accepted: p1 > 0 && acceptP1Reason ? { count: p1, reason: acceptP1Reason } : null,
   note,
 };
 
 writeFileSync(ledgerPath, `${JSON.stringify(ledger, null, 2)}\n`, "utf8");
 console.log(`已写入 ${ledgerPath}`);
 console.log(`  状态=${status} 提交=${head.slice(0, 7)} 基线=${baseline || "(未记录)"} P0=${p0} P1=${p1} P2=${p2}`);
+if (acceptP0Reason) console.log(`  ⚠ P0 放行（用户确认）：${acceptP0Reason}`);
+if (acceptP1Reason) console.log(`  ⚠ P1 放行（用户确认）：${acceptP1Reason}`);
 console.log("下一步：提交这份台账（连同报告），然后 pnpm release:gate 自检；打 tag 后 CI 会再校验一次。");
