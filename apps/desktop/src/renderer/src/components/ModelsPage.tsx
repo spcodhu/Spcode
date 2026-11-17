@@ -20,6 +20,7 @@ import { Icon } from "./Icon";
 import { ModelDiscoveryModal } from "./ModelDiscoveryModal";
 import { Modal } from "./ui/Modal";
 import { Select } from "./ui/Select";
+import { SettingRow } from "./ui/SettingRow";
 import { Switch } from "./ui/Switch";
 
 export type { CatalogModel, CatalogProvider };
@@ -141,6 +142,18 @@ export function ModelsPage() {
       ) : (
         <>
           <PageHeader title={t("nav.models")} subtitle={t("models.description")} />
+
+          <SettingRow
+            className="mb-4"
+            title={t("general.modelCatalogAutoSync")}
+            desc={t("general.modelCatalogAutoSyncDescription")}
+          >
+            <Switch
+              on={settings?.modelCatalogAutoSync ?? true}
+              onChange={(v) => void saveSettings({ modelCatalogAutoSync: v })}
+              label={t("general.modelCatalogAutoSync")}
+            />
+          </SettingRow>
 
           <div className="mb-4 flex flex-wrap items-center gap-3">
             <button

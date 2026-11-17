@@ -15,7 +15,7 @@ test("沙盒分区：宿主真实状态、开关与域名白名单持久化", as
   const window = await app.firstWindow();
 
   await window.getByTitle("设置", { exact: true }).click();
-  await window.getByRole("button", { name: "通用" }).click();
+  await window.getByTestId("settings-nav-security").click();
   const section = window.getByTestId("sandbox-settings");
   await expect(section).toBeVisible();
 
@@ -53,7 +53,7 @@ test("沙盒分区：宿主真实状态、开关与域名白名单持久化", as
   await domains.blur();
   await window.getByTitle("关闭设置").click();
   await window.getByTitle("设置", { exact: true }).click();
-  await window.getByRole("button", { name: "通用" }).click();
+  await window.getByTestId("settings-nav-security").click();
   await expect(window.getByTestId("sandbox-settings").getByTestId("sandbox-allowed-domains")).toHaveValue(
     /example\.e2e-test\.com/,
   );
@@ -190,6 +190,7 @@ test("网络代理：保存落盘、重开后掩码且不回写真实密码", as
   const window = await app.firstWindow();
 
   await window.getByTitle("设置", { exact: true }).click();
+  await window.getByTestId("settings-nav-network").click();
   const section = window.getByTestId("settings-proxy");
   await expect(section).toBeVisible();
   await section.getByRole("switch", { name: "启用网络代理" }).click();
@@ -211,6 +212,7 @@ test("网络代理：保存落盘、重开后掩码且不回写真实密码", as
   // 重开后密码只回掩码；再次保存不会把掩码写成真实密码
   await window.getByTitle("关闭设置").click();
   await window.getByTitle("设置", { exact: true }).click();
+  await window.getByTestId("settings-nav-network").click();
   await expect(window.getByTestId("settings-proxy-password")).toHaveValue("••••••••");
   await window.getByTestId("settings-proxy").getByRole("switch", { name: "启用网络代理" }).click();
   await window.getByTestId("settings-proxy-save").click();
@@ -223,5 +225,39 @@ test("网络代理：保存落盘、重开后掩码且不回写真实密码", as
     })
     .toEqual(expect.objectContaining({ enabled: false, password: "e2e-secret" }));
 
+  await app.close();
+});
+
+test("子代理三档：切换落盘 settings.json 且重启后回显", async () => {
+  const spcodeHome = mkdtempSync(join(tmpdir(), "spcode-e2e-subagent-"));
+  let app = await launchApp({ spcodeHome });
+  let window = await app.firstWindow();
+
+  await window.getByTitle("设置", { exact: true }).click();
+  const group = window.getByTestId("settings-subagent-mode");
+  await expect(group).toBeVisible();
+  // 默认 prefer（保持现状）
+  await expect(group.locator('button[data-value="prefer"]')).toHaveClass(/border-accent/);
+  await group.locator('button[data-value="off"]').click();
+  await expect(group.locator('button[data-value="off"]')).toHaveClass(/border-accent/);
+  await expect
+    .poll(() => {
+      const saved = JSON.parse(readFileSync(join(spcodeHome, "settings.json"), "utf8")) as {
+        subagentMode?: string;
+      };
+      return saved.subagentMode;
+    })
+    .toBe("off");
+  await window.getByTitle("关闭设置").click();
+  await app.close();
+
+  // 重启后回显 off
+  app = await launchApp({ spcodeHome });
+  window = await app.firstWindow();
+  await expect(window.getByTestId("brand")).toBeVisible({ timeout: 15000 });
+  await window.getByTitle("设置", { exact: true }).click();
+  await expect(window.getByTestId("settings-subagent-mode").locator('button[data-value="off"]')).toHaveClass(
+    /border-accent/,
+  );
   await app.close();
 });

@@ -167,9 +167,9 @@ test("权限模式：三档循环、总不询问二次确认与新会话默认",
   await input.press("Shift+Tab");
   await expect(pill).toHaveAttribute("data-mode", "ask");
 
-  // 设置页：权限模式是「新会话默认」，与关闭沙盒叠加时出现红字警示
+  // 设置页：权限模式是「新会话默认」，与关闭沙盒叠加时出现红字警示（权限与安全页）
   await window.getByTitle("设置", { exact: true }).click();
-  await window.getByRole("button", { name: "通用" }).click();
+  await window.getByTestId("settings-nav-security").click();
   const group = window.getByTestId("settings-permission-mode");
   await expect(group).toBeVisible();
   for (const label of ["总是询问", "必要时询问", "总不询问"]) {
@@ -195,7 +195,19 @@ test("语言切换：全部设置页即时切换并在重启后保持", async ()
     await expect(page.getByTestId("brand")).toBeVisible({ timeout: 15000 });
     await page.keyboard.press("Meta+Comma");
     await chooseLanguage(page, "en");
-    for (const section of ["general", "appearance", "models", "usage", "quota", "remote", "mcp", "memory", "about"]) {
+    for (const section of [
+      "general",
+      "security",
+      "network",
+      "appearance",
+      "models",
+      "usage",
+      "quota",
+      "remote",
+      "mcp",
+      "memory",
+      "about",
+    ]) {
       await page.getByTestId(`settings-nav-${section}`).click();
       await expect(page.locator("body")).not.toContainText(/[\u4e00-\u9fff]/);
     }

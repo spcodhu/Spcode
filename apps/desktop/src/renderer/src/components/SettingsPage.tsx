@@ -23,20 +23,47 @@ import { RemotePage } from "./RemotePage";
 import { UsagePage } from "./UsagePage";
 import { Modal } from "./ui/Modal";
 import { Select } from "./ui/Select";
+import { SettingRow } from "./ui/SettingRow";
 import { Switch } from "./ui/Switch";
 
-type PageId = "general" | "appearance" | "models" | "usage" | "quota" | "remote" | "mcp" | "memory" | "about";
+type PageId =
+  | "general"
+  | "security"
+  | "network"
+  | "appearance"
+  | "models"
+  | "usage"
+  | "quota"
+  | "remote"
+  | "mcp"
+  | "memory"
+  | "about";
 
-const NAV: { id: PageId; label: `nav.${PageId}`; icon: string }[] = [
-  { id: "general", label: "nav.general", icon: "gear" },
-  { id: "appearance", label: "nav.appearance", icon: "sun" },
-  { id: "models", label: "nav.models", icon: "cpu" },
-  { id: "usage", label: "nav.usage", icon: "chart" },
-  { id: "quota", label: "nav.quota", icon: "gauge" },
-  { id: "remote", label: "nav.remote", icon: "globe" },
-  { id: "mcp", label: "nav.mcp", icon: "toolbox" },
-  { id: "memory", label: "nav.memory", icon: "brain" },
-  { id: "about", label: "nav.about", icon: "info" },
+/** 导航分组：偏好类 / 集成与数据类，发丝 caption 分隔，避免一列到底 */
+const NAV_GROUPS: {
+  caption?: "nav.groupIntegrations";
+  items: { id: PageId; label: `nav.${PageId}`; icon: string }[];
+}[] = [
+  {
+    items: [
+      { id: "general", label: "nav.general", icon: "gear" },
+      { id: "security", label: "nav.security", icon: "shieldCheck" },
+      { id: "network", label: "nav.network", icon: "wifi" },
+      { id: "appearance", label: "nav.appearance", icon: "sun" },
+    ],
+  },
+  {
+    caption: "nav.groupIntegrations",
+    items: [
+      { id: "models", label: "nav.models", icon: "cpu" },
+      { id: "usage", label: "nav.usage", icon: "chart" },
+      { id: "quota", label: "nav.quota", icon: "gauge" },
+      { id: "remote", label: "nav.remote", icon: "globe" },
+      { id: "mcp", label: "nav.mcp", icon: "toolbox" },
+      { id: "memory", label: "nav.memory", icon: "brain" },
+      { id: "about", label: "nav.about", icon: "info" },
+    ],
+  },
 ];
 
 export function SettingsPage({ onClose }: { onClose: () => void }) {
@@ -56,19 +83,26 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
           <span className="text-[14px] font-semibold text-text-primary">{t("title")}</span>
         </div>
         <div className="flex-1 overflow-y-auto px-2 py-3">
-          {NAV.map((item) => (
-            <button
-              type="button"
-              key={item.id}
-              data-testid={`settings-nav-${item.id}`}
-              onClick={() => setPage(item.id)}
-              className={`mb-0.5 flex h-9 w-full items-center gap-2.5 rounded-lg px-3 text-[13px] transition-colors ${
-                page === item.id ? "bg-accent text-on-accent" : "text-text-secondary hover:bg-bg-hover"
-              }`}
-            >
-              <Icon name={item.icon} size={15} />
-              {t(item.label)}
-            </button>
+          {NAV_GROUPS.map((group, gi) => (
+            <div key={group.caption ?? gi}>
+              {group.caption && (
+                <div className="mb-1 mt-3 px-3 text-[11px] font-medium text-text-tertiary">{t(group.caption)}</div>
+              )}
+              {group.items.map((item) => (
+                <button
+                  type="button"
+                  key={item.id}
+                  data-testid={`settings-nav-${item.id}`}
+                  onClick={() => setPage(item.id)}
+                  className={`mb-0.5 flex h-9 w-full items-center gap-2.5 rounded-lg px-3 text-[13px] transition-colors ${
+                    page === item.id ? "bg-accent text-on-accent" : "text-text-secondary hover:bg-bg-hover"
+                  }`}
+                >
+                  <Icon name={item.icon} size={15} />
+                  {t(item.label)}
+                </button>
+              ))}
+            </div>
           ))}
         </div>
         <div className="border-t border-border px-3 py-2 text-[11px] text-text-tertiary">{t("closeHint")}</div>
@@ -86,6 +120,8 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
         </button>
         <div className="mx-auto max-w-[760px] px-8 py-6">
           {page === "general" && <GeneralPage />}
+          {page === "security" && <SecurityPage />}
+          {page === "network" && <NetworkPage />}
           {page === "appearance" && <AppearancePage />}
           {page === "models" && <ModelsPage />}
           {page === "usage" && <UsagePage />}
@@ -136,37 +172,6 @@ function GeneralPage() {
           />
         </div>
       )}
-      <SectionTitle>{t("general.permissionMode")}</SectionTitle>
-      <div className="flex gap-2" data-testid="settings-permission-mode">
-        {(
-          [
-            { id: "ask", label: t("general.modeAsk"), desc: t("general.modeAskDescription") },
-            { id: "auto", label: t("general.modeAuto"), desc: t("general.modeAutoDescription") },
-            { id: "never", label: t("general.modeNever"), desc: t("general.modeNeverDescription") },
-          ] as const
-        ).map((m) => (
-          <button
-            type="button"
-            key={m.id}
-            onClick={() => void saveSettings({ permissionMode: m.id })}
-            className={`flex-1 rounded-xl border px-4 py-3 text-left ${
-              settings?.permissionMode === m.id ? "border-accent/50 bg-accent-soft" : "border-border hover:bg-bg-hover"
-            }`}
-          >
-            <div
-              className={`text-[14px] font-medium ${settings?.permissionMode === m.id ? "text-accent" : "text-text-primary"}`}
-            >
-              {m.label}
-            </div>
-            <div className="mt-0.5 text-[12px] text-text-tertiary">{m.desc}</div>
-          </button>
-        ))}
-      </div>
-      <div className="text-[12px] text-text-tertiary">{t("general.permissionModeHint")}</div>
-
-      <PermissionRulesSection />
-      <ProjectPermissionRulesSection />
-
       <SectionTitle>{t("general.thinking")}</SectionTitle>
       <Select
         value={settings?.defaultThinkingLevel ?? "medium"}
@@ -196,50 +201,100 @@ function GeneralPage() {
         <p className="text-[12px] leading-5 text-text-tertiary">{t("general.repeatToolGuard")}</p>
       </div>
 
-      <SectionTitle>{t("nav.memory")}</SectionTitle>
-      <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-bg-elevated px-4 py-3">
-        <div>
-          <div className="text-[14px] text-text-primary">{t("general.memoryDistill")}</div>
-          <div className="mt-0.5 text-[12px] text-text-tertiary">{t("general.memoryDistillDescription")}</div>
-        </div>
-        <Switch
-          on={settings?.memoryDistill ?? true}
-          onChange={(v) => void saveSettings({ memoryDistill: v })}
-          label={t("general.memoryDistill")}
-        />
-      </div>
-
-      <div className="mt-2 flex items-center justify-between gap-4 rounded-xl border border-border bg-bg-elevated px-4 py-3">
-        <div>
-          <div className="text-[14px] text-text-primary">{t("general.modelCatalogAutoSync")}</div>
-          <div className="mt-0.5 text-[12px] text-text-tertiary">{t("general.modelCatalogAutoSyncDescription")}</div>
-        </div>
-        <Switch
-          on={settings?.modelCatalogAutoSync ?? true}
-          onChange={(v) => void saveSettings({ modelCatalogAutoSync: v })}
-          label={t("general.modelCatalogAutoSync")}
-        />
-      </div>
-
       {/* 评审 R3-F4 */}
-      <div className="mt-2 flex items-center justify-between gap-4 rounded-xl border border-border bg-bg-elevated px-4 py-3">
-        <div>
-          <div className="text-[14px] text-text-primary">{t("general.notifications")}</div>
-          <div className="mt-0.5 text-[12px] text-text-tertiary">{t("general.notificationsDescription")}</div>
-        </div>
+      <SettingRow className="mt-6" title={t("general.notifications")} desc={t("general.notificationsDescription")}>
         <Switch
           on={settings?.desktopNotifications ?? true}
           onChange={(v) => void saveSettings({ desktopNotifications: v })}
           label={t("general.notifications")}
         />
-      </div>
+      </SettingRow>
 
       <SectionTitle>{t("general.compaction")}</SectionTitle>
       <CompactionSection />
 
+      <AutoLaunchSection />
+
+      <SectionTitle>{t("general.autoUpdate")}</SectionTitle>
+      <SettingRow title={t("general.checkUpdates")} desc={t("general.checkUpdatesDescription")}>
+        <Switch
+          on={settings?.autoUpdate ?? true}
+          onChange={(v) => void saveSettings({ autoUpdate: v })}
+          label={t("general.autoUpdate")}
+        />
+      </SettingRow>
+      <SettingRow
+        className="mt-2"
+        title={t("general.betaUpdates")}
+        desc={`${t("general.betaUpdatesDescription")}${settings?.betaUpdates === undefined ? t("general.betaAutomatic") : ""}`}
+      >
+        <Switch
+          on={betaUpdatesOn}
+          onChange={(v) => void saveSettings({ betaUpdates: v })}
+          label={t("general.betaUpdates")}
+        />
+      </SettingRow>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 权限与安全：权限模式 / 免审批规则（固定高度内滚） / 命令沙盒
+// ---------------------------------------------------------------------------
+
+function SecurityPage() {
+  const { t } = useTranslation("settings");
+  const settings = useStore((s) => s.settings);
+  const saveSettings = useStore((s) => s.saveSettings);
+  return (
+    <div>
+      <PageHeader title={t("nav.security")} subtitle={t("security.description")} />
+      <SectionTitle>{t("general.permissionMode")}</SectionTitle>
+      <div className="flex gap-2" data-testid="settings-permission-mode">
+        {(
+          [
+            { id: "ask", label: t("general.modeAsk"), desc: t("general.modeAskDescription") },
+            { id: "auto", label: t("general.modeAuto"), desc: t("general.modeAutoDescription") },
+            { id: "never", label: t("general.modeNever"), desc: t("general.modeNeverDescription") },
+          ] as const
+        ).map((m) => (
+          <button
+            type="button"
+            key={m.id}
+            onClick={() => void saveSettings({ permissionMode: m.id })}
+            className={`flex-1 rounded-xl border px-4 py-3 text-left transition-colors ${
+              settings?.permissionMode === m.id ? "border-accent/50 bg-accent-soft" : "border-border hover:bg-bg-hover"
+            }`}
+          >
+            <div
+              className={`text-[14px] font-medium ${settings?.permissionMode === m.id ? "text-accent" : "text-text-primary"}`}
+            >
+              {m.label}
+            </div>
+            <div className="mt-0.5 text-[12px] text-text-tertiary">{m.desc}</div>
+          </button>
+        ))}
+      </div>
+      <div className="text-[12px] text-text-tertiary">{t("general.permissionModeHint")}</div>
+
+      <PermissionRulesSection />
+      <ProjectPermissionRulesSection />
+
       <SectionTitle>{t("general.sandbox")}</SectionTitle>
       <SandboxSection />
+    </div>
+  );
+}
 
+// ---------------------------------------------------------------------------
+// 网络与工具：出站代理 / 高级搜索 / 网页抓取后端
+// ---------------------------------------------------------------------------
+
+function NetworkPage() {
+  const { t } = useTranslation("settings");
+  return (
+    <div>
+      <PageHeader title={t("nav.network")} subtitle={t("network.description")} />
       <SectionTitle>{t("proxy.title")}</SectionTitle>
       <NetworkProxySection />
 
@@ -248,35 +303,6 @@ function GeneralPage() {
 
       <SectionTitle>{t("general.webFetch")}</SectionTitle>
       <WebFetchSection />
-
-      <AutoLaunchSection />
-
-      <SectionTitle>{t("general.autoUpdate")}</SectionTitle>
-      <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-bg-elevated px-4 py-3">
-        <div>
-          <div className="text-[14px] text-text-primary">{t("general.checkUpdates")}</div>
-          <div className="mt-0.5 text-[12px] text-text-tertiary">{t("general.checkUpdatesDescription")}</div>
-        </div>
-        <Switch
-          on={settings?.autoUpdate ?? true}
-          onChange={(v) => void saveSettings({ autoUpdate: v })}
-          label={t("general.autoUpdate")}
-        />
-      </div>
-      <div className="mt-2 flex items-center justify-between gap-4 rounded-xl border border-border bg-bg-elevated px-4 py-3">
-        <div>
-          <div className="text-[14px] text-text-primary">{t("general.betaUpdates")}</div>
-          <div className="mt-0.5 text-[12px] text-text-tertiary">
-            {t("general.betaUpdatesDescription")}
-            {settings?.betaUpdates === undefined ? t("general.betaAutomatic") : ""}
-          </div>
-        </div>
-        <Switch
-          on={betaUpdatesOn}
-          onChange={(v) => void saveSettings({ betaUpdates: v })}
-          label={t("general.betaUpdates")}
-        />
-      </div>
     </div>
   );
 }
@@ -937,6 +963,8 @@ function AppearancePage() {
 
 function MemoryPage() {
   const { t } = useTranslation("settings");
+  const settings = useStore((s) => s.settings);
+  const saveSettings = useStore((s) => s.saveSettings);
   const [files, setFiles] = useState<Record<string, string> | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -964,6 +992,13 @@ function MemoryPage() {
   return (
     <div>
       <PageHeader title={t("nav.memory")} subtitle={t("memory.description")} />
+      <SettingRow className="mb-4" title={t("general.memoryDistill")} desc={t("general.memoryDistillDescription")}>
+        <Switch
+          on={settings?.memoryDistill ?? true}
+          onChange={(v) => void saveSettings({ memoryDistill: v })}
+          label={t("general.memoryDistill")}
+        />
+      </SettingRow>
       {loading ? (
         <div role="status" data-testid="memory-loading" className="text-[13px] text-text-tertiary">
           {t("loading")}
@@ -1193,7 +1228,7 @@ function PermissionRulesSection() {
       {rules.length === 0 ? (
         <div className="mt-2 text-[12px] text-text-tertiary">{t("permissions.empty")}</div>
       ) : (
-        <div className="mt-2 space-y-1">
+        <div className="mt-2 max-h-44 space-y-1 overflow-y-auto pr-1">
           {rules.map((rule) => (
             <div key={rule} className="flex items-center justify-between rounded-lg bg-bg-main px-3 py-1.5">
               <code className="mono text-[12px] text-text-secondary">{rule} …</code>
@@ -1230,7 +1265,7 @@ function ProjectPermissionRulesSection() {
       {entries.length === 0 ? (
         <div className="mt-2 text-[12px] text-text-tertiary">{t("permissions.emptyProject")}</div>
       ) : (
-        <div className="mt-3 space-y-3">
+        <div className="mt-3 max-h-72 space-y-3 overflow-y-auto pr-1">
           {entries.map(([cwd, rules]) => (
             <section key={cwd} aria-label={cwd}>
               <div className="mb-1 text-[12px] font-medium text-text-secondary" title={cwd}>
