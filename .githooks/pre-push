@@ -1,0 +1,49 @@
+#!/bin/sh
+# pre-push：把两条最贵的纪律放到推送路径上（git push 时自动执行）。
+#   1. 拒绝推送 refs/tags/*：打 tag 就等于发版（release.yml 由 v* tag 触发），
+#      任何 agent / 第三方工具都不得自行发版；确认要发时用 SPCODE_ALLOW_TAG_PUSH=1 放行。
+#   2. 推送前跑 pnpm lint：ci.yml 在 install 之后第一步就是它，2026-11-17 曾有改动
+#      本地 typecheck + 单测全绿就 push，CI 因 import 顺序 / 行尾换行 40 秒内变红。
+# 安装：pnpm hooks:install（把 core.hooksPath 指到 .githooks/）。
+
+set -u
+
+blocked=0
+
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+  case "$remote_ref" in
+    refs/tags/*)
+      if [ "${SPCODE_ALLOW_TAG_PUSH:-0}" != "1" ]; then
+        echo "✖ 拒绝推送 tag：$remote_ref" >&2
+        echo "  打 tag 即发版（release.yml 由 v* tag 触发）。发版必须由用户显式要求，且先过评审门禁。" >&2
+        echo "  用户确实要求发版时：SPCODE_ALLOW_TAG_PUSH=1 git push origin $remote_ref" >&2
+        blocked=1
+      else
+        echo "⚠ 放行 tag 推送（SPCODE_ALLOW_TAG_PUSH=1）：$remote_ref" >&2
+      fi
+      ;;
+  esac
+done
+
+[ "$blocked" -eq 1 ] && exit 1
+
+if [ ! -d node_modules ]; then
+  echo "⚠ 跳过推送前 lint：node_modules 不存在，先 pnpm install" >&2
+  exit 0
+fi
+
+echo "▶ 推送前检查：pnpm lint（对齐 ci.yml）" >&2
+
+log=$(mktemp "${TMPDIR:-/tmp}/spcode-pre-push-lint.XXXXXX") || log=/dev/stderr
+
+if ! pnpm lint >"$log" 2>&1; then
+  echo "✖ pnpm lint 未通过，已中止推送。失败明细：" >&2
+  tail -n 30 "$log" >&2
+  echo "  修复：pnpm lint:fix 后重跑 pnpm lint，再提交（必要时 amend）" >&2
+  [ "$log" = /dev/stderr ] || rm -f "$log"
+  exit 1
+fi
+
+[ "$log" = /dev/stderr ] || rm -f "$log"
+echo "✓ lint 通过，继续推送" >&2
+exit 0

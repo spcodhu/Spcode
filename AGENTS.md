@@ -3,16 +3,18 @@
 ## 提交与推送（每个功能完成后必做）
 
 - **每个功能 / 修复完成后立即提交并 push**，不要攒一批再提；一个逻辑改动一笔提交，不相关的改动分开提。
-- 提交前先验证：`pnpm typecheck`，涉及构建产物的改动再跑 `pnpm build`（都在 `apps/desktop/` 下）。
+- 提交前先验证，**检查项必须与 `ci.yml` 对齐**（在仓库根目录跑）：`pnpm lint && pnpm typecheck && pnpm test`；涉及构建产物的改动再跑 `pnpm build`（在 `apps/desktop/` 下）。lint / typecheck 不通过就不要 commit。
+  - 反例（2026-11-17）：改动只在 `apps/desktop` 里跑了 typecheck 和单测就提交并 push，新测试文件违反 biome 的 import 顺序与行尾换行，`ci.yml` 在 install 之后第一步 `pnpm lint` 用了 40 秒就变红。只验一部分检查项等于没验。
 - commit message 用中文，格式：`<前缀>: <一句话主题>`，前缀从现有惯例里选：`INIT:` / `功能:` / `修复:` / `UI:` / `重构:` / `文档:` / `测试:`。
 - 主题说清"做了什么"；修复类提交在 body 里写根因和关键改动点（每条一行，`- ` 开头）。
 - push 到当前分支对应的远程分支；本地分支没建跟踪时用 `git push -u origin <branch>`。
 
 ## 发布策略
 
+- **硬规则：任何 agent（含 Qoder / Cursor 这类第三方工具）不得自行执行 `git tag`、不得改 `apps/desktop/package.json` 的 `version`、不得触发 release 工作流**——打 tag 就等于发版。当前会话没有用户明确要求「发布版本」时，这些动作一律不做，也不「顺手」做；本地 `pre-push` 钩子会直接拒绝推送 `refs/tags/*`（见下方「本地钩子」）。
 - 日常功能 / 修复提交一律不触发发布：不打 tag、不碰版本号，安安静静提交即可（push/PR 会自动跑 CI 的 lint+typecheck+单测；e2e 仍为手动触发）。
 - 只有用户明确要求"发布版本"时才走发布流程；发布前**必须主动询问本次是测试版还是稳定版**。
-- 发布动作：推进 `apps/desktop/package.json` 的 `version`（测试版加 `-beta.N` 后缀）→ **过评审门禁** → 提交 → 打同名 `v*` tag → 推 tag 触发 release.yml。release.yml 统一 `prerelease: false`，最新构建始终占 GitHub Latest 位，beta 与稳定版只靠版本号后缀区分。
+- 发布动作：推进 `apps/desktop/package.json` 的 `version`（测试版加 `-beta.N` 后缀）→ **过评审门禁** → 提交 → 打同名 `v*` tag → 推 tag 触发 release.yml。推 tag 时本地 `pre-push` 钩子会拦截，需要显式放行：`SPCODE_ALLOW_TAG_PUSH=1 git push origin <tag>`。release.yml 统一 `prerelease: false`，最新构建始终占 GitHub Latest 位，beta 与稳定版只靠版本号后缀区分。
   - 提交顺序：代码与版本号先提交，评审覆盖那个提交（`reviewedCommit`）；报告与台账再作为一个只改 `docs/code-review/**` 的提交落在后面。门禁显式允许这段尾巴，但中间只要动了代码/测试就必须重新增量评审。
 - **发版前评审是硬门禁**（测试版/稳定版都算）：
   - 流程与 token 预算见 [docs/code-review/README.md](docs/code-review/README.md)：`pnpm review:context` → 分区域评审（子代理/新会话）→ 实跑验证日志落盘 → 写 `docs/code-review/R<N>-<date>.md` → `pnpm review:record` 记台账。
@@ -27,6 +29,13 @@
   - 先通过 `GET https://api.github.com/repos/spcodhu/Spcode/actions/runs/<RUN_ID>/jobs` 找到失败的 `JOB_ID`。
   - 再通过 `GET https://api.github.com/repos/spcodhu/Spcode/check-runs/<JOB_ID>/annotations` 读取失败文件、用例和断言详情。公开日志 API 可能因权限返回 403，但 Annotations 仍可公开读取，不要为了拿日志专门再打一个 beta tag。
   - 后续先修复根因并跑完整本地验证；只有准备重新发布时才另起 beta 号，失败 tag 不移动。
+
+## 本地钩子（新克隆 / 新机器必做一次）
+
+- `pnpm hooks:install`（等价于 `git config core.hooksPath .githooks && chmod +x .githooks/pre-push`）启用 `pre-push`，它做两件事：
+  - **拒绝推送 `refs/tags/*`**：确认要发版时用 `SPCODE_ALLOW_TAG_PUSH=1 git push origin <tag>` 显式放行；
+  - **推送前跑 `pnpm lint`**，不通过直接中止推送（`node_modules` 缺失时跳过并提示，先 `pnpm install`）。
+- 钩子只在本机生效，不替代 CI：它拦的是「推之前」，`review-gate` 与 Test 仍在 release.yml 里兜底。
 
 ## 不要提交的东西
 
