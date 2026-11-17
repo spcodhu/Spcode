@@ -1,5 +1,5 @@
 # Release 流水线：推 v* tag 触发。
-# 结构：build（mac/win 并行，只打包不发布）→ publish（单 job 汇总上传建 Release）。
+# 结构：review-gate（评审台账门禁）→ build（mac/win 并行，只打包不发布）→ publish（单 job 汇总上传建 Release）。
 # 不让两个平台 job 各自 electron-builder --publish always：并发创建同一 tag 的
 # Release 没有幂等保护，后到者 422 中断发布（v0.1.0-beta.1 曾因此丢掉全部 mac 产物）。
 name: Release
@@ -13,7 +13,22 @@ permissions:
   contents: write
 
 jobs:
+  review-gate:
+    # 发版前评审门禁：台账（docs/code-review/latest.json）必须覆盖本 tag 提交，
+    # 且没有未闭环 P0、没有未经用户确认的 P1。不通过就不进入打包阶段。
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 校验评审台账
+        run: node scripts/release-gate.mjs --commit "$GITHUB_SHA"
+
   build:
+    needs: review-gate
     strategy:
       fail-fast: false
       matrix:

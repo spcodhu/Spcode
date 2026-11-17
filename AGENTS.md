@@ -12,8 +12,13 @@
 
 - 日常功能 / 修复提交一律不触发发布：不打 tag、不碰版本号，安安静静提交即可（push/PR 会自动跑 CI 的 lint+typecheck+单测；e2e 仍为手动触发）。
 - 只有用户明确要求"发布版本"时才走发布流程；发布前**必须主动询问本次是测试版还是稳定版**。
-- 发布动作：推进 `apps/desktop/package.json` 的 `version`（测试版加 `-beta.N` 后缀）→ 提交 → 打同名 `v*` tag → 推 tag 触发 release.yml。release.yml 统一 `prerelease: false`，最新构建始终占 GitHub Latest 位，beta 与稳定版只靠版本号后缀区分。
-- **更新公告**：每次发布（正式版/测试版都算）必须先过一遍自上一个版本 tag 以来的全部 Git 提交（`git log <上一tag>..HEAD`），据此拟一份详细的中文更新公告——按新功能/优化/修复分组，说清用户可感知的变化与配置入口，必要时先给用户审查确认或由用户自己出具。公告要落到 GitHub Release 正文：打附注 tag 时带上（`git tag -a --cleanup=verbatim -F <tag> <公告文件>`；**必须保留 `verbatim`**，否则 Git 会把 `##` 分组标题当注释删掉）；release.yml 的 publish 阶段会自动把公告 prepend 到自动生成的 What's Changed 之前，不再单独跑第二条公告工作流。
+- 发布动作：推进 `apps/desktop/package.json` 的 `version`（测试版加 `-beta.N` 后缀）→ **过评审门禁** → 提交 → 打同名 `v*` tag → 推 tag 触发 release.yml。release.yml 统一 `prerelease: false`，最新构建始终占 GitHub Latest 位，beta 与稳定版只靠版本号后缀区分。
+- **发版前评审是硬门禁**（测试版/稳定版都算）：
+  - 流程与 token 预算见 [docs/code-review/README.md](docs/code-review/README.md)：`pnpm review:context` → 分区域评审（子代理/新会话）→ 实跑验证日志落盘 → 写 `docs/code-review/R<N>-<date>.md` → `pnpm review:record` 记台账。
+  - 基线固定是**上一个 release tag**，只审增量，不做全量通读；评审与整改分两个会话。
+  - 有问题就中断发布，由用户决定是否整改；P0 一律硬拦，P1 需 `--accept-p1-reason` 明确放行。
+  - `pnpm release:gate` 本地自检；release.yml 的 `review-gate` job 会用 tag 指向的提交再校验一次，台账对不上直接失败（不会打包）。
+- 更新公告：每次发布（正式版/测试版都算）必须先过一遍自上一个版本 tag 以来的全部 Git 提交（`git log <上一tag>..HEAD`），据此拟一份详细的中文更新公告——按新功能/优化/修复分组，说清用户可感知的变化与配置入口，必要时先给用户审查确认或由用户自己出具。公告要落到 GitHub Release 正文：打附注 tag 时带上（`git tag -a --cleanup=verbatim -F <tag> <公告文件>`；**必须保留 `verbatim`**，否则 Git 会把 `##` 分组标题当注释删掉）；release.yml 的 publish 阶段会自动把公告 prepend 到自动生成的 What's Changed 之前，不再单独跑第二条公告工作流。
 - 发布前先在本地跑 `pnpm --filter @spcode/desktop test`（2026-10 曾因改名后没跑测试导致 beta 流水线双平台挂掉）。
 - **发布失败先查 GitHub Annotations，禁止仅为查看报错另发新版本**：release.yml 的 Test 已固定使用 `vitest run --reporter=default --reporter=github-actions`，失败用例会写入公开 Annotations，不要只盯着末尾的 `Process completed with exit code 1`。
   - 先通过 `GET https://api.github.com/repos/spcodhu/Spcode/actions/runs/<RUN_ID>/jobs` 找到失败的 `JOB_ID`。
@@ -28,5 +33,8 @@
 
 ## 测试纪律
 
-- 改动 UI 文案、布局或交互结构后，必须跑 `pnpm --filter @spcode/desktop test:e2e`（至少跑 smoke）；e2e 断言一律锚定 role / placeholder / data-testid，不锚定展示文案。
+- 改动 UI 文案、布局或交互结构后，必须跑 `pnpm --filter @spcode/desktop test:e2e`；e2e 断言一律锚定 role / placeholder / data-testid，不锚定展示文案。
+- **E2E 只放行「必须真跑 Electron」的断言**（主进程/窗口行为、真实落盘、跨重启、主进程文件映射、宿主联调）；纯展示、纯计算、纯 CSS 行为由 `apps/desktop/test/*.test.ts` 覆盖。
+- 现状：12 个 spec / 30 条用例，全量约 1 分钟。新增 E2E 前先证明单测覆盖不了，并复用手头 spec 的 seed/启动方式，不要让用例数重新进入只增不减的状态。
+- e2e 的 TS 类型由 `tsconfig.e2e.json` 纳入 `pnpm typecheck`；改完先跑 typecheck 再跑 e2e（e2e 不会自动构建，源码改了要先 `pnpm --filter @spcode/desktop build`）。
 - e2e 跑在临时 `SPCODE_HOME` 下，不得读写真实 `~/.spcode/`。

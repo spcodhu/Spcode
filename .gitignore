@@ -13,6 +13,7 @@ coverage/
 test-results/
 .finch/
 .qoder/
+.review/
 spcode-icon*.png
 ci-job.log
 /spcod-relay/
