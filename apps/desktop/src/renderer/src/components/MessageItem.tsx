@@ -6,6 +6,7 @@ import { openImageContextMenu } from "../image-actions";
 import { buildRunBlocks, type RunTextBlock } from "../run-activity";
 import { type ChatMessage, flattenSegments, messageText, useStore } from "../store";
 import { prefillComposer } from "./Composer";
+import { GeneratedImageGallery } from "./GeneratedImageGallery";
 import { Icon } from "./Icon";
 import { ImageLightbox } from "./ImageLightbox";
 import { Markdown } from "./Markdown";
@@ -519,6 +520,8 @@ function AssistantRunItemImpl({
 }) {
   const segments = flattenSegments(messages);
   const blocks = buildRunBlocks(segments);
+  // 生图工具落盘的图片：不藏在折叠的工具步骤里，直接在运行下方展示（重启回放同样可见）
+  const generatedImages = segments.flatMap((s) => (s.kind === "tools" ? s.calls.flatMap((c) => c.images ?? []) : []));
   const lastMessage = messages[messages.length - 1];
   const streamingTail = lastMessage?.streaming ? lastMessage.segments[lastMessage.segments.length - 1] : undefined;
   const renderText = (block: RunTextBlock) => <Markdown key={block.key} text={block.text} />;
@@ -533,6 +536,7 @@ function AssistantRunItemImpl({
     return (
       <div className="group/message mb-6">
         <RunActivityTimeline segments={segments} active={false} renderText={renderText} onOpenFile={onOpenFile} />
+        <GeneratedImageGallery images={generatedImages} />
         <MessageHoverMeta timestamp={timestamp} copyText={copyText} align="start" />
       </div>
     );
@@ -548,6 +552,7 @@ function AssistantRunItemImpl({
         renderText={renderText}
         onOpenFile={onOpenFile}
       />
+      <GeneratedImageGallery images={generatedImages} />
     </div>
   );
 }

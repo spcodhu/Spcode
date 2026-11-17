@@ -10,6 +10,7 @@ const technicalLabels = new Set([
   "Spcod",
   "Spcode",
   "MCP",
+  "GenerateImage",
   "JSON",
   "API Key",
   "API",

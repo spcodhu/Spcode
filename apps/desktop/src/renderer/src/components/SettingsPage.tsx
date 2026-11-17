@@ -20,6 +20,7 @@ import { ModelsPage } from "./ModelsPage";
 import { NetworkProxySection } from "./NetworkProxySection";
 import { QuotaPage } from "./QuotaPage";
 import { RemotePage } from "./RemotePage";
+import { SkillsPage } from "./SkillsPage";
 import { UsagePage } from "./UsagePage";
 import { Modal } from "./ui/Modal";
 import { Select } from "./ui/Select";
@@ -32,6 +33,7 @@ type PageId =
   | "network"
   | "appearance"
   | "models"
+  | "skills"
   | "usage"
   | "quota"
   | "remote"
@@ -56,6 +58,7 @@ const NAV_GROUPS: {
     caption: "nav.groupIntegrations",
     items: [
       { id: "models", label: "nav.models", icon: "cpu" },
+      { id: "skills", label: "nav.skills", icon: "sparkles" },
       { id: "usage", label: "nav.usage", icon: "chart" },
       { id: "quota", label: "nav.quota", icon: "gauge" },
       { id: "remote", label: "nav.remote", icon: "globe" },
@@ -124,6 +127,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
           {page === "network" && <NetworkPage />}
           {page === "appearance" && <AppearancePage />}
           {page === "models" && <ModelsPage />}
+          {page === "skills" && <SkillsPage />}
           {page === "usage" && <UsagePage />}
           {page === "quota" && <QuotaPage />}
           {page === "remote" && <RemotePage />}

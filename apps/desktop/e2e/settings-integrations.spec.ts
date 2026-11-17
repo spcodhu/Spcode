@@ -261,3 +261,51 @@ test("子代理三档：切换落盘 settings.json 且重启后回显", async ()
   );
   await app.close();
 });
+
+test("生图技能：配置落盘 settings.json、重启后密钥掩码、停用清空", async () => {
+  const spcodeHome = mkdtempSync(join(tmpdir(), "spcode-e2e-skills-"));
+  let app = await launchApp({ spcodeHome });
+  let window = await app.firstWindow();
+
+  await window.getByTitle("设置", { exact: true }).click();
+  await window.getByTestId("settings-nav-skills").click();
+  const card = window.getByTestId("skills-image-gen-card");
+  await expect(card).toBeVisible();
+  // 预设默认端点/模型已自动填充；密钥为空
+  await expect(card.getByTestId("skills-image-gen-baseurl")).toHaveValue(/images\/generations/);
+  await expect(card.getByTestId("skills-image-gen-apikey")).toHaveValue("");
+
+  await card.getByTestId("skills-image-gen-apikey").fill("sk-e2e-secret");
+  await card.getByTestId("skills-image-gen-save").click();
+  await expect
+    .poll(() => {
+      const saved = JSON.parse(readFileSync(join(spcodeHome, "settings.json"), "utf8")) as {
+        skills?: { imageGen?: { apiKey?: string; model?: string } | null };
+      };
+      return saved.skills?.imageGen?.apiKey;
+    })
+    .toBe("sk-e2e-secret");
+  await window.getByTitle("关闭设置").click();
+  await app.close();
+
+  // 重启后：密钥只回掩码（渲染层永远见不到明文），配置状态保留
+  app = await launchApp({ spcodeHome });
+  window = await app.firstWindow();
+  await expect(window.getByTestId("brand")).toBeVisible({ timeout: 15000 });
+  await window.getByTitle("设置", { exact: true }).click();
+  await window.getByTestId("settings-nav-skills").click();
+  const reopened = window.getByTestId("skills-image-gen-card");
+  await expect(reopened.getByTestId("skills-image-gen-apikey")).toHaveValue("••••••••");
+
+  // 停用：配置清空落盘
+  await reopened.getByTestId("skills-image-gen-disable").click();
+  await expect
+    .poll(() => {
+      const saved = JSON.parse(readFileSync(join(spcodeHome, "settings.json"), "utf8")) as {
+        skills?: { imageGen?: unknown };
+      };
+      return saved.skills?.imageGen;
+    })
+    .toBeNull();
+  await app.close();
+});

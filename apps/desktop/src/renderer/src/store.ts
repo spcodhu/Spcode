@@ -67,6 +67,14 @@ export interface ToolCallState {
   presentation?: LocalizedText;
   /** edit/write 的 unified patch（pi details.patch，评审 R3-F1：消息流里渲染 diff） */
   patch?: string;
+  /** GenerateImage 落盘的图片（pi details.images）：消息流里直接展示，重启回放不丢 */
+  images?: GeneratedImageRef[];
+}
+
+/** 生图工具落盘图片的引用（路径在会话工作区守卫内，渲染层经 readWorkspaceImage 读位图） */
+export interface GeneratedImageRef {
+  path: string;
+  mimeType: string;
 }
 
 /**
@@ -389,7 +397,10 @@ interface PiContentBlock {
  */
 function contentToSegments(
   content: unknown,
-  toolResults?: Map<string, { text: string; isError: boolean; presentation?: LocalizedText; patch?: string }>,
+  toolResults?: Map<
+    string,
+    { text: string; isError: boolean; presentation?: LocalizedText; patch?: string; images?: GeneratedImageRef[] }
+  >,
 ): Segment[] {
   if (!Array.isArray(content)) return [];
   const out: Segment[] = [];
@@ -413,6 +424,7 @@ function contentToSegments(
         output: res?.text ?? "",
         ...(res?.presentation ? { presentation: res.presentation } : {}),
         ...(res?.patch ? { patch: res.patch } : {}),
+        ...(res?.images?.length ? { images: res.images } : {}),
       };
       if (last?.kind === "tools") last.calls.push(call);
       else out.push({ kind: "tools", id: nextMsgId(), calls: [call] });
@@ -434,6 +446,21 @@ function extractPresentation(result: unknown): LocalizedText | undefined {
   )
     return undefined;
   return { key, ...(params ? { params } : {}) };
+}
+
+/** 从工具结果 details.images 提取生图落盘引用（逐项校验，非法项剔除） */
+export function extractImages(result: unknown): GeneratedImageRef[] | undefined {
+  const raw = (result as { details?: { images?: unknown } } | null)?.details?.images;
+  if (!Array.isArray(raw)) return undefined;
+  const images = raw.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const { path, mimeType } = item as { path?: unknown; mimeType?: unknown };
+    if (typeof path !== "string" || !path.trim() || typeof mimeType !== "string" || !mimeType.startsWith("image/")) {
+      return [];
+    }
+    return [{ path, mimeType }];
+  });
+  return images.length ? images : undefined;
 }
 
 function extractResultText(result: unknown): string {
@@ -863,6 +890,8 @@ export function applySessionEvent(session: SessionState, event: Record<string, u
         const details = ((event as { result?: unknown }).result as { details?: { patch?: unknown } } | undefined)
           ?.details;
         if (typeof details?.patch === "string" && details.patch) tc.patch = details.patch;
+        const images = extractImages((event as { result?: unknown }).result);
+        if (images) tc.images = images;
         const presentation = extractPresentation((event as { result?: unknown }).result);
         if (presentation) tc.presentation = presentation;
       }
@@ -958,7 +987,7 @@ export function historyToMessages(messages: unknown[]): ChatMessage[] {
   /** toolCallId → 结果，用于回填工具卡片输出 */
   const toolResults = new Map<
     string,
-    { text: string; isError: boolean; presentation?: LocalizedText; patch?: string }
+    { text: string; isError: boolean; presentation?: LocalizedText; patch?: string; images?: GeneratedImageRef[] }
   >();
   for (const raw of messages) {
     const m = raw as {
@@ -969,11 +998,13 @@ export function historyToMessages(messages: unknown[]): ChatMessage[] {
     };
     if (m.role === "toolResult" && m.toolCallId) {
       const details = (raw as { details?: { patch?: unknown } }).details;
+      const images = extractImages(raw);
       toolResults.set(m.toolCallId, {
         text: extractResultText(m),
         isError: !!m.isError,
         presentation: extractPresentation(raw),
         ...(typeof details?.patch === "string" ? { patch: details.patch } : {}),
+        ...(images ? { images } : {}),
       });
     }
   }
