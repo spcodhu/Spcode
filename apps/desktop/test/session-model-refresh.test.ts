@@ -8,13 +8,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it } from "vitest";
+import { MemoryStore } from "../src/agent-host/memory-store.js";
 import {
   addCustomModel,
   addCustomProvider,
   createModelOverlayStore,
   removeCustomModel,
 } from "../src/agent-host/model-overlay.js";
-import { MemoryStore } from "../src/agent-host/memory-store.js";
 import { SessionController } from "../src/agent-host/session-controller.js";
 
 const dirs: string[] = [];
