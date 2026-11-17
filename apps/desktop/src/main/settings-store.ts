@@ -18,6 +18,7 @@ import {
   sanitizeModelPricing,
 } from "@spcode/shared";
 import { resolveLocale } from "@spcode/shared/i18n";
+import { sanitizeImageGenConfig } from "@spcode/shared/image-gen";
 import { readJsonFile, resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
 import { sanitizeNetworkProxySettings } from "@spcode/shared/proxy";
 
@@ -122,6 +123,12 @@ export function sanitizeAppSettings(input: Partial<AppSettings>): Partial<AppSet
   ] as const) {
     const v = out[k];
     if (v !== undefined && v !== null && (typeof v !== "object" || Array.isArray(v))) delete out[k];
+  }
+  // 内置技能：逐技能字段级校验（非法配置判 null = 未配置，绝不带病生效）
+  if (out.skills !== undefined) {
+    const value = out.skills;
+    if (!value || typeof value !== "object" || Array.isArray(value)) delete out.skills;
+    else out.skills = { imageGen: sanitizeImageGenConfig((value as Partial<AppSettings["skills"]>).imageGen) };
   }
   return out;
 }
@@ -229,6 +236,11 @@ export function redactSettingsForRenderer(s: AppSettings): AppSettings {
       ? { ...s.advancedSearch, apiKey: s.advancedSearch.apiKey ? SECRET_MASK : "" }
       : null,
     webFetch: s.webFetch ? { ...s.webFetch, apiKey: s.webFetch.apiKey ? SECRET_MASK : "" } : null,
+    skills: {
+      imageGen: s.skills.imageGen
+        ? { ...s.skills.imageGen, apiKey: s.skills.imageGen.apiKey ? SECRET_MASK : "" }
+        : null,
+    },
     proxy: { ...s.proxy, password: s.proxy.password ? SECRET_MASK : "" },
     remote: {
       ...s.remote,
@@ -246,6 +258,12 @@ export function restoreMaskedSecrets(patch: Partial<AppSettings>, current: AppSe
   }
   if (out.webFetch && out.webFetch.apiKey === SECRET_MASK) {
     out.webFetch = { ...out.webFetch, apiKey: current.webFetch?.apiKey ?? "" };
+  }
+  if (out.skills?.imageGen && out.skills.imageGen.apiKey === SECRET_MASK) {
+    out.skills = {
+      ...out.skills,
+      imageGen: { ...out.skills.imageGen, apiKey: current.skills.imageGen?.apiKey ?? "" },
+    };
   }
   if (out.proxy && out.proxy.password === SECRET_MASK) {
     out.proxy = { ...out.proxy, password: current.proxy.password };

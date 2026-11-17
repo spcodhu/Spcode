@@ -569,6 +569,8 @@ export type HostCommand =
   | { type: "search.setAdvancedConfig"; payload: { config: AdvancedSearchConfig | null } }
   /** WebFetch 抓取后端配置下发（设置页变更后推送；宿主就绪时重推）。工具逐次调用实时读取，活跃会话即时生效 */
   | { type: "webfetch.setConfig"; payload: { config: WebFetchConfig | null } }
+  /** 内置技能配置下发（设置页变更后推送；宿主就绪时重推）。配置完整的技能热进活跃工具集 */
+  | { type: "skills.setConfig"; payload: { skills: SkillsSettings } }
   /** 沙盒设置下发（设置页变更后推送；宿主就绪时重推）。活跃会话的下一条命令即时生效 */
   | { type: "sandbox.setConfig"; payload: { config: SandboxSettings } }
   /** MCP 服务器配置下发（设置页变更后推送；宿主就绪时重推）。对已创建会话不生效，新会话生效 */
@@ -975,6 +977,8 @@ export const IPC = {
   searchTest: "spcode:search-test",
   /** renderer -> main (invoke)：WebFetch 抓取后端测试连接（发真实请求验证） */
   webFetchTest: "spcode:webfetch-test",
+  /** renderer -> main (invoke)：生图技能「测试生成」（发真实请求生成一张测试图） */
+  imageGenTest: "spcode:image-gen-test",
   /** renderer -> main (invoke)：会话标题+正文全文搜索 */
   searchSessions: "spcode:search-sessions",
   /** renderer -> main (invoke)：会话 git 改动查看/还原（评审 R3-F2） */
@@ -1081,6 +1085,30 @@ export interface AdvancedSearchMapping {
   snippetField: string;
 }
 
+/** 生图协议预设：OpenAI Images API / OpenAI 兼容 Chat（中转生图路由）/ Gemini 原生 generateContent */
+export type ImageGenProtocol = "openai-images" | "openai-chat" | "gemini";
+
+/** 图像生成技能配置（技能页维护，独立 apiKey；协议适配在 @spcode/shared/image-gen） */
+export interface ImageGenConfig {
+  protocol: ImageGenProtocol;
+  /** openai 系为完整端点 URL；gemini 为 API 根（如 https://generativelanguage.googleapis.com/v1beta） */
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+}
+
+/**
+ * 内置技能设置（设置页「技能」tab）：每个技能独立配置与密钥，互不影响对话模型。
+ * null = 未配置/停用（对应工具不进活跃工具集）。后续新增内置技能在此扩展字段。
+ */
+export interface SkillsSettings {
+  imageGen: ImageGenConfig | null;
+}
+
+export const DEFAULT_SKILLS_SETTINGS: SkillsSettings = {
+  imageGen: null,
+};
+
 /**
  * WebFetch 抓取后端配置。缺省（null）走内置直连抓取（SSRF 防护 + Turndown 转 Markdown）；
  * 配置后 WebFetch 工具改调对应抓取 API（目标页面由服务商服务端抓取）。
@@ -1163,6 +1191,8 @@ export interface AppSettings {
   proxy: import("./proxy.js").NetworkProxySettings;
   /** WebFetch 抓取后端（null = 内置直连抓取；工具逐次调用实时读取，改配置对活跃会话即时生效） */
   webFetch: WebFetchConfig | null;
+  /** 内置技能（生图等）：配置完整才进活跃工具集，改配置对活跃会话热生效 */
+  skills: SkillsSettings;
   /** 远程控制（手机 PWA）：局域网 HTTP+WS 服务开关/端口（null = 随机端口）与 relay 地址 */
   remote: RemoteSettings;
   /** 命令沙盒：bash 命令在 OS 级边界内执行（macOS Seatbelt / Linux bubblewrap） */
@@ -1339,6 +1369,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   monoFontFile: "",
   advancedSearch: null,
   webFetch: null,
+  skills: DEFAULT_SKILLS_SETTINGS,
   proxy: DEFAULT_NETWORK_PROXY_SETTINGS,
   sandbox: DEFAULT_SANDBOX_SETTINGS,
   compaction: DEFAULT_COMPACTION_SETTINGS,

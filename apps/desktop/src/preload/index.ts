@@ -12,6 +12,7 @@ import {
   type HostEvent,
   type ImageAttachment,
   type ImageContextMenuResult,
+  type ImageGenConfig,
   IPC,
   type PickedFile,
   type QuotaInfo,
@@ -116,6 +117,10 @@ export interface SpcodeApi {
   searchTest(config: AdvancedSearchConfig): Promise<{ ok: true; count: number } | { ok: false; error: string }>;
   /** WebFetch 抓取后端「测试连接」：主进程发真实请求验证配置 */
   webFetchTest(config: WebFetchConfig): Promise<{ ok: true; length: number } | { ok: false; error: string }>;
+  /** 生图技能「测试生成」：主进程真实生成一张测试图，成功返回位图供设置页预览 */
+  imageGenTest(
+    config: ImageGenConfig,
+  ): Promise<{ ok: true; image: { mimeType: string; data: string } } | { ok: false; error: string }>;
   /** 会话 git 改动（评审 R3-F2）：基线状态 / diff 内容 / 还原（stash push 可恢复） */
   sessionGitState(id: string): Promise<{ hasBaseline: boolean; changed: boolean; stat: string }>;
   sessionGitDiff(id: string): Promise<{ stat: string; patch: string; untracked: string[] } | null>;
@@ -288,6 +293,9 @@ const api: SpcodeApi = {
   },
   webFetchTest(config) {
     return ipcRenderer.invoke(IPC.webFetchTest, config);
+  },
+  imageGenTest(config) {
+    return ipcRenderer.invoke(IPC.imageGenTest, config);
   },
   sessionGitState(id) {
     return ipcRenderer.invoke(IPC.sessionGitState, id);

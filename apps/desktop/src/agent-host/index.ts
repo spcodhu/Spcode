@@ -34,6 +34,7 @@ import type {
   QuestionRequest,
   SandboxSettings,
   SandboxStatusReport,
+  SkillsSettings,
   SubagentMode,
   WebFetchConfig,
 } from "@spcode/shared";
@@ -41,12 +42,14 @@ import {
   DEFAULT_COMPACTION_SETTINGS,
   DEFAULT_MAX_MODEL_TURNS,
   DEFAULT_SANDBOX_SETTINGS,
+  DEFAULT_SKILLS_SETTINGS,
   DEFAULT_SUBAGENT_MODE,
   sanitizeModelPricing,
   supportsModelDiscovery,
   systemMessageRoleFromCompat,
 } from "@spcode/shared";
 import { getLocale, i18n, setLocale } from "@spcode/shared/i18n";
+import { isImageGenReady } from "@spcode/shared/image-gen";
 import { resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
 import { configureNetworkProxy } from "../network-proxy.js";
 import { exportSessionContext } from "./export-context.js";
@@ -130,6 +133,8 @@ let subagentMode: SubagentMode = DEFAULT_SUBAGENT_MODE;
 let advancedSearchConfig: AdvancedSearchConfig | null = null;
 /** WebFetch 抓取后端配置（主进程设置页经 webfetch.setConfig 下发；宿主重启后由主进程重推） */
 let webFetchConfig: WebFetchConfig | null = null;
+/** 内置技能配置（主进程设置页经 skills.setConfig 下发；宿主重启后由主进程重推） */
+let skillsSettings: SkillsSettings = DEFAULT_SKILLS_SETTINGS;
 /** 沙盒设置（主进程设置页经 sandbox.setConfig 下发；未下发前用默认值） */
 let sandboxSettings: SandboxSettings = DEFAULT_SANDBOX_SETTINGS;
 /**
@@ -471,6 +476,7 @@ async function createController(params: {
     getSubagentMode: () => subagentMode,
     getAdvancedSearchConfig: () => advancedSearchConfig,
     getWebFetchConfig: () => webFetchConfig,
+    getImageGenConfig: () => skillsSettings.imageGen,
     getSandboxSettings: () => sandboxSettings,
     getMcpTools: () => getMcpManager().tools(),
     piSettings,
@@ -536,6 +542,13 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
   }
   if (cmd.type === "webfetch.setConfig") {
     webFetchConfig = cmd.payload.config;
+    return;
+  }
+  if (cmd.type === "skills.setConfig") {
+    skillsSettings = cmd.payload.skills;
+    // 生图技能热插拔：活跃会话的工具集即时增删；休眠会话唤醒时经 getter 读到最新值
+    const ready = isImageGenReady(skillsSettings.imageGen);
+    for (const ctl of sessions.values()) ctl.setImageGenReady(ready);
     return;
   }
   if (cmd.type === "sandbox.setConfig") {

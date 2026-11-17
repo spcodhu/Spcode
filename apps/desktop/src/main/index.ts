@@ -17,6 +17,7 @@ import {
   type HostCommand,
   type HostCommandInput,
   type HostEvent,
+  type ImageGenConfig,
   IPC,
   isModelEnabled,
   type ModelInfo,
@@ -35,6 +36,7 @@ import {
 } from "@spcode/shared";
 import { executeSearch, isAdvancedSearchReady } from "@spcode/shared/advanced-search";
 import { i18n, setLocale } from "@spcode/shared/i18n";
+import { executeImageGen, isImageGenReady } from "@spcode/shared/image-gen";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 import { executeFetch, isWebFetchReady } from "@spcode/shared/web-fetch";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
@@ -782,6 +784,10 @@ function registerIpc(): void {
     if ("webFetch" in patch) {
       bridge.push({ type: "webfetch.setConfig", payload: { config: next.webFetch } });
     }
+    // 内置技能实时下发宿主（生图工具在活跃会话热插拔）
+    if ("skills" in patch) {
+      bridge.push({ type: "skills.setConfig", payload: { skills: next.skills } });
+    }
     // 沙盒设置实时下发宿主；活跃会话的下一条命令即时读取新配置
     if ("sandbox" in patch) {
       bridge.push({ type: "sandbox.setConfig", payload: { config: next.sandbox } });
@@ -864,6 +870,25 @@ function registerIpc(): void {
     try {
       const page = await executeFetch(resolved, "https://example.com", 15_000);
       return { ok: true as const, length: page.content.length };
+    } catch (err) {
+      return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  // 生图技能「测试生成」：真实生成一张小图验证端点/密钥/模型（消耗少量额度，UI 已提示）
+  ipcMain.handle(IPC.imageGenTest, async (_e, config: ImageGenConfig) => {
+    // 掩码密钥还原（渲染层拿到的是掩码，原样回传时用存储的真值——同 searchTest）
+    const resolved =
+      config.apiKey === SECRET_MASK ? { ...config, apiKey: settings.get().skills.imageGen?.apiKey ?? "" } : config;
+    if (!isImageGenReady(resolved)) return { ok: false as const, error: i18n.t("integration:imageGen.incomplete") };
+    try {
+      const outcome = await executeImageGen(resolved, "A simple red circle centered on a plain white background", {
+        size: "1024x1024",
+        timeoutMs: 120_000,
+      });
+      const first = outcome.images[0];
+      if (!first) return { ok: false as const, error: "No image returned" };
+      return { ok: true as const, image: { mimeType: first.mimeType, data: first.data } };
     } catch (err) {
       return { ok: false as const, error: err instanceof Error ? err.message : String(err) };
     }
@@ -952,6 +977,7 @@ if (!app.requestSingleInstanceLock()) {
         bridge.push({ type: "proxy.setConfig", payload: { config: settings.get().proxy } });
         bridge.push({ type: "search.setAdvancedConfig", payload: { config: settings.get().advancedSearch } });
         bridge.push({ type: "webfetch.setConfig", payload: { config: settings.get().webFetch } });
+        bridge.push({ type: "skills.setConfig", payload: { skills: settings.get().skills } });
         bridge.push({ type: "sandbox.setConfig", payload: { config: settings.get().sandbox } });
         bridge.push({ type: "compaction.setConfig", payload: { config: settings.get().compaction } });
         bridge.push({ type: "pricing.setConfig", payload: { config: settings.get().modelPricing } });

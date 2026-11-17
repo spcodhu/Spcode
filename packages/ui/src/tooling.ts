@@ -18,6 +18,7 @@ const TOOL_LABELS = {
   ls: "tool.ls",
   websearch: "tool.websearch",
   webfetch: "tool.webfetch",
+  generateimage: "tool.generateimage",
   todowrite: "tool.todowrite",
   askuserquestion: "tool.askuserquestion",
   task: "tool.task",

@@ -19,6 +19,7 @@ import {
 import type {
   AdvancedSearchConfig,
   ContextUsageSnapshot,
+  ImageGenConfig,
   ModelRef,
   PermissionMode,
   PermissionRequest,
@@ -42,6 +43,7 @@ import {
 } from "@spcode/shared";
 import { isAdvancedSearchReady } from "@spcode/shared/advanced-search";
 import { getLocale } from "@spcode/shared/i18n";
+import { isImageGenReady } from "@spcode/shared/image-gen";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 import { MemoryDistiller } from "./distill.js";
 import { buildLanguagePolicy, installLanguagePolicy } from "./language-policy.js";
@@ -65,6 +67,7 @@ import { installSubagentPolicy } from "./subagent-policy.js";
 import { createSessionToolEnvironment } from "./tool-environment.js";
 import { createAdvancedSearchTool } from "./tools/advanced-search.js";
 import { createAskUserQuestionTool } from "./tools/ask-user.js";
+import { createImageGenTool } from "./tools/image-gen.js";
 import { createRenameSessionTool } from "./tools/rename.js";
 import { createTaskTool } from "./tools/task.js";
 import { createTodoWriteTool } from "./tools/todowrite.js";
@@ -228,6 +231,8 @@ export interface SessionControllerOptions {
   getSubagentMode?: () => SubagentMode;
   /** 高级搜索配置（主进程设置页下发，实时读取；配置完整才注册 AdvancedSearch 工具） */
   getAdvancedSearchConfig?: () => AdvancedSearchConfig | null;
+  /** 生图技能配置（主进程设置页下发，实时读取；配置完整才进活跃工具集，变更热插拔） */
+  getImageGenConfig?: () => ImageGenConfig | null;
   /** WebFetch 抓取后端配置（主进程设置页下发；工具逐次调用实时读取，活跃会话即时生效） */
   getWebFetchConfig?: () => WebFetchConfig | null;
   /** 沙盒设置（主进程设置页下发，实时读取；enabled 且平台可用时 bash 走 OS 级沙盒） */
@@ -341,7 +346,11 @@ export class SessionController {
       (opts.getSubagentMode?.() ?? DEFAULT_SUBAGENT_MODE) === "off"
         ? NORMAL_MODE_TOOLS.filter((name) => name !== "Task")
         : NORMAL_MODE_TOOLS;
-    const normalModeTools = [...new Set([...baseTools, ...mcpTools.map((tool) => tool.name)])];
+    // 生图技能：配置完整才进活跃工具集（工具始终注册，skills.setConfig 热插拔）
+    const imageGenReady = isImageGenReady(opts.getImageGenConfig?.());
+    const normalModeTools = [
+      ...new Set([...baseTools, ...(imageGenReady ? ["GenerateImage"] : []), ...mcpTools.map((tool) => tool.name)]),
+    ];
 
     const { session } = await createAgentSession({
       cwd,
@@ -374,6 +383,8 @@ export class SessionController {
           ? [createAdvancedSearchTool(() => opts.getAdvancedSearchConfig?.() ?? null)]
           : []),
         createWebFetchTool(() => opts.getWebFetchConfig?.() ?? null),
+        // 生图：始终注册，是否活跃由 normalModeTools 门控（未配置时模型看不到它）
+        createImageGenTool({ cwd, getConfig: () => opts.getImageGenConfig?.() ?? null }),
         createTodoWriteTool(opts.emitTodo),
         createAskUserQuestionTool(opts.sessionId, opts.askQuestion),
         createWritePlanTool({
@@ -558,6 +569,16 @@ export class SessionController {
     const mcpNames = this.normalModeTools.filter((name) => !NORMAL_MODE_TOOLS.includes(name));
     const base = mode === "off" ? NORMAL_MODE_TOOLS.filter((name) => name !== "Task") : NORMAL_MODE_TOOLS;
     this.normalModeTools = [...new Set([...base, ...mcpNames])];
+    if (!this.planMode) this.session.setActiveToolsByName(this.normalModeTools);
+  }
+
+  /** 生图技能热插拔：配置变完整/被清空时，活跃会话的工具集即时增删 GenerateImage */
+  setImageGenReady(ready: boolean): void {
+    const has = this.normalModeTools.includes("GenerateImage");
+    if (ready === has) return;
+    this.normalModeTools = ready
+      ? [...this.normalModeTools, "GenerateImage"]
+      : this.normalModeTools.filter((name) => name !== "GenerateImage");
     if (!this.planMode) this.session.setActiveToolsByName(this.normalModeTools);
   }
 
