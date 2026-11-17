@@ -8,9 +8,9 @@ import { createCodePlugin } from "@streamdown/code";
 import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { type PluginConfig, Streamdown, type StreamdownTranslations } from "streamdown";
+import { type Components, type PluginConfig, Streamdown, type StreamdownTranslations } from "streamdown";
 import { hasMathSyntax, hasMermaidSyntax } from "./md-detect";
-import { groupPlanMarkdownParts, type PlanMarkdownPart, splitPlanLinks } from "./plan-links";
+import { decodeLocalMediaToken, encodeLocalMedia, type LocalMediaToken } from "./plan-links";
 
 const SHIKI_THEMES = { dark: "github-dark", light: "github-light" } as const;
 const codePlugins: Partial<Record<ThemeBase, PluginConfig["code"]>> = {};
@@ -142,22 +142,37 @@ export function Markdown({ text, themeBase = "light", renderPlanLink, renderFile
   );
 
   const includeImages = renderImage !== undefined;
-  const contentParts = useMemo(() => splitPlanLinks(text, { includeImages }), [text, includeImages]);
-  const contentGroups = useMemo(() => groupPlanMarkdownParts(contentParts), [contentParts]);
-  const renderLink = (part: Exclude<PlanMarkdownPart, { kind: "text" | "image" }>) => {
-    const renderer = part.kind === "plan" ? renderPlanLink : renderFileLink;
-    return renderer ? (
-      renderer(part)
-    ) : (
-      <span key={part.key} className="md-plan-link" title={part.path}>
-        {part.label}
-      </span>
-    );
-  };
-  const renderText = (part: Extract<PlanMarkdownPart, { kind: "text" }>, inline: boolean) => {
-    const streamdown = (
+  // 本地链接先换成行内占位符，整段 Markdown 只交给一个 Streamdown 实例解析：
+  // 文件入口因此留在原始 Markdown 结构里（列表项/表格/引用块都不再被拆散）。
+  const content = useMemo(() => encodeLocalMedia(text, { includeImages }), [text, includeImages]);
+  const components = useMemo<Components>(() => {
+    const renderLocalMedia = (token: LocalMediaToken) => {
+      const key = `${token.kind}:${token.path}`;
+      if (token.kind === "image") return renderImage ? renderImage({ key, ...token }) : null;
+      const renderer = token.kind === "plan" ? renderPlanLink : renderFileLink;
+      if (renderer) return renderer({ key, ...token });
+      return (
+        <span className="md-plan-link" title={token.path}>
+          {token.label}
+        </span>
+      );
+    };
+    return {
+      inlineCode: ({ children, className }: { children?: ReactNode; className?: string }) => {
+        const token = decodeLocalMediaToken(inlineCodeText(children));
+        if (token) return renderLocalMedia(token);
+        return (
+          <code data-streamdown="inline-code" className={className}>
+            {children}
+          </code>
+        );
+      },
+    };
+  }, [renderPlanLink, renderFileLink, renderImage]);
+
+  return (
+    <div className="md-body mb-2 text-sm leading-6" data-testid="markdown-body">
       <Streamdown
-        key={part.key}
         translations={translations}
         controls={{
           table: false,
@@ -167,35 +182,17 @@ export function Markdown({ text, themeBase = "light", renderPlanLink, renderFile
         tableMaxHeight={0}
         shikiTheme={[SHIKI_THEMES[themeBase], SHIKI_THEMES[themeBase]]}
         plugins={plugins}
+        components={components}
       >
-        {part.text}
+        {content}
       </Streamdown>
-    );
-    return inline ? (
-      <div key={part.key} className="md-inline-text">
-        {streamdown}
-      </div>
-    ) : (
-      streamdown
-    );
-  };
-  const renderPart = (part: PlanMarkdownPart, inline = false) => {
-    if (part.kind === "text") return renderText(part, inline);
-    if (part.kind === "image") return renderImage ? renderImage(part) : null;
-    return renderLink(part);
-  };
-
-  return (
-    <div className="md-body mb-2 text-sm leading-6" data-testid="markdown-body">
-      {contentGroups.map((group) =>
-        group.kind === "inline" ? (
-          <div key={group.key} data-testid="markdown-inline-group" className="md-inline-group">
-            {group.parts.map((part) => renderPart(part, true))}
-          </div>
-        ) : (
-          group.parts.map((part) => renderPart(part))
-        ),
-      )}
     </div>
   );
+}
+
+/** 行内代码的纯文本内容：字符串或文本数组，其它形态（含元素）一律视为普通代码。 */
+function inlineCodeText(children: ReactNode): string {
+  if (typeof children === "string") return children;
+  if (Array.isArray(children) && children.every((child) => typeof child === "string")) return children.join("");
+  return "";
 }

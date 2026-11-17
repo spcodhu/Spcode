@@ -2,8 +2,8 @@ export { DiffPatch } from "./DiffPatch";
 export type { MarkdownFileLink, MarkdownPlanLink, MarkdownProps } from "./Markdown";
 export { Markdown } from "./Markdown";
 export { hasMathSyntax, hasMermaidSyntax } from "./md-detect";
-export type { PlanMarkdownPart } from "./plan-links";
-export { splitPlanLinks } from "./plan-links";
+export type { LocalMediaToken, PlanMarkdownPart } from "./plan-links";
+export { decodeLocalMediaToken, encodeLocalMedia, splitPlanLinks } from "./plan-links";
 export { RunActivityTimeline } from "./RunActivity";
 export type {
   ActivitySegment,

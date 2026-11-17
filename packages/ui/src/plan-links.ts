@@ -4,11 +4,12 @@ export type PlanMarkdownPart =
   | { kind: "file"; key: string; path: string; label: string }
   | { kind: "image"; key: string; path: string; label: string };
 
-export type PlanMarkdownGroup = {
-  kind: "block" | "inline";
-  key: string;
-  parts: PlanMarkdownPart[];
-};
+/** 正文里的本地目标（计划文件 / 会话文件 / 本地位图），渲染层据此决定点击行为。 */
+export interface LocalMediaToken {
+  kind: "plan" | "file" | "image";
+  path: string;
+  label: string;
+}
 
 const LINK_PATTERN = /\[([^\]]+)]\(([^)]+)\)/g;
 const EXTENSIONLESS_FILENAMES = new Set([
@@ -21,6 +22,21 @@ const EXTENSIONLESS_FILENAMES = new Set([
   "contributing",
   "codeowners",
 ]);
+
+/**
+ * 行内占位符前缀。
+ *
+ * 为什么需要占位符：本地链接（`file:` / `plan:` / 相对路径）在 Streamdown 的
+ * raw → sanitize → harden 管线里会被整段降级（harden 把 `file:` 列为永久拒绝协议，
+ * 相对路径在渲染进程里也加载不出位图）。旧做法是把链接从正文里切出来单独渲染，
+ * 代价是链接脱离了原本的 Markdown 结构——列表项里的链接会被顶到列表外面，
+ * 留下一个「空头」项目符号，链接与后面的标点各占一行。
+ *
+ * 现在改为：把链接替换成行内代码占位符（`代码` 在 sanitize 里只剩纯文本，
+ * 不受协议白名单影响），再交给 Markdown 的 inlineCode 渲染器还原成文件入口。
+ * 这样入口始终留在原来的行内位置（列表项、表格单元格、引用块都成立）。
+ */
+const TOKEN_PREFIX = "spcode-media:";
 
 /** Markdown 目标可以是 <path>，也可以带可选的 "title"；这里只取真正的路径部分。 */
 function unwrapDestination(raw: string): string {
@@ -160,100 +176,89 @@ function maskMarkdownCode(text: string): string {
   return masked.join("");
 }
 
-/**
- * 把计划链接和模型给出的本地文件链接拆成独立入口，其它 Markdown 原样渲染。
- * 这里只做识别，不读取文件；桌面端仍须经过主进程的工作区路径守卫。
- */
-export function splitPlanLinks(text: string, options?: { includeImages?: boolean }): PlanMarkdownPart[] {
-  const parts: PlanMarkdownPart[] = [];
+interface LocalLinkHit {
+  /** 链接起点（图片语法含前面那个 `!`） */
+  start: number;
+  /** 链接终点（右括号之后） */
+  end: number;
+  token: LocalMediaToken;
+}
+
+function collectLocalLinks(text: string, includeImages: boolean): LocalLinkHit[] {
+  const hits: LocalLinkHit[] = [];
   const linkText = maskMarkdownCode(text);
-  let cursor = 0;
   for (const match of linkText.matchAll(LINK_PATTERN)) {
     const index = match.index ?? 0;
     const isImage = text[index - 1] === "!";
-    // 普通消息仍交给 Streamdown 处理图片；只有工作区预览显式要求时才拆出本地图片，
-    // 由桌面端经主进程路径守卫加载，避免 file:/相对路径被安全白名单显示为 Image blocked。
-    if (isImage && !options?.includeImages) continue;
+    // 普通消息仍交给渲染器处理图片；只有工作区预览显式要求时才接管本地图片，
+    // 避免 file:/相对路径被安全白名单显示为 Image blocked。
+    if (isImage && !includeImages) continue;
     const link = classifyDestination(match[2] ?? "");
     if (!link) continue;
-    const start = isImage ? index - 1 : index;
-    if (start > cursor) parts.push({ kind: "text", key: `text-${cursor}`, text: text.slice(cursor, start) });
-    parts.push({
-      kind: isImage ? "image" : link.kind,
-      key: `${isImage ? "image" : link.kind}-${start}`,
-      path: link.path,
-      label: match[1] || link.path,
+    hits.push({
+      start: isImage ? index - 1 : index,
+      end: index + match[0].length,
+      token: { kind: isImage ? "image" : link.kind, path: link.path, label: match[1] || link.path },
     });
-    cursor = index + match[0].length;
+  }
+  return hits;
+}
+
+/**
+ * 把计划链接和模型给出的本地文件链接拆成独立入口，其它 Markdown 原样渲染。
+ * 这里只做识别，不读取文件；桌面端仍须经过主进程的工作区路径守卫。
+ * 供「会话文件列表」这类需要先知道有哪些文件的地方使用，正文渲染不走这条路径。
+ */
+export function splitPlanLinks(text: string, options?: { includeImages?: boolean }): PlanMarkdownPart[] {
+  const parts: PlanMarkdownPart[] = [];
+  let cursor = 0;
+  for (const hit of collectLocalLinks(text, options?.includeImages === true)) {
+    if (hit.start > cursor) parts.push({ kind: "text", key: `text-${cursor}`, text: text.slice(cursor, hit.start) });
+    parts.push({
+      kind: hit.token.kind,
+      key: `${hit.token.kind}-${hit.start}`,
+      path: hit.token.path,
+      label: hit.token.label,
+    });
+    cursor = hit.end;
   }
   if (parts.length === 0) return [{ kind: "text", key: "text-0", text }];
   if (cursor < text.length) parts.push({ kind: "text", key: `text-${cursor}`, text: text.slice(cursor) });
   return parts;
 }
 
-const PARAGRAPH_BOUNDARY = /(\n[\t ]*\n[\t \n]*)/;
-const BLOCK_MARKDOWN = /^[ \t]*(?:#{1,6}[ \t]+|>|```|~~~|[-+*][ \t]+|\d+[.)][ \t]+|(?:-{3,}|\*{3,}|_{3,})[ \t]*$)/m;
-
-/** 空行是块级分组的硬边界；保留分隔文本，重组后不改变原始 Markdown。 */
-function splitParagraphText(part: Extract<PlanMarkdownPart, { kind: "text" }>): PlanMarkdownPart[] {
-  return part.text
-    .split(PARAGRAPH_BOUNDARY)
-    .filter((text) => text.length > 0)
-    .map((text, index) => ({ kind: "text", key: `${part.key}-p${index}`, text }));
-}
-
-function isParagraphBoundary(text: string): boolean {
-  return /^\n[\t ]*\n[\t \n]*$/.test(text);
-}
-
 /**
- * 文件链接拆分时不能把同一段正文也拆成竖排块。这里按原始空行重新分组：
- * 含文件链接的普通段落使用 inline，标题/列表/代码块等仍走完整 Streamdown 块渲染。
- * 没有文件链接时直接返回原 parts，避免影响普通 Markdown 的解析与渲染。
+ * 把本地链接替换成行内代码占位符，让渲染器在原地还原成文件入口。
+ * 返回的文本只有链接位置被替换，其余 Markdown 逐字不变。
  */
-export function groupPlanMarkdownParts(parts: PlanMarkdownPart[]): PlanMarkdownGroup[] {
-  if (!parts.some((part) => part.kind === "file" || part.kind === "plan")) {
-    return [{ kind: "block", key: parts[0]?.key ?? "empty", parts }];
+export function encodeLocalMedia(text: string, options?: { includeImages?: boolean }): string {
+  const hits = collectLocalLinks(text, options?.includeImages === true);
+  if (hits.length === 0) return text;
+  let out = "";
+  let cursor = 0;
+  for (const hit of hits) {
+    out += text.slice(cursor, hit.start);
+    // 占位符本身也是反引号包裹：紧邻反引号时补一个空格，避免两个 code span 被合并
+    if (out.endsWith("`")) out += " ";
+    out += `\`${TOKEN_PREFIX}${encodeURIComponent(JSON.stringify(hit.token))}\``;
+    cursor = hit.end;
+    if (text[cursor] === "`") out += " ";
   }
+  return out + text.slice(cursor);
+}
 
-  const fragments = parts.flatMap((part) => (part.kind === "text" ? splitParagraphText(part) : [part]));
-  const groups: PlanMarkdownGroup[] = [];
-  let blockParts: PlanMarkdownPart[] = [];
-  let inlineParts: PlanMarkdownPart[] = [];
-  let inlineHasLink = false;
-
-  const flushBlock = () => {
-    if (blockParts.length > 0) groups.push({ kind: "block", key: blockParts[0]!.key, parts: blockParts });
-    blockParts = [];
-  };
-  const appendBlock = (part: PlanMarkdownPart) => {
-    const last = blockParts[blockParts.length - 1];
-    if (part.kind === "text" && last?.kind === "text") last.text += part.text;
-    else blockParts.push(part);
-  };
-  const flushInline = () => {
-    if (inlineHasLink) {
-      flushBlock();
-      groups.push({ kind: "inline", key: inlineParts[0]!.key, parts: inlineParts });
-    } else {
-      for (const part of inlineParts) appendBlock(part);
-    }
-    inlineParts = [];
-    inlineHasLink = false;
-  };
-
-  for (const part of fragments) {
-    if (part.kind === "file" || part.kind === "plan") {
-      inlineParts.push(part);
-      inlineHasLink = true;
-    } else if (part.kind === "text" && !isParagraphBoundary(part.text) && !BLOCK_MARKDOWN.test(part.text)) {
-      inlineParts.push(part);
-    } else {
-      flushInline();
-      appendBlock(part);
-    }
+/** 解码 inlineCode 里的占位符；普通行内代码一律返回 null，交给默认渲染。 */
+export function decodeLocalMediaToken(raw: string): LocalMediaToken | null {
+  const value = raw.trim();
+  if (!value.startsWith(TOKEN_PREFIX)) return null;
+  try {
+    const parsed: unknown = JSON.parse(decodeURIComponent(value.slice(TOKEN_PREFIX.length)));
+    if (!parsed || typeof parsed !== "object") return null;
+    const { kind, path, label } = parsed as Partial<LocalMediaToken>;
+    if (kind !== "plan" && kind !== "file" && kind !== "image") return null;
+    if (typeof path !== "string" || !path) return null;
+    return { kind, path, label: typeof label === "string" && label ? label : path };
+  } catch {
+    return null;
   }
-  flushInline();
-  flushBlock();
-  return groups;
 }

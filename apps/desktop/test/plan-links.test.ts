@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupPlanMarkdownParts, splitPlanLinks } from "../src/renderer/src/plan-links.js";
+import { decodeLocalMediaToken, encodeLocalMedia, splitPlanLinks } from "../src/renderer/src/plan-links.js";
 
 describe("Plan / 本地文件 Markdown 链接拆分", () => {
   it("只把 plan: 文件链接变成计划入口，前后正文保持原文", () => {
@@ -105,25 +105,46 @@ describe("Plan / 本地文件 Markdown 链接拆分", () => {
     expect(splitPlanLinks(text)).toEqual([{ kind: "text", key: "text-0", text }]);
   });
 
-  it("连续文件链接、顿号和末尾句号保留在同一个行内分组", () => {
-    const parts = splitPlanLinks("主要改动：\n\n[a](a.ts)、[b](b.ts)、[c](c.ts)。\n\n后续说明");
-    const groups = groupPlanMarkdownParts(parts);
-    expect(groups.map((group) => group.kind)).toEqual(["block", "inline", "block"]);
-    expect(groups[0]?.parts).toEqual([expect.objectContaining({ kind: "text", text: "主要改动：\n\n" })]);
-    expect(groups[1]?.parts.map((part) => part.kind)).toEqual(["file", "text", "file", "text", "file", "text"]);
-    expect(groups[1]?.parts.at(-1)).toMatchObject({ kind: "text", text: "。" });
-    expect(groups[2]?.parts).toEqual([expect.objectContaining({ kind: "text", text: "\n\n后续说明" })]);
+  it("连续文件链接与顿号、末尾句号留在同一行文本里，不再被拆成独立分组", () => {
+    const encoded = encodeLocalMedia("主要改动：\n\n[a](a.ts)、[b](b.ts)、[c](c.ts)。\n\n后续说明");
+    expect(encoded.startsWith("主要改动：\n\n`")).toBe(true);
+    expect(encoded).toContain("`、`");
+    expect(encoded.endsWith("。\n\n后续说明")).toBe(true);
+    const tokens = [...encoded.matchAll(/`([^`]+)`/g)].map((match) => decodeLocalMediaToken(match[1]!));
+    expect(tokens.map((token) => token?.path)).toEqual(["a.ts", "b.ts", "c.ts"]);
   });
 
-  it("文件链接前后的普通句子保持在同一段，无文件链接时不重排 Markdown", () => {
-    const groups = groupPlanMarkdownParts(
-      splitPlanLinks("文件已处理：[README](README.md)，也可以看[notes](notes.txt)。"),
-    );
-    expect(groups).toHaveLength(1);
-    expect(groups[0]?.kind).toBe("inline");
-    expect(groups[0]?.parts.map((part) => part.kind)).toEqual(["text", "file", "text", "file", "text"]);
+  it("列表项里的文件链接保持在该项内部，不再顶出去留下空头项目符号", () => {
+    const text =
+      "- **`pnpm review:context`**：一次生成上下文包。实现见 [scripts/review-context.mjs](file:scripts/review-context.mjs)。\n- 下一项";
+    const encoded = encodeLocalMedia(text);
+    const [firstLine, secondLine] = encoded.split("\n");
+    expect(firstLine?.startsWith("- **`pnpm review:context`**：")).toBe(true);
+    expect(firstLine?.endsWith("`。")).toBe(true);
+    expect(secondLine).toBe("- 下一项");
+    const token = decodeLocalMediaToken(firstLine!.match(/`(spcode-media:[^`]+)`/)![1]!);
+    expect(token).toEqual({ kind: "file", path: "scripts/review-context.mjs", label: "scripts/review-context.mjs" });
+  });
 
-    const plain = splitPlanLinks("# 标题\n\n- 列表一\n- 列表二\n\n```ts\nconst a = 1;\n```");
-    expect(groupPlanMarkdownParts(plain)).toEqual([{ kind: "block", key: plain[0]!.key, parts: plain }]);
+  it("同一段的多个链接各自替换，前后正文逐字不变", () => {
+    const encoded = encodeLocalMedia("文件已处理：[README](README.md)，也可以看[notes](notes.txt)。");
+    expect(encoded).toMatch(/^文件已处理：`spcode-media:[^`]+`，也可以看`spcode-media:[^`]+`。$/);
+  });
+
+  it("紧邻行内代码时补空格，避免两个 code span 被合并", () => {
+    const encoded = encodeLocalMedia("先看 `README` [源码](src/a.ts)");
+    expect(encoded).toMatch(/^先看 `README` `spcode-media:[^`]+`$/);
+  });
+
+  it("普通行内代码与非法占位符不会被误认为文件入口", () => {
+    expect(encodeLocalMedia("运行 `pnpm build` 即可")).toBe("运行 `pnpm build` 即可");
+    expect(decodeLocalMediaToken("pnpm build")).toBeNull();
+    expect(decodeLocalMediaToken("spcode-media:%7B")).toBeNull();
+    expect(decodeLocalMediaToken(`spcode-media:${encodeURIComponent(JSON.stringify({ kind: "other" }))}`)).toBeNull();
+  });
+
+  it("代码块里的链接示例保持原样，不被替换成占位符", () => {
+    const text = "```md\n[示例](src/fenced.ts)\n```\n`[行内](src/inline.ts)`";
+    expect(encodeLocalMedia(text)).toBe(text);
   });
 });

@@ -116,7 +116,7 @@ function seed(home: string, todoCount = 3): void {
         content: [
           {
             type: "text",
-            text: "文件已处理：[README.md](file:README.md)，也可以看[notes.txt](notes.txt)。",
+            text: "文件已处理：[README.md](file:README.md)，也可以看[notes.txt](notes.txt)。\n\n- 本轮清单：先读 [README.md](README.md)。",
           },
         ],
         api: "anthropic-messages",
@@ -594,27 +594,33 @@ test("文件预览：工具调用预览、多标签、顶栏唤回、file: 与�
 
     const panel = window.getByTestId("workspace-panel");
     await expect(panel).toBeVisible();
-    const inlineGroup = window.getByTestId("markdown-inline-group");
-    await expect(inlineGroup).toHaveCount(1);
-    const inlineLinks = inlineGroup.getByTestId("workspace-file-link");
-    await expect(inlineLinks).toHaveCount(2);
-    const firstLinkBox = await inlineLinks.nth(0).boundingBox();
-    const secondLinkBox = await inlineLinks.nth(1).boundingBox();
+    const links = window.getByTestId("workspace-file-link");
+    await expect(links).toHaveCount(3);
+    // 文件入口留在原 Markdown 结构里：段落里的仍在段内，列表项里的仍在 li 内
+    const paragraph = window.locator("p", { has: links.first() }).first();
+    await expect(paragraph).toContainText("文件已处理");
+    await expect(paragraph).toContainText("也可以看");
+    await expect(paragraph.getByTestId("workspace-file-link")).toHaveCount(2);
+    const listItem = window.locator("li", { has: window.getByTestId("workspace-file-link") });
+    await expect(listItem).toHaveCount(1);
+    await expect(listItem).toContainText("本轮清单");
+    const firstLinkBox = await links.nth(0).boundingBox();
+    const secondLinkBox = await links.nth(1).boundingBox();
     expect(firstLinkBox).not.toBeNull();
     expect(secondLinkBox).not.toBeNull();
     expect(Math.abs(firstLinkBox!.y - secondLinkBox!.y)).toBeLessThan(4);
     expect(firstLinkBox!.height).toBeLessThanOrEqual(28);
     expect(secondLinkBox!.height).toBeLessThanOrEqual(28);
-    await window.getByTestId("workspace-file-link").filter({ hasText: "README.md" }).click();
+    await links.filter({ hasText: "README.md" }).first().click();
     await expect(panel.getByTestId("workspace-file-tab")).toHaveCount(1);
     await expect(panel.getByTestId("workspace-file-content")).toContainText(README_TEXT);
 
-    await window.getByTestId("workspace-file-link").filter({ hasText: "notes.txt" }).click();
+    await links.filter({ hasText: "notes.txt" }).click();
     await expect(panel.getByTestId("workspace-file-tab")).toHaveCount(2);
     await expect(panel.getByTestId("workspace-file-content")).toContainText(NOTES_TEXT);
 
     // 同一文件再次从正文打开，只聚焦并刷新已有标签，不重复堆叠。
-    await window.getByTestId("workspace-file-link").filter({ hasText: "README.md" }).click();
+    await links.filter({ hasText: "README.md" }).first().click();
     await expect(panel.getByTestId("workspace-file-tab")).toHaveCount(2);
     await expect(panel.getByTestId("workspace-file-tab").filter({ hasText: "README.md" })).toHaveAttribute(
       "data-active",

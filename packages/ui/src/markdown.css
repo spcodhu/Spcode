@@ -225,19 +225,8 @@
   border-radius: 0.75rem;
   border: 1px solid var(--color-border);
 }
-.md-inline-group {
-  margin: 6px 0;
-}
-.md-inline-text,
-.md-inline-text > div,
-.md-inline-text p {
-  display: inline;
-}
-.md-inline-text p {
-  margin: 0;
-}
-.md-inline-group > button,
-.md-inline-group > .md-plan-link {
+/* 文件入口直接内联在正文里（列表项、表格、引用块跟随原位置） */
+.md-body .md-plan-link {
   vertical-align: middle;
 }
 .md-plan-link {
