@@ -1,10 +1,11 @@
 # CI：lint + typecheck + 单测，push/PR 自动跑（评审 R3-C0：质量门禁必须在提交路径上）；
+# 默认分支是 master，push 分支必须与远程 HEAD 保持一致，否则日常直接推送会绕过门禁（评审 R4 P1-3）。
 # e2e 只在手动触发时跑（需要先出构建产物，耗时久——Actions 页面选 CI workflow → Run workflow）。
 name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
   workflow_dispatch:
 
