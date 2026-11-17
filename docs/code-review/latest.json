@@ -1,16 +1,16 @@
 {
   "schema": 1,
-  "status": "pending",
-  "reviewedCommit": null,
+  "status": "pass",
+  "reviewedCommit": "2323ac48b219eeede613f6df88b3f1768c7ec00a",
   "baseline": "v0.1.0-beta.39",
   "date": "2026-11-17",
   "reviewer": "agent",
-  "report": "",
+  "report": "docs/code-review/R5-2026-11-17.md",
   "findings": {
     "p0": 0,
     "p1": 0,
-    "p2": 0
+    "p2": 13
   },
   "openP1Accepted": null,
-  "note": "台账为流程上线初始态：下一次发布前必须先完成一轮增量评审（基线 v0.1.0-beta.39），再用 pnpm review:record 写入结论。"
+  "note": ""
 }
