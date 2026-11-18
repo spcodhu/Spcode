@@ -135,9 +135,11 @@ export interface SpcodeApi {
   }): Promise<{ ok: true } | { ok: false; error: string }>;
   /** 飞书通道：解绑授权用户（open_id） */
   remoteFeishuUnbind(openId: string): Promise<boolean>;
-  /** 更新：状态查询与订阅 / 手动下载 / 重启安装 / 忽略版本 */
+  /** 更新：状态查询与订阅 / 手动检查 / 手动下载 / 重启安装 / 忽略版本 */
   updateGetState(): Promise<UpdateState>;
   onUpdateState(cb: (state: UpdateState) => void): () => void;
+  /** 关于页主动检查；返回 false = 更新器未初始化（开发运行/未配置更新源） */
+  updateCheck(): Promise<boolean>;
   updateDownload(): Promise<void>;
   updateInstall(): Promise<void>;
   updateIgnore(version: string): Promise<void>;
@@ -318,6 +320,9 @@ const api: SpcodeApi = {
   },
   updateGetState() {
     return ipcRenderer.invoke(IPC.updateGetState);
+  },
+  updateCheck() {
+    return ipcRenderer.invoke(IPC.updateCheck);
   },
   onUpdateState(cb) {
     const listener = (_e: unknown, state: UpdateState) => cb(state);

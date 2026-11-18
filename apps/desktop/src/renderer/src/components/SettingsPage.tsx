@@ -20,6 +20,7 @@ import { ModelsPage } from "./ModelsPage";
 import { NetworkProxySection } from "./NetworkProxySection";
 import { QuotaPage } from "./QuotaPage";
 import { RemotePage } from "./RemotePage";
+import { formatPercent, UpdateDialog } from "./UpdateButton";
 import { UsagePage } from "./UsagePage";
 import { Modal } from "./ui/Modal";
 import { Select } from "./ui/Select";
@@ -144,15 +145,6 @@ function GeneralPage() {
   const { t } = useTranslation("settings");
   const settings = useStore((s) => s.settings);
   const saveSettings = useStore((s) => s.saveSettings);
-  // 当前版本号：推导更新通道开关的默认值（beta 版默认收 beta，稳定版默认只收稳定）
-  const [appVersion, setAppVersion] = useState("");
-  useEffect(() => {
-    window.spcode
-      .getAppVersion()
-      .then(setAppVersion)
-      .catch(() => {});
-  }, []);
-  const betaUpdatesOn = settings?.betaUpdates ?? appVersion.includes("-");
 
   return (
     <div>
@@ -214,26 +206,6 @@ function GeneralPage() {
       <CompactionSection />
 
       <AutoLaunchSection />
-
-      <SectionTitle>{t("general.autoUpdate")}</SectionTitle>
-      <SettingRow title={t("general.checkUpdates")} desc={t("general.checkUpdatesDescription")}>
-        <Switch
-          on={settings?.autoUpdate ?? true}
-          onChange={(v) => void saveSettings({ autoUpdate: v })}
-          label={t("general.autoUpdate")}
-        />
-      </SettingRow>
-      <SettingRow
-        className="mt-2"
-        title={t("general.betaUpdates")}
-        desc={`${t("general.betaUpdatesDescription")}${settings?.betaUpdates === undefined ? t("general.betaAutomatic") : ""}`}
-      >
-        <Switch
-          on={betaUpdatesOn}
-          onChange={(v) => void saveSettings({ betaUpdates: v })}
-          label={t("general.betaUpdates")}
-        />
-      </SettingRow>
     </div>
   );
 }
@@ -1058,14 +1030,76 @@ function MemoryPage() {
 
 function AboutPage() {
   const { t } = useTranslation("settings");
+  const settings = useStore((s) => s.settings);
+  const saveSettings = useStore((s) => s.saveSettings);
+  const updateState = useStore((s) => s.updateState);
   // 真实版本号从主进程读（package.json），别在这里硬编码
   const [version, setVersion] = useState("");
+  const [showUpdateDialog, setShowUpdateDialog] = useState(false);
+  const [checkUnavailable, setCheckUnavailable] = useState(false);
   useEffect(() => {
     window.spcode
       .getAppVersion()
       .then(setVersion)
       .catch(() => {});
   }, []);
+  // 更新通道开关默认值：beta 版默认收 beta，稳定版默认只收稳定
+  const betaUpdatesOn = settings?.betaUpdates ?? version.includes("-");
+  const checking = updateState.status === "checking";
+
+  const checkNow = () => {
+    setCheckUnavailable(false);
+    void window.spcode.updateCheck().then((ok) => {
+      if (!ok) setCheckUnavailable(true);
+    });
+  };
+
+  // 状态行：手动检查给明确反馈；idle 时说明自动检查策略
+  let statusLine: string;
+  switch (updateState.status) {
+    case "checking":
+      statusLine = t("about.checking");
+      break;
+    case "up-to-date":
+      statusLine = t("about.upToDate", { version: updateState.version });
+      break;
+    case "available":
+      statusLine = t("update.available", { version: updateState.version });
+      break;
+    case "downloading":
+      statusLine = t("update.progress", {
+        version: updateState.version,
+        percent: formatPercent(updateState.percent),
+      });
+      break;
+    case "downloaded":
+      statusLine = t("update.ready", { version: updateState.version });
+      break;
+    case "error":
+      statusLine =
+        updateState.source === "check" ? `${t("about.checkFailed")}：${updateState.message}` : updateState.message;
+      break;
+    default:
+      statusLine = (settings?.autoUpdate ?? true) ? t("about.autoCheckOn") : t("about.autoCheckOff");
+  }
+
+  // 有更新在途时主按钮打开共用更新弹窗（说明/进度/重启警告都在里面）；其余状态发起手动检查
+  const canDialog =
+    updateState.status === "available" ||
+    updateState.status === "downloading" ||
+    updateState.status === "downloaded" ||
+    (updateState.status === "error" && updateState.source !== "check");
+  const actionLabel =
+    updateState.status === "available"
+      ? t("about.viewUpdate")
+      : updateState.status === "downloading"
+        ? t("about.viewProgress")
+        : updateState.status === "downloaded"
+          ? t("about.restartInstall")
+          : updateState.status === "error" && updateState.source !== "check"
+            ? t("update.retry")
+            : t("about.checkNow");
+
   return (
     <div>
       <PageHeader title={t("nav.about")} subtitle={t("about.description")} />
@@ -1079,6 +1113,68 @@ function AboutPage() {
         </div>
         <div className="mt-2 text-text-tertiary">{t("about.tagline")}</div>
       </div>
+
+      <SectionTitle>{t("about.update")}</SectionTitle>
+      <div className="rounded-xl border border-border bg-bg-elevated px-4 py-3" data-testid="about-update">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[13px] text-text-primary">
+              {t("about.currentVersion", { version: version || "…" })}
+            </div>
+            <div
+              data-testid="update-status-line"
+              className={`mt-0.5 text-[12px] leading-5 ${
+                updateState.status === "error" ? "safe-break text-danger" : "text-text-tertiary"
+              }`}
+            >
+              {statusLine}
+            </div>
+          </div>
+          <button
+            type="button"
+            data-testid={canDialog ? "update-view" : "update-check-now"}
+            disabled={checking}
+            onClick={() => (canDialog ? setShowUpdateDialog(true) : checkNow())}
+            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-[12.5px] text-text-secondary transition-colors hover:bg-bg-hover disabled:opacity-40"
+          >
+            <Icon name={canDialog ? "arrowUp" : "refresh"} size={13} />
+            {actionLabel}
+          </button>
+        </div>
+        {updateState.status === "downloading" && (
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-bg-hover">
+            <div
+              className="h-full rounded-full bg-accent transition-all"
+              style={{ width: `${updateState.percent}%` }}
+            />
+          </div>
+        )}
+        {checkUnavailable && (
+          <p role="alert" className="mt-2 text-[12px] leading-5 text-danger">
+            {t("about.checkUnavailable")}
+          </p>
+        )}
+      </div>
+      <SettingRow className="mt-2" title={t("general.checkUpdates")} desc={t("general.checkUpdatesDescription")}>
+        <Switch
+          on={settings?.autoUpdate ?? true}
+          onChange={(v) => void saveSettings({ autoUpdate: v })}
+          label={t("general.checkUpdates")}
+        />
+      </SettingRow>
+      <SettingRow
+        className="mt-2"
+        title={t("general.betaUpdates")}
+        desc={`${t("general.betaUpdatesDescription")}${settings?.betaUpdates === undefined ? t("general.betaAutomatic") : ""}`}
+      >
+        <Switch
+          on={betaUpdatesOn}
+          onChange={(v) => void saveSettings({ betaUpdates: v })}
+          label={t("general.betaUpdates")}
+        />
+      </SettingRow>
+
+      {showUpdateDialog && canDialog && <UpdateDialog state={updateState} onClose={() => setShowUpdateDialog(false)} />}
     </div>
   );
 }

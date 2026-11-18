@@ -27,6 +27,10 @@ let currentState: UpdateState = { status: "idle" };
 let onStateChange: ((s: UpdateState) => void) | null = null;
 /** 后台检查期间的网络错误只记录日志，不能伪装成用户下载失败。 */
 let checkingForUpdates = false;
+/** 当前在途检查是否来自关于页手动点击：结果要给用户明确反馈（up-to-date / 检查失败） */
+let manualCheck = false;
+/** setupAutoUpdater 是否真的初始化了（开发运行/未配置更新源时早退，手动检查不可用） */
+let initialized = false;
 /** 正在/即将下载的版本（download-progress 事件不携带版本号，需自行跟踪） */
 let pendingVersion = "";
 
@@ -64,6 +68,27 @@ export function ignoreVersion(): void {
   setState({ status: "idle" });
 }
 
+/**
+ * 关于页「检查更新」：不受 autoUpdate 开关限制（用户显式动作）。
+ * 返回 false = 更新器未初始化（开发运行或未配置更新源），UI 据此提示不可用。
+ * 已在检查/下载/待重启时不重复发起，避免覆盖进行中状态。
+ */
+export function checkForUpdatesNow(): boolean {
+  if (!initialized) return false;
+  if (
+    currentState.status === "checking" ||
+    currentState.status === "downloading" ||
+    currentState.status === "downloaded"
+  ) {
+    return true;
+  }
+  checkForUpdates(true);
+  return true;
+}
+
+/** 发起一次检查（manual=true 时绕过 autoUpdate 开关并给用户反馈） */
+let checkForUpdates: (manual?: boolean) => void = () => {};
+
 export function setupAutoUpdater(opts: {
   isEnabled: () => boolean;
   getBetaUpdates: () => boolean | undefined;
@@ -78,6 +103,7 @@ export function setupAutoUpdater(opts: {
     return;
   }
   onStateChange = opts.onState;
+  initialized = true;
 
   autoUpdater.setFeedURL({ provider: "github", owner: UPDATE_OWNER, repo: UPDATE_REPO });
   // 关键：不自动下载、不在退出时自动安装——一切由用户触发
@@ -85,14 +111,25 @@ export function setupAutoUpdater(opts: {
   autoUpdater.autoInstallOnAppQuit = false;
 
   autoUpdater.on("update-available", (info) => {
+    // 后台每 4 小时复查不得把正在下载/已下载待重启的同版本状态打回 available
+    if (
+      (currentState.status === "downloading" || currentState.status === "downloaded") &&
+      info.version === pendingVersion
+    ) {
+      return;
+    }
     if (info.version === opts.getIgnoredVersion()) {
-      setState({ status: "idle" });
+      // 手动检查时给明确反馈；被忽略的版本不再提示，对用户等价于「没有可更新的版本」
+      setState(manualCheck ? { status: "up-to-date", version: app.getVersion() } : { status: "idle" });
       return;
     }
     pendingVersion = info.version;
     setState({ status: "available", version: info.version, releaseNotes: normalizeReleaseNotes(info.releaseNotes) });
   });
-  autoUpdater.on("update-not-available", () => setState({ status: "idle" }));
+  autoUpdater.on("update-not-available", () => {
+    if (currentState.status === "downloading" || currentState.status === "downloaded") return;
+    setState(manualCheck ? { status: "up-to-date", version: app.getVersion() } : { status: "idle" });
+  });
   autoUpdater.on("download-progress", (p) => {
     setState({ status: "downloading", version: pendingVersion, percent: Math.max(0, Math.min(100, p.percent)) });
   });
@@ -101,18 +138,29 @@ export function setupAutoUpdater(opts: {
     setState({ status: "downloaded", version: info.version });
   });
   autoUpdater.on("error", (e) => {
-    // electron-updater 的检查与下载共用 error 事件。检查失败时当前并没有可下载的更新，
-    // 保持原状态（通常 idle）；真正的下载/安装错误仍展示重试入口。
-    if (checkingForUpdates) return;
+    // electron-updater 的检查与下载共用 error 事件。检查失败时当前并没有可下载的更新：
+    // 后台检查只记日志；手动检查要把原因透出到关于页（source=check，区别于下载错误）。
+    if (checkingForUpdates) {
+      if (manualCheck) {
+        setState({ status: "error", message: e instanceof Error ? e.message : String(e), source: "check" });
+      } else {
+        console.warn("[updater] check failed", e);
+      }
+      return;
+    }
     console.warn("[updater] error", e);
-    setState({ status: "error", message: e instanceof Error ? e.message : String(e) });
+    setState({ status: "error", message: e instanceof Error ? e.message : String(e), source: "download" });
   });
 
   /** 每次检查前重读通道设置：用户在设置页切换后无需重启即生效 */
-  const check = () => {
-    if (!opts.isEnabled()) return;
+  checkForUpdates = (manual = false) => {
+    if (!manual && !opts.isEnabled()) return;
     autoUpdater.allowPrerelease = resolveAllowPrerelease(opts.getBetaUpdates(), app.getVersion());
     checkingForUpdates = true;
+    if (manual) {
+      manualCheck = true;
+      setState({ status: "checking" });
+    }
     void autoUpdater
       .checkForUpdates()
       .catch((e) => {
@@ -121,10 +169,11 @@ export function setupAutoUpdater(opts: {
       .finally(() => {
         // electron-updater 会先同步发出 error，再拒绝 checkForUpdates Promise。
         checkingForUpdates = false;
+        manualCheck = false;
       });
   };
-  check();
+  checkForUpdates();
   // 每 4 小时复查；unref 防止这个定时器本身拖住进程退出
-  const timer = setInterval(check, 4 * 60 * 60 * 1000);
+  const timer = setInterval(() => checkForUpdates(), 4 * 60 * 60 * 1000);
   timer.unref?.();
 }

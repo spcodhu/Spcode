@@ -62,7 +62,14 @@ import {
 import { SessionRegistry } from "./session-registry.js";
 import { searchSessions } from "./session-search.js";
 import { redactSettingsForRenderer, restoreMaskedSecrets, SettingsStore } from "./settings-store.js";
-import { downloadUpdate, getUpdateState, ignoreVersion, installUpdate, setupAutoUpdater } from "./updater.js";
+import {
+  checkForUpdatesNow,
+  downloadUpdate,
+  getUpdateState,
+  ignoreVersion,
+  installUpdate,
+  setupAutoUpdater,
+} from "./updater.js";
 import { UsageLedger } from "./usage-ledger.js";
 import { nativeWindowChromeOptions, windowsTitleBarOverlay } from "./window-chrome.js";
 import { WindowCloseController } from "./window-close.js";
@@ -730,6 +737,7 @@ function registerIpc(): void {
 
   // 更新：状态查询 / 手动下载 / 重启安装 / 忽略版本（状态推送见 setupAutoUpdater 的 onState）
   ipcMain.handle(IPC.updateGetState, () => getUpdateState());
+  ipcMain.handle(IPC.updateCheck, () => checkForUpdatesNow());
   ipcMain.handle(IPC.updateDownload, () => downloadUpdate());
   ipcMain.handle(IPC.updateInstall, () => installUpdate());
   ipcMain.handle(IPC.updateIgnore, (_e, version: string) => {

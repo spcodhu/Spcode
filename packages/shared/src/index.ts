@@ -1009,8 +1009,9 @@ export const IPC = {
   windowCloseResolve: "spcode:window-close-resolve",
   /** main -> renderer：更新状态机变化推送（UpdateState） */
   updateState: "spcode:update-state",
-  /** renderer -> main (invoke)：更新状态查询 / 手动下载 / 重启安装 / 忽略版本 */
+  /** renderer -> main (invoke)：更新状态查询 / 手动检查 / 手动下载 / 重启安装 / 忽略版本 */
   updateGetState: "spcode:update-get-state",
+  updateCheck: "spcode:update-check",
   updateDownload: "spcode:update-download",
   updateInstall: "spcode:update-install",
   updateIgnore: "spcode:update-ignore",
@@ -1024,13 +1025,17 @@ export const IPC = {
  * 更新状态机（主进程持有，变化时推送渲染进程）：
  * idle → available（发现新版本，附发布说明）→ downloading（进度）→ downloaded（待重启）
  * 任何阶段出错进 error（渲染进程可据此前重试下载）；忽略版本/无更新回 idle。
+ * 关于页手动检查额外经过 checking（检查中）与 up-to-date（已是最新）；
+ * error.source 区分检查失败（check，关于页内联展示）与下载/安装失败（download，侧栏按钮）。
  */
 export type UpdateState =
   | { status: "idle" }
+  | { status: "checking" }
+  | { status: "up-to-date"; version: string }
   | { status: "available"; version: string; releaseNotes: string }
   | { status: "downloading"; version: string; percent: number }
   | { status: "downloaded"; version: string }
-  | { status: "error"; message: string };
+  | { status: "error"; message: string; source?: "check" | "download" };
 
 /** electron-updater 的 releaseNotes 有三种形态（字符串/数组/空），统一归一为展示用纯文本 */
 export function normalizeReleaseNotes(
