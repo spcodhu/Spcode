@@ -1,10 +1,12 @@
 /**
  * 权限批准卡：permission.request 到达时全屏置顶。
  * - 完整参数可滚动核对；danger 支持单指长按与可访问的两步确认；
+ * - 「总允许」与桌面同口径：仅 bash/powershell 且非 bypass 可沉淀项目规则；
+ *   危险命令的总允许同样走两步核对，只记完整命令 exact；
  * - 回复等待桌面确认，失败保留卡片并允许用户手动重试。
  */
 
-import type { PermissionRequest, ToolRisk } from "@spcode/shared";
+import { deriveProjectPermissionRules, type PermissionRequest, type ToolRisk } from "@spcode/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorText } from "../lib/i18n";
@@ -143,6 +145,14 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
   const danger = request.risk === "danger";
   const bypass = request.bypass === true;
   const severe = danger || bypass;
+  // 「总允许」可沉淀的规则（与桌面 PermissionInline 同一纯函数）；bypass/非 shell/无项目 cwd 为空
+  const rules = deriveProjectPermissionRules(request);
+  const alwaysHint =
+    rules.length === 1
+      ? t(rules[0]!.match === "exact" ? "permission.alwaysExactHint" : "permission.alwaysHint", {
+          rule: rules[0]!.command,
+        })
+      : t("permission.alwaysCompoundHint", { rules: rules.map((item) => item.command).join("、") });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [reviewed, setReviewed] = useState(false);
@@ -156,13 +166,13 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
     [],
   );
 
-  const reply = async (approved: boolean) => {
+  const reply = async (approved: boolean, rememberProject?: boolean) => {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
     setError(null);
     try {
-      await replyPermission(request.requestId, approved);
+      await replyPermission(request.requestId, approved, rememberProject);
     } catch (err) {
       if (mountedRef.current) setError(err);
     } finally {
@@ -192,6 +202,17 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
               className="min-h-12 flex-1 rounded-xl bg-accent px-3 py-3 text-sm font-medium text-on-accent transition-colors active:bg-accent-dim disabled:opacity-40"
             >
               {busy ? t("request.submitting") : t("permission.allow")}
+            </button>
+          )}
+          {!danger && rules.length > 0 && (
+            <button
+              type="button"
+              data-testid="permission-allow-always"
+              disabled={busy}
+              onClick={() => void reply(true, true)}
+              className="min-h-12 flex-1 rounded-xl border border-accent/50 bg-accent-soft px-3 py-3 text-sm font-medium text-accent transition-colors active:bg-bg-active disabled:opacity-40"
+            >
+              {t("permission.always")}
             </button>
           )}
           <button
@@ -240,6 +261,20 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
             >
               {busy ? t("request.submitting") : reviewed ? t("permission.confirmDanger") : t("permission.reviewedArgs")}
             </button>
+            {reviewed && rules.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  data-testid="permission-allow-always-danger"
+                  disabled={busy}
+                  onClick={() => void reply(true, true)}
+                  className="mt-2 min-h-11 w-full rounded-xl border border-red-700 px-3 py-2 text-xs font-medium text-red-100 disabled:opacity-40"
+                >
+                  {busy ? t("request.submitting") : t("permission.alwaysDanger")}
+                </button>
+                <p className="mt-1.5 text-[11px] leading-4 text-text-tertiary">{t("permission.alwaysDangerHint")}</p>
+              </>
+            )}
           </div>
         )}
         {bypass && !danger && (
@@ -247,6 +282,7 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
             {t("permission.bypassWarning")}
           </div>
         )}
+        {!danger && rules.length > 0 && <p className="mt-3 text-[11px] leading-4 text-text-tertiary">{alwaysHint}</p>}
         {error != null && (
           <div
             role="alert"

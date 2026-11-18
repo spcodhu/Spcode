@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   sendPrompt: vi.fn(),
   setSessionModel: vi.fn(),
   setSessionThinkingLevel: vi.fn(),
+  setSessionPermissionMode: vi.fn(),
   refreshModels: vi.fn(),
   abortSession: vi.fn(),
   ensureSessionOutput: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock("../src/state/controller", () => ({
   sendPrompt: mocks.sendPrompt,
   setSessionModel: mocks.setSessionModel,
   setSessionThinkingLevel: mocks.setSessionThinkingLevel,
+  setSessionPermissionMode: mocks.setSessionPermissionMode,
   refreshModels: mocks.refreshModels,
   abortSession: mocks.abortSession,
   ensureSessionOutput: mocks.ensureSessionOutput,
@@ -78,6 +80,7 @@ beforeEach(async () => {
   mocks.sendPrompt.mockReset();
   mocks.setSessionModel.mockReset().mockResolvedValue(undefined);
   mocks.setSessionThinkingLevel.mockReset().mockResolvedValue(undefined);
+  mocks.setSessionPermissionMode.mockReset().mockResolvedValue(undefined);
   mocks.refreshModels.mockReset().mockResolvedValue([]);
   useAppStore.getState().setModels(
     [
@@ -230,6 +233,20 @@ describe("已有会话设置", () => {
       document.querySelector<HTMLButtonElement>('[data-testid="thinking-level"][data-level="high"]')!.click(),
     );
     expect(mocks.setSessionThinkingLevel).toHaveBeenCalledWith("s1", "high");
+  });
+
+  it("设置面板可切换权限询问模式；旧桌面不带档位时按总是询问展示", async () => {
+    await renderPage("s1");
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="session-settings"]')!.click());
+    const modeButton = (mode: string) =>
+      document.querySelector<HTMLButtonElement>(`[data-testid="permission-mode"][data-mode="${mode}"]`)!;
+    expect(modeButton("ask").getAttribute("aria-pressed")).toBe("true");
+    expect(modeButton("never").getAttribute("aria-pressed")).toBe("false");
+
+    await act(async () => useAppStore.getState().patchSession("s1", { permissionMode: "never" }));
+    expect(modeButton("never").getAttribute("aria-pressed")).toBe("true");
+    await act(async () => modeButton("auto").click());
+    expect(mocks.setSessionPermissionMode).toHaveBeenCalledWith("s1", "auto");
   });
 });
 

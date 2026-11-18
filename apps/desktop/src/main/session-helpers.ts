@@ -6,8 +6,8 @@
 
 import { rmSync } from "node:fs";
 import { join } from "node:path";
-import type { HostCommand, HostEvent } from "@spcode/shared";
-import { sanitizeTodoItems } from "@spcode/shared";
+import type { AppSettings, HostCommand, HostEvent, PermissionRequest } from "@spcode/shared";
+import { deriveProjectPermissionRules, normalizeProjectCwd, sanitizeTodoItems } from "@spcode/shared";
 import { i18n, isDefaultSessionTitle, localizeDefaultTitle } from "@spcode/shared/i18n";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 import type { SessionRegistryEntry } from "./session-registry.js";
@@ -70,6 +70,33 @@ export function backfillSessionFile(cmd: HostCommand, result: unknown, registry:
     model: data.model ?? entry.model,
     thinkingLevel: data.thinkingLevel ?? entry.thinkingLevel,
   });
+}
+
+/** 「总允许」落规则需要的设置读写面（SettingsStore 的结构子集；单测可纯 mock） */
+export interface PermissionRulesSettings {
+  get(): AppSettings;
+  set(patch: Partial<AppSettings>): unknown;
+}
+
+/**
+ * 权限卡「总允许」：按真实待决请求沉淀项目级免审批规则（桌面 IPC 与远程 permission.reply 共用）。
+ * 规则推导与项目键归一全部走 shared 纯函数；同步落盘后再批准，当前与后续会话共用同一项目规则。
+ * 请求不存在/不可沉淀（bypass、非 shell、无项目 cwd）时静默跳过，不影响单次批准。
+ */
+export function rememberProjectPermissionRules(
+  settings: PermissionRulesSettings,
+  request: PermissionRequest | null,
+): void {
+  if (!request) return;
+  const derived = deriveProjectPermissionRules(request);
+  const cwd = normalizeProjectCwd(request.cwd ?? "");
+  if (derived.length === 0 || !cwd) return;
+  const current = settings.get().projectPermissionRules;
+  const rules = [...(current[cwd] ?? [])];
+  for (const rule of derived) {
+    if (!rules.some((r) => r.command === rule.command && r.match === rule.match)) rules.push(rule);
+  }
+  settings.set({ projectPermissionRules: { ...current, [cwd]: rules } });
 }
 
 /** 标题入注册表前的归一化：去首尾空白、限长 100（与 PairHelloInner 设备名同口径） */

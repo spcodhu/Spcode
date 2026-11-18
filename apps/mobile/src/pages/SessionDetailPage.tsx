@@ -3,6 +3,7 @@
  * 悬浮输入框（运行中发送即 steer 插话）与中断按钮。
  */
 
+import type { PermissionMode } from "@spcode/shared";
 import { RunActivityTimeline, type RunSegment, thinkingLevelLabel } from "@spcode/ui";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -18,6 +19,7 @@ import {
   retrySessionOutput,
   sendPrompt,
   setSessionModel,
+  setSessionPermissionMode,
   setSessionThinkingLevel,
 } from "../state/controller";
 import { type OutputChunk, useAppStore } from "../state/store";
@@ -403,6 +405,36 @@ function SessionSettingsSheet({ sessionId, onClose }: { sessionId: string; onClo
               {t("session.thinkingUnsupported")}
             </p>
           )}
+        </section>
+        <section>
+          <h3 className="mb-1.5 text-xs font-medium text-text-tertiary">{t("session.permissionMode")}</h3>
+          <fieldset className="grid min-w-0 grid-cols-3 gap-2" aria-label={t("session.permissionMode")}>
+            {(
+              [
+                { id: "ask", label: t("session.permissionAsk") },
+                { id: "auto", label: t("session.permissionAuto") },
+                { id: "never", label: t("session.permissionNever") },
+              ] as { id: PermissionMode; label: string }[]
+            ).map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                data-testid="permission-mode"
+                data-mode={m.id}
+                aria-pressed={(session?.permissionMode ?? "ask") === m.id}
+                disabled={busy}
+                onClick={() => void update(() => setSessionPermissionMode(sessionId, m.id))}
+                className={`min-h-11 rounded-xl border px-2 py-2 text-sm transition-colors disabled:opacity-40 ${
+                  (session?.permissionMode ?? "ask") === m.id
+                    ? "border-accent bg-accent-soft font-medium text-accent"
+                    : "border-border bg-bg-elevated text-text-secondary active:bg-bg-active"
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
+          </fieldset>
+          <p className="mt-1.5 text-[11px] leading-4 text-text-tertiary">{t("session.permissionModeHint")}</p>
         </section>
         {error != null && (
           <div role="alert" className="safe-break text-xs leading-5 text-danger">

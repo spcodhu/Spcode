@@ -19,6 +19,7 @@ import type {
   TodoItem,
   UsageRecord,
 } from "./index.js";
+import type { PermissionMode } from "./permission.js";
 
 // ---------------------------------------------------------------------------
 // 业务消息（加密层内明文形态）
@@ -30,15 +31,31 @@ export type RemoteCommand =
   | { type: "models.list" }
   /** 首次进入会话：按游标读取权威历史；before 缺省 = 最近一页 */
   | { type: "session.history"; sessionId: string; before?: number }
-  | { type: "session.create"; mode: SessionMode; cwd?: string; prompt?: string; model?: ModelRef }
+  | {
+      type: "session.create";
+      mode: SessionMode;
+      cwd?: string;
+      prompt?: string;
+      model?: ModelRef;
+      /** 新会话权限模式；缺省取桌面设置的新会话默认档（旧客户端兼容）。手机端新建固定传 never */
+      permissionMode?: PermissionMode;
+    }
   /** 空闲 = 正常输入；运行中 = steer 插话（宿主侧无需特判） */
   | { type: "session.prompt"; sessionId: string; text: string }
   | { type: "session.abort"; sessionId: string }
   | { type: "session.setModel"; sessionId: string; model: ModelRef }
   | { type: "session.setThinkingLevel"; sessionId: string; level: string }
+  /** 切换会话权限模式（三档；与桌面输入框同一套宿主逻辑，运行中切换立即生效） */
+  | { type: "session.setPermissionMode"; sessionId: string; mode: PermissionMode }
   /** 订阅某会话事件流（M1：所有事件本就广播给全部已配对设备，返回 ok 即可） */
   | { type: "session.subscribe"; sessionId: string }
-  | { type: "permission.reply"; requestId: string; approved: boolean }
+  | {
+      type: "permission.reply";
+      requestId: string;
+      approved: boolean;
+      /** 「总允许」：批准同时由主进程按真实待决请求沉淀项目级免审批规则（与桌面 IPC 同一套逻辑） */
+      rememberProject?: boolean;
+    }
   | { type: "question.reply"; requestId: string; answers: import("./questions.js").QuestionAnswers }
   | { type: "schedule.list" }
   | { type: "schedule.create"; input: ScheduleTaskInput }
@@ -65,6 +82,8 @@ export interface RemoteSessionSnapshot extends SessionMeta {
   status: RemoteSessionStatus;
   /** 注册表持久化的最近一次 TodoWrite 清单；旧桌面可能不带此字段 */
   todos?: TodoItem[];
+  /** 会话权限模式（注册表持久化）；旧桌面可能不带此字段，移动端按 ask 展示 */
+  permissionMode?: PermissionMode;
 }
 
 /** 桌面 → 手机 */
@@ -103,6 +122,8 @@ export type RemoteEvent =
       supportedThinkingLevels?: string[];
     }
   | { type: "session.planmode"; sessionId: string; enabled: boolean }
+  /** 权限模式变化（桌面输入框或另一台设备切换后同步；移动端据此更新会话设置页档位） */
+  | { type: "session.permissionmode"; sessionId: string; mode: PermissionMode }
   /** 含 risk 级别；danger 级手机端必须强确认 UI */
   | { type: "permission.request"; request: PermissionRequest }
   /**

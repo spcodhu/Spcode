@@ -12,7 +12,6 @@ import {
   baseName,
   type ComposerDraft,
   cleanSessionTitle,
-  deriveProjectPermissionRules,
   filterEnabledModels,
   type HostCommand,
   type HostCommandInput,
@@ -57,6 +56,7 @@ import {
   isDefaultTitle,
   prepareForkCommand,
   recordSessionTodos,
+  rememberProjectPermissionRules,
   removeSession as removeSessionEverywhere,
 } from "./session-helpers.js";
 import { SessionRegistry } from "./session-registry.js";
@@ -501,18 +501,8 @@ function registerIpc(): void {
     IPC.permissionReply,
     (_e, payload: { requestId: string; approved: boolean; rememberProject?: boolean }) => {
       if (payload.approved && payload.rememberProject) {
-        const request = bridge.getPendingPermission(payload.requestId);
-        const derived = request ? deriveProjectPermissionRules(request) : [];
-        const cwd = normalizeProjectCwd(request?.cwd ?? "");
-        if (derived.length > 0 && cwd) {
-          const current = settings.get().projectPermissionRules;
-          const rules = [...(current[cwd] ?? [])];
-          for (const rule of derived) {
-            if (!rules.some((r) => r.command === rule.command && r.match === rule.match)) rules.push(rule);
-          }
-          // 主进程同步落盘后再批准：当前与后续会话共用同一项目规则，且无渲染层保存竞态。
-          settings.set({ projectPermissionRules: { ...current, [cwd]: rules } });
-        }
+        // 主进程同步落盘后再批准：当前与后续会话共用同一项目规则，且无渲染层保存竞态。
+        rememberProjectPermissionRules(settings, bridge.getPendingPermission(payload.requestId));
       }
       bridge.replyPermission(payload.requestId, payload.approved);
     },

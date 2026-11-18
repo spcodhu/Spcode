@@ -13,6 +13,7 @@
 import type {
   ModelInfo,
   ModelRef,
+  PermissionMode,
   PermissionRequest,
   QuestionRequest,
   RemoteHistoryChunk,
@@ -48,6 +49,8 @@ export interface SessionView extends SessionMeta {
   status: SessionStatus;
   supportedThinkingLevels?: string[];
   runStartedAt?: number;
+  /** 会话权限模式（注册表权威）；旧桌面不带此字段时 UI 按 ask 展示 */
+  permissionMode?: PermissionMode;
 }
 
 export type OutputSyncState = { status: "loading" } | { status: "loaded" } | { status: "error"; error: unknown };
@@ -98,7 +101,7 @@ interface AppState {
   setRoute(route: Route): void;
   setConn(state: ConnectionState, detail?: ConnectionDetail): void;
   setPairing(record: PairingRecord | null): void;
-  setSessions(metas: SessionMeta[]): void;
+  setSessions(metas: Array<SessionMeta & { permissionMode?: PermissionMode }>): void;
   setModels(models: ModelInfo[], defaultModel: ModelRef | null): void;
   applySessionSnapshot(
     metas: RemoteSessionSnapshot[],

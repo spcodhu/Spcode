@@ -71,6 +71,10 @@ export class RemoteEventAggregator {
         this.flush(event.sessionId);
         this.emit({ type: "session.planmode", sessionId: event.sessionId, enabled: event.enabled });
         break;
+      case "session.permissionmode":
+        this.flush(event.sessionId);
+        this.emit({ type: "session.permissionmode", sessionId: event.sessionId, mode: event.mode });
+        break;
       case "permission.request":
         this.flush(event.request.sessionId);
         this.emit({ type: "permission.request", request: event.request });
