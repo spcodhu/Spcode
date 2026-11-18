@@ -391,6 +391,8 @@ export class SessionController {
           sessionId: opts.sessionId,
           modelRuntime: opts.modelRuntime,
           model: model as Model<never> | undefined,
+          // 子代理 spawn 时实时读主会话模型：refreshModelFromRegistry/setModel 后新子代理即用新快照（R6 P1-1）
+          getModel: () => session.model as Model<never> | undefined,
           thinkingLevel: opts.thinkingLevel ?? "medium",
           depth: 0,
           getSandboxSettings: opts.getSandboxSettings,

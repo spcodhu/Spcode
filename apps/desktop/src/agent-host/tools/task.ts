@@ -66,6 +66,8 @@ export interface TaskToolContext {
   sessionId: string;
   modelRuntime: ModelRuntime;
   model: Model<never> | undefined;
+  /** 主会话模型实时 getter（主会话透传）：设置页编辑模型/中途切模型后，新 spawn 的子代理用新快照（R6 P1-1） */
+  getModel?: () => Model<never> | undefined;
   thinkingLevel: string;
   depth: number;
   /** 沙盒设置 getter（主会话透传；子代理 bash 与主会话同边界） */
@@ -127,7 +129,8 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
         cwd: ctx.cwd,
         agentDir: ctx.agentDir,
         modelRuntime: ctx.modelRuntime,
-        model: ctx.model,
+        // 实时读主会话当前模型：创建时快照仅作缺省兑底，编辑/切换后的新 spawn 不得用旧对象
+        model: ctx.getModel?.() ?? ctx.model,
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         thinkingLevel: ctx.thinkingLevel as any,
         sessionManager: SessionManager.inMemory(),
