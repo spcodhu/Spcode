@@ -59,7 +59,7 @@ export function installUpdate(): void {
   try {
     autoUpdater.quitAndInstall(false, true);
   } catch (e) {
-    setState({ status: "error", message: e instanceof Error ? e.message : String(e) });
+    setState({ status: "error", message: e instanceof Error ? e.message : String(e), source: "download" });
   }
 }
 
@@ -111,13 +111,10 @@ export function setupAutoUpdater(opts: {
   autoUpdater.autoInstallOnAppQuit = false;
 
   autoUpdater.on("update-available", (info) => {
-    // 后台每 4 小时复查不得把正在下载/已下载待重启的同版本状态打回 available
-    if (
-      (currentState.status === "downloading" || currentState.status === "downloaded") &&
-      info.version === pendingVersion
-    ) {
-      return;
-    }
+    // 下载中/待重启时任何版本的 update-available 都不转态：
+    // 避免把仍在下载的旧版本错标成新版本，或丢失已下载版本的重启入口；
+    // 重启完成后下一轮检查自然会发现更新的版本。
+    if (currentState.status === "downloading" || currentState.status === "downloaded") return;
     if (info.version === opts.getIgnoredVersion()) {
       // 手动检查时给明确反馈；被忽略的版本不再提示，对用户等价于「没有可更新的版本」
       setState(manualCheck ? { status: "up-to-date", version: app.getVersion() } : { status: "idle" });
@@ -169,6 +166,9 @@ export function setupAutoUpdater(opts: {
       .finally(() => {
         // electron-updater 会先同步发出 error，再拒绝 checkForUpdates Promise。
         checkingForUpdates = false;
+        // 兑底：手动检查复用了事件已发出的在途后台检查等早退路径时，
+        // 可能没有任何状态事件落地——回 idle 释放按钮，不伪造检查结果。
+        if (manualCheck && currentState.status === "checking") setState({ status: "idle" });
         manualCheck = false;
       });
   };

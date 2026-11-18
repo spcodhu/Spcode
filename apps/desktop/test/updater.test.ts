@@ -187,6 +187,20 @@ describe("关于页手动检查", () => {
     mocks.handlers.get("update-available")?.({ version: "0.2.0", releaseNotes: "" });
     mocks.handlers.get("update-not-available")?.({ version: "0.2.0" });
     expect(updater.getUpdateState()).toEqual({ status: "downloaded", version: "0.2.0" });
+
+    // 不同版本也不得覆盖：避免错标在途下载版本或丢失已下载版本的重启入口
+    mocks.handlers.get("update-available")?.({ version: "0.3.0", releaseNotes: "" });
+    expect(updater.getUpdateState()).toEqual({ status: "downloaded", version: "0.2.0" });
+  });
+
+  it("手动检查无任何状态事件落地时回 idle 释放按钮，不卡死 checking", async () => {
+    const { updater } = await setupUpdater();
+    await flushPromises();
+    // 模拟早退路径：checkForUpdates 结算但未发出 available/not-available/error
+    updater.checkForUpdatesNow();
+    expect(updater.getUpdateState()).toEqual({ status: "checking" });
+    await flushPromises();
+    expect(updater.getUpdateState()).toEqual({ status: "idle" });
   });
 
   it("开发运行（更新器未初始化）手动检查返回 false", async () => {

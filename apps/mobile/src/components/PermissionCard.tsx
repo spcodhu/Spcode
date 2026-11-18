@@ -140,19 +140,23 @@ function HoldToApproveButton({ onConfirm, disabled }: { onConfirm: () => void; d
 }
 
 export function PermissionCard({ request }: { request: PermissionRequest }) {
-  const { t } = useTranslation("mobile");
+  const { t, i18n } = useTranslation("mobile");
   const session = useAppStore((s) => s.sessions[request.sessionId]);
   const danger = request.risk === "danger";
   const bypass = request.bypass === true;
   const severe = danger || bypass;
   // 「总允许」可沉淀的规则（与桌面 PermissionInline 同一纯函数）；bypass/非 shell/无项目 cwd 为空
   const rules = deriveProjectPermissionRules(request);
+  // 复合命令提示分隔符随语言：中文顿号 / 英文逗号
+  const ruleSeparator = i18n.language?.startsWith("zh") ? "、" : ", ";
   const alwaysHint =
     rules.length === 1
       ? t(rules[0]!.match === "exact" ? "permission.alwaysExactHint" : "permission.alwaysHint", {
           rule: rules[0]!.command,
         })
-      : t("permission.alwaysCompoundHint", { rules: rules.map((item) => item.command).join("、") });
+      : rules.length > 1
+        ? t("permission.alwaysCompoundHint", { rules: rules.map((item) => item.command).join(ruleSeparator) })
+        : "";
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [reviewed, setReviewed] = useState(false);

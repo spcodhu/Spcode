@@ -1077,7 +1077,7 @@ function AboutPage() {
       break;
     case "error":
       statusLine =
-        updateState.source === "check" ? `${t("about.checkFailed")}：${updateState.message}` : updateState.message;
+        updateState.source === "check" ? t("about.checkFailed", { message: updateState.message }) : updateState.message;
       break;
     default:
       statusLine = (settings?.autoUpdate ?? true) ? t("about.autoCheckOn") : t("about.autoCheckOff");
@@ -1099,6 +1099,12 @@ function AboutPage() {
           : updateState.status === "error" && updateState.source !== "check"
             ? t("update.retry")
             : t("about.checkNow");
+
+  // 弹窗随状态漂移被动卸载（如开着弹窗时复查命中无更新）后复位开关，
+  // 避免下一次发现新版本时弹窗在设置页上自发打开
+  useEffect(() => {
+    if (!canDialog) setShowUpdateDialog(false);
+  }, [canDialog]);
 
   return (
     <div>
