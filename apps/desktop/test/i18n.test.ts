@@ -50,12 +50,18 @@ describe("bundled language resources", () => {
     }
   });
 
-  it("localizes the completed-run process label in both locales", () => {
+  it("localizes timeline labels and call counts in both locales", () => {
     setLocale("en");
-    expect(i18n.t("chat:message.toolsRan", { count: 2 })).toBe("Ran 2 tools");
-    expect(i18n.t("chat:message.toolsRanWithFailures", { count: 2, failed: 1 })).toBe("Ran 2 tools, 1 failed");
+    expect(i18n.t("chat:run.process")).toBe("Execution history");
+    expect(i18n.t("chat:run.toolCalls", { count: 1 })).toBe("1 tool call");
+    expect(i18n.t("chat:run.toolCalls", { count: 2 })).toBe("2 tool calls");
+    expect(i18n.t("chat:run.failedCalls", { count: 1 })).toBe("1 failed");
+    expect(i18n.t("chat:run.toolGroup", { tool: "Read file", count: 2 })).toBe("Read file · 2 calls");
     setLocale("zh-CN");
-    expect(i18n.t("chat:message.toolsRan", { count: 2 })).toBe("执行工具 2 次");
+    expect(i18n.t("chat:run.process")).toBe("执行过程");
+    expect(i18n.t("chat:run.toolCalls", { count: 2 })).toBe("2 次工具调用");
+    expect(i18n.t("chat:run.failedCalls", { count: 1 })).toBe("1 次失败");
+    expect(i18n.t("chat:run.toolGroup", { tool: "读取文件", count: 2 })).toBe("读取文件 · 2 次");
   });
 
   it("uses the requested locale and independently initialized instances", () => {

@@ -1,6 +1,6 @@
 /**
  * 聊天消息渲染 E2E：代码块标题栏布局 / 多图横滚与图片预览 / 消息悬浮操作
- * + 运行时间线（运行中进度、结束后过程折叠）。
+ * + 运行时间线（宿主事件进度、完成后开合保留与历史回放）。
  * 断言锚 data-testid / role，不锚展示文案（AGENTS.md 纪律）。
  */
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
@@ -292,11 +292,7 @@ test("消息渲染：代码块标题栏居中、多图横滚与预览复位、�
 });
 
 // ---------------------------------------------------------------------------
-// 运行时间线（Qoder 风格活动组）：
-// - 任务结束后只留最终总结，中间阶段正文与活动组收进一个过程折叠区；
-// - 展开过程后按到达顺序恢复「阶段正文 + 已处理活动组」；
-// - 活动组可继续展开，看到一步一行的思考/工具调用及输入输出；
-// - 运行中进度行始终跟随当前步骤，活动组收起后仍然可见。
+// 运行时间线：真实宿主事件驱动 shared timeline，历史回放恢复阶段正文和工具详情。
 // ---------------------------------------------------------------------------
 const PROJECT_CWD = "/tmp/spcode-e2e-run-activity";
 const SESSION_ID = "e2e-run-activity-1";
@@ -455,14 +451,14 @@ async function openSession(window: Awaited<ReturnType<Awaited<ReturnType<typeof 
   const row = window.locator("div.group", { hasText: "E2E 步骤交互" }).first();
   await expect(row).toBeVisible({ timeout: 15000 });
   await row.click();
-  await expect(window.getByText(FINAL)).toBeVisible({ timeout: 15000 });
+  await expect(window.getByTestId("run-summary")).toBeVisible({ timeout: 15000 });
 }
 
-test("运行时间线：运行中进度可见，结束后只留总结、展开恢复过程", async () => {
+test("运行时间线：宿主事件到统一过程，完成保留展开，历史回放恢复详情", async () => {
   // 合并后本用例含两段启动（两套夹具），放宽整体超时；断言自身 timeout 未改动
   test.setTimeout(120_000);
 
-  // ---- 运行中：进度行跟随当前步骤，活动组收起后仍可见 ----
+  // ---- 真实宿主事件驱动进度，完成后保留展开及工具详情 ----
   const app = await launchApp({ seed: seedActive });
   const window = await app.firstWindow();
   const row = window.locator("div.group", { hasText: "E2E 运行中进度" }).first();
@@ -497,68 +493,75 @@ test("运行时间线：运行中进度可见，结束后只留总结、展开�
   await expect(progress).toHaveAttribute("data-kind", "tool");
   await expect(progress).toHaveAttribute("data-tool", "bash");
 
-  // 收起活动组：步骤不可见，但进度行仍显示当前工具
-  const header = window.getByTestId("run-activity-header").first();
+  const process = window.getByTestId("run-process");
+  const header = window.getByTestId("run-process-header");
+  await expect(process).toHaveCount(1);
   await expect(header).toHaveAttribute("aria-expanded", "true");
   await header.click();
   await expect(header).toHaveAttribute("aria-expanded", "false");
-  await expect(progress).toBeVisible();
+  await expect(header.getByTestId("run-progress")).toBeVisible();
   await expect(progress).toHaveAttribute("data-kind", "tool");
   await expect(progress).toHaveAttribute("data-tool", "bash");
-
-  // 阶段状态不再占用底部状态条（行内进度行是唯一提示）
+  await expect(progress).toContainText("open -a /Applications/Maccy.app");
   await expect(window.getByTestId("run-status-bar")).toHaveCount(0);
 
+  await send({
+    type: "tool_execution_end",
+    toolCallId: "t1",
+    toolName: "bash",
+    result: { content: [{ type: "text", text: "Maccy is running" }] },
+    isError: false,
+  });
+  await send({
+    type: "message_update",
+    assistantMessageEvent: { type: "text_delta", delta: FINAL },
+  });
+  await expect(progress).toHaveAttribute("data-kind", "output");
+  await header.click();
+  const step = window.getByTestId("run-tool-step");
+  await step.getByRole("button").first().click();
+  await expect(step.getByTestId("run-step-detail")).toContainText("Maccy is running");
+  await expect(window.getByTestId("run-stage-output")).toHaveText(FINAL);
+  await send({
+    type: "message_end",
+    message: { role: "assistant", content: [{ type: "text", text: FINAL }], stopReason: "stop" },
+  });
   await send({ type: "agent_settled" });
+
+  await expect(process).toHaveCount(1);
+  await expect(process).toHaveAttribute("data-state", "expanded");
+  await expect(header).toHaveAttribute("aria-expanded", "true");
+  await expect(progress).toHaveCount(0);
+  await expect(step).toHaveAttribute("data-status", "done");
+  await expect(step.getByRole("button").first()).toHaveAttribute("aria-expanded", "true");
+  await expect(step.getByTestId("run-step-detail")).toBeVisible();
+  await expect(window.getByTestId("run-summary")).toHaveText(FINAL);
+  await expect(process.getByTestId("run-summary")).toHaveCount(0);
+  await expect(window.getByTestId("run-stage-output")).toHaveCount(0);
   await app.close();
 
-  // ---- 任务结束后只留总结，展开过程恢复完整时间线 ----
+  // ---- 真实会话文件回放：历史默认折叠，展开直接访问工具输入输出 ----
   const app2 = await launchApp({ seed });
   const window2 = await app2.firstWindow();
   await openSession(window2);
-
-  // 默认只保留最终总结；中间阶段正文收进过程折叠区（高度 0、对辅助技术隐藏）
-  await expect(window2.getByText(FINAL)).toBeVisible();
-  const process = window2.getByTestId("run-process");
-  await expect(process).toHaveCount(1);
-  await expect(process).toHaveAttribute("data-state", "collapsed");
-  const processGrid = process.locator(".collapse-grid").first();
-  await expect(processGrid).toHaveAttribute("aria-hidden", "true");
-  expect(await processGrid.evaluate((el) => el.getBoundingClientRect().height)).toBe(0);
-  const processHeader = window2.getByTestId("run-process-header");
-  await expect(processHeader).toHaveAttribute("aria-expanded", "false");
-
-  // 展开过程：阶段正文与两个活动组按到达顺序恢复，总结仍在最下方
-  await processHeader.click();
-  await expect(process).toHaveAttribute("data-state", "expanded");
-  await expect(processGrid).toHaveAttribute("aria-hidden", "false");
-  await expect.poll(() => processGrid.evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThan(0);
-  await expect(window2.getByText(STAGE1)).toBeVisible();
-  await expect(window2.getByText(STAGE2)).toBeVisible();
-  await expect(window2.getByText(FINAL)).toBeVisible();
-
-  const groups = window2.getByTestId("run-activity");
-  await expect(groups).toHaveCount(2);
-  await expect(groups.first()).toHaveAttribute("data-state", "done");
-  const headers = window2.getByTestId("run-activity-header");
-  await expect(headers).toHaveCount(2);
-  await expect(headers.first()).toHaveAttribute("aria-expanded", "false");
-
-  // 活动组可继续展开：看到读文件步骤
-  await headers.first().click();
-  await expect(headers.first()).toHaveAttribute("aria-expanded", "true");
-  const firstGroup = groups.first();
-  await expect(firstGroup.locator(".collapse-grid").first()).toHaveAttribute("aria-hidden", "false");
-  const steps = firstGroup.getByTestId("run-tool-step");
-  await expect(steps).toHaveCount(1);
+  const historyProcess = window2.getByTestId("run-process");
+  const historyHeader = window2.getByTestId("run-process-header");
+  await expect(historyProcess).toHaveCount(1);
+  await expect(historyProcess).toHaveAttribute("data-state", "collapsed");
+  await expect(historyHeader).toHaveAttribute("aria-expanded", "false");
+  await expect(window2.getByTestId("run-summary")).toHaveText(FINAL);
+  await historyHeader.click();
+  await expect(historyProcess).toHaveAttribute("data-state", "expanded");
+  await expect(historyProcess.getByTestId("run-stage-output")).toHaveText([STAGE1, STAGE2]);
+  const steps = historyProcess.getByTestId("run-tool-step");
+  await expect(steps).toHaveCount(2);
   await expect(steps.first()).toHaveAttribute("data-tool", "read");
   await expect(steps.first()).toHaveAttribute("data-status", "done");
-
-  // 点击步骤展开输入/响应面板（read/write/edit 步骤行尾还有一个右侧预览图标按钮，.first() 取展开切换用的主按钮）
   await steps.first().getByRole("button").first().click();
-  await expect(steps.first().getByRole("button").first()).toHaveAttribute("aria-expanded", "true");
-  await expect(steps.first().locator(".collapse-grid")).toHaveAttribute("aria-hidden", "false");
-  await expect(firstGroup.getByTestId("run-step-detail")).toBeVisible();
-
+  const detail = steps.first().getByTestId("run-step-detail");
+  await expect(detail).toBeVisible();
+  await expect(detail.getByTestId("run-tool-call")).toHaveAttribute("data-call-id", "t1");
+  await expect(detail).toContainText("README.md");
+  await expect(detail).toContainText("（工具输出略）");
   await app2.close();
 });

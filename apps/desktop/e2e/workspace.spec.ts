@@ -540,7 +540,6 @@ test("文件预览：工具调用预览、多标签、顶栏唤回、file: 与�
       .getByTestId("workspace-todo-section")
       .evaluate((el) => el.getBoundingClientRect().top);
     await window.getByTestId("run-process-header").click();
-    await window.getByTestId("run-activity-header").click();
 
     const readStep = window.locator('[data-testid="run-tool-step"][data-tool="read"]');
     await expect(readStep).toBeVisible();

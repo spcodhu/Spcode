@@ -493,21 +493,7 @@ function RunErrorCard({ message, sessionId }: { message: ChatMessage; sessionId:
 
 export const NoticeItem = memo(NoticeItemImpl);
 
-/**
- * 一次任务运行的渲染单元（Qoder 风格）：
- * - 连续的思考/工具调用收进一个可折叠的「活动组」，组头显示
- *   「正在执行中 · Ns」（运行中）或「已处理」（结束后）；
- * - 正文（阶段性说明与最终总结）按到达顺序内联在组与组之间；
- * - 组内一步一行：状态圆点（进行中/完成/失败）+ 动作标签 + 参数摘要，
- *   点击展开完整输入与输出；
- * - 运行中尾部始终显示当前步骤的进度行（思考/工具/输出/等待），活动组被
- *   用户收起时仍能告诉用户现在在做什么；
- * - 运行结束后只保留最后一段正文（总结），之前的阶段输出与活动组统一收进
- *   一个「过程」折叠区；展开后仍是完整的时间线，各活动组可继续展开。
- *
- * active 由外层传入（会话 running && 最后一个运行）：回合间隙所有消息的
- * streaming 都是 false，若用消息级状态驱动折叠会在回合之间闪合闪开。
- */
+// active 使用整轮会话状态，避免回合间的 streaming 空隙打断时间线。
 function AssistantRunItemImpl({
   messages,
   active,
@@ -524,30 +510,25 @@ function AssistantRunItemImpl({
   const renderText = (block: RunTextBlock) => <Markdown key={block.key} text={block.text} />;
   const onOpenFile = (rawPath: string) => void useStore.getState().openWorkspaceFile({ path: rawPath, kind: "file" });
 
-  if (!active) {
-    const copyText = blocks
-      .filter((block): block is RunTextBlock => block.kind === "text")
-      .map((block) => block.text)
-      .join("\n\n");
-    const timestamp = messages[messages.length - 1]?.timestamp ?? messages[0]?.timestamp;
-    return (
-      <div className="group/message mb-6">
-        <RunActivityTimeline segments={segments} active={false} renderText={renderText} onOpenFile={onOpenFile} />
-        <MessageHoverMeta timestamp={timestamp} copyText={copyText} align="start" />
-      </div>
-    );
-  }
+  const copyText = active
+    ? ""
+    : blocks
+        .filter((block): block is RunTextBlock => block.kind === "text")
+        .map((block) => block.text)
+        .join("\n\n");
+  const timestamp = lastMessage?.timestamp ?? messages[0]?.timestamp;
 
   return (
-    <div className="mb-6">
+    <div className="group/message mb-6">
       <RunActivityTimeline
         segments={segments}
-        active
+        active={active}
         progressSegment={streamingTail}
         startedAt={startedAt}
         renderText={renderText}
         onOpenFile={onOpenFile}
       />
+      {!active && <MessageHoverMeta timestamp={timestamp} copyText={copyText} align="start" />}
     </div>
   );
 }
