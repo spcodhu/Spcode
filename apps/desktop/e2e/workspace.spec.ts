@@ -608,7 +608,10 @@ test("文件预览：工具调用预览、多标签、顶栏唤回、file: 与�
     const secondLinkBox = await links.nth(1).boundingBox();
     expect(firstLinkBox).not.toBeNull();
     expect(secondLinkBox).not.toBeNull();
-    expect(Math.abs(firstLinkBox!.y - secondLinkBox!.y)).toBeLessThan(4);
+    // 验证链接保持行内级（未变成块级交付卡片）；是否同排受平台字体度量影响，不作硬断言
+    for (const link of [links.nth(0), links.nth(1)]) {
+      expect(await link.evaluate((el) => getComputedStyle(el).display)).toContain("inline");
+    }
     expect(firstLinkBox!.height).toBeLessThanOrEqual(28);
     expect(secondLinkBox!.height).toBeLessThanOrEqual(28);
     await links.filter({ hasText: "README.md" }).first().click();

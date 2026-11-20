@@ -106,8 +106,14 @@ test("两条分隔条可拖动并持久化，窄栏主操作固定且按钮不�
 
   await drag(window.getByTestId("sidebar-resize-handle"), 64, window);
   await expect.poll(async () => (await window.getByTestId("sidebar-panel").boundingBox())?.width).toBe(312);
+  // 工作区默认宽度随平台布局不同，断言拖拽的相对增量而非绝对像素，跨平台稳健。
+  // 工作区居右，向左拖其左边界手柄（-40）会加宽 +40。
+  const workspaceBefore = (await window.getByTestId("workspace-panel").boundingBox())?.width ?? 0;
   await drag(window.getByTestId("workspace-resize-handle"), -40, window);
-  await expect.poll(async () => (await window.getByTestId("workspace-panel").boundingBox())?.width).toBe(600);
+  await expect
+    .poll(async () => (await window.getByTestId("workspace-panel").boundingBox())?.width)
+    .toBe(workspaceBefore + 40);
+  const workspacePersisted = (await window.getByTestId("workspace-panel").boundingBox())?.width ?? 0;
 
   await expect(window.getByTestId("composer-primary-actions")).toBeVisible();
   await expect(window.getByTestId("composer-model-menu")).toBeVisible();
@@ -134,6 +140,6 @@ test("两条分隔条可拖动并持久化，窄栏主操作固定且按钮不�
   window = await app.firstWindow();
   await openLayout(window);
   expect((await window.getByTestId("sidebar-panel").boundingBox())?.width).toBe(328);
-  expect((await window.getByTestId("workspace-panel").boundingBox())?.width).toBe(600);
+  expect((await window.getByTestId("workspace-panel").boundingBox())?.width).toBe(workspacePersisted);
   await app.close();
 });
