@@ -14,6 +14,7 @@
 - **硬规则：任何 agent（含 Qoder / Cursor 这类第三方工具）不得自行执行 `git tag`、不得改 `apps/desktop/package.json` 的 `version`、不得触发 release 工作流**——打 tag 就等于发版。当前会话没有用户明确要求「发布版本」时，这些动作一律不做，也不「顺手」做；本地 `pre-push` 钩子会直接拒绝推送 `refs/tags/*`（见下方「本地钩子」）。
 - 日常功能 / 修复提交一律不触发发布：不打 tag、不碰版本号，安安静静提交即可（push/PR 会自动跑 CI 的 lint+typecheck+单测；e2e 仍为手动触发）。
 - 只有用户明确要求"发布版本"时才走发布流程；发布前**必须主动询问本次是测试版还是稳定版**。
+- **发版一律从 `master` 分支打 tag**：功能分支（如 `ui/*`、`fix/*`）必须先合并到 `master`（快进或合并提交），确认 `master` 含全部待发布代码后再走发布流程。禁止直接从功能分支打 tag 发版（beta.43 曾从 `ui/client-polish-s-mark` 直接发，导致 master 落后于已发布版本，已补合并）。合并到 master 后，`master` 应与最新 release tag 对齐。
 - 发布动作：推进 `apps/desktop/package.json` 的 `version`（测试版加 `-beta.N` 后缀）→ **过评审门禁** → 提交 → 打同名 `v*` tag → 推 tag 触发 release.yml。推 tag 时本地 `pre-push` 钩子会拦截，需要显式放行：`SPCODE_ALLOW_TAG_PUSH=1 git push origin <tag>`。release.yml 统一 `prerelease: false`，最新构建始终占 GitHub Latest 位，beta 与稳定版只靠版本号后缀区分。
   - 提交顺序：代码与版本号先提交，评审覆盖那个提交（`reviewedCommit`）；报告与台账再作为一个只改 `docs/code-review/**` 的提交落在后面。门禁显式允许这段尾巴，但中间只要动了代码/测试就必须重新增量评审。
 - **发版前评审是硬门禁**（测试版/稳定版都算）：
