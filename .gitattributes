@@ -1,0 +1,10 @@
+# 统一文本文件为 LF，避免 Windows 检出 CRLF 导致 biome 格式检查失败（跨平台 CI）。
+* text=auto eol=lf
+
+# 二进制资源不做行尾归一化
+*.png binary
+*.ico binary
+*.icns binary
+*.zip binary
+*.dmg binary
+*.blockmap binary
