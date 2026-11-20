@@ -131,7 +131,9 @@ test("Windows 点关闭后需确认，可取消、最小化继续运行或完全
   expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isMinimized())).toBe(false);
 
   await closeWindow();
-  await window.getByTestId("window-close-minimize").click();
+  await expect(window.getByTestId("window-close-dialog")).toBeVisible({ timeout: 10000 });
+  // 最小化会立即让窗口隐藏，noWaitAfter 避免 click 动作后校验在 Windows 挂起
+  await window.getByTestId("window-close-minimize").click({ noWaitAfter: true });
   await expect
     .poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isMinimized()))
     .toBe(true);
@@ -140,9 +142,13 @@ test("Windows 点关闭后需确认，可取消、最小化继续运行或完全
   expect(app.process().exitCode).toBeNull();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.restore());
 
-  await closeWindow();
+  // 提前挂退出监听，避免错过 exit 事件；quit 会立即退出进程，dispatchEvent 容忍 browser closed
   const exited = new Promise<number | null>((resolve) => app.process().once("exit", (code) => resolve(code)));
-  // quit 会立即退出进程，click 的动作后校验会撞上 browser closed；dispatchEvent 触发后直接等退出
-  await window.getByTestId("window-close-quit").dispatchEvent("click");
+  await closeWindow();
+  await expect(window.getByTestId("window-close-dialog")).toBeVisible({ timeout: 10000 });
+  await window
+    .getByTestId("window-close-quit")
+    .dispatchEvent("click")
+    .catch(() => {});
   expect(await exited).toBe(0);
 });
