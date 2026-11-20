@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const desktopDir = resolve(scriptDir, "..");
 const releaseDir = join(desktopDir, "release");
+const desktopVersion = JSON.parse(readFileSync(join(desktopDir, "package.json"), "utf8")).version;
 const outputArg = process.argv.indexOf("--output");
 const outputDir = outputArg >= 0 ? resolve(process.argv[outputArg + 1]) : join(desktopDir, "smoke-output");
 mkdirSync(outputDir, { recursive: true });
@@ -26,7 +27,8 @@ function check(name, ok, detail) {
 
 function listZips() {
   if (!existsSync(releaseDir)) return [];
-  return readdirSync(releaseDir).filter((f) => f.endsWith(".zip"));
+  // 只测当前版本的产物，避免本地残留的旧版安装包被误选
+  return readdirSync(releaseDir).filter((f) => f.endsWith(".zip") && f.includes(desktopVersion));
 }
 
 function extract(zipPath, dest) {
@@ -84,18 +86,32 @@ try {
     const dest = join(workRoot, zip.replace(/\.zip$/, ""));
     extract(join(releaseDir, zip), dest);
     // agent-host 入口与依赖必须在 app.asar.unpacked（ESM loader 不支持 asar）
-    const agentHost = findFile(dest, (name, full) => name === "agent-host.mjs" && full.includes("app.asar.unpacked"));
+    const agentHost = findFile(
+      dest,
+      (name, full) => name === "agent-host.mjs" && full.includes("app.asar.unpacked"),
+      14,
+    );
     check(`unpacked-agent-host:${zip}`, Boolean(agentHost), agentHost ?? "agent-host.mjs not unpacked");
     const unpackedModules = findFile(
       dest,
-      (name, full) => name === "pi-coding-agent" && full.includes("app.asar.unpacked"),
+      (name, full) =>
+        name === "package.json" && full.includes("app.asar.unpacked/node_modules/@earendil-works/pi-coding-agent/"),
+      14,
     );
     check(`unpacked-pi-deps:${zip}`, Boolean(unpackedModules), unpackedModules ?? "pi-coding-agent not unpacked");
 
-    // 启动二进制：mac 取 .app/Contents/MacOS/*；win 取解包根目录的 exe
+    // 启动二进制：mac 取主 .app/Contents/MacOS/*（排除 Frameworks 下的 Helper）；win 取解包根目录的 exe
     let binary = null;
     if (process.platform === "darwin") {
-      binary = findFile(dest, (name, full) => full.includes(".app/Contents/MacOS/") && !name.includes("."));
+      binary = findFile(
+        dest,
+        (name, full) =>
+          full.includes(".app/Contents/MacOS/") &&
+          !full.includes("Frameworks") &&
+          !/helper/i.test(name) &&
+          !name.includes("."),
+        14,
+      );
     } else if (process.platform === "win32") {
       binary = findFile(dest, (name) => name.toLowerCase().endsWith(".exe") && !/uninstall|setup/i.test(name), 3);
     }
