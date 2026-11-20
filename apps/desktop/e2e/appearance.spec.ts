@@ -106,13 +106,15 @@ test("两条分隔条可拖动并持久化，窄栏主操作固定且按钮不�
 
   await drag(window.getByTestId("sidebar-resize-handle"), 64, window);
   await expect.poll(async () => (await window.getByTestId("sidebar-panel").boundingBox())?.width).toBe(312);
-  // 工作区默认宽度随平台布局不同，断言拖拽的相对增量而非绝对像素，跨平台稳健。
-  // 工作区居右，向左拖其左边界手柄（-40）会加宽 +40。
+  // 工作区默认宽度随平台布局不同，断言相对增量而非绝对像素。鼠标拖拽在 Windows CI
+  // 受指针捕获/布局约束影响不稳定，改用确定性键盘微调（右栏 direction=-1，ArrowRight 缩 16/次）。
   const workspaceBefore = (await window.getByTestId("workspace-panel").boundingBox())?.width ?? 0;
-  await drag(window.getByTestId("workspace-resize-handle"), -40, window);
+  await window.getByTestId("workspace-resize-handle").focus();
+  await window.keyboard.press("ArrowRight");
+  await window.keyboard.press("ArrowRight");
   await expect
     .poll(async () => (await window.getByTestId("workspace-panel").boundingBox())?.width)
-    .toBe(workspaceBefore + 40);
+    .toBe(workspaceBefore - 32);
   const workspacePersisted = (await window.getByTestId("workspace-panel").boundingBox())?.width ?? 0;
 
   await expect(window.getByTestId("composer-primary-actions")).toBeVisible();

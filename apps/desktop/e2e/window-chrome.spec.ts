@@ -142,6 +142,7 @@ test("Windows 点关闭后需确认，可取消、最小化继续运行或完全
 
   await closeWindow();
   const exited = new Promise<number | null>((resolve) => app.process().once("exit", (code) => resolve(code)));
-  await window.getByTestId("window-close-quit").click();
+  // quit 会立即退出进程，click 的动作后校验会撞上 browser closed；dispatchEvent 触发后直接等退出
+  await window.getByTestId("window-close-quit").dispatchEvent("click");
   expect(await exited).toBe(0);
 });
