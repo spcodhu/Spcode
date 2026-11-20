@@ -1,6 +1,6 @@
 # CI：lint + typecheck + 单测，push/PR 自动跑（评审 R3-C0：质量门禁必须在提交路径上）；
 # 默认分支是 master，push 分支必须与远程 HEAD 保持一致，否则日常直接推送会绕过门禁（评审 R4 P1-3）。
-# e2e 只在手动触发时跑（需要先出构建产物，耗时久——Actions 页面选 CI workflow → Run workflow）。
+# 手动触发按指定完整 commit SHA 做 tag 前双平台预检；只上传预览产物，不发布。
 name: CI
 
 on:
@@ -8,9 +8,15 @@ on:
     branches: [master]
   pull_request:
   workflow_dispatch:
+    inputs:
+      commit:
+        description: "预检的完整 40 位 commit SHA（最终代码/版本提交，不接受移动分支名）"
+        required: true
+        type: string
 
 jobs:
   check:
+    if: github.event_name != 'workflow_dispatch'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
@@ -30,9 +36,134 @@ jobs:
 
       - run: pnpm test
 
-      # e2e 需要先出构建产物；macOS runner 自带窗口环境，可直接跑 Electron
-      - if: github.event_name == 'workflow_dispatch'
-        run: pnpm --filter @spcode/desktop build
+  preflight:
+    if: github.event_name == 'workflow_dispatch'
+    name: preflight (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            package-args: --mac --arm64 --x64
+          - os: windows-latest
+            package-args: --win --x64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        # Git Bash 在 Windows 上同样提供 pipefail；tee 不能吞掉失败退出码。
+        shell: bash
+    steps:
+      - name: Validate immutable commit input
+        id: target
+        env:
+          TARGET_COMMIT: ${{ inputs.commit }}
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const sha = process.env.TARGET_COMMIT;
+          if (!/^[0-9a-f]{40}$/i.test(sha || '')) throw new Error('commit must be a full 40-character SHA');
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `commit=${sha.toLowerCase()}\n`);
+          NODE
 
-      - if: github.event_name == 'workflow_dispatch'
-        run: pnpm --filter @spcode/desktop test:e2e
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.target.outputs.commit }}
+
+      - name: Record checked-out commit and runner
+        env:
+          TARGET_COMMIT: ${{ steps.target.outputs.commit }}
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const { execFileSync } = require('node:child_process');
+          const sha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+          if (sha !== process.env.TARGET_COMMIT) throw new Error('checkout SHA mismatch');
+          fs.mkdirSync('preflight-logs', { recursive: true });
+          const record = {
+            commit: sha, workflowRef: process.env.GITHUB_WORKFLOW_REF,
+            workflowSha: process.env.GITHUB_WORKFLOW_SHA,
+            run: process.env.GITHUB_RUN_ID, attempt: process.env.GITHUB_RUN_ATTEMPT,
+            platform: process.platform, arch: process.arch,
+            osRelease: require('node:os').release(), startedAt: new Date().toISOString(),
+            desktopVersion: require('./apps/desktop/package.json').version,
+            pi: Object.fromEntries(Object.entries(require('./apps/desktop/package.json').dependencies)
+              .filter(([name]) => name.startsWith('@earendil-works/pi-')))
+          };
+          fs.writeFileSync('preflight-logs/environment.json', JSON.stringify(record, null, 2));
+          console.log(record);
+          NODE
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: |
+          node --version | tee preflight-logs/node.log
+          pnpm --version | tee preflight-logs/pnpm.log
+          pnpm install --frozen-lockfile 2>&1 | tee preflight-logs/install.log
+
+      - name: Root lint
+        run: pnpm lint 2>&1 | tee preflight-logs/lint.log
+
+      - name: Root typecheck
+        run: pnpm typecheck 2>&1 | tee preflight-logs/typecheck.log
+
+      - name: Root test
+        run: pnpm test 2>&1 | tee preflight-logs/test.log
+
+      - name: Build mobile PWA
+        run: pnpm --filter @spcode/mobile build 2>&1 | tee preflight-logs/mobile-build.log
+
+      - name: Validate mobile PWA
+        run: pnpm --dir apps/desktop check:mobile 2>&1 | tee preflight-logs/mobile-check.log
+
+      - name: Build desktop
+        run: pnpm --filter @spcode/desktop build 2>&1 | tee preflight-logs/desktop-build.log
+
+      - name: Electron E2E (isolated by e2e/helpers.ts)
+        env:
+          PLAYWRIGHT_JUNIT_OUTPUT_NAME: ${{ github.workspace }}/preflight-logs/e2e.xml
+        run: pnpm --filter @spcode/desktop test:e2e --reporter=list,junit --trace=retain-on-failure 2>&1 | tee preflight-logs/e2e.log
+
+      - name: Package previews (never publish)
+        working-directory: apps/desktop
+        env:
+          # 与既有打包流程一致；保留 afterPack adhoc 重签，不跳过其校验。
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          PACKAGE_ARGS: ${{ matrix.package-args }}
+        run: pnpm exec electron-builder $PACKAGE_ARGS --publish never 2>&1 | tee ../../preflight-logs/package.log
+
+      - name: Packaged ZIP smoke (temporary home, no model requests)
+        env:
+          PREFLIGHT_COMMIT: ${{ steps.target.outputs.commit }}
+        run: node apps/desktop/scripts/packaged-smoke.mjs --output preflight-logs/smoke 2>&1 | tee preflight-logs/smoke.log
+
+      - name: Upload logs even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: preflight-logs-${{ matrix.os }}-${{ steps.target.outputs.commit }}-${{ github.run_attempt }}
+          path: |
+            preflight-logs/
+            apps/desktop/test-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload preview build artifacts (not a Release)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: preflight-build-${{ matrix.os }}-${{ steps.target.outputs.commit }}-${{ github.run_attempt }}
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/*.yml
+          if-no-files-found: warn
+          retention-days: 14
