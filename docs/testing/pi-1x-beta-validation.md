@@ -77,6 +77,20 @@
 - [ ] 至少一个 API key 供应商真实请求成功（不记录密钥）。
 - [ ] 订阅渠道仅按官方允许方式验证；未授权项标 `未实机验证`。
 
+## 4.1 Windows E2E 预检发现（既有兼容问题，非本次三批引入）
+
+CI 此前仅 macOS 跑 E2E；本次新增 Windows 预检首次暴露以下既有问题（run 44730228394，25 过 / 5 败）：
+
+| 用例 | 根因 | 状态 |
+|---|---|---|
+| app-shell 启动就绪 | `app.isActive()` 仅 macOS 提供，Windows 抛 TypeError | 已修（typeof 守卫） |
+| appearance 分隔条拖动 | 断言假设 mac 默认窗宽（workspace 拖后=600），Windows CI 默认窗宽不同（实测 376） | 待 Windows 迭代 |
+| window-chrome 顶栏融合 | Electron 44 `windowControlsOverlay.getBoundingClientRect` 非函数（原生 API 差异） | 待 Windows 迭代 |
+| window-chrome 关闭确认 | Windows CI 下 `window-close-dialog` 5s 内未出现 | 待 Windows 迭代 |
+| workspace 文件链接同排 | Windows 字体度量致链接换行（y 差 26.5 > 4） | 待 Windows 迭代 |
+
+说明：发布门禁 release.yml 跑双平台单测+构建+打包（均已绿），不跑 E2E；上述为额外预检发现的既有 Windows E2E 缺口，与本次三批改动无关。 macOS E2E/打包/冒烟全绿。
+
 ## 5. 回退指引
 
 1. 退出应用。
