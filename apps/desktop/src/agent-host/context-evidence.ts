@@ -122,6 +122,19 @@ function sensitivePath(path: string): boolean {
   );
 }
 
+/** 来源证明是否足以支撑自动回读（不含随时间变化的当前文件策略/内容审查）。 */
+function hasVerifiableProvenance(record: EvidenceRecord): boolean {
+  const proof = record.provenance;
+  return (
+    !!proof &&
+    proof.version === 1 &&
+    !proof.unavailable &&
+    Array.isArray(proof.paths) &&
+    proof.paths.length > 0 &&
+    proof.digest === record.digest
+  );
+}
+
 export function createContextEvidence(options: {
   getSessionManager: () => SessionManager;
   getFsPolicy: () => FsGuardPolicy;
@@ -258,16 +271,27 @@ export function createContextEvidence(options: {
         },
       };
     },
-    referenceEntry(entryId: string): string {
+    /** 仅为有可验证执行时来源的条目登记引用；bash/grep/MCP 等无来源者返回 undefined，
+     * 避免折叠占位符承诺一个必然失败的回读路径（R7 P1-1）。 */
+    referenceEntry(entryId: string): string | undefined {
       const manager = options.getSessionManager();
       const branch = manager.getBranch();
       const entry = branch.find((item) => item.id === entryId);
-      if (!isToolEntry(entry)) throw new Error("Only current-branch tool evidence can be registered.");
+      if (!isToolEntry(entry)) return undefined;
       const existing = records().find((record) => !record.task && record.sourceEntryId === entryId);
-      if (existing) return existing.ref;
+      if (existing) return hasVerifiableProvenance(existing) ? existing.ref : undefined;
       const record = makeRecord(entry, branch);
+      if (!hasVerifiableProvenance(record)) return undefined;
       manager.appendCustomEntry(EVIDENCE_ENTRY_TYPE, record);
       return record.ref;
+    },
+    /** 已持久化的子任务交接证据：父会话可能仍需回看，折叠时显式保护（R7 P2-1）。 */
+    protectedEntryIds(): Set<string> {
+      return new Set(
+        records()
+          .filter((record) => record.task && hasVerifiableProvenance(record))
+          .map((record) => record.sourceEntryId),
+      );
     },
     /** Host callback only. Pass the child's active getBranch(), never a model-supplied transcript. */
     publishTask(taskId: string, entries: readonly SessionEntry[]): string[] {

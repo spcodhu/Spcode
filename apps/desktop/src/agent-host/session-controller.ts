@@ -585,7 +585,10 @@ export class SessionController {
         ctl.running = false;
         // 渐进式压缩第一层：接近触发线时折叠旧工具结果为可回读证据引用，
         // 让引擎的全量 LLM 摘要压缩更晚（甚至不再）触发
-        maybeMicrocompact(session, settingsManager, { referenceEntry: (entryId) => evidence.referenceEntry(entryId) });
+        maybeMicrocompact(session, settingsManager, {
+          referenceEntry: (entryId) => evidence.referenceEntry(entryId),
+          protectedEntryIds: evidence.protectedEntryIds(),
+        });
         distiller.schedule(session);
         ctl.maybeGenerateFallbackTitle();
       }

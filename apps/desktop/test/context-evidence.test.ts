@@ -160,6 +160,34 @@ describe("证据登记与回读", () => {
     expect(denied.isError).toBe(true);
   });
 
+  it("无执行时来源证明的工具结果不登记引用（R7 P1-1）", () => {
+    const sm = SessionManager.inMemory();
+    const svc = makeService(sm);
+    // bash 结果未经 wrapTool，无 provenance；grep 即使包裹也标 unverified-source
+    const bashEntry = seedToolResult(sm, "b1", "bash", "x".repeat(800));
+    expect(svc.referenceEntry(bashEntry)).toBeUndefined();
+    // 不登记 → 任意回读拒绝
+    return expect(readPage(svc.readTool(), { ref: "ev_" + "c".repeat(32) })).resolves.toMatchObject({ isError: true });
+  });
+
+  it("protectedEntryIds 保护已持久化的子任务交接证据（R7 P2-1）", async () => {
+    writeFileSync(join(dir, "a.txt"), "x");
+    const parent = SessionManager.inMemory();
+    const child = SessionManager.inMemory();
+    const parentSvc = makeService(parent);
+    const childSvc = createContextEvidence({
+      getSessionManager: () => child,
+      getFsPolicy: () => policy,
+      sessionId: "s-child",
+    });
+    await childSvc
+      .wrapTool(readToolDefinition(join(dir, "a.txt"), "handoff evidence"))
+      .execute("hc1", { path: join(dir, "a.txt") } as never, undefined, undefined as never, undefined as never);
+    const childEntry = seedToolResult(child, "hc1", "read", "handoff evidence");
+    parentSvc.publishTask("task-prot", child.getBranch());
+    expect(parentSvc.protectedEntryIds().has(childEntry)).toBe(true);
+  });
+
   it("疑似凭据内容与敏感路径证据不自动下发", async () => {
     const sm = SessionManager.inMemory();
     const svc = makeService(sm);

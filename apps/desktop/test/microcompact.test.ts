@@ -221,6 +221,13 @@ describe("maybeMicrocompact", () => {
     expect(text).toContain("Never rerun the original operation");
   });
 
+  it("无来源证明的折叠占位符不承诺 ReadEvidence 回读（R7 P1-1）", () => {
+    const text = placeholderText(5000, undefined, "bash");
+    expect(text).not.toContain("ReadEvidence");
+    expect(text).toContain("no verified source for automatic read-back");
+    expect(text).toContain("Never rerun the original operation");
+  });
+
   it("没有注册证据读取器时不产生不可恢复的占位符", () => {
     const sm = SessionManager.inMemory();
     seedSession(sm);
