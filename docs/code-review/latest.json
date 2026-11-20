@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "status": "pass",
-  "reviewedCommit": "f29cffb0ab223c21cc32269deb3699344c52d807",
+  "reviewedCommit": "95e3fb731d9bef72dff0d588576ed40108b7ccf9",
   "baseline": "v0.1.0-beta.42",
   "date": "2026-11-20",
   "reviewer": "agent",
@@ -9,7 +9,7 @@
   "findings": {
     "p0": 0,
     "p1": 0,
-    "p2": 3
+    "p2": 2
   },
   "openP0Accepted": null,
   "openP1Accepted": null,
