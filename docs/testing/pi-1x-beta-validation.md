@@ -77,19 +77,19 @@
 - [ ] 至少一个 API key 供应商真实请求成功（不记录密钥）。
 - [ ] 订阅渠道仅按官方允许方式验证；未授权项标 `未实机验证`。
 
-## 4.1 Windows E2E 预检发现（既有兼容问题，非本次三批引入）
+## 4.1 Windows E2E 预检发现与修复（既有兼容问题，非本次三批引入，已全部修复）
 
-CI 此前仅 macOS 跑 E2E；本次新增 Windows 预检首次暴露以下既有问题（run 44730228394，25 过 / 5 败）：
+CI 此前仅 macOS 跑 E2E；本次新增 Windows 预检首次暴露以下既有问题，经多轮 Windows CI 迭代已全部修复（最终 run 44772777242：**Windows 30 过 / 1 跳过 / 0 败**；macOS 本地全量 28 过 / 3 跳过 / 0 败）：
 
-| 用例 | 根因 | 状态 |
+| 用例 | 根因 | 修复 |
 |---|---|---|
-| app-shell 启动就绪 | `app.isActive()` 仅 macOS 提供，Windows 抛 TypeError | 已修（typeof 守卫） |
-| appearance 分隔条拖动 | 断言假设 mac 默认窗宽（workspace 拖后=600），Windows CI 默认窗宽不同（实测 376） | 待 Windows 迭代 |
-| window-chrome 顶栏融合 | Electron 44 `windowControlsOverlay.getBoundingClientRect` 非函数（原生 API 差异） | 待 Windows 迭代 |
-| window-chrome 关闭确认 | Windows CI 下 `window-close-dialog` 5s 内未出现 | 待 Windows 迭代 |
-| workspace 文件链接同排 | Windows 字体度量致链接换行（y 差 26.5 > 4） | 待 Windows 迭代 |
+| app-shell 启动就绪 | `app.isActive()` 仅 macOS 提供，Windows 抛 TypeError | typeof 守卫，非 macOS 按 false 断言 |
+| appearance 分隔条拖动 | 绝对像素断言假设 mac 默认窗宽；鼠标拖拽在 Windows 受指针捕获/布局约束不稳定 | 改 ResizeHandle 确定性键盘微调（ArrowRight×2），断言相对增量 |
+| window-chrome 顶栏融合 | Electron 各版本 `navigator.windowControlsOverlay` JS API 不一致 | 改用应用同款 CSS `env(titlebar-area-width)` 探测覆盖层左边界 |
+| window-chrome 关闭确认 | 慢启动 CI 监听器竞态 + quit 即退出进程致 click 后校验撞 browser closed | 先等 brand 可见、显式等对话框、提前挂退出监听、quit 用 dispatchEvent 容忍退出竞态 |
+| workspace 文件链接同排 | Windows 字体度量致链接换行（同排几何断言过严） | 改验证行内级 display（未变块级卡片），保留单行高度检查 |
 
-说明：发布门禁 release.yml 跑双平台单测+构建+打包（均已绿），不跑 E2E；上述为额外预检发现的既有 Windows E2E 缺口，与本次三批改动无关。 macOS E2E/打包/冒烟全绿。
+说明：发布门禁 release.yml 跑双平台单测+构建+打包（均已绿），不跑 E2E；上述为额外预检发现的既有 Windows E2E 缺口，与本次三批改动无关，已在 master 修复。macOS E2E/打包/冒烟全绿。第六轮 macOS CI 的 run-error 失败为抖动（同代码前几轮均过、本地复跑通过），非回归。
 
 ## 5. 回退指引
 
