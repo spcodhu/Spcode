@@ -209,6 +209,7 @@ export const zhCN = {
   "permission.bypassWarning": "此命令申请在沙盒外执行：将以你的完整权限运行，不受文件/网络边界约束。请确认其必要性。",
   "permission.allow": "允许",
   "permission.deny": "拒绝",
+  "permission.allowSession": "本会话允许",
   "permission.always": "总允许",
   "permission.alwaysHint": "本项目中以后「{{rule}} …」开头的同类命令不再询问（可在 PC 设置里移除）",
   "permission.alwaysExactHint": "本项目中以后完全相同的命令不再询问；改任何参数都会重新确认（可在 PC 设置里移除）",
@@ -469,6 +470,7 @@ export const en = {
     "This command requests execution outside the sandbox, with your full permissions and no file or network restrictions. Confirm that this is necessary.",
   "permission.allow": "Allow",
   "permission.deny": "Deny",
+  "permission.allowSession": "Allow this session",
   "permission.always": "Always allow",
   "permission.alwaysHint":
     "In this project, similar commands starting with “{{rule}} …” will no longer ask (removable in desktop settings)",

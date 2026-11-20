@@ -317,12 +317,14 @@ describe("SessionController 计划模式集成", () => {
     });
   };
 
-  // beforeToolCall 的运行时形状与 SessionController 里挂的钩子一致
+  // 门禁经强制末尾扩展注入：beforeToolCall 是 Pi 的 tool_call 事件分发器，
+  // 必须携带 prepareArguments 后的 args（与真实执行路径一致）
   const gate = (ctl: SessionController, name: string, args: unknown) =>
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ctl.session.agent as any).beforeToolCall({ toolCall: { name, arguments: args } }) as Promise<
-      undefined | { block: boolean; reason?: string }
-    >;
+    (ctl.session.agent as any).beforeToolCall({
+      toolCall: { id: "test-call", name, arguments: args },
+      args,
+    }) as Promise<undefined | { block: boolean; reason?: string }>;
 
   it("正常态:WritePlan/ExitPlanMode 不在工具列表,写工具在", async () => {
     dir = dir || mkdtempSync(join(tmpdir(), "spcode-plan-"));
@@ -350,13 +352,19 @@ describe("SessionController 计划模式集成", () => {
     expect(ctl.info().planMode).toBe(true);
 
     // 门禁:写工具兜底拦截(带引导文案),bash 白名单放行/拦截,WritePlan 放行
-    expect((await gate(ctl, "edit", { path: "a" }))?.block).toBe(true);
-    expect((await gate(ctl, "edit", { path: "a" }))?.reason).toContain("WritePlan");
+    // 参数需先通过 schema 校验（强制末尾扩展会重校验最终参数），再验证计划态引导
+    const editArgs = { path: "a", edits: [{ oldText: "x", newText: "y" }] };
+    expect((await gate(ctl, "edit", editArgs))?.block).toBe(true);
+    expect((await gate(ctl, "edit", editArgs))?.reason).toContain("WritePlan");
     expect(await gate(ctl, "bash", { command: "git status" })).toBeUndefined();
     expect((await gate(ctl, "bash", { command: "npm install" }))?.block).toBe(true);
     expect((await gate(ctl, "bash", { command: "rm -rf /" }))?.block).toBe(true);
     expect(await gate(ctl, "WritePlan", { content: "x" })).toBeUndefined();
-    expect(await gate(ctl, "AskUserQuestion", { questions: [] })).toBeUndefined();
+    expect(
+      await gate(ctl, "AskUserQuestion", {
+        questions: [{ question: "继续吗？", options: [{ label: "是" }, { label: "否" }] }],
+      }),
+    ).toBeUndefined();
 
     // 批准后退计划态:工具集恢复,门禁回到权限流程(mock 全批 → 全放行)
     await ctl.setPlanMode(false);
@@ -366,7 +374,7 @@ describe("SessionController 计划模式集成", () => {
     }
     expect(restored).not.toContain("WritePlan");
     expect(ctl.info().planMode).toBe(false);
-    expect(await gate(ctl, "edit", { path: "a" })).toBeUndefined();
+    expect(await gate(ctl, "edit", editArgs)).toBeUndefined();
 
     // 再进计划态,幂等
     await ctl.setPlanMode(true);

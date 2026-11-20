@@ -413,19 +413,19 @@ describe("权限模式与总允许", () => {
     expect(useAppStore.getState().sessions.s1?.permissionMode).toBe("ask");
   });
 
-  it("replyPermission 总允许携带 rememberProject；普通批准不带", async () => {
+  it("replyPermission 显式 scope；普通批准不带 scope（缺省 once）", async () => {
     attachPairedRecord(record);
     useAppStore.getState().setSessions([session]);
     useAppStore
       .getState()
       .pushPermission({ requestId: "p1", sessionId: "s1", toolName: "bash", args: {}, risk: "write" });
     mocks.command.mockResolvedValue({ ok: true });
-    await replyPermission("p1", true, true);
+    await replyPermission("p1", true, "project");
     expect(mocks.command).toHaveBeenCalledWith({
       type: "permission.reply",
       requestId: "p1",
       approved: true,
-      rememberProject: true,
+      scope: "project",
     });
     expect(useAppStore.getState().permissions).toHaveLength(0);
 

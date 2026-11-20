@@ -29,12 +29,12 @@ afterEach(async () => {
   vi.mocked(createAgentSession).mockClear();
 });
 
-/** 子代理的 createAgentSession 不带 resourceLoader（主会话带），据此过滤 */
+/** 子代理使用内存 SessionManager（主会话在本测试中不带），据此过滤 */
 function subagentCalls() {
   return vi
     .mocked(createAgentSession)
     .mock.calls.map(([opts]) => opts)
-    .filter((opts) => !(opts as { resourceLoader?: unknown }).resourceLoader);
+    .filter((opts) => Boolean((opts as { sessionManager?: unknown }).sessionManager));
 }
 
 describe("Task 子代理模型实时快照", () => {

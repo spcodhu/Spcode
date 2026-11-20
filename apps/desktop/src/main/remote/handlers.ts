@@ -37,7 +37,12 @@ import {
 export interface RemoteBridge {
   call<T = unknown>(cmd: Extract<HostCommand, { id: string }>): Promise<T>;
   /** by 标记裁决来源（默认 "local"）；远程端调用传 "remote"，用于双端撤卡的 permission.resolved 事件 */
-  replyPermission(requestId: string, approved: boolean, by?: "local" | "remote"): void;
+  replyPermission(
+    requestId: string,
+    approved: boolean,
+    by?: "local" | "remote",
+    scope?: import("@spcode/shared").PermissionScope,
+  ): boolean;
   replyQuestion(requestId: string, answers: import("@spcode/shared").QuestionAnswers): void;
   /** 「总允许」落规则前读取真实待决请求（AgentBridge 同名方法）；测试桩可省略 */
   getPendingPermission?(requestId: string): PermissionRequest | null;
@@ -168,16 +173,17 @@ export async function handleRemoteCommand(cmd: RemoteCommand, deps: RemoteHandle
       // M1：所有 RemoteEvent 本就广播给全部已配对设备，订阅无需登记
       return { ok: true };
     case "permission.reply": {
-      // 「总允许」：与桌面 IPC 同一套沉淀逻辑，按真实待决请求写项目规则后再批准
+      // 显式 scope 协议；旧缓存客户端的 rememberProject 不再沉淀持久规则（仅单次）
+      const scope = cmd.scope ?? "once";
       const settingsSet = deps.settings.set?.bind(deps.settings);
-      if (cmd.approved && cmd.rememberProject && settingsSet) {
+      if (cmd.approved && scope === "project" && settingsSet) {
         rememberProjectPermissionRules(
           { get: () => deps.settings.get(), set: settingsSet },
           deps.bridge.getPendingPermission?.(cmd.requestId) ?? null,
         );
       }
       // by="remote"：AgentBridge 据此广播 permission.resolved，桌面端批准卡同步撤销（M3 双端撤卡）
-      deps.bridge.replyPermission(cmd.requestId, cmd.approved, "remote");
+      deps.bridge.replyPermission(cmd.requestId, cmd.approved, "remote", scope);
       return { ok: true };
     }
     case "question.reply":

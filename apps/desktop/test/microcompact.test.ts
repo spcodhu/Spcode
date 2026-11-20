@@ -9,6 +9,9 @@ import { SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent
 import { describe, expect, it } from "vitest";
 import { findMicrocompactTargets, maybeMicrocompact, placeholderText } from "../src/agent-host/microcompact.js";
 
+const REF = `ev_${"a".repeat(32)}`;
+const evidence = { referenceEntry: () => REF };
+
 const TS = 1730000000000;
 
 function userMsg(text: string, t = 0) {
@@ -48,7 +51,14 @@ function seedSession(sm: SessionManager, resultChars = 5000) {
   sm.appendMessage(userMsg("开始", 1));
   const ids: string[] = [];
   for (let i = 0; i < 5; i++) {
-    sm.appendMessage(assistantMsg(`回合 ${i}`, 10 + i * 2));
+    // 工具结果必须与 assistant 的 toolCall 配对，未完成的并行组不折叠
+    sm.appendMessage({
+      ...assistantMsg(`回合 ${i}`, 10 + i * 2),
+      content: [
+        { type: "text" as const, text: `回合 ${i}` },
+        { type: "toolCall" as const, id: `t${i}`, name: "read", arguments: {} },
+      ],
+    });
     sm.appendMessage(toolResult(`t${i}`, resultChars, 11 + i * 2));
     ids.push(`t${i}`);
   }
@@ -69,7 +79,13 @@ describe("findMicrocompactTargets", () => {
   it("不足 3 个 assistant 回合时没有目标", () => {
     const sm = SessionManager.inMemory();
     sm.appendMessage(userMsg("hi", 1));
-    sm.appendMessage(assistantMsg("a", 2));
+    sm.appendMessage({
+      ...assistantMsg("a", 2),
+      content: [
+        { type: "text" as const, text: "a" },
+        { type: "toolCall" as const, id: "t0", name: "read", arguments: {} },
+      ],
+    });
     sm.appendMessage(toolResult("t0", 99999, 3));
     const projection = sm.buildSessionProjection();
     expect(findMicrocompactTargets(projection.entries, new Set())).toHaveLength(0);
@@ -91,6 +107,10 @@ describe("findMicrocompactTargets", () => {
     (placeholder) => {
       const sm = SessionManager.inMemory();
       sm.appendMessage(userMsg("start"));
+      sm.appendMessage({
+        ...assistantMsg("call", 0),
+        content: [{ type: "toolCall" as const, id: "already-folded", name: "read", arguments: {} }],
+      });
       sm.appendMessage({
         ...toolResult("already-folded", 0),
         content: [{ type: "text", text: placeholder + "x".repeat(700) }],
@@ -137,7 +157,7 @@ describe("maybeMicrocompact", () => {
       compaction: { enabled: true, reserveTokens: 16384, keepRecentTokens: 40000 },
     });
 
-    const n = maybeMicrocompact(session, settings);
+    const n = maybeMicrocompact(session, settings, evidence);
     expect(n).toBe(2);
     expect(refreshed.count).toBe(1);
 
@@ -149,7 +169,7 @@ describe("maybeMicrocompact", () => {
         const c = (m as { content?: unknown }).content;
         return Array.isArray(c) && c[0]?.type === "text" ? (c[0] as { text: string }).text : "";
       });
-    expect(toolTexts.filter((t) => t === placeholderText(5000))).toHaveLength(2);
+    expect(toolTexts.filter((t) => t === placeholderText(5000, REF, "read"))).toHaveLength(2);
     // 最近 3 个回合的结果保持原文
     expect(toolTexts.filter((t) => t === "x".repeat(5000))).toHaveLength(3);
 
@@ -162,7 +182,7 @@ describe("maybeMicrocompact", () => {
     const sm = SessionManager.inMemory();
     seedSession(sm);
     const { session, refreshed } = fakeSession(sm, LINE * 0.5);
-    const n = maybeMicrocompact(session, SettingsManager.inMemory());
+    const n = maybeMicrocompact(session, SettingsManager.inMemory(), evidence);
     expect(n).toBe(0);
     expect(refreshed.count).toBe(0);
   });
@@ -172,7 +192,7 @@ describe("maybeMicrocompact", () => {
     seedSession(sm);
     const { session } = fakeSession(sm, LINE * 0.95);
     const settings = SettingsManager.inMemory({ compaction: { enabled: false } });
-    expect(maybeMicrocompact(session, settings)).toBe(0);
+    expect(maybeMicrocompact(session, settings, evidence)).toBe(0);
   });
 
   it("tokens=null（压缩刚发生）时不动；重复运行幂等不重复折叠", () => {
@@ -185,18 +205,27 @@ describe("maybeMicrocompact", () => {
       sessionManager: sm,
       refreshContext: () => {},
     } as unknown as AgentSession;
-    expect(maybeMicrocompact(nullUsage, settings)).toBe(0);
+    expect(maybeMicrocompact(nullUsage, settings, evidence)).toBe(0);
 
     // 第一次清扫后，branch 上已有 context_edit；再次触发也不重复折叠同一条
     const { session } = fakeSession(sm, LINE * 0.9);
-    expect(maybeMicrocompact(session, settings)).toBe(2);
-    expect(maybeMicrocompact(session, settings)).toBe(0);
+    expect(maybeMicrocompact(session, settings, evidence)).toBe(2);
+    expect(maybeMicrocompact(session, settings, evidence)).toBe(0);
     expect(sm.getBranch().filter((e) => e.type === "context_edit")).toHaveLength(2);
   });
 
-  it("占位符文案告知原大小与重获路径", () => {
-    const text = placeholderText(5000);
+  it("占位符文案告知原大小与证据回读路径，绝不建议重跑", () => {
+    const text = placeholderText(5000, REF, "read");
     expect(text).toContain("5.0k");
-    expect(text).toContain("repeat the corresponding operation");
+    expect(text).toContain(`ReadEvidence with ref ${REF}`);
+    expect(text).toContain("Never rerun the original operation");
+  });
+
+  it("没有注册证据读取器时不产生不可恢复的占位符", () => {
+    const sm = SessionManager.inMemory();
+    seedSession(sm);
+    const { session, refreshed } = fakeSession(sm, LINE * 0.9);
+    expect(maybeMicrocompact(session, SettingsManager.inMemory())).toBe(0);
+    expect(refreshed.count).toBe(0);
   });
 });

@@ -1113,7 +1113,8 @@ function AboutPage() {
         <div>{t("about.mobilePwa")}</div>
         <div>
           {t("about.engine")}
-          <span className="mono">@earendil-works/pi-coding-agent</span> v0.87.1 (MIT)
+          {/* 与 apps/desktop/package.json 锁定的 Pi 版本保持一致 */}
+          <span className="mono">@earendil-works/pi-coding-agent</span> v1.5.2 (MIT)
         </div>
         <div className="mt-2 text-text-tertiary">{t("about.tagline")}</div>
       </div>
@@ -1359,7 +1360,18 @@ function ProjectPermissionRulesSection() {
       className="mt-3 rounded-xl border border-border bg-bg-elevated px-4 py-3"
       data-testid="project-permission-rules"
     >
-      <div className="text-[14px] text-text-primary">{t("permissions.projectRules")}</div>
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-[14px] text-text-primary">{t("permissions.projectRules")}</div>
+        <button
+          type="button"
+          data-testid="revoke-temporary-permissions"
+          title={t("permissions.revokeTemporaryHint")}
+          onClick={() => void window.spcode.revokePermissions()}
+          className="shrink-0 rounded-md border border-border px-2.5 py-1 text-[12px] text-text-secondary hover:bg-bg-hover hover:text-danger"
+        >
+          {t("permissions.revokeTemporary")}
+        </button>
+      </div>
       <div className="mt-0.5 text-[12px] text-text-tertiary">{t("permissions.projectDescription")}</div>
       {entries.length === 0 ? (
         <div className="mt-2 text-[12px] text-text-tertiary">{t("permissions.emptyProject")}</div>
@@ -1377,8 +1389,10 @@ function ProjectPermissionRulesSection() {
                     className="flex items-center gap-3 rounded-lg bg-bg-main px-3 py-1.5"
                   >
                     <code className="mono min-w-0 flex-1 whitespace-pre-wrap break-words text-[12px] text-text-secondary">
-                      {rule.command}
-                      {rule.match === "prefix" ? " …" : ""}
+                      {rule.selector
+                        ? `${rule.toolName ?? "tool"} · ${rule.selector.kind}${rule.selector.kind === "network" ? ` ${rule.selector.host}:${rule.selector.port}` : ""}`
+                        : rule.command}
+                      {!rule.selector && rule.match === "prefix" ? " …" : ""}
                     </code>
                     <span className="shrink-0 text-[11px] text-text-tertiary">
                       {t(rule.match === "exact" ? "permissions.exact" : "permissions.prefix")}

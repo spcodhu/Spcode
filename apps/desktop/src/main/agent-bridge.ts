@@ -13,13 +13,17 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { QuestionAnswers } from "@spcode/shared";
 import {
+  deriveProjectPermissionRules,
   type HostCommand,
   type HostEvent,
   IPC,
+  matchesPermissionSelector,
   matchesProjectPermissionRule,
   matchesProjectPermissionRules,
   type PermissionRequest,
+  type PermissionScope,
   type ProjectPermissionRule,
+  permissionScopes,
   type QuestionRequest,
 } from "@spcode/shared";
 import { i18n } from "@spcode/shared/i18n";
@@ -76,8 +80,19 @@ export function decidePermission(
   rules: string[],
   projectRules: ProjectPermissionRule[] = [],
 ): PermissionDecision {
-  if (request.bypass === true) return "ask";
-  const isShell = request.toolName === "bash" || request.toolName === "powershell";
+  if (request.bypass === true || request.risk === "danger") return "ask";
+  if (
+    request.selector &&
+    projectRules.some(
+      (rule) =>
+        rule.version === 1 &&
+        rule.toolName === request.toolName &&
+        rule.selector &&
+        matchesPermissionSelector(rule.selector, request.selector!),
+    )
+  )
+    return "auto-approve";
+  const isShell = request.toolName.toLowerCase() === "bash" || request.toolName.toLowerCase() === "powershell";
   if (isShell) {
     const cmd = extractShellCommand(request.args);
     // 项目规则：危险命令只接受 exact；普通复合命令要求每个命令段都被规则覆盖。
@@ -85,7 +100,12 @@ export function decidePermission(
       cmd &&
       matchesProjectPermissionRules(
         cmd,
-        projectRules.filter((rule) => request.risk !== "danger" || rule.match === "exact"),
+        projectRules.filter(
+          (rule) =>
+            !rule.selector &&
+            (request.risk !== "outward" || rule.match === "exact") &&
+            (!rule.toolName || rule.toolName === request.toolName),
+        ),
       )
     ) {
       return "auto-approve";
@@ -108,7 +128,37 @@ export class AgentBridge {
   private pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   private listeners = new Set<EventListener>();
   /** 渲染进程未决的权限请求（带超时兜底——评审 P1-1） */
-  private pendingPermissions = new Map<string, { request: PermissionRequest; timer: ReturnType<typeof setTimeout> }>();
+  private pendingPermissions = new Map<
+    string,
+    { request: PermissionRequest; revision: number; timer: ReturnType<typeof setTimeout> }
+  >();
+  private permissionRevision = 0;
+  private sessionPermissionRules = new Map<string, ProjectPermissionRule[]>();
+
+  private permissionPrincipal(request: PermissionRequest): string {
+    return JSON.stringify([request.sessionId, request.principalId ?? request.sessionId]);
+  }
+
+  /** Revocation removes exemptions, not completed side effects. Pending replies become invalid. */
+  revokePermissions(sessionId?: string): void {
+    this.permissionRevision++;
+    for (const id of this.pendingPermissions.keys()) this.replyPermission(id, false);
+    for (const key of this.sessionPermissionRules.keys()) {
+      if (!sessionId || JSON.parse(key)[0] === sessionId) this.sessionPermissionRules.delete(key);
+    }
+    this.post({ type: "permission.revoke", payload: { sessionId, revision: this.permissionRevision } });
+  }
+
+  private observePermissionCommand(cmd: HostCommand): void {
+    if (
+      cmd.type === "session.dispose" ||
+      cmd.type === "session.hibernate" ||
+      cmd.type === "session.abort" ||
+      cmd.type === "session.setPermissionMode"
+    ) {
+      this.revokePermissions(cmd.payload.sessionId);
+    }
+  }
   /** 渲染进程未决的结构化提问（重播给重建窗口用；评审 R3-C11）——宿主侧 30 分钟超时会发 question.resolved 兜底 */
   private pendingQuestions = new Map<string, QuestionRequest>();
   private getPermissionRules: (request: PermissionRequest) => string[];
@@ -173,6 +223,8 @@ export class AgentBridge {
         // 宿主已死，其内的权限请求随之蒸发；清掉转发记录，避免重启后错配
         for (const p of this.pendingPermissions.values()) clearTimeout(p.timer);
         this.pendingPermissions.clear();
+        this.sessionPermissionRules.clear();
+        this.permissionRevision++;
         this.pendingQuestions.clear();
         this.broadcast({ type: "host.error", message: err.message, fatal: true });
       });
@@ -210,10 +262,14 @@ export class AgentBridge {
   }
 
   /** 权限策略：免审批规则命中的 shell 命令就地放行，其余一律弹窗（模式已在宿主侧裁决过） */
-  private adjudicate(request: PermissionRequest): void {
+  private adjudicate(incoming: PermissionRequest): void {
+    const request = structuredClone(incoming);
+    if (this.pendingPermissions.has(request.requestId)) return;
     if (
-      decidePermission(request, this.getPermissionRules(request), this.getProjectPermissionRules(request)) ===
-      "auto-approve"
+      decidePermission(request, this.getPermissionRules(request), [
+        ...this.getProjectPermissionRules(request),
+        ...(this.sessionPermissionRules.get(this.permissionPrincipal(request)) ?? []),
+      ]) === "auto-approve"
     ) {
       this.post({ type: "permission.reply", payload: { requestId: request.requestId, approved: true } });
       return;
@@ -222,13 +278,15 @@ export class AgentBridge {
     const timer = setTimeout(() => {
       this.replyPermission(request.requestId, false);
     }, PERMISSION_TIMEOUT_MS);
-    this.pendingPermissions.set(request.requestId, { request, timer });
+    request.allowedScopes = permissionScopes(request);
+    this.pendingPermissions.set(request.requestId, { request, timer, revision: this.permissionRevision });
     this.broadcast({ type: "permission.request", request });
   }
 
   /** 本地“总允许”落规则前读取真实待决请求，避免渲染层传入不匹配的规则。 */
   getPendingPermission(requestId: string): PermissionRequest | null {
-    return this.pendingPermissions.get(requestId)?.request ?? null;
+    const pending = this.pendingPermissions.get(requestId);
+    return pending && pending.revision === this.permissionRevision ? structuredClone(pending.request) : null;
   }
 
   /**
@@ -236,13 +294,25 @@ export class AgentBridge {
    * by 标记裁决来源（远程控制 M3 双端撤卡）：成功后广播 permission.resolved，
    * 另一端据此关闭同 requestId 的批准卡；10 分钟超时兜底走默认 "local"。
    */
-  replyPermission(requestId: string, approved: boolean, by: "local" | "remote" = "local"): void {
+  replyPermission(
+    requestId: string,
+    approved: boolean,
+    by: "local" | "remote" = "local",
+    scope: PermissionScope = "once",
+  ): boolean {
     const p = this.pendingPermissions.get(requestId);
-    if (!p) return;
+    if (!p || (approved && p.revision !== this.permissionRevision)) return false;
+    if (approved && !permissionScopes(p.request).includes(scope)) return false;
+    if (approved && scope === "session") {
+      const key = this.permissionPrincipal(p.request);
+      const rules = deriveProjectPermissionRules({ ...p.request, cwd: p.request.cwd || "/session" });
+      this.sessionPermissionRules.set(key, [...(this.sessionPermissionRules.get(key) ?? []), ...rules]);
+    }
     this.pendingPermissions.delete(requestId);
     clearTimeout(p.timer);
     this.post({ type: "permission.reply", payload: { requestId, approved } });
     this.emitLocal({ type: "permission.resolved", requestId, approved, by });
+    return true;
   }
 
   /** 渲染进程回复结构化提问（AskUserQuestion 工具） */
@@ -260,12 +330,14 @@ export class AgentBridge {
 
   /** 推送无需响应的命令（fire-and-forget，如设置下发） */
   push(cmd: HostCommand): void {
+    this.observePermissionCommand(cmd);
     this.post(cmd);
   }
 
   /** 发送带 id 的命令并等待响应；默认 30s 超时（宿主卡死时 UI 不再无限转圈——评审 P1-8）。
    *  总超时包住 start()：宿主启动即崩时 readyPromise 会拒绝（R3-C10），这里再兜一层竞态 */
   async call<T = unknown>(cmd: Extract<HostCommand, { id: string }>, opts?: { timeoutMs?: number }): Promise<T> {
+    this.observePermissionCommand(cmd);
     const timeoutMs = opts?.timeoutMs ?? CALL_TIMEOUT_MS;
     let timer: ReturnType<typeof setTimeout>;
     const timeout = new Promise<never>((_resolve, reject) => {

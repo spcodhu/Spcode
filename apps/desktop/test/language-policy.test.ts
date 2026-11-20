@@ -11,10 +11,10 @@ import {
   normalizeContext,
   resolveTranscript,
   type TranscriptContext,
-  Type,
 } from "@earendil-works/pi-ai";
 import { type AgentSession, ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
 import { i18n, setLocale } from "@spcode/shared/i18n";
+import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildLanguagePolicy,
@@ -285,6 +285,8 @@ describe("request language policy", () => {
       description: "任务描述",
       presentation: { key: "agent:tool.taskResult", params: { result: "Final conclusion 原文" } },
     });
-    expect(result.content[0]).toMatchObject({ text: "# Subagent result: 任务描述\n\nFinal conclusion 原文" });
+    // 新交接契约：宿主生成的结构化 TaskResult，模型总结原文保留在 summary
+    const handoff = JSON.parse((result.content[0] as { text: string }).text);
+    expect(handoff).toMatchObject({ schemaVersion: 1, description: "任务描述", summary: "Final conclusion 原文" });
   }, 60000);
 });

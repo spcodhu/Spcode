@@ -10,6 +10,7 @@ import type { AgentSession, ModelRuntime } from "@earendil-works/pi-coding-agent
 import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-agent";
 import type { UsageRecord } from "@spcode/shared";
 import type { MemoryStore } from "./memory-store.js";
+import { createSpcodeResourceLoader, createSpcodeSettingsManager } from "./pi-session-config.js";
 
 const DISTILL_MIN_MESSAGES = 4;
 const MAX_HISTORY_CHARS = 12000;
@@ -69,6 +70,13 @@ export class MemoryDistiller {
       const currentNotes = this.store.readAll()["MEMORY.md"] ?? "";
 
       const prompt = buildDistillPrompt(transcript, currentNotes, this.opts.isProject);
+      const settingsManager = createSpcodeSettingsManager();
+      const resourceLoader = createSpcodeResourceLoader({
+        cwd: this.opts.cwd,
+        agentDir: this.opts.agentDir,
+        settingsManager,
+      });
+      await resourceLoader.reload();
       const { session: worker } = await createAgentSession({
         cwd: this.opts.cwd,
         agentDir: this.opts.agentDir,
@@ -78,6 +86,8 @@ export class MemoryDistiller {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         thinkingLevel: "low" as any,
         sessionManager: SessionManager.inMemory(),
+        settingsManager,
+        resourceLoader,
         noTools: "all",
       });
       try {

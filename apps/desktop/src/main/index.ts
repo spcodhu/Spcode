@@ -506,14 +506,28 @@ function registerIpc(): void {
 
   ipcMain.on(
     IPC.permissionReply,
-    (_e, payload: { requestId: string; approved: boolean; rememberProject?: boolean }) => {
-      if (payload.approved && payload.rememberProject) {
+    (
+      _e,
+      payload: {
+        requestId: string;
+        approved: boolean;
+        scope?: import("@spcode/shared").PermissionScope;
+        rememberProject?: boolean;
+      },
+    ) => {
+      const scope = payload.scope ?? (payload.rememberProject ? "project" : "once");
+      if (payload.approved && scope === "project") {
         // 主进程同步落盘后再批准：当前与后续会话共用同一项目规则，且无渲染层保存竞态。
         rememberProjectPermissionRules(settings, bridge.getPendingPermission(payload.requestId));
       }
-      bridge.replyPermission(payload.requestId, payload.approved);
+      bridge.replyPermission(payload.requestId, payload.approved, "local", scope);
     },
   );
+
+  ipcMain.handle(IPC.permissionRevoke, (_e, sessionId?: string) => {
+    bridge.revokePermissions(sessionId);
+    return { ok: true };
+  });
 
   ipcMain.on(
     IPC.questionReply,

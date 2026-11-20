@@ -6,7 +6,7 @@
  * - 回复等待桌面确认，失败保留卡片并允许用户手动重试。
  */
 
-import { deriveProjectPermissionRules, type PermissionRequest, type ToolRisk } from "@spcode/shared";
+import { deriveProjectPermissionRules, type PermissionRequest, permissionScopes, type ToolRisk } from "@spcode/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorText } from "../lib/i18n";
@@ -147,6 +147,7 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
   const severe = danger || bypass;
   // 「总允许」可沉淀的规则（与桌面 PermissionInline 同一纯函数）；bypass/非 shell/无项目 cwd 为空
   const rules = deriveProjectPermissionRules(request);
+  const scopes = request.allowedScopes ?? permissionScopes(request);
   // 复合命令提示分隔符随语言：中文顿号 / 英文逗号
   const ruleSeparator = i18n.language?.startsWith("zh") ? "、" : ", ";
   const alwaysHint =
@@ -170,13 +171,13 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
     [],
   );
 
-  const reply = async (approved: boolean, rememberProject?: boolean) => {
+  const reply = async (approved: boolean, scope?: import("@spcode/shared").PermissionScope) => {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
     setError(null);
     try {
-      await replyPermission(request.requestId, approved, rememberProject);
+      await replyPermission(request.requestId, approved, scope);
     } catch (err) {
       if (mountedRef.current) setError(err);
     } finally {
@@ -208,12 +209,23 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
               {busy ? t("request.submitting") : t("permission.allow")}
             </button>
           )}
-          {!danger && rules.length > 0 && (
+          {!danger && scopes.includes("session") && (
+            <button
+              type="button"
+              data-testid="permission-allow-session"
+              disabled={busy}
+              onClick={() => void reply(true, "session")}
+              className="min-h-12 flex-1 rounded-xl border border-border-strong bg-bg-elevated px-3 py-3 text-sm font-medium text-text-primary transition-colors active:bg-bg-active disabled:opacity-40"
+            >
+              {t("permission.allowSession")}
+            </button>
+          )}
+          {!danger && scopes.includes("project") && rules.length > 0 && (
             <button
               type="button"
               data-testid="permission-allow-always"
               disabled={busy}
-              onClick={() => void reply(true, true)}
+              onClick={() => void reply(true, "project")}
               className="min-h-12 flex-1 rounded-xl border border-accent/50 bg-accent-soft px-3 py-3 text-sm font-medium text-accent transition-colors active:bg-bg-active disabled:opacity-40"
             >
               {t("permission.always")}
@@ -265,20 +277,7 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
             >
               {busy ? t("request.submitting") : reviewed ? t("permission.confirmDanger") : t("permission.reviewedArgs")}
             </button>
-            {reviewed && rules.length > 0 && (
-              <>
-                <button
-                  type="button"
-                  data-testid="permission-allow-always-danger"
-                  disabled={busy}
-                  onClick={() => void reply(true, true)}
-                  className="mt-2 min-h-11 w-full rounded-xl border border-red-700 px-3 py-2 text-xs font-medium text-red-100 disabled:opacity-40"
-                >
-                  {busy ? t("request.submitting") : t("permission.alwaysDanger")}
-                </button>
-                <p className="mt-1.5 text-[11px] leading-4 text-text-tertiary">{t("permission.alwaysDangerHint")}</p>
-              </>
-            )}
+            {/* 危险操作仅单次批准：不提供任何持久免审批入口 */}
           </div>
         )}
         {bypass && !danger && (

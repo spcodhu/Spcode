@@ -459,9 +459,13 @@ export async function abortSession(sessionId: string): Promise<void> {
 }
 
 /** 权限/提问回复：只有桌面确认后才撤卡；失败原样抛出，由卡片保留内容并允许手动重试。
- * rememberProject=true 即「总允许」：桌面按真实待决请求沉淀项目级免审批规则。 */
-export async function replyPermission(requestId: string, approved: boolean, rememberProject?: boolean): Promise<void> {
-  await send({ type: "permission.reply", requestId, approved, ...(rememberProject ? { rememberProject: true } : {}) });
+ * scope 显式授权作用域（once/session/project）；缺省 once，不沉淀持久规则。 */
+export async function replyPermission(
+  requestId: string,
+  approved: boolean,
+  scope?: import("@spcode/shared").PermissionScope,
+): Promise<void> {
+  await send({ type: "permission.reply", requestId, approved, ...(scope ? { scope } : {}) });
   useAppStore.getState().dropPermission(requestId);
 }
 

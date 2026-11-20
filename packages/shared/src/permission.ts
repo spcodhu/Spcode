@@ -37,6 +37,21 @@ export function normalizePermissionMode(value: unknown): PermissionMode | null {
   return null;
 }
 
+export type PermissionScope = "once" | "session" | "project";
+
+export interface PermissionReplyResult {
+  ok: boolean;
+  scope?: PermissionScope;
+  refreshRequired?: boolean;
+  error?: string;
+}
+
+/** Only the host may supply these selectors; clients send an ID, decision and scope. */
+export type PermissionGrantSelector =
+  | { kind: "file"; operation: string; realpath: string }
+  | { kind: "mcp"; serverIdentity: string; toolName: string; argsDigest: string }
+  | { kind: "network"; host: string; port: number };
+
 export interface PermissionRequest {
   requestId: string;
   sessionId: string;
@@ -49,12 +64,23 @@ export interface PermissionRequest {
   sandboxed?: boolean;
   /** 逃生舱请求：模型申请在沙盒外执行（dangerouslyDisableSandbox）。渲染层据此强警示——不受文件/网络边界约束 */
   bypass?: boolean;
+  /** Bound by the host to the final arguments and live policy, never accepted from a reply. */
+  toolCallId?: string;
+  principalId?: string;
+  argsDigest?: string;
+  policyRevision?: number;
+  selector?: PermissionGrantSelector;
+  allowedScopes?: PermissionScope[];
+  executionBoundary?: "sandbox" | "disabled" | "unavailable" | "excluded" | "bypass" | "in-process";
 }
 
-/** 项目级免审批规则：普通命令可记同类前缀，危险/复合命令只能记完整命令。 */
+/** Legacy command rules retain their shape; v1 selectors bind non-shell grants. */
 export interface ProjectPermissionRule {
   command: string;
   match: "prefix" | "exact";
+  version?: 1;
+  toolName?: string;
+  selector?: PermissionGrantSelector;
 }
 
 /** 项目键归一：统一分隔符并去尾部斜线；Windows 根路径也稳定映射到同一键。 */
@@ -138,18 +164,29 @@ function prefixRuleOf(segment: string): ProjectPermissionRule {
 
 /** 从真实待决请求生成项目规则；bypass 永不生成免审批规则。 */
 export function deriveProjectPermissionRules(
-  request: Pick<PermissionRequest, "toolName" | "args" | "risk" | "bypass" | "cwd">,
+  request: Pick<PermissionRequest, "toolName" | "args" | "risk" | "bypass" | "cwd" | "selector">,
 ): ProjectPermissionRule[] {
-  if (request.bypass || !normalizeProjectCwd(request.cwd ?? "")) return [];
+  if (request.bypass || request.risk === "danger" || !normalizeProjectCwd(request.cwd ?? "")) return [];
   const tool = request.toolName.toLowerCase();
+  if (request.selector) {
+    return [
+      {
+        command: JSON.stringify(request.selector),
+        match: "exact",
+        version: 1,
+        toolName: request.toolName,
+        selector: request.selector,
+      },
+    ];
+  }
   if (tool !== "bash" && tool !== "powershell") return [];
   const raw = shellCommand(request.args)?.trim();
   if (!raw) return [];
-  // 危险命令只能逐字复用同一完整命令，绝不生成前缀
-  if (request.risk === "danger") return [{ command: raw, match: "exact" }];
+  // External effects are never broadened to another remote, branch or payload.
+  if (request.risk === "outward") return [{ command: raw, match: "exact" }];
 
   const parsed = parseShellCommand(raw);
-  if (!parsed || (parsed.compound && parsed.segments.length < 2)) {
+  if (!parsed || parsed.compound) {
     return [{ command: raw, match: "exact" }];
   }
   // 复合命令按段沉淀：git add x && git push y → git add + git push；
@@ -158,7 +195,27 @@ export function deriveProjectPermissionRules(
   return [...new Map(rules.map((rule) => [`${rule.match}:${rule.command}`, rule])).values()];
 }
 
-/** 旧 API：单规则推导。新代码应使用 deriveProjectPermissionRules 以覆盖复合命令。 */
+/** Available scopes reflect host-derived selectors, never model annotations. */
+export function permissionScopes(request: PermissionRequest): PermissionScope[] {
+  if (request.bypass || request.risk === "danger") return ["once"];
+  const reusable = request.selector || ["bash", "powershell"].includes(request.toolName.toLowerCase());
+  if (!reusable) return ["once"];
+  return normalizeProjectCwd(request.cwd ?? "") ? ["once", "session", "project"] : ["once", "session"];
+}
+
+export function matchesPermissionSelector(a: PermissionGrantSelector, b: PermissionGrantSelector): boolean {
+  if (a.kind === "file" && b.kind === "file") return a.operation === b.operation && a.realpath === b.realpath;
+  if (a.kind === "network" && b.kind === "network") return a.host === b.host && a.port === b.port;
+  return (
+    a.kind === "mcp" &&
+    b.kind === "mcp" &&
+    a.serverIdentity === b.serverIdentity &&
+    a.toolName === b.toolName &&
+    a.argsDigest === b.argsDigest
+  );
+}
+
+/** 旧 API：单规则推导。新代码应使用 deriveProjectPermissionRules。 */
 export function deriveProjectPermissionRule(
   request: Pick<PermissionRequest, "toolName" | "args" | "risk" | "bypass" | "cwd">,
 ): ProjectPermissionRule | null {

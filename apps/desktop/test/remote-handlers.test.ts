@@ -104,7 +104,7 @@ function makeDeps() {
         }
         return { ok: true };
       },
-      replyPermission: (requestId, approved, by) => permissionReplies.push({ requestId, approved, by }),
+      replyPermission: (requestId, approved, by, scope) => permissionReplies.push({ requestId, approved, by, scope }),
       replyQuestion: (requestId, answers) => questionReplies.push({ requestId, answers }),
       getPendingPermission: (requestId) => pendingPermissions.get(requestId) ?? null,
       emitLocal: (event: HostEvent) => void localEvents.push(event),
@@ -322,7 +322,7 @@ describe("permission / question 回复", () => {
   it('permission.reply → bridge.replyPermission（by="remote"，双端撤卡来源标记）', async () => {
     const { deps, permissionReplies } = makeDeps();
     await handleRemoteCommand({ type: "permission.reply", requestId: "r1", approved: true }, deps);
-    expect(permissionReplies).toEqual([{ requestId: "r1", approved: true, by: "remote" }]);
+    expect(permissionReplies).toEqual([{ requestId: "r1", approved: true, by: "remote", scope: "once" }]);
   });
 
   it("question.reply → bridge.replyQuestion", async () => {
@@ -333,7 +333,24 @@ describe("permission / question 回复", () => {
 });
 
 describe("permission.reply 总允许（项目规则沉淀）", () => {
-  it("rememberProject：按真实待决请求沉淀前缀规则后再批准", async () => {
+  it("scope=project：按真实待决请求沉淀前缀规则后再批准", async () => {
+    const { deps, pendingPermissions, settingsWrites, permissionReplies } = makeDeps();
+    pendingPermissions.set("r1", {
+      requestId: "r1",
+      sessionId: "s1",
+      toolName: "bash",
+      args: { command: "pnpm test --run" },
+      risk: "write",
+      cwd: "/code/demo",
+    });
+    await handleRemoteCommand({ type: "permission.reply", requestId: "r1", approved: true, scope: "project" }, deps);
+    expect(settingsWrites).toEqual([
+      { projectPermissionRules: { "/code/demo": [{ command: "pnpm test", match: "prefix" }] } },
+    ]);
+    expect(permissionReplies).toEqual([{ requestId: "r1", approved: true, by: "remote", scope: "project" }]);
+  });
+
+  it("旧客户端 rememberProject 不再沉淀持久规则，仅单次批准", async () => {
     const { deps, pendingPermissions, settingsWrites, permissionReplies } = makeDeps();
     pendingPermissions.set("r1", {
       requestId: "r1",
@@ -347,13 +364,11 @@ describe("permission.reply 总允许（项目规则沉淀）", () => {
       { type: "permission.reply", requestId: "r1", approved: true, rememberProject: true },
       deps,
     );
-    expect(settingsWrites).toEqual([
-      { projectPermissionRules: { "/code/demo": [{ command: "pnpm test", match: "prefix" }] } },
-    ]);
-    expect(permissionReplies).toEqual([{ requestId: "r1", approved: true, by: "remote" }]);
+    expect(settingsWrites).toEqual([]);
+    expect(permissionReplies).toEqual([{ requestId: "r1", approved: true, by: "remote", scope: "once" }]);
   });
 
-  it("danger 只记完整 exact；bypass 与无待决请求不沉淀规则", async () => {
+  it("danger/bypass/无待决请求：即使请求 project 也不沉淀规则", async () => {
     const { deps, pendingPermissions, settingsWrites } = makeDeps();
     pendingPermissions.set("r2", {
       requestId: "r2",
@@ -363,13 +378,9 @@ describe("permission.reply 总允许（项目规则沉淀）", () => {
       risk: "danger",
       cwd: "/code/demo",
     });
-    await handleRemoteCommand(
-      { type: "permission.reply", requestId: "r2", approved: true, rememberProject: true },
-      deps,
-    );
-    expect(settingsWrites).toEqual([
-      { projectPermissionRules: { "/code/demo": [{ command: "rm -rf build", match: "exact" }] } },
-    ]);
+    await handleRemoteCommand({ type: "permission.reply", requestId: "r2", approved: true, scope: "project" }, deps);
+    // 危险操作不推导任何持久规则
+    expect(settingsWrites).toEqual([]);
 
     settingsWrites.length = 0;
     pendingPermissions.set("r3", {
@@ -381,14 +392,8 @@ describe("permission.reply 总允许（项目规则沉淀）", () => {
       cwd: "/code/demo",
       bypass: true,
     });
-    await handleRemoteCommand(
-      { type: "permission.reply", requestId: "r3", approved: true, rememberProject: true },
-      deps,
-    );
-    await handleRemoteCommand(
-      { type: "permission.reply", requestId: "ghost", approved: true, rememberProject: true },
-      deps,
-    );
+    await handleRemoteCommand({ type: "permission.reply", requestId: "r3", approved: true, scope: "project" }, deps);
+    await handleRemoteCommand({ type: "permission.reply", requestId: "ghost", approved: true, scope: "project" }, deps);
     expect(settingsWrites).toEqual([]);
   });
 
@@ -402,12 +407,9 @@ describe("permission.reply 总允许（项目规则沉淀）", () => {
       risk: "write",
       cwd: "/code/demo",
     });
-    await handleRemoteCommand(
-      { type: "permission.reply", requestId: "r4", approved: false, rememberProject: true },
-      deps,
-    );
+    await handleRemoteCommand({ type: "permission.reply", requestId: "r4", approved: false, scope: "project" }, deps);
     expect(settingsWrites).toEqual([]);
-    expect(permissionReplies).toEqual([{ requestId: "r4", approved: false, by: "remote" }]);
+    expect(permissionReplies).toEqual([{ requestId: "r4", approved: false, by: "remote", scope: "project" }]);
   });
 });
 

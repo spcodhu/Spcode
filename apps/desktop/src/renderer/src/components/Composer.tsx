@@ -829,6 +829,48 @@ function ContextRing({
         <div className="mt-2 text-[12px] leading-snug text-text-tertiary">
           {used === null ? t("context.unavailable") : context?.estimated ? t("context.estimated") : t("context.engine")}
         </div>
+        {context?.details && (
+          <div className="mt-2 space-y-0.5 border-t border-border pt-2" data-testid="context-details">
+            {(
+              [
+                ["systemHost", context.details.parts.systemHost],
+                ["rulesMemory", context.details.parts.rulesMemory],
+                ["toolSchema", context.details.parts.toolSchema],
+                ["summaries", context.details.parts.summaries],
+                ["recentMessages", context.details.parts.recentMessages],
+                ["toolResults", context.details.parts.toolResults],
+                ["readEvidence", context.details.parts.readEvidence],
+              ] as const
+            ).map(([key, measure]) => (
+              <div key={key} className="flex items-baseline justify-between gap-2 text-[11px]">
+                <span className="text-text-tertiary">{t(`context.parts.${key}`)}</span>
+                <span className="tabular-nums text-text-secondary">
+                  {measure.tokens === null ? t("context.unknownShort") : `≈${formatCompact(measure.tokens)}`}
+                </span>
+              </div>
+            ))}
+            <div className="flex items-baseline justify-between gap-2 pt-1 text-[11px]">
+              <span className="text-text-tertiary">{t("context.providerInput")}</span>
+              <span className="tabular-nums text-text-secondary">
+                {context.details.providerInput.tokens === null
+                  ? t("context.unknownShort")
+                  : formatCompact(context.details.providerInput.tokens)}
+              </span>
+            </div>
+            <div className="flex items-baseline justify-between gap-2 text-[11px]">
+              <span className="text-text-tertiary">{t("context.outputReserve")}</span>
+              <span className="tabular-nums text-text-secondary">
+                {context.details.outputReserve.tokens === null
+                  ? t("context.unknownShort")
+                  : formatCompact(context.details.outputReserve.tokens)}
+              </span>
+            </div>
+            {context.details.warning === "fixed-overhead" && (
+              <div className="pt-1 text-[11px] leading-snug text-warning">{t("context.fixedOverhead")}</div>
+            )}
+            <div className="pt-0.5 text-[10px] leading-snug text-text-tertiary">{t("context.partsNote")}</div>
+          </div>
+        )}
         <button
           type="button"
           data-testid="compact-now"

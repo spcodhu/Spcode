@@ -47,12 +47,14 @@ async function createCtl(opts: { sessionId: string; permissionMode?: PermissionM
     },
     askQuestion: async () => ({}),
   });
-  // beforeToolCall 的运行时形状与 SessionController 里挂的钩子一致
+  // 门禁经强制末尾扩展注入：beforeToolCall 是 Pi 的 tool_call 事件分发器，
+  // 必须携带 prepareArguments 后的 args（与真实执行路径一致）
   const gate = (name: string, args: unknown) =>
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (ctl.session.agent as any).beforeToolCall({ toolCall: { name, arguments: args } }) as Promise<
-      undefined | { block: boolean; reason?: string }
-    >;
+    (ctl.session.agent as any).beforeToolCall({
+      toolCall: { id: "test-call", name, arguments: args },
+      args,
+    }) as Promise<undefined | { block: boolean; reason?: string }>;
   return { ctl, gate, requests, emitted };
 }
 

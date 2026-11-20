@@ -53,7 +53,9 @@ export type RemoteCommand =
       type: "permission.reply";
       requestId: string;
       approved: boolean;
-      /** 「总允许」：批准同时由主进程按真实待决请求沉淀项目级免审批规则（与桌面 IPC 同一套逻辑） */
+      /** 显式授权作用域；缺省 once。旧客户端的 rememberProject 不再沉淀持久规则 */
+      scope?: import("./permission.js").PermissionScope;
+      /** @deprecated 旧客户端标记；新协议一律使用 scope */
       rememberProject?: boolean;
     }
   | { type: "question.reply"; requestId: string; answers: import("./questions.js").QuestionAnswers }

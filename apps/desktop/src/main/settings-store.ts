@@ -5,7 +5,7 @@
  *   `sandbox.autoAllow` 字段已退役（行为改由三档权限模式决定），存量值读取时丢弃。
  * - getSettings 对渲染层脱敏（主进程 index.ts 的 redactSettingsForRenderer），写回时掩码还原。
  */
-import { chmodSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import {
   type AppSettings,
@@ -98,12 +98,56 @@ export function sanitizeAppSettings(input: Partial<AppSettings>): Partial<AppSet
         if (!cwd || !Array.isArray(rawRules)) continue;
         const rules = rawRules.flatMap((rule) => {
           if (!rule || typeof rule !== "object" || Array.isArray(rule)) return [];
-          const candidate = rule as { command?: unknown; match?: unknown };
+          const candidate = rule as {
+            command?: unknown;
+            match?: unknown;
+            version?: unknown;
+            toolName?: unknown;
+            selector?: unknown;
+          };
           if (typeof candidate.command !== "string" || !candidate.command.trim()) return [];
           const match = candidate.match;
           if (match !== "prefix" && match !== "exact") return [];
           const normalizedMatch: "prefix" | "exact" = match;
-          return [{ command: candidate.command.trim(), match: normalizedMatch }];
+          if (candidate.selector !== undefined) {
+            if (candidate.version !== 1 || normalizedMatch !== "exact" || typeof candidate.toolName !== "string")
+              return [];
+            const s = candidate.selector as Record<string, unknown> | null;
+            if (!s || typeof s !== "object") return [];
+            const valid =
+              (s.kind === "file" &&
+                typeof s.operation === "string" &&
+                typeof s.realpath === "string" &&
+                !!s.realpath) ||
+              (s.kind === "mcp" &&
+                typeof s.serverIdentity === "string" &&
+                !!s.serverIdentity &&
+                typeof s.toolName === "string" &&
+                typeof s.argsDigest === "string") ||
+              (s.kind === "network" &&
+                typeof s.host === "string" &&
+                !!s.host &&
+                Number.isInteger(s.port) &&
+                Number(s.port) > 0 &&
+                Number(s.port) <= 65535);
+            if (!valid) return [];
+            return [
+              {
+                command: candidate.command.trim(),
+                match: normalizedMatch,
+                version: 1 as const,
+                toolName: candidate.toolName,
+                selector: structuredClone(s) as unknown as import("@spcode/shared").PermissionGrantSelector,
+              },
+            ];
+          }
+          return [
+            {
+              command: candidate.command.trim(),
+              match: normalizedMatch,
+              ...(typeof candidate.toolName === "string" ? { toolName: candidate.toolName } : {}),
+            },
+          ];
         });
         if (rules.length) projects[cwd] = [...(projects[cwd] ?? []), ...rules];
       }
@@ -212,9 +256,23 @@ export class SettingsStore {
     // 同上：写入前归一化，杜绝非法值落到盘上
     if ("compaction" in patch) next.compaction = sanitizeCompactionSettings(patch.compaction);
     if ("proxy" in patch) next.proxy = sanitizeNetworkProxySettings(patch.proxy);
+    this.backupBeforeFirstUpgradeWrite();
     writeJsonFileAtomic(this.file, next, { mode: 0o600 });
     this.cache = next;
     return next;
+  }
+
+  /** Pi 1.x 升级后首次写设置前，保留一份升级前副本供回退（只本机、0600、不上传）。 */
+  private backupBeforeFirstUpgradeWrite(): void {
+    const backup = join(this.dir, "settings.pre-pi1x.bak");
+    try {
+      if (existsSync(this.file) && !existsSync(backup)) {
+        copyFileSync(this.file, backup);
+        chmodSync(backup, 0o600);
+      }
+    } catch {
+      // 备份失败不阻塞正常写入
+    }
   }
 }
 

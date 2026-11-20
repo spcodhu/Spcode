@@ -3,7 +3,7 @@
  * 计划模式门禁、文件路径守卫（deny/prompt）、风险分级、沙盒联动、逃生舱。
  * 全部纯函数式驱动（requestPermission 用桩），不起真实会话。
  */
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PermissionMode, PermissionRequest } from "@spcode/shared";
@@ -24,6 +24,7 @@ let policy: FsGuardPolicy;
 beforeAll(() => {
   root = mkdtempSync(join(tmpdir(), "spcode-gate-"));
   cwd = join(root, "project");
+  mkdirSync(cwd, { recursive: true });
   spcodeHome = join(root, ".spcode");
   policy = { cwd, spcodeHome, extraDenyRead: [], extraAllowWrite: [] };
 });
@@ -166,7 +167,7 @@ describe("权限模式矩阵（宿主侧）", () => {
 
     await gate({ toolCall: { name: "bash", arguments: { command: "git push origin main" } } });
     expect(requests.at(-1)?.risk).toBe("outward");
-    expect(requests.at(-1)?.cwd).toBe(cwd);
+    expect(requests.at(-1)?.cwd).toBe(realpathSync(cwd));
     await gate({ toolCall: { name: "bash", arguments: { command: "rm -rf /tmp/x" } } });
     expect(requests.at(-1)?.risk).toBe("danger");
   });

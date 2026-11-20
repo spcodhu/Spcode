@@ -165,14 +165,14 @@ describe("权限回复与危险确认", () => {
 describe("总允许（项目规则沉淀）", () => {
   const projectPermission: PermissionRequest = { ...permission, cwd: "/code/demo" };
 
-  it("bash + 项目 cwd：展示总允许与规则提示，点击后 rememberProject=true", async () => {
+  it("bash + 项目 cwd：展示总允许与规则提示，点击后 scope=project", async () => {
     mocks.replyPermission.mockResolvedValue(undefined);
     await render(createElement(PermissionCard, { request: projectPermission }));
     const always = document.querySelector<HTMLButtonElement>('[data-testid="permission-allow-always"]')!;
     expect(always).not.toBeNull();
     expect(document.body.textContent).toContain("echo 完整参数");
     await act(async () => always.click());
-    expect(mocks.replyPermission).toHaveBeenCalledWith("p1", true, true);
+    expect(mocks.replyPermission).toHaveBeenCalledWith("p1", true, "project");
   });
 
   it("无项目 cwd / 非 shell 工具 / bypass 都不展示总允许", async () => {
@@ -187,16 +187,18 @@ describe("总允许（项目规则沉淀）", () => {
     expect(document.querySelector('[data-testid="permission-allow-always"]')).toBeNull();
   });
 
-  it("danger 总允许同样两步：核对参数后才出现，只记完整命令", async () => {
+  it("danger 仅单次批准：核对参数后确认，不提供任何持久免审批入口", async () => {
     mocks.replyPermission.mockResolvedValue(undefined);
     await render(createElement(PermissionCard, { request: { ...danger, cwd: "/code/demo" } }));
     expect(document.querySelector('[data-testid="permission-allow-always-danger"]')).toBeNull();
+    expect(document.querySelector('[data-testid="permission-allow-always"]')).toBeNull();
     await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="danger-reviewed"]')!.click());
-    const always = document.querySelector<HTMLButtonElement>('[data-testid="permission-allow-always-danger"]')!;
-    expect(always).not.toBeNull();
-    expect(document.body.textContent).toContain("仅记录这条完整命令");
-    await act(async () => always.click());
-    expect(mocks.replyPermission).toHaveBeenCalledWith("danger-1", true, true);
+    // 核对后仍只有单次确认，没有危险总允许按钮
+    expect(document.querySelector('[data-testid="permission-allow-always-danger"]')).toBeNull();
+    const confirm = document.querySelector<HTMLButtonElement>('[data-testid="danger-confirm"]')!;
+    expect(confirm).not.toBeNull();
+    await act(async () => confirm.click());
+    expect(mocks.replyPermission).toHaveBeenCalledWith("danger-1", true, undefined);
   });
 });
 
