@@ -146,9 +146,9 @@ export function Select({
         aria-controls={listboxId}
         data-testid={testId}
         data-value={value}
-        className="flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-border bg-bg-elevated px-3 text-[13px] text-text-primary transition-colors hover:border-border-strong"
+        className="form-control flex w-full items-center justify-between gap-2 bg-bg-elevated text-left hover:border-border-strong"
       >
-        <span>{current?.label ?? current?.value ?? t("common.select")}</span>
+        <span className="min-w-0 flex-1 truncate">{current?.label ?? current?.value ?? t("common.select")}</span>
         <Icon
           name="chevronDown"
           size={13}

@@ -103,7 +103,7 @@ export function ForkDialog({ sourceId, onClose }: { sourceId: string; onClose: (
             data-modal-initial-focus
             onChange={(e) => setTitle(e.target.value)}
             maxLength={100}
-            className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-[13px] text-text-primary outline-none focus:border-border-strong"
+            className="form-control w-full bg-bg-elevated"
           />
         </label>
 

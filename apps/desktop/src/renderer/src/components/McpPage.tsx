@@ -114,13 +114,13 @@ export function McpPage() {
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder={t("mcp.namePlaceholder")}
-            className="min-w-0 rounded-lg border border-border bg-bg-main px-3 py-2 text-[13px] text-text-primary outline-none focus:border-accent"
+            className="form-control bg-bg-main"
           />
           <input
             value={command}
             onChange={(e) => setCommand(e.target.value)}
             placeholder={t("mcp.commandPlaceholder")}
-            className="min-w-0 rounded-lg border border-border bg-bg-main px-3 py-2 text-[13px] text-text-primary outline-none focus:border-accent"
+            className="form-control bg-bg-main"
           />
         </div>
         <div className="mt-2 text-[11.5px] leading-5 text-text-tertiary">{t("mcp.stdioDescription")}</div>
@@ -128,14 +128,14 @@ export function McpPage() {
           value={argsText}
           onChange={(e) => setArgsText(e.target.value)}
           placeholder={t("mcp.argsPlaceholder")}
-          className="mono mt-2 w-full rounded-lg border border-border bg-bg-main px-3 py-2 text-[12px] text-text-primary outline-none focus:border-accent"
+          className="form-control mono mt-2 w-full bg-bg-main"
         />
         <textarea
           value={envText}
           onChange={(e) => setEnvText(e.target.value)}
           placeholder={t("mcp.envPlaceholder")}
           rows={2}
-          className="mono mt-2 w-full resize-none rounded-lg border border-border bg-bg-main px-3 py-2 text-[12px] text-text-primary outline-none focus:border-accent"
+          className="form-control mono mt-2 w-full resize-none bg-bg-main"
         />
         {error && <div className="mt-2 text-[12px] text-danger">{error}</div>}
         <div className="mt-3 flex justify-end">

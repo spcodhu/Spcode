@@ -462,7 +462,7 @@ function RunErrorCard({ message, sessionId }: { message: ChatMessage; sessionId:
                           data-testid="run-retry-exact"
                           value={exactTime}
                           onChange={(event) => setExactTime(event.target.value)}
-                          className="rounded-md border border-border bg-bg-elevated px-2 py-1.5 text-[12px] text-text-primary"
+                          className="form-control bg-bg-elevated"
                         />
                         <button
                           type="button"

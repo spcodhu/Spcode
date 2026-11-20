@@ -493,12 +493,12 @@ function TaskForm({
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder={t("schedule.namePlaceholder")}
-          className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-[13px] outline-none focus:border-accent/50"
+          className="form-control w-full bg-bg-elevated"
         />
       </Field>
 
       <Field label={t("schedule.prompt")}>
-        <div className="rounded-lg border border-border bg-bg-elevated focus-within:border-accent/50">
+        <div className="field-group bg-bg-elevated">
           {images.length > 0 && (
             <div className="flex flex-wrap gap-2 px-3 pt-3">
               {images.map((image, index) => (
@@ -542,7 +542,7 @@ function TaskForm({
             placeholder={t("schedule.promptPlaceholder")}
             data-testid="schedule-prompt"
             rows={4}
-            className="w-full resize-y rounded-lg bg-transparent px-3 py-2 text-[13px] leading-5 outline-none"
+            className="field-input w-full resize-y px-3"
           />
           <div className="flex items-center justify-between border-t border-border px-3 py-2">
             <span className="text-[11px] text-text-tertiary">{t("schedule.imageHint")}</span>
@@ -596,7 +596,7 @@ function TaskForm({
             type="datetime-local"
             value={runAt}
             onChange={(e) => setRunAt(e.target.value)}
-            className="rounded-lg border border-border bg-bg-elevated px-3 py-2 text-[13px] text-text-primary outline-none focus:border-accent/50"
+            className="form-control bg-bg-elevated"
           />
         </Field>
       )}

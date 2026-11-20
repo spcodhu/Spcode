@@ -508,8 +508,7 @@ function AdvancedSearchSection() {
     }
   };
 
-  const inputCls =
-    "w-full rounded-lg border border-border bg-bg-main px-3 py-2 text-[13px] text-text-primary outline-none focus:border-accent/50";
+  const inputCls = "form-control w-full bg-bg-main";
 
   return (
     <div className="rounded-xl border border-border bg-bg-elevated px-4 py-3">
@@ -555,7 +554,7 @@ function AdvancedSearchSection() {
               example: '{"data":{"results":[{"title":"…","url":"https://…","snippet":"…"}]}}',
             })}
             rows={5}
-            className={`${inputCls} resize-y font-mono text-[12px] leading-relaxed`}
+            className={`${inputCls} resize-y font-mono`}
           />
           {sample.trim() && (
             <div className={`mt-1.5 text-[12px] ${inferred ? "text-accent" : "text-danger"}`}>
@@ -689,8 +688,7 @@ function WebFetchSection() {
     }
   };
 
-  const inputCls =
-    "w-full rounded-lg border border-border bg-bg-main px-3 py-2 text-[13px] text-text-primary outline-none focus:border-accent/50";
+  const inputCls = "form-control w-full bg-bg-main";
 
   return (
     <div className="rounded-xl border border-border bg-bg-elevated px-4 py-3">
@@ -874,7 +872,7 @@ function AppearancePage() {
           value={themeDesc}
           onChange={(e) => setThemeDesc(e.target.value)}
           placeholder={t("appearance.themePlaceholder")}
-          className="min-w-0 flex-1 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-[13px] outline-none focus:border-accent/50"
+          className="form-control flex-1 bg-bg-elevated"
           onKeyDown={(e) => {
             if (e.key === "Enter") void generateTheme();
           }}
@@ -1305,9 +1303,8 @@ function TokenField({
         onKeyDown={(e) => {
           if (e.key === "Enter") (e.target as HTMLInputElement).blur();
         }}
-        className={`mono w-32 shrink-0 rounded-lg border bg-bg-main px-2.5 py-1.5 text-right text-[13px] text-text-primary outline-none transition-colors ${
-          invalid ? "border-danger" : "border-border focus:border-accent"
-        }`}
+        aria-invalid={invalid}
+        className="form-control mono w-32 shrink-0 text-right bg-bg-main"
       />
     </div>
   );
@@ -1665,7 +1662,7 @@ function SandboxListEditor({
       <div className="mt-0.5 text-[12px] text-text-tertiary">{hint}</div>
       <textarea
         data-testid={testId}
-        className="mono mt-2 h-24 w-full resize-y rounded-lg border border-border bg-bg-root px-3 py-2 text-[12px] text-text-primary outline-none focus:border-accent/50"
+        className="form-control mono mt-2 h-24 w-full resize-y bg-bg-root"
         value={text}
         onChange={(e) => setText(e.target.value)}
         onBlur={() => {

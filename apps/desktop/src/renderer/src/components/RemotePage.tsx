@@ -482,7 +482,7 @@ export function RemotePage() {
                   placeholder="wss://relay.example.com"
                   spellCheck={false}
                   data-testid="remote-relay-input"
-                  className="mono w-full rounded-lg border border-border bg-bg-root px-3 py-1.5 text-[13px] text-text-primary placeholder:text-text-tertiary focus:border-accent focus:outline-none"
+                  className="form-control mono w-full bg-bg-root"
                 />
                 <input
                   type="password"
@@ -492,7 +492,7 @@ export function RemotePage() {
                   spellCheck={false}
                   data-testid="remote-relay-key-input"
                   aria-label={t("remote.relayAccessKey")}
-                  className="mono w-full rounded-lg border border-border bg-bg-root px-3 py-1.5 text-[13px] text-text-primary placeholder:text-text-tertiary focus:border-accent focus:outline-none"
+                  className="form-control mono w-full bg-bg-root"
                 />
               </div>
             )}
@@ -619,7 +619,7 @@ export function RemotePage() {
                   spellCheck={false}
                   aria-label={t("remote.appId")}
                   data-testid="remote-feishu-appid"
-                  className="mono min-w-0 flex-1 rounded-lg border border-border bg-bg-root px-3 py-1.5 text-[13px] text-text-primary placeholder:text-text-tertiary focus:border-accent focus:outline-none"
+                  className="form-control mono flex-1 bg-bg-root"
                 />
               </div>
               <div className="flex items-center gap-2">
@@ -631,7 +631,7 @@ export function RemotePage() {
                   spellCheck={false}
                   aria-label={t("remote.appSecret")}
                   data-testid="remote-feishu-appsecret"
-                  className="mono min-w-0 flex-1 rounded-lg border border-border bg-bg-root px-3 py-1.5 text-[13px] text-text-primary placeholder:text-text-tertiary focus:border-accent focus:outline-none"
+                  className="form-control mono flex-1 bg-bg-root"
                 />
                 {feishuStatus && <FeishuBadge state={feishuStatus.state} />}
                 <button
@@ -890,7 +890,7 @@ function PairingPayload({ payload }: { payload: string }) {
           value={payload}
           rows={4}
           onFocus={(event) => event.currentTarget.select()}
-          className="mono mt-2 w-full resize-y rounded-lg border border-border bg-bg-root px-3 py-2 text-[12px] leading-5 break-all text-text-secondary outline-none focus:border-accent"
+          className="form-control mono mt-2 w-full resize-y bg-bg-root break-all"
         />
       )}
       <div className="mt-2 text-[12px] leading-5 text-text-tertiary">{t("remote.payloadValidity")}</div>

@@ -1067,7 +1067,7 @@ export function ModelMenu({
                   <Icon
                     name="search"
                     size={13}
-                    className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-text-tertiary"
+                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary"
                   />
                   <input
                     ref={searchInputRef}
@@ -1077,7 +1077,7 @@ export function ModelMenu({
                     placeholder={t("model.searchPlaceholder")}
                     aria-label={t("model.searchPlaceholder")}
                     data-testid="composer-model-search"
-                    className="w-full rounded-lg border border-border bg-bg-main py-1.5 pl-8 pr-2.5 text-[12.5px] text-text-primary outline-none placeholder:text-text-tertiary focus:border-accent"
+                    className="form-control w-full pl-9 bg-bg-main"
                   />
                 </div>
               )}

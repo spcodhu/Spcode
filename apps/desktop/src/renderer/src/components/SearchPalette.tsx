@@ -113,9 +113,9 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
       title={t("search.placeholder")}
       onClose={onClose}
       layerClassName="items-start justify-center pt-[14vh]"
-      panelClassName="flex max-h-[60vh] w-[640px] max-w-[92vw] flex-col overflow-hidden rounded-2xl border border-border-strong bg-bg-main shadow-2xl"
+      panelClassName="flex max-h-[60vh] w-[640px] max-w-[92vw] flex-col overflow-hidden rounded-2xl border border-border bg-bg-main shadow-2xl"
     >
-      <div className="flex items-center gap-2.5 border-b border-border px-4">
+      <div className="field-group m-2 flex items-center gap-3 bg-bg-root px-3 py-1">
         <Icon name="search" size={16} className="shrink-0 text-text-tertiary" />
         <input
           ref={inputRef}
@@ -131,7 +131,7 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
           aria-activedescendant={rows[selected] ? `session-search-option-${selected}` : undefined}
           aria-label={t("search.placeholder")}
           placeholder={t("search.placeholder")}
-          className="h-12 min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-text-tertiary"
+          className="field-input min-h-10 flex-1"
         />
         {searching && <span className="shrink-0 text-[11px] text-text-tertiary">{t("search.searching")}</span>}
       </div>
@@ -140,7 +140,7 @@ export function SearchPalette({ onClose }: { onClose: () => void }) {
         id="session-search-results"
         role="listbox"
         aria-busy={searching}
-        className="min-h-0 flex-1 overflow-y-auto p-1.5"
+        className={`min-h-0 flex-1 overflow-y-auto ${query.trim() ? "p-1.5" : ""}`}
       >
         {query.trim() && !searching && searchError && (
           <div
