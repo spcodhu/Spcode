@@ -565,12 +565,13 @@ test("文件预览：工具调用预览、多标签、顶栏唤回、file: 与�
     await panel.getByTestId("workspace-delivered-file").filter({ hasText: "notes.txt" }).click();
     await expect(panel.getByTestId("workspace-file-content")).toContainText(NOTES_TEXT);
 
-    // 顶栏按钮唤回只改变可见性，不清空文件标签和当前预览。
-    await window.getByTestId("workspace-panel-close").click();
+    // 原生拖拽区内的收起按钮必须可点击；顶栏唤回保留文件标签、选中项和真实文件预览。
+    await panel.getByTestId("workspace-panel-collapse").click();
     await expect(panel).toHaveCount(0);
     await window.getByTestId("workspace-panel-toggle").click();
     await expect(panel).toBeVisible();
     await expect(panel.getByTestId("workspace-file-tab")).toHaveCount(2);
+    await expect(notesTab).toHaveAttribute("data-active", "true");
     await expect(panel.getByTestId("workspace-file-content")).toContainText(NOTES_TEXT);
 
     // 关闭当前标签后焦点回到相邻文件；整个面板也能独立收起。

@@ -42,9 +42,17 @@ export function WorkspacePanel({ width = 560 }: { width?: number }) {
       aria-label={t("workspace.panelTitle")}
     >
       <header className="titlebar-drag window-controls-overlay-inset flex h-12 shrink-0 items-center gap-2.5 border-b border-border px-4">
-        <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent-soft text-accent">
+        <button
+          type="button"
+          data-testid="workspace-panel-collapse"
+          onClick={dismissWorkspacePanel}
+          title={t("workspace.close")}
+          aria-label={t("workspace.close")}
+          aria-expanded={true}
+          className="titlebar-no-drag flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent transition-colors hover:bg-bg-hover"
+        >
           <Icon name="panelRight" size={14} />
-        </span>
+        </button>
         <div className="min-w-0 flex-1 truncate text-[13px] font-medium text-text-primary">
           {t("workspace.panelTitle")}
         </div>
