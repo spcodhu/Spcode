@@ -57,6 +57,7 @@ function ImageGenSkillCard() {
   const [requestBody, setRequestBody] = useState(saved?.requestBody ?? IMAGE_GEN_PRESETS.custom.requestBody);
   const [responsePath, setResponsePath] = useState(saved?.responsePath ?? IMAGE_GEN_PRESETS.custom.responsePath);
   const [hint, setHint] = useState<{ ok: boolean; text: string } | null>(null);
+  const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [testing, setTesting] = useState(false);
   const [preview, setPreview] = useState<{ mimeType: string; data: string } | null>(null);
 
@@ -75,9 +76,30 @@ function ImageGenSkillCard() {
     setResponsePath(s.responsePath ?? IMAGE_GEN_PRESETS.custom.responsePath);
   }, [settings]);
 
+  useEffect(
+    () => () => {
+      if (hintTimer.current) clearTimeout(hintTimer.current);
+    },
+    [],
+  );
+
+  const clearHint = () => {
+    if (hintTimer.current) clearTimeout(hintTimer.current);
+    hintTimer.current = null;
+    setHint(null);
+  };
+
   const flash = (ok: boolean, text: string) => {
+    if (hintTimer.current) clearTimeout(hintTimer.current);
+    hintTimer.current = null;
     setHint({ ok, text });
-    setTimeout(() => setHint(null), 5000);
+    // 成功反馈自动消失；错误必须等用户显式关闭或发起下一次操作，避免误点丢失。
+    if (ok) {
+      hintTimer.current = setTimeout(() => {
+        hintTimer.current = null;
+        setHint(null);
+      }, 5000);
+    }
   };
 
   const switchProtocol = (next: ImageGenProtocol) => {
@@ -132,6 +154,7 @@ function ImageGenSkillCard() {
   const test = async () => {
     const config = buildConfig();
     if (!config || testing) return;
+    clearHint();
     setTesting(true);
     setPreview(null);
     try {
@@ -306,15 +329,30 @@ function ImageGenSkillCard() {
               {t("skills.imageGen.disable")}
             </button>
           )}
-          {hint && (
-            <span
-              className={`text-[12px] ${hint.ok ? "text-accent" : "text-danger"}`}
-              data-testid="skills-image-gen-hint"
-            >
-              {hint.text}
-            </span>
-          )}
         </div>
+        {hint && (
+          <div
+            role={hint.ok ? "status" : "alert"}
+            className={`mt-2 flex items-start gap-2 rounded-lg border px-3 py-2 text-[12px] leading-5 ${
+              hint.ok ? "border-accent/20 bg-accent-soft/20 text-accent" : "border-danger/25 bg-danger/5 text-danger"
+            }`}
+            data-testid="skills-image-gen-hint"
+          >
+            <span className="min-w-0 flex-1 break-words">{hint.text}</span>
+            {!hint.ok && (
+              <button
+                type="button"
+                onClick={clearHint}
+                title={t("skills.imageGen.dismissError")}
+                aria-label={t("skills.imageGen.dismissError")}
+                data-testid="skills-image-gen-hint-dismiss"
+                className="flex size-6 shrink-0 items-center justify-center rounded-md border border-danger/20 transition-colors hover:bg-danger/10"
+              >
+                <Icon name="x" size={13} />
+              </button>
+            )}
+          </div>
+        )}
         <p className="mt-1.5 text-[11.5px] text-text-tertiary">{t("skills.imageGen.testHint")}</p>
 
         {testing && (

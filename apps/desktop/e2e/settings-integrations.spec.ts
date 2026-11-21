@@ -263,7 +263,7 @@ test("子代理三档：切换落盘 settings.json 且重启后回显", async ()
   await app.close();
 });
 
-test("生图技能：千问与自定义配置落盘、重启后密钥掩码、停用清空", async () => {
+test("生图技能：千问/自定义配置、密钥掩码、生成等待与错误常驻", async () => {
   const spcodeHome = mkdtempSync(join(tmpdir(), "spcode-e2e-skills-"));
   let app = await launchApp({ spcodeHome });
   let window = await app.firstWindow();
@@ -316,12 +316,18 @@ test("生图技能：千问与自定义配置落盘、重启后密钥掩码、�
   const pngDataUrl =
     "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
   let postedBody = "";
+  let responseStatus = 200;
   const server = createServer((req, res) => {
     const chunks: Buffer[] = [];
     req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
     req.on("end", () => {
       postedBody = Buffer.concat(chunks).toString("utf8");
       setTimeout(() => {
+        if (responseStatus === 401) {
+          res.writeHead(401, { "content-type": "application/json" });
+          res.end(JSON.stringify({ message: "Invalid API-key provided." }));
+          return;
+        }
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({ result: { images: [{ url: pngDataUrl }] } }));
       }, 800);
@@ -373,6 +379,20 @@ test("生图技能：千问与自定义配置落盘、重启后密钥掩码、�
       prompt: "A simple red circle centered on a plain white background",
       size: "1024x1024",
     });
+
+    // 401 错误必须越过原先 5 秒自动隐藏时限；点击其它控件也不能把它清掉。
+    responseStatus = 401;
+    await reopened.getByTestId("skills-image-gen-test").click();
+    const errorHint = reopened.getByTestId("skills-image-gen-hint");
+    await expect(errorHint).toHaveAttribute("role", "alert");
+    await expect(errorHint).toContainText("HTTP 401");
+    await window.waitForTimeout(5200);
+    await reopened.getByTestId("skills-image-gen-model").click();
+    await reopened.getByTestId("skills-image-gen-sync-note").click();
+    await expect(errorHint).toBeVisible();
+    await expect(errorHint).toContainText("HTTP 401");
+    await reopened.getByTestId("skills-image-gen-hint-dismiss").click();
+    await expect(errorHint).toHaveCount(0);
     await app.close();
   } finally {
     await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
