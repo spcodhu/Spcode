@@ -173,7 +173,10 @@ export function RunActivityTimeline({
                           aria-hidden
                           className={`absolute top-[11px] left-[23px] size-[5px] rounded-full ${active && progressSegment?.id === block.key ? "animate-pulse bg-text-tertiary motion-reduce:animate-none" : "bg-border-strong"}`}
                         />
-                        <div data-testid="run-stage-output" className="min-w-0 pb-1 [&_.md-body]:mb-0">
+                        <div
+                          data-testid="run-stage-output"
+                          className="min-w-0 pb-1 text-[12px] leading-5 font-normal text-text-secondary [&_.md-body]:mb-0 [&_.md-body]:text-[12px] [&_.md-body]:leading-5 [&_.md-body]:font-normal [&_.md-body]:text-text-secondary"
+                        >
                           {renderBlock(block)}
                         </div>
                       </>

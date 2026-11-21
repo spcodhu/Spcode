@@ -112,7 +112,14 @@ describe("共享运行时间线 DOM", () => {
       ["read", "1"],
       ["bash", "1"],
     ]);
-    expect(elements("run-stage-output").map((output) => output.textContent)).toEqual(["阶段结果", "最终答复"]);
+    const stageOutputs = elements("run-stage-output");
+    expect(stageOutputs.map((output) => output.textContent)).toEqual(["阶段结果", "最终答复"]);
+    for (const output of stageOutputs) {
+      expect(output.className).toContain("text-[12px]");
+      expect(output.className).toContain("font-normal");
+      expect(output.className).toContain("text-text-secondary");
+      expect(output.className).toContain("[&_.md-body]:text-[12px]");
+    }
     expect(element("run-progress").closest('[data-testid="run-process-header"]')).toBe(element("run-process-header"));
     expect(element("run-progress").dataset.kind).toBe("output");
     for (const row of [element("run-thinking"), ...elements("run-tool-step")]) {
