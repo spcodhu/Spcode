@@ -13,6 +13,7 @@ import { buildFileBlocks, type DraftFile } from "../file-blocks";
 import { formatCompact, formatFileSize } from "../format";
 import { openImageContextMenu } from "../image-actions";
 import { resolveImageRefs } from "../md-editor";
+import { usePresence } from "../presence";
 import { composerDraftKeyOf, useStore } from "../store";
 import { thinkingLevelLabel } from "../tooling";
 import { Icon } from "./Icon";
@@ -917,6 +918,7 @@ export function ModelMenu({
 }) {
   const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
+  const presence = usePresence(open, 200);
   const [view, setView] = useState<MenuView>("main");
   const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
@@ -1048,18 +1050,28 @@ export function ModelMenu({
       >
         <Icon name="cpu" size={13} className="text-text-tertiary" />
         <span className="max-w-44 truncate">{pillText}</span>
-        <Icon name="chevronDown" size={11} className="text-text-tertiary" />
+        <Icon
+          name="chevronDown"
+          size={11}
+          className={`text-text-tertiary transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+        />
       </button>
 
-      {/* 弹出面板 */}
-      {open && (
+      {/* 弹出面板：退出期间保留 DOM，但立即移出焦点与命中测试。 */}
+      {presence.mounted && (
         <div
           id="composer-model-popup"
           ref={panelRef}
           role="dialog"
           aria-label={t("common.model")}
+          aria-hidden={!open}
+          inert={!open}
           onKeyDown={onMenuKeyDown}
-          className="absolute bottom-9 right-0 z-50 w-80 rounded-2xl border border-border bg-bg-elevated p-2 shadow-2xl"
+          className={`absolute bottom-9 right-0 z-50 w-80 origin-bottom-right rounded-2xl border border-border bg-bg-elevated p-2 shadow-2xl transition-[opacity,transform] duration-200 ease-out ${
+            presence.visible
+              ? "translate-y-0 scale-100 opacity-100"
+              : "pointer-events-none translate-y-1 scale-[0.98] opacity-0"
+          }`}
         >
           {view === "main" && (
             <>

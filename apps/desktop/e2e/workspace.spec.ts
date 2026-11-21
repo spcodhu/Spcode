@@ -495,6 +495,8 @@ test("工作区开合策略：空会话可开合、无待办不自动打开、�
     await expect(panel).toBeVisible({ timeout: 15000 });
     await expect(panel.getByTestId("workspace-todo-toggle")).toHaveAttribute("aria-expanded", "true");
     await expect(panel.getByTestId("work-task")).toHaveCount(12);
+    // 两次 boundingBox 必须等位移动画稳定后读取，否则比较的是不同动画帧里的坐标。
+    await expect(window.getByTestId("workspace-panel-frame")).toHaveAttribute("data-animating", "false");
 
     const panelBox = await panel.boundingBox();
     const cardBox = await panel.getByTestId("workspace-todo-section").locator(":scope > div").boundingBox();

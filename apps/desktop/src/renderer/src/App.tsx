@@ -14,7 +14,7 @@ import { ToastRegion } from "./components/ToastRegion";
 import { TopBar } from "./components/TopBar";
 import { closeTopModal } from "./components/ui/Modal";
 import { WindowCloseDialog } from "./components/WindowCloseDialog";
-import { WorkspacePanel } from "./components/WorkspacePanel";
+import { WorkspacePanelFrame } from "./components/WorkspacePanel";
 import {
   constrainLayoutWidths,
   DEFAULT_LAYOUT_WIDTHS,
@@ -137,21 +137,14 @@ export default function App() {
             )}
           </div>
         </div>
-        {workspaceOpen && (
-          <ResizeHandle
-            label={t("layout.resizePlan")}
-            testId="workspace-resize-handle"
-            value={layout.plan}
-            min={planMin}
-            max={planMax}
-            direction={-1}
-            onChange={(plan) => setWidths((current) => ({ ...current, plan }))}
-            onReset={() => setWidths((current) => ({ ...current, plan: DEFAULT_LAYOUT_WIDTHS.plan }))}
-          />
-        )}
-        <ErrorBoundary label={t("workspace.panelTitle")}>
-          <WorkspacePanel width={layout.plan} />
-        </ErrorBoundary>
+        <WorkspacePanelFrame
+          key={activeSessionId ?? "empty"}
+          width={layout.plan}
+          min={planMin}
+          max={planMax}
+          onChange={(plan) => setWidths((current) => ({ ...current, plan }))}
+          onReset={() => setWidths((current) => ({ ...current, plan: DEFAULT_LAYOUT_WIDTHS.plan }))}
+        />
         {forkDialogFor && <ForkDialog sourceId={forkDialogFor} onClose={() => setForkDialogFor(null)} />}
         {settingsOpen && <SettingsPage onClose={() => setSettingsOpen(false)} />}
         {searchOpen && <SearchPalette onClose={() => setSearchOpen(false)} />}

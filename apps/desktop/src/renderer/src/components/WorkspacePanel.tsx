@@ -8,12 +8,73 @@ import { baseName } from "@spcode/shared";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { langOf } from "../file-blocks";
+import { usePresence } from "../presence";
 import { useStore, type WorkspaceFileTab, workspacePanelVisible } from "../store";
 import { type WorkspaceDeliverable, workspaceDeliverables } from "../workspace-deliverables";
+import { ErrorBoundary } from "./ErrorBoundary";
 import { Icon } from "./Icon";
 import { Markdown } from "./Markdown";
+import { ResizeHandle } from "./ResizeHandle";
 
-export function WorkspacePanel({ width = 560 }: { width?: number }) {
+const WORKSPACE_PANEL_TRANSITION_MS = 300;
+
+/** 右栏连同拖宽手柄一起做实际占位宽度过渡，中间正文随 flex 布局同步收缩/放开。 */
+export function WorkspacePanelFrame({
+  width,
+  min,
+  max,
+  onChange,
+  onReset,
+}: {
+  width: number;
+  min: number;
+  max: number;
+  onChange: (width: number) => void;
+  onReset: () => void;
+}) {
+  const { t } = useTranslation("chat");
+  const open = useStore((s) => {
+    const id = s.activeSessionId;
+    return !!id && workspacePanelVisible(s.sessions[id], s.workspacePanels[id]);
+  });
+  const presence = usePresence(open, WORKSPACE_PANEL_TRANSITION_MS);
+  if (!presence.mounted) return null;
+
+  const fullWidth = width + 8;
+  const settled = presence.visible && !presence.animating;
+  return (
+    <div
+      data-testid="workspace-panel-frame"
+      data-open={presence.visible}
+      data-animating={presence.animating}
+      aria-hidden={!open}
+      inert={!open}
+      className={`flex h-full shrink-0 ${settled ? "" : "overflow-hidden transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"} ${open ? "" : "pointer-events-none"}`}
+      style={{ width: presence.visible ? fullWidth : 0 }}
+    >
+      <div
+        className={`flex h-full shrink-0 transition-opacity duration-200 ${presence.visible ? "opacity-100" : "opacity-0"}`}
+        style={{ width: fullWidth }}
+      >
+        <ResizeHandle
+          label={t("layout.resizePlan")}
+          testId="workspace-resize-handle"
+          value={width}
+          min={min}
+          max={max}
+          direction={-1}
+          onChange={onChange}
+          onReset={onReset}
+        />
+        <ErrorBoundary label={t("workspace.panelTitle")}>
+          <WorkspacePanel width={width} forceVisible />
+        </ErrorBoundary>
+      </div>
+    </div>
+  );
+}
+
+export function WorkspacePanel({ width = 560, forceVisible = false }: { width?: number; forceVisible?: boolean }) {
   const { t } = useTranslation("chat");
   const activeSessionId = useStore((s) => s.activeSessionId);
   const session = useStore((s) => (activeSessionId ? s.sessions[activeSessionId] : undefined));
@@ -28,11 +89,11 @@ export function WorkspacePanel({ width = 560 }: { width?: number }) {
   const [starting, setStarting] = useState(false);
   const deliverables = useMemo(() => workspaceDeliverables(session?.messages ?? []), [session?.messages]);
 
-  if (!workspacePanelVisible(session, panel)) return null;
+  if (!session || (!forceVisible && !workspacePanelVisible(session, panel))) return null;
 
   const files = panel?.files ?? [];
   const activeFile = files.find((f) => f.path === panel?.activePath) ?? null;
-  const showExecuteFooter = !!activeFile && activeFile.kind === "plan" && session!.planMode;
+  const showExecuteFooter = !!activeFile && activeFile.kind === "plan" && session.planMode;
 
   return (
     <aside
@@ -68,7 +129,7 @@ export function WorkspacePanel({ width = 560 }: { width?: number }) {
         </button>
       </header>
 
-      <TodoSection todos={session!.todos} planMode={session!.planMode} />
+      <TodoSection todos={session.todos} planMode={session.planMode} />
 
       {activeFile && files.length > 0 && (
         <FileTabs
