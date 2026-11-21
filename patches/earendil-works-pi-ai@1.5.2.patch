@@ -1,0 +1,12 @@
+diff --git a/dist/utils/retry.js b/dist/utils/retry.js
+--- a/dist/utils/retry.js
++++ b/dist/utils/retry.js
+@@ -52,6 +52,8 @@ const RETRYABLE_PROVIDER_ERROR_PATTERN = buildProviderErrorPattern([
+     // Other gateway upstream failures relayed as `response.failed` error codes (#10920).
+     "upstream.?request.?failed",
+     "upstream_stream_read_error",
++    // Kimi can terminate an otherwise healthy OpenAI-compatible stream this way.
++    "server_interrupted",
+     "stream was interrupted",
+     "http/?2 stream failed",
+     // Network, proxy, and fetch transport failures. This includes OpenAI Codex
