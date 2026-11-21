@@ -541,8 +541,6 @@ test("文件预览：工具调用预览、多标签、顶栏唤回、file: 与�
     const sectionTop = await panel
       .getByTestId("workspace-todo-section")
       .evaluate((el) => el.getBoundingClientRect().top);
-    await window.getByTestId("run-process-header").click();
-
     const readStep = window.locator('[data-testid="run-tool-step"][data-tool="read"]');
     await expect(readStep).toBeVisible();
     await readStep.getByTestId("run-tool-preview").click();

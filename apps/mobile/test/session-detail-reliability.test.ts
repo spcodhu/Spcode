@@ -307,7 +307,7 @@ describe("与桌面共用的运行进度", () => {
     expect(summary.querySelector('[data-testid="markdown-body"]')).not.toBeNull();
   });
 
-  it("历史默认折叠，平级过程保序，同名组保留原始调用数和混合失败", async () => {
+  it("历史默认展开，平级过程保序，同名组保留原始调用数和混合失败", async () => {
     await renderPage("s1");
     await act(async () => {
       useAppStore.getState().replaceHistory("s1", {
@@ -338,15 +338,14 @@ describe("与桌面共用的运行进度", () => {
     });
     const process = document.querySelector('[data-testid="run-process"]')!;
     const header = process.querySelector<HTMLButtonElement>('[data-testid="run-process-header"]')!;
-    expect(process.getAttribute("data-state")).toBe("collapsed");
-    expect(header.getAttribute("aria-expanded")).toBe("false");
+    expect(process.getAttribute("data-state")).toBe("expanded");
+    expect(header.getAttribute("aria-expanded")).toBe("true");
     expect(header.textContent).toContain("执行过程");
     expect(header.textContent).toMatch(/\D3\D/);
     expect(header.querySelector('[data-testid="run-failed-count"]')?.textContent).toContain("1 次失败");
     expect(header.textContent).not.toContain("其中");
     expect(document.querySelector('[data-testid="run-summary"]')?.textContent).toBe("最终总结");
     expect(document.querySelector('[data-testid="run-progress"]')).toBeNull();
-    await act(async () => header.click());
 
     const body = process.querySelector('[data-testid="run-process-body"]')!;
     const list = body.matches("ol") ? body : body.querySelector("ol")!;
@@ -364,6 +363,9 @@ describe("与桌面共用的运行进度", () => {
     expect(steps[0]!.getAttribute("data-status")).toBe("error");
     expect(steps[1]!.getAttribute("data-status")).toBe("done");
     expect(steps[0]!.querySelector('[data-testid="run-failed-count"]')?.textContent).toContain("1 次失败");
+    for (const step of steps) {
+      expect(step.querySelector("button[aria-expanded]")?.getAttribute("aria-expanded")).toBe("false");
+    }
     await act(async () => steps[0]!.querySelector<HTMLButtonElement>("button[aria-expanded]")!.click());
     const calls = steps[0]!.querySelectorAll('[data-testid="run-tool-call"]');
     expect(

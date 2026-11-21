@@ -483,6 +483,7 @@ test("运行时间线：宿主事件到统一过程，完成保留展开，历�
   const progress = window.getByTestId("run-progress");
   await expect(progress).toBeVisible();
   await expect(progress).toHaveAttribute("data-kind", "thinking");
+  await expect(window.getByTestId("run-thinking").getByRole("button")).toHaveAttribute("aria-expanded", "false");
 
   await send({
     type: "tool_execution_start",
@@ -540,23 +541,22 @@ test("运行时间线：宿主事件到统一过程，完成保留展开，历�
   await expect(window.getByTestId("run-stage-output")).toHaveCount(0);
   await app.close();
 
-  // ---- 真实会话文件回放：历史默认折叠，展开直接访问工具输入输出 ----
+  // ---- 真实会话文件回放：历史默认展开，步骤详情默认收起 ----
   const app2 = await launchApp({ seed });
   const window2 = await app2.firstWindow();
   await openSession(window2);
   const historyProcess = window2.getByTestId("run-process");
   const historyHeader = window2.getByTestId("run-process-header");
   await expect(historyProcess).toHaveCount(1);
-  await expect(historyProcess).toHaveAttribute("data-state", "collapsed");
-  await expect(historyHeader).toHaveAttribute("aria-expanded", "false");
-  await expect(window2.getByTestId("run-summary")).toHaveText(FINAL);
-  await historyHeader.click();
   await expect(historyProcess).toHaveAttribute("data-state", "expanded");
+  await expect(historyHeader).toHaveAttribute("aria-expanded", "true");
+  await expect(window2.getByTestId("run-summary")).toHaveText(FINAL);
   await expect(historyProcess.getByTestId("run-stage-output")).toHaveText([STAGE1, STAGE2]);
   const steps = historyProcess.getByTestId("run-tool-step");
   await expect(steps).toHaveCount(2);
   await expect(steps.first()).toHaveAttribute("data-tool", "read");
   await expect(steps.first()).toHaveAttribute("data-status", "done");
+  await expect(steps.first().getByRole("button").first()).toHaveAttribute("aria-expanded", "false");
   await steps.first().getByRole("button").first().click();
   const detail = steps.first().getByTestId("run-step-detail");
   await expect(detail).toBeVisible();

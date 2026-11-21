@@ -18,6 +18,7 @@ const PREVIEWABLE_TOOLS = new Set(["read", "write", "edit"]);
 const ICON_PATHS = {
   check: "M20 6 9 17l-5-5",
   error: "M12 8v5m0 4h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0",
+  list: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
   chevronRight: "m9 18 6-6-6-6",
   panelRight: "M3 4h18v16H3zm12 0v16",
   thinking: "M9 18h6m-5 3h4M8 14a6 6 0 1 1 8 0c-1 1-1 2-1 2H9s0-1-1-2Z",
@@ -68,11 +69,11 @@ function NodeIcon({ name, running = false, error = false }: { name: IconName; ru
   );
 }
 
-function Chevron({ open }: { open: boolean }) {
+function Chevron({ open, size = 11 }: { open: boolean; size?: number }) {
   return (
     <RunIcon
       name="chevronRight"
-      size={11}
+      size={size}
       className={`shrink-0 text-text-tertiary transition-transform duration-150 motion-reduce:transition-none ${open ? "rotate-90" : ""}`}
     />
   );
@@ -96,7 +97,7 @@ export function RunActivityTimeline({
   onOpenFile?: (rawPath: string) => void;
 }) {
   const { t } = useTranslation("chat");
-  const [open, setOpen] = useState(active);
+  const [open, setOpen] = useState(true);
   const bodyId = useId();
   const elapsed = useElapsedSeconds(startedAt, active);
   const blocks = buildRunBlocks(segments);
@@ -123,12 +124,13 @@ export function RunActivityTimeline({
             aria-controls={bodyId}
             onClick={() => setOpen(!open)}
             data-testid="run-process-header"
-            className="group flex min-h-9 w-full min-w-0 items-center gap-2 rounded-md py-1.5 text-left text-[12px] leading-5 text-text-secondary hover:text-text-primary"
+            className="group flex min-h-10 w-full min-w-0 items-center gap-2.5 rounded-lg border border-border/70 bg-bg-hover/35 px-3 py-2 text-left text-[13px] leading-5 font-medium text-text-primary transition-colors hover:border-border hover:bg-bg-hover/60 motion-reduce:transition-none"
           >
             <span
-              className={`flex w-5 shrink-0 items-center justify-center ${failedCount > 0 ? "text-danger" : "text-text-tertiary"}`}
+              className="flex size-6 shrink-0 items-center justify-center rounded-md bg-bg-root text-text-secondary"
+              data-testid="run-process-icon"
             >
-              {active ? <Spinner /> : <RunIcon name={failedCount > 0 ? "error" : "check"} />}
+              <RunIcon name="list" size={15} />
             </span>
             <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5">
               {active ? <RunProgress state={progress} /> : <span>{t("run.process")}</span>}
@@ -151,7 +153,9 @@ export function RunActivityTimeline({
                 </span>
               )}
             </span>
-            <Chevron open={open} />
+            <span className="flex size-6 shrink-0 items-center justify-center rounded-md text-text-secondary group-hover:bg-bg-root/70">
+              <Chevron open={open} size={14} />
+            </span>
           </button>
           <div id={bodyId} className="collapse-grid" data-open={open} aria-hidden={!open} inert={!open}>
             <div className="collapse-inner">
@@ -161,7 +165,7 @@ export function RunActivityTimeline({
                     key={block.key}
                     data-testid="run-timeline-item"
                     data-kind={block.kind}
-                    className="relative min-w-0 pb-4 pl-7 before:absolute before:top-6 before:bottom-0 before:left-[9px] before:w-px before:bg-border last:pb-1 last:before:hidden"
+                    className="relative min-w-0 pb-2 pl-7 before:absolute before:top-6 before:bottom-0 before:left-[9px] before:w-px before:bg-border last:pb-1 last:before:hidden"
                   >
                     {block.kind === "text" ? (
                       <>
@@ -243,7 +247,7 @@ function firstLine(text: string): string {
 
 function ThinkingRow({ text, streaming }: { text: string; streaming: boolean }) {
   const { t } = useTranslation("chat");
-  const [open, setOpen] = useState(streaming);
+  const [open, setOpen] = useState(false);
   const bodyId = useId();
   const bodyRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);

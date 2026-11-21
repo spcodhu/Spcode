@@ -107,6 +107,9 @@ describe("共享运行时间线 DOM", () => {
     expect(elements("run-stage-output").map((output) => output.textContent)).toEqual(["阶段结果", "最终答复"]);
     expect(element("run-progress").closest('[data-testid="run-process-header"]')).toBe(element("run-process-header"));
     expect(element("run-progress").dataset.kind).toBe("output");
+    for (const row of [element("run-thinking"), ...elements("run-tool-step")]) {
+      expect(toggle(row).getAttribute("aria-expanded")).toBe("false");
+    }
   });
 
   it("同名组一层展开全部调用的输入输出，失败计数及每个文件预览保留", async () => {
@@ -123,7 +126,8 @@ describe("共享运行时间线 DOM", () => {
     expect(header.textContent).toMatch(/\D2\D/);
     expect(element("run-failed-count", header).textContent).toContain("1 次失败");
     expect(header.textContent).not.toContain("其中");
-    await click(header);
+    expect(element("run-process").dataset.state).toBe("expanded");
+    expect(element("run-process-icon", header).classList.contains("text-danger")).toBe(false);
 
     const step = element("run-tool-step");
     expect(step.dataset.status).toBe("error");
@@ -226,11 +230,10 @@ describe("共享运行时间线 DOM", () => {
     expect(detail.closest('[aria-hidden="true"]')).toBeNull();
   });
 
-  it("历史默认折叠；追加同名调用和切换 active 不重置已展开的历史详情", async () => {
+  it("历史默认展开；追加同名调用和切换 active 不重置已展开的历史详情", async () => {
     const history = tools("old", [call("a", "read")]);
     await renderTimeline({ segments: [history, text("stage")], active: false });
-    expect(element("run-process").dataset.state).toBe("collapsed");
-    await click(element("run-process-header"));
+    expect(element("run-process").dataset.state).toBe("expanded");
     const step = element("run-tool-step");
     await click(toggle(step));
     const item = element("run-timeline-item");
@@ -253,13 +256,11 @@ describe("共享运行时间线 DOM", () => {
     expect(toggle(step).getAttribute("aria-expanded")).toBe("true");
   });
 
-  it("流式思考首次展开，手动收起后 delta、工具到达和完成都不强制展开", async () => {
+  it("流式思考默认收起，delta、工具到达和完成都不强制展开", async () => {
     const thinking: RunSegment = { kind: "thinking", id: "thinking", text: "先检查", done: false };
     await renderTimeline({ segments: [thinking], active: true, progressSegment: thinking });
     const row = element("run-thinking");
     const button = toggle(row);
-    expect(button.getAttribute("aria-expanded")).toBe("true");
-    await click(button);
     expect(button.getAttribute("aria-expanded")).toBe("false");
 
     const delta = { ...thinking, text: "先检查，再验证" };
@@ -292,9 +293,8 @@ describe("共享运行时间线 DOM", () => {
       { kind: "thinking", id: "thinking", text: "等待结果", done: true },
     ];
     await renderTimeline({ segments, active: false });
-    expect(element("run-process").dataset.state).toBe("collapsed");
+    expect(element("run-process").dataset.state).toBe("expanded");
     expect(elements("run-summary")).toHaveLength(0);
-    await click(element("run-process-header"));
     expect(elements("run-timeline-item").map((item) => item.dataset.kind)).toEqual(["text", "thinking"]);
     expect(element("run-stage-output").textContent).toBe("检查说明");
     expect(elements("run-tool-step")).toHaveLength(0);
