@@ -894,10 +894,14 @@ function registerIpc(): void {
       config.apiKey === SECRET_MASK ? { ...config, apiKey: settings.get().skills.imageGen?.apiKey ?? "" } : config;
     if (!isImageGenReady(resolved)) return { ok: false as const, error: i18n.t("integration:imageGen.incomplete") };
     try {
-      const outcome = await executeImageGen(resolved, "A simple red circle centered on a plain white background", {
-        size: "1024x1024",
-        timeoutMs: 180_000,
-      });
+      const outcome = await executeImageGen(
+        resolved,
+        "A serene natural landscape at sunrise: forested mountains, a calm clear lake with soft reflections, and gentle clouds in the sky; natural colors, no people, no buildings, no text.",
+        {
+          size: "1024x1024",
+          timeoutMs: 180_000,
+        },
+      );
       const first = outcome.images[0];
       if (!first) return { ok: false as const, error: "No image returned" };
       return { ok: true as const, image: { mimeType: first.mimeType, data: first.data } };

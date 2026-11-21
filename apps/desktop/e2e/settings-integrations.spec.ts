@@ -391,7 +391,8 @@ test("生图技能：千问/自定义配置、密钥掩码、生成等待与错�
     await expect(reopened.getByTestId("skills-image-gen-progress")).toHaveCount(0);
     await expect.poll(() => (JSON.parse(postedBody || "{}") as { model?: string }).model).toBe("custom-model");
     expect(JSON.parse(postedBody)).toMatchObject({
-      prompt: "A simple red circle centered on a plain white background",
+      prompt:
+        "A serene natural landscape at sunrise: forested mountains, a calm clear lake with soft reflections, and gentle clouds in the sky; natural colors, no people, no buildings, no text.",
       size: "1024x1024",
     });
 
