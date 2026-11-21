@@ -274,21 +274,35 @@ test("生图技能：千问/自定义配置、密钥掩码、生成等待与错�
   await expect(card).toBeVisible();
   // 千问官方同步端点自动填充；模型由用户填写，密钥为空
   await expect(card.getByTestId("skills-image-gen-baseurl")).toHaveValue(/multimodal-generation\/generation/);
+  await expect(card.getByTestId("skills-image-gen-billing")).toHaveAttribute("data-value", "payg");
   await expect(card.getByTestId("skills-image-gen-model")).toHaveValue("");
   await expect(card.getByTestId("skills-image-gen-apikey")).toHaveValue("");
   await expect(card.getByTestId("skills-image-gen-sync-note")).toBeVisible();
 
+  await card.getByTestId("skills-image-gen-billing").click();
+  await window.locator('[role="option"][data-value="token-plan"]').click();
+  await expect(card.getByTestId("skills-image-gen-baseurl")).toHaveValue(
+    "https://token-plan.maas.qianwenaiapi.com/api/v1/services/aigc/multimodal-generation/generation",
+  );
+  await expect(card.getByTestId("skills-image-gen-baseurl")).toHaveAttribute("readonly", "");
   await card.getByTestId("skills-image-gen-model").fill("user-selected-qwen-model");
   await card.getByTestId("skills-image-gen-apikey").fill("sk-e2e-secret");
   await card.getByTestId("skills-image-gen-save").click();
   await expect
     .poll(() => {
       const saved = JSON.parse(readFileSync(join(spcodeHome, "settings.json"), "utf8")) as {
-        skills?: { imageGen?: { apiKey?: string; model?: string } | null };
+        skills?: {
+          imageGen?: { apiKey?: string; model?: string; billing?: string; baseUrl?: string } | null;
+        };
       };
-      return saved.skills?.imageGen?.apiKey;
+      return saved.skills?.imageGen;
     })
-    .toBe("sk-e2e-secret");
+    .toMatchObject({
+      apiKey: "sk-e2e-secret",
+      model: "user-selected-qwen-model",
+      billing: "token-plan",
+      baseUrl: "https://token-plan.maas.qianwenaiapi.com/api/v1/services/aigc/multimodal-generation/generation",
+    });
   await window.getByTitle("关闭设置").click();
   await app.close();
 
@@ -299,6 +313,7 @@ test("生图技能：千问/自定义配置、密钥掩码、生成等待与错�
   await window.getByTitle("设置", { exact: true }).click();
   await window.getByTestId("settings-nav-skills").click();
   const reopened = window.getByTestId("skills-image-gen-card");
+  await expect(reopened.getByTestId("skills-image-gen-billing")).toHaveAttribute("data-value", "token-plan");
   await expect(reopened.getByTestId("skills-image-gen-apikey")).toHaveValue("••••••••");
 
   // 停用：配置清空落盘

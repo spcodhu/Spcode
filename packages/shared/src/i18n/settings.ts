@@ -153,6 +153,11 @@ export const zhCN = {
   "skills.imageGen.protocol.custom": "自定义同步协议",
   "skills.imageGen.protocolHint.qwen": "使用官方同步图像生成端点；模型名称请按平台可用列表自行填写。",
   "skills.imageGen.protocolHint.custom": "POST JSON + Bearer 鉴权。请求 Body 与图片响应路径完全由你定义。",
+  "skills.imageGen.billing": "计费方式",
+  "skills.imageGen.billing.payg": "按量付费",
+  "skills.imageGen.billing.token-plan": "Token Plan",
+  "skills.imageGen.billingHint.payg": "适用于 sk-ws-（早期 sk-）密钥，使用按量付费端点并按调用量计费。",
+  "skills.imageGen.billingHint.token-plan": "适用于 sk-sp- 套餐密钥，自动使用 Token Plan 专属端点并消耗 Credits。",
   "skills.imageGen.syncParallel":
     "当前所有生图均为同步请求，通常需要等待一段时间；在会话中，GenerateImage 可与其他独立工具调用并行执行，互不阻塞。",
   "skills.imageGen.qwenDocs": "查看千问同步生图接口文档",
@@ -857,6 +862,13 @@ export const en = {
     "Uses the official synchronous image endpoint. Enter a model ID supported by your platform account.",
   "skills.imageGen.protocolHint.custom":
     "POST JSON with Bearer authentication. You define the complete request body and image response path.",
+  "skills.imageGen.billing": "Billing",
+  "skills.imageGen.billing.payg": "Pay-as-you-go",
+  "skills.imageGen.billing.token-plan": "Token Plan",
+  "skills.imageGen.billingHint.payg":
+    "For sk-ws- keys (legacy sk-), using the pay-as-you-go endpoint and usage-based billing.",
+  "skills.imageGen.billingHint.token-plan":
+    "For sk-sp- subscription keys. Uses the dedicated Token Plan endpoint and consumes Credits.",
   "skills.imageGen.syncParallel":
     "All image generation is currently synchronous and may take a while. In sessions, GenerateImage can run in parallel with other independent tool calls without blocking them.",
   "skills.imageGen.qwenDocs": "View Qwen synchronous image API documentation",

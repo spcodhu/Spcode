@@ -4,12 +4,13 @@
  * 保存后经 skills.setConfig 热下发生效。
  */
 
-import type { ImageGenConfig, ImageGenProtocol } from "@spcode/shared";
+import type { ImageGenConfig, ImageGenProtocol, QwenImageGenBilling } from "@spcode/shared";
 import {
   IMAGE_GEN_PRESETS,
+  inferQwenImageGenBilling,
   isImageGenReady,
   isValidImageGenResponsePath,
-  QWEN_IMAGE_GEN_ENDPOINT,
+  QWEN_IMAGE_GEN_ENDPOINTS,
   validateImageGenRequestBody,
 } from "@spcode/shared/image-gen";
 import { useEffect, useRef, useState } from "react";
@@ -42,6 +43,7 @@ function PageHeader({ title, subtitle }: { title: string; subtitle: string }) {
 }
 
 const PROTOCOLS: ImageGenProtocol[] = ["qwen", "custom"];
+const BILLING_OPTIONS: QwenImageGenBilling[] = ["payg", "token-plan"];
 
 function ImageGenSkillCard() {
   const { t } = useTranslation("settings");
@@ -50,6 +52,9 @@ function ImageGenSkillCard() {
   const saved = settings?.skills?.imageGen ?? null;
 
   const [protocol, setProtocol] = useState<ImageGenProtocol>(saved?.protocol ?? "qwen");
+  const [billing, setBilling] = useState<QwenImageGenBilling>(
+    saved?.billing ?? inferQwenImageGenBilling(saved?.baseUrl),
+  );
   const [baseUrl, setBaseUrl] = useState(saved?.baseUrl ?? IMAGE_GEN_PRESETS.qwen.baseUrl);
   const [apiKey, setApiKey] = useState(saved?.apiKey ?? "");
   // 模型始终由用户填写，不随协议预设写死。
@@ -69,6 +74,7 @@ function ImageGenSkillCard() {
     const s = settings.skills?.imageGen;
     if (!s) return;
     setProtocol(s.protocol);
+    setBilling(s.billing ?? inferQwenImageGenBilling(s.baseUrl));
     setBaseUrl(s.baseUrl);
     setApiKey(s.apiKey);
     setModel(s.model);
@@ -104,8 +110,13 @@ function ImageGenSkillCard() {
 
   const switchProtocol = (next: ImageGenProtocol) => {
     setProtocol(next);
-    if (next === "qwen") setBaseUrl(QWEN_IMAGE_GEN_ENDPOINT);
-    else if (baseUrl.trim() === QWEN_IMAGE_GEN_ENDPOINT) setBaseUrl("");
+    if (next === "qwen") setBaseUrl(QWEN_IMAGE_GEN_ENDPOINTS[billing]);
+    else if (Object.values(QWEN_IMAGE_GEN_ENDPOINTS).includes(baseUrl.trim())) setBaseUrl("");
+  };
+
+  const switchBilling = (next: QwenImageGenBilling) => {
+    setBilling(next);
+    setBaseUrl(QWEN_IMAGE_GEN_ENDPOINTS[next]);
   };
 
   const bodyError = protocol === "custom" ? validateImageGenRequestBody(requestBody) : null;
@@ -119,7 +130,9 @@ function ImageGenSkillCard() {
       flash(false, t("skills.imageGen.missingFields"));
       return null;
     }
-    if (protocol === "qwen") return { protocol, baseUrl: url, apiKey: key, model: m };
+    if (protocol === "qwen") {
+      return { protocol, billing, baseUrl: QWEN_IMAGE_GEN_ENDPOINTS[billing], apiKey: key, model: m };
+    }
     if (bodyError) {
       flash(false, t(`skills.imageGen.bodyError.${bodyError}`));
       return null;
@@ -217,7 +230,11 @@ function ImageGenSkillCard() {
             </p>
             {protocol === "qwen" && (
               <a
-                href="https://platform.qianwenai.com/docs/api-reference/image-generation/qwen-text-to-image"
+                href={
+                  billing === "token-plan"
+                    ? "https://platform.qianwenai.com/docs/token-plan/best-practices/image-generation"
+                    : "https://platform.qianwenai.com/docs/api-reference/image-generation/qwen-text-to-image"
+                }
                 target="_blank"
                 rel="noreferrer"
                 className="mt-1 inline-flex items-center gap-1 text-[11.5px] text-accent hover:underline"
@@ -228,10 +245,31 @@ function ImageGenSkillCard() {
             )}
           </div>
 
+          {protocol === "qwen" && (
+            <>
+              <div className="text-[13px] text-text-secondary">{t("skills.imageGen.billing")}</div>
+              <div>
+                <Select
+                  value={billing}
+                  options={BILLING_OPTIONS.map((value) => ({
+                    value,
+                    label: t(`skills.imageGen.billing.${value}`),
+                  }))}
+                  onChange={(value) => switchBilling(value as QwenImageGenBilling)}
+                  testId="skills-image-gen-billing"
+                />
+                <p className="mt-1 text-[11.5px] leading-4 text-text-tertiary">
+                  {t(`skills.imageGen.billingHint.${billing}`)}
+                </p>
+              </div>
+            </>
+          )}
+
           <div className="text-[13px] text-text-secondary">{t("skills.imageGen.baseUrl")}</div>
           <input
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
+            readOnly={protocol === "qwen"}
             placeholder={t("skills.imageGen.urlPlaceholder")}
             data-testid="skills-image-gen-baseurl"
             className={inputCls}

@@ -19,6 +19,7 @@ import { applySessionEvent, extractImages, historyToMessages, type SessionState 
 
 const CONFIG: ImageGenConfig = {
   protocol: "qwen",
+  billing: "payg",
   baseUrl: "https://maas.qianwenaiapi.com/api/v1/services/aigc/multimodal-generation/generation",
   apiKey: "sk-real-secret",
   model: "user-selected-model",

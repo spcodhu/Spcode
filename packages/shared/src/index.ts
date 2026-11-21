@@ -1118,11 +1118,16 @@ export interface AdvancedSearchMapping {
 /** 生图协议：千问AI平台同步生图 / 用户自定义同步 HTTP JSON 协议 */
 export type ImageGenProtocol = "qwen" | "custom";
 
+/** 千问密钥计费方式：按量付费（sk-ws-/早期 sk-）或 Token Plan（sk-sp-），各自对应专属端点 */
+export type QwenImageGenBilling = "payg" | "token-plan";
+
 /** 图像生成技能配置（技能页维护，独立 apiKey；协议适配在 @spcode/shared/image-gen） */
 export interface ImageGenConfig {
   protocol: ImageGenProtocol;
-  /** 完整的同步生图端点 URL */
+  /** 完整的同步生图端点 URL；千问内置协议由 billing 决定官方端点 */
   baseUrl: string;
+  /** qwen 专用：按量付费 / Token Plan；缺省按量付费，旧配置按已有端点推断 */
+  billing?: QwenImageGenBilling;
   /** 通过 Authorization: Bearer 发送；自定义 Body 内也可使用 {{apiKey}} */
   apiKey: string;
   /** 模型 ID 由用户填写，不写死；自定义 Body 通过 {{model}} 引用 */

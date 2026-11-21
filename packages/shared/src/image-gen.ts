@@ -11,10 +11,16 @@
  *
  * shared 包同时服务主进程「测试生成」、agent-host 的 GenerateImage 工具和设置页校验。
  */
-import type { ImageGenConfig, ImageGenProtocol } from "./index.js";
+import type { ImageGenConfig, ImageGenProtocol, QwenImageGenBilling } from "./index.js";
 
 export const QWEN_IMAGE_GEN_ENDPOINT =
   "https://maas.qianwenaiapi.com/api/v1/services/aigc/multimodal-generation/generation";
+export const QWEN_TOKEN_PLAN_IMAGE_GEN_ENDPOINT =
+  "https://token-plan.maas.qianwenaiapi.com/api/v1/services/aigc/multimodal-generation/generation";
+export const QWEN_IMAGE_GEN_ENDPOINTS: Record<QwenImageGenBilling, string> = {
+  payg: QWEN_IMAGE_GEN_ENDPOINT,
+  "token-plan": QWEN_TOKEN_PLAN_IMAGE_GEN_ENDPOINT,
+};
 export const QWEN_IMAGE_RESPONSE_PATH = "output.choices[*].message.content[*].image";
 
 /** 自定义表单的初始模板，只是可编辑起点，不属于额外内置协议。 */
@@ -38,13 +44,25 @@ export const IMAGE_GEN_PRESETS: Record<
   },
 };
 
+/** 旧配置没有 billing 时按已保存的官方端点识别；未知/自定义地址保持按量付费兼容行为。 */
+export function inferQwenImageGenBilling(baseUrl?: string): QwenImageGenBilling {
+  return baseUrl?.trim() === QWEN_TOKEN_PLAN_IMAGE_GEN_ENDPOINT ? "token-plan" : "payg";
+}
+
+/** 千问内置协议的计费方式是端点权威来源，避免 sk-sp- 密钥误发到按量付费 host。 */
+export function resolveQwenImageGenEndpoint(config: ImageGenConfig): string {
+  return config.billing ? QWEN_IMAGE_GEN_ENDPOINTS[config.billing] : config.baseUrl;
+}
+
 export type ImageGenRequestBodyError = "empty" | "invalidJson" | "notObject" | "missingPrompt";
 
 /** 配置是否完整到可以生效（session-controller 据此决定 GenerateImage 是否进活跃工具集） */
 export function isImageGenReady(config: ImageGenConfig | null | undefined): boolean {
   if (!config) return false;
   if (!config.protocol || !config.baseUrl?.trim() || !config.apiKey?.trim() || !config.model?.trim()) return false;
-  if (config.protocol === "qwen") return true;
+  if (config.protocol === "qwen") {
+    return config.billing === undefined || Object.hasOwn(QWEN_IMAGE_GEN_ENDPOINTS, config.billing);
+  }
   if (config.protocol !== "custom") return false;
   return (
     validateImageGenRequestBody(config.requestBody ?? "") === null &&
@@ -60,7 +78,11 @@ export function sanitizeImageGenConfig(input: unknown): ImageGenConfig | null {
   if (protocol !== "qwen" && protocol !== "custom") return null;
   if (typeof src.baseUrl !== "string" || typeof src.apiKey !== "string" || typeof src.model !== "string") return null;
   const base = { protocol, baseUrl: src.baseUrl, apiKey: src.apiKey, model: src.model };
-  if (protocol === "qwen") return base;
+  if (protocol === "qwen") {
+    const billing = src.billing ?? inferQwenImageGenBilling(src.baseUrl);
+    if (!Object.hasOwn(QWEN_IMAGE_GEN_ENDPOINTS, billing)) return null;
+    return { ...base, billing };
+  }
   if (typeof src.requestBody !== "string" || typeof src.responsePath !== "string") return null;
   return { ...base, requestBody: src.requestBody, responsePath: src.responsePath };
 }
@@ -394,7 +416,7 @@ export async function executeImageGen(
   try {
     if (config.protocol === "qwen") {
       const json = await postJson(
-        config.baseUrl,
+        resolveQwenImageGenEndpoint(config),
         { Authorization: `Bearer ${config.apiKey}` },
         buildQwenImageGenBody(config, prompt, opts.size),
         controller.signal,

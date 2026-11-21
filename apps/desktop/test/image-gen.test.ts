@@ -16,6 +16,7 @@ import {
   parseDataUrl,
   parseQwenImageGenResponse,
   QWEN_IMAGE_GEN_ENDPOINT,
+  QWEN_TOKEN_PLAN_IMAGE_GEN_ENDPOINT,
   sanitizeImageGenConfig,
   sizeToQwenSize,
   sniffImageMime,
@@ -30,6 +31,7 @@ const PNG_DATA_URL = `data:image/png;base64,${PNG_B64}`;
 
 const CONFIG: ImageGenConfig = {
   protocol: "qwen",
+  billing: "payg",
   baseUrl: QWEN_IMAGE_GEN_ENDPOINT,
   apiKey: "sk-test",
   model: "user-selected-qwen-model",
@@ -82,6 +84,17 @@ describe("sanitizeImageGenConfig / isImageGenReady", () => {
     expect(sanitizeImageGenConfig(CONFIG)).toEqual(CONFIG);
     expect(isImageGenReady(CONFIG)).toBe(true);
     expect(isImageGenReady({ ...CONFIG, model: " " })).toBe(false);
+  });
+
+  it("旧千问配置缺省按量付费，并按已有官方端点识别 Token Plan", () => {
+    const legacy = { ...CONFIG };
+    delete legacy.billing;
+    expect(sanitizeImageGenConfig(legacy)).toEqual({ ...legacy, billing: "payg" });
+    expect(sanitizeImageGenConfig({ ...legacy, baseUrl: QWEN_TOKEN_PLAN_IMAGE_GEN_ENDPOINT })).toMatchObject({
+      billing: "token-plan",
+    });
+    expect(sanitizeImageGenConfig({ ...CONFIG, billing: "invalid" })).toBeNull();
+    expect(isImageGenReady({ ...CONFIG, billing: "invalid" as never })).toBe(false);
   });
 
   it("自定义配置保留完整 Body 与响应路径", () => {
@@ -181,6 +194,22 @@ describe("千问同步协议", () => {
         response_format: "url",
         size: "1536*1024",
       },
+    });
+  });
+
+  it("Token Plan 选项强制使用专属 host，请求 Body 与 Bearer 鉴权保持一致", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(qwenResponse(PNG_DATA_URL)));
+    vi.stubGlobal("fetch", fetchMock);
+    await executeImageGen({ ...CONFIG, billing: "token-plan", baseUrl: QWEN_IMAGE_GEN_ENDPOINT }, "a cat", {
+      size: "1024x1024",
+    });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(QWEN_TOKEN_PLAN_IMAGE_GEN_ENDPOINT);
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer sk-test");
+    expect(JSON.parse(init.body as string)).toMatchObject({
+      model: "user-selected-qwen-model",
+      input: { messages: [{ role: "user", content: [{ text: "a cat" }] }] },
+      parameters: { size: "1024*1024" },
     });
   });
 
