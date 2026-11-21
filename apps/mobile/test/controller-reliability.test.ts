@@ -14,6 +14,7 @@ import {
   replyQuestion,
   retrySessionOutput,
   setSessionModel,
+  setSessionPermissionMode,
   setSessionThinkingLevel,
   unpair,
   updateRelayConfiguration,
@@ -363,7 +364,7 @@ describe("模型目录与已有会话切换", () => {
 });
 
 describe("空会话创建", () => {
-  it("缺省 prompt 不进入协议载荷，创建成功后直接进入会话", async () => {
+  it("缺省 prompt 不进入协议载荷；手机端新建固定总不询问，创建成功后直接进入会话", async () => {
     attachPairedRecord(record);
     mocks.command.mockImplementation(async (cmd) => {
       if (cmd.type === "session.create") return { sessionId: "empty-project" };
@@ -373,9 +374,66 @@ describe("空会话创建", () => {
     });
     await createSession({ mode: "project", cwd: "/code/demo" });
     const command = mocks.command.mock.calls.map(([cmd]) => cmd).find((cmd) => cmd.type === "session.create");
-    expect(command).toEqual({ type: "session.create", mode: "project", cwd: "/code/demo" });
+    expect(command).toEqual({
+      type: "session.create",
+      mode: "project",
+      cwd: "/code/demo",
+      permissionMode: "never",
+    });
     expect(command).not.toHaveProperty("prompt");
     expect(useAppStore.getState().route).toEqual({ name: "session", id: "empty-project" });
+  });
+});
+
+describe("权限模式与总允许", () => {
+  it("setSessionPermissionMode 发送命令并按宿主响应更新会话档位", async () => {
+    attachPairedRecord(record);
+    useAppStore.getState().setSessions([session]);
+    mocks.command.mockImplementation(async (cmd) => {
+      if (cmd.type === "session.setPermissionMode") {
+        return { sessionId: cmd.sessionId, permissionMode: cmd.mode };
+      }
+      return { ok: true };
+    });
+    await setSessionPermissionMode("s1", "auto");
+    expect(mocks.command).toHaveBeenCalledWith({ type: "session.setPermissionMode", sessionId: "s1", mode: "auto" });
+    expect(useAppStore.getState().sessions.s1?.permissionMode).toBe("auto");
+  });
+
+  it("session.permissionmode 事件同步桌面/其他设备的切换；快照携带档位", () => {
+    attachPairedRecord(record);
+    callback().onEvent({
+      type: "session.snapshot",
+      sessions: [{ ...session, status: "idle", permissionMode: "never" }],
+      pendingPermissions: [],
+      pendingQuestions: [],
+    });
+    expect(useAppStore.getState().sessions.s1?.permissionMode).toBe("never");
+    callback().onEvent({ type: "session.permissionmode", sessionId: "s1", mode: "ask" });
+    expect(useAppStore.getState().sessions.s1?.permissionMode).toBe("ask");
+  });
+
+  it("replyPermission 显式 scope；普通批准不带 scope（缺省 once）", async () => {
+    attachPairedRecord(record);
+    useAppStore.getState().setSessions([session]);
+    useAppStore
+      .getState()
+      .pushPermission({ requestId: "p1", sessionId: "s1", toolName: "bash", args: {}, risk: "write" });
+    mocks.command.mockResolvedValue({ ok: true });
+    await replyPermission("p1", true, "project");
+    expect(mocks.command).toHaveBeenCalledWith({
+      type: "permission.reply",
+      requestId: "p1",
+      approved: true,
+      scope: "project",
+    });
+    expect(useAppStore.getState().permissions).toHaveLength(0);
+
+    useAppStore
+      .getState()
+      .pushPermission({ requestId: "p2", sessionId: "s1", toolName: "bash", args: {}, risk: "write" });
+    await replyPermission("p2", true);
+    expect(mocks.command).toHaveBeenCalledWith({ type: "permission.reply", requestId: "p2", approved: true });
   });
 });
 

@@ -6,6 +6,7 @@
 import type {
   ModelInfo,
   ModelRef,
+  PermissionMode,
   QuestionAnswers,
   RelayMode,
   RemoteEvent as RemoteEventExt,
@@ -209,6 +210,10 @@ function handleEvent(event: RemoteEventExt): void {
         supportedThinkingLevels: event.supportedThinkingLevels,
       });
       break;
+    case "session.permissionmode":
+      // 桌面输入框或另一台设备切换档位后同步本端会话设置页
+      s.patchSession(event.sessionId, { permissionMode: event.mode });
+      break;
     case "permission.request":
       s.pushPermission(event.request);
       s.patchSession(event.request.sessionId, { status: "waiting_permission" });
@@ -390,6 +395,8 @@ export async function createSession(input: {
   const data = await send<{ sessionId: string }>({
     type: "session.create",
     mode: input.mode,
+    // 手机端新建会话固定总不询问（减少远程交互）；随后可在会话设置里切换
+    permissionMode: "never",
     ...(input.prompt?.trim() ? { prompt: input.prompt.trim() } : {}),
     ...(input.mode === "project" && input.cwd ? { cwd: input.cwd } : {}),
     ...(input.model ? { model: input.model } : {}),
@@ -441,13 +448,24 @@ export async function setSessionThinkingLevel(sessionId: string, level: string):
   });
 }
 
+/** 切换会话权限模式；桌面确认后本地生效，其他设备经 session.permissionmode 事件同步 */
+export async function setSessionPermissionMode(sessionId: string, mode: PermissionMode): Promise<void> {
+  const info = await send<SessionInfo>({ type: "session.setPermissionMode", sessionId, mode });
+  useAppStore.getState().patchSession(sessionId, { permissionMode: info.permissionMode ?? mode });
+}
+
 export async function abortSession(sessionId: string): Promise<void> {
   await send({ type: "session.abort", sessionId });
 }
 
-/** 权限/提问回复：只有桌面确认后才撤卡；失败原样抛出，由卡片保留内容并允许手动重试。 */
-export async function replyPermission(requestId: string, approved: boolean): Promise<void> {
-  await send({ type: "permission.reply", requestId, approved });
+/** 权限/提问回复：只有桌面确认后才撤卡；失败原样抛出，由卡片保留内容并允许手动重试。
+ * scope 显式授权作用域（once/session/project）；缺省 once，不沉淀持久规则。 */
+export async function replyPermission(
+  requestId: string,
+  approved: boolean,
+  scope?: import("@spcode/shared").PermissionScope,
+): Promise<void> {
+  await send({ type: "permission.reply", requestId, approved, ...(scope ? { scope } : {}) });
   useAppStore.getState().dropPermission(requestId);
 }
 

@@ -17,7 +17,9 @@
     "./proxy": "./src/proxy.ts",
     "./i18n": "./src/i18n/index.ts",
     "./i18n/build": "./src/i18n/build.ts",
-    "./questions": "./src/questions.ts"
+    "./questions": "./src/questions.ts",
+    "./task-runtime": "./src/task-runtime.ts",
+    "./context": "./src/context.ts"
   },
   "dependencies": {
     "i18next": "^26.5.5",

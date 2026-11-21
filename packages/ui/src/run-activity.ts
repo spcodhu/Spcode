@@ -1,6 +1,6 @@
 /**
  * 一次任务运行的展示切分（纯函数，双端共用）。
- * 连续的思考/工具调用合成活动组，正文按到达顺序内联；结束后只保留最终总结。
+ * 正文、思考与同名工具组按到达顺序平级排列；结束后仅分离末尾正文作为总结。
  */
 
 import type { RemoteToolCall } from "@spcode/shared";
@@ -10,11 +10,10 @@ export type RunSegment =
   | { kind: "text"; id: string; text: string }
   | { kind: "tools"; id: string; calls: RemoteToolCall[] };
 
-export type ActivitySegment = Exclude<RunSegment, { kind: "text" }>;
-
 export type RunBlock =
   | { kind: "text"; key: string; text: string }
-  | { kind: "activity"; key: string; segments: ActivitySegment[] };
+  | { kind: "thinking"; key: string; text: string; done: boolean }
+  | { kind: "tools"; key: string; calls: RemoteToolCall[] };
 
 export type RunTextBlock = Extract<RunBlock, { kind: "text" }>;
 
@@ -26,9 +25,19 @@ export function buildRunBlocks(segments: RunSegment[]): RunBlock[] {
       blocks.push({ kind: "text", key: seg.id, text: seg.text });
       continue;
     }
-    const last = blocks[blocks.length - 1];
-    if (last?.kind === "activity") last.segments.push(seg);
-    else blocks.push({ kind: "activity", key: seg.id, segments: [seg] });
+    if (seg.kind === "thinking") {
+      if (seg.done && !seg.text.trim()) continue;
+      blocks.push({ kind: "thinking", key: seg.id, text: seg.text, done: seg.done });
+      continue;
+    }
+    for (const call of seg.calls) {
+      const last = blocks[blocks.length - 1];
+      if (last?.kind === "tools" && last.calls[0]?.name.toLowerCase() === call.name.toLowerCase()) {
+        last.calls.push(call);
+      } else {
+        blocks.push({ kind: "tools", key: `tools:${call.id}`, calls: [call] });
+      }
+    }
   }
   return blocks;
 }

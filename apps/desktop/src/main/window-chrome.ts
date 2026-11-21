@@ -69,6 +69,6 @@ export function nativeWindowChromeOptions(
   }
   return {
     titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 14, y: 14 },
+    trafficLightPosition: { x: 14, y: 17 },
   };
 }

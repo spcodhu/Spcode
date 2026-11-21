@@ -43,9 +43,9 @@ export class MemoryStore {
   private seedDefaults(): void {
     this.seedIfMissing(
       "SOUL.md",
-      `# SOUL.md - Spcod's personality
+      `# SOUL.md - Spcode's personality
 
-You are Spcod, the assistant in a Pi-powered agentic coding workbench.
+You are Spcode, the assistant in a Pi-powered agentic coding workbench.
 
 - Get things done directly. Skip filler and openings such as "Sure, I can help."
 - Exercise your own judgment: you may disagree or prefer an approach, and explain why.
@@ -150,9 +150,9 @@ You are Spcod, the assistant in a Pi-powered agentic coding workbench.
     }
     if (parts.length === 0) return "";
     return [
-      "# Spcod Memory",
+      "# Spcode Memory",
       "",
-      "These are Spcod's layered memories: facts learned over time about the user and projects.",
+      "These are Spcode's layered memories: facts learned over time about the user and projects.",
       "Prefer them over general assumptions. If they conflict with new information in this conversation, use the new information and correct the memory during distillation.",
       "",
       parts.join("\n\n"),

@@ -16,6 +16,8 @@ import {
   type HostEvent,
   isModelEnabled,
   type ModelInfo,
+  normalizePermissionMode,
+  type PermissionRequest,
   type RemoteCommand,
   type ScheduleTask,
   type ScheduleTaskInput,
@@ -27,6 +29,7 @@ import {
   backfillSessionFile,
   isDefaultTitle,
   type RegistryLike,
+  rememberProjectPermissionRules,
   removeSession,
   renameSession,
 } from "../session-helpers.js";
@@ -34,8 +37,15 @@ import {
 export interface RemoteBridge {
   call<T = unknown>(cmd: Extract<HostCommand, { id: string }>): Promise<T>;
   /** by 标记裁决来源（默认 "local"）；远程端调用传 "remote"，用于双端撤卡的 permission.resolved 事件 */
-  replyPermission(requestId: string, approved: boolean, by?: "local" | "remote"): void;
+  replyPermission(
+    requestId: string,
+    approved: boolean,
+    by?: "local" | "remote",
+    scope?: import("@spcode/shared").PermissionScope,
+  ): boolean;
   replyQuestion(requestId: string, answers: import("@spcode/shared").QuestionAnswers): void;
+  /** 「总允许」落规则前读取真实待决请求（AgentBridge 同名方法）；测试桩可省略 */
+  getPendingPermission?(requestId: string): PermissionRequest | null;
   /** 主进程本地事件广播（session.renamed / sessions.changed）；测试桩可省略 */
   emitLocal?(event: HostEvent): void;
 }
@@ -50,6 +60,8 @@ export interface RemoteScheduler {
 
 export interface RemoteSettingsReader {
   get(): AppSettings;
+  /** 「总允许」沉淀项目规则时写设置（SettingsStore.set）；测试桩可省略，省略时退化为单次批准 */
+  set?(patch: Partial<AppSettings>): unknown;
 }
 
 export interface RemoteHandlerDeps {
@@ -144,13 +156,36 @@ export async function handleRemoteCommand(cmd: RemoteCommand, deps: RemoteHandle
       });
       return info;
     }
+    case "session.setPermissionMode": {
+      const entry = deps.registry.get(cmd.sessionId);
+      if (!entry) throw new Error(i18n.t("integration:session.missing", { id: cmd.sessionId }));
+      const mode = normalizePermissionMode(cmd.mode);
+      if (!mode) throw new Error(i18n.t("integration:remote.invalidPermissionMode", { mode: String(cmd.mode) }));
+      const info = await deps.bridge.call<SessionInfo>(
+        withId({ type: "session.setPermissionMode", payload: { sessionId: cmd.sessionId, mode } }),
+      );
+      // 宿主会发 session.permissionmode（主进程持久化 + 聚合器透传各端）；
+      // 这里再写一次注册表保证档位不依赖事件链（档位未变时宿主不发事件）。
+      deps.registry.patch(cmd.sessionId, { permissionMode: mode });
+      return info;
+    }
     case "session.subscribe":
       // M1：所有 RemoteEvent 本就广播给全部已配对设备，订阅无需登记
       return { ok: true };
-    case "permission.reply":
+    case "permission.reply": {
+      // 显式 scope 协议；旧缓存客户端的 rememberProject 不再沉淀持久规则（仅单次）
+      const scope = cmd.scope ?? "once";
+      const settingsSet = deps.settings.set?.bind(deps.settings);
+      if (cmd.approved && scope === "project" && settingsSet) {
+        rememberProjectPermissionRules(
+          { get: () => deps.settings.get(), set: settingsSet },
+          deps.bridge.getPendingPermission?.(cmd.requestId) ?? null,
+        );
+      }
       // by="remote"：AgentBridge 据此广播 permission.resolved，桌面端批准卡同步撤销（M3 双端撤卡）
-      deps.bridge.replyPermission(cmd.requestId, cmd.approved, "remote");
+      deps.bridge.replyPermission(cmd.requestId, cmd.approved, "remote", scope);
       return { ok: true };
+    }
     case "question.reply":
       deps.bridge.replyQuestion(cmd.requestId, cmd.answers);
       return { ok: true };
@@ -200,6 +235,8 @@ async function createSession(
     ? requestedModel
     : null;
   const thinkingLevel = settings.defaultThinkingLevel;
+  // 手机端新建会话固定传 never（减少远程交互）；旧客户端缺省/非法值回落桌面设置默认档
+  const permissionMode = normalizePermissionMode(cmd.permissionMode) ?? settings.permissionMode;
   const now = Date.now();
   deps.registry.upsert({
     id: sessionId,
@@ -209,13 +246,14 @@ async function createSession(
     titleKind: "default",
     model,
     thinkingLevel,
+    permissionMode,
     sessionFile: null,
     createdAt: now,
     updatedAt: now,
   });
   const createCmd = withId({
     type: "session.create",
-    payload: { sessionId, mode, cwd, model: model ?? undefined, thinkingLevel },
+    payload: { sessionId, mode, cwd, model: model ?? undefined, thinkingLevel, permissionMode },
   });
   const info = await deps.bridge.call(createCmd);
   backfillSessionFile(createCmd, info, deps.registry);

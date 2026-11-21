@@ -1,5 +1,5 @@
 appId: com.spcode.app
-productName: Spcod
+productName: Spcode
 copyright: Copyright © 2026 spcodhu
 
 directories:
@@ -49,7 +49,7 @@ nsis:
   artifactName: "${productName}-Setup-${version}.${ext}"
   oneClick: false
   allowToChangeInstallationDirectory: true
-  shortcutName: Spcod
+  shortcutName: Spcode
 
 # 自动更新源：GitHub Releases（updater.ts 的 UPDATE_OWNER/UPDATE_REPO 与此保持一致）
 publish:

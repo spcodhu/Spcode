@@ -123,7 +123,7 @@ describe("权限回复与危险确认", () => {
     await act(async () => pointer(hold, "pointercancel", 2));
     await act(async () => vi.advanceTimersByTime(1100));
     expect(mocks.replyPermission).toHaveBeenCalledTimes(1);
-    expect(mocks.replyPermission).toHaveBeenCalledWith("danger-1", true);
+    expect(mocks.replyPermission).toHaveBeenCalledWith("danger-1", true, undefined);
   });
 
   it("pointercancel/lost capture 会取消；卸载后迟到计时器不提交", async () => {
@@ -158,7 +158,47 @@ describe("权限回复与危险确认", () => {
     await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="danger-reviewed"]')!.click());
     expect(mocks.replyPermission).not.toHaveBeenCalled();
     await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="danger-confirm"]')!.click());
-    expect(mocks.replyPermission).toHaveBeenCalledWith("danger-1", true);
+    expect(mocks.replyPermission).toHaveBeenCalledWith("danger-1", true, undefined);
+  });
+});
+
+describe("总允许（项目规则沉淀）", () => {
+  const projectPermission: PermissionRequest = { ...permission, cwd: "/code/demo" };
+
+  it("bash + 项目 cwd：展示总允许与规则提示，点击后 scope=project", async () => {
+    mocks.replyPermission.mockResolvedValue(undefined);
+    await render(createElement(PermissionCard, { request: projectPermission }));
+    const always = document.querySelector<HTMLButtonElement>('[data-testid="permission-allow-always"]')!;
+    expect(always).not.toBeNull();
+    expect(document.body.textContent).toContain("echo 完整参数");
+    await act(async () => always.click());
+    expect(mocks.replyPermission).toHaveBeenCalledWith("p1", true, "project");
+  });
+
+  it("无项目 cwd / 非 shell 工具 / bypass 都不展示总允许", async () => {
+    mocks.replyPermission.mockResolvedValue(undefined);
+    await render(createElement(PermissionCard, { request: permission }));
+    expect(document.querySelector('[data-testid="permission-allow-always"]')).toBeNull();
+
+    await render(createElement(PermissionCard, { request: { ...projectPermission, toolName: "edit" } }));
+    expect(document.querySelector('[data-testid="permission-allow-always"]')).toBeNull();
+
+    await render(createElement(PermissionCard, { request: { ...projectPermission, bypass: true } }));
+    expect(document.querySelector('[data-testid="permission-allow-always"]')).toBeNull();
+  });
+
+  it("danger 仅单次批准：核对参数后确认，不提供任何持久免审批入口", async () => {
+    mocks.replyPermission.mockResolvedValue(undefined);
+    await render(createElement(PermissionCard, { request: { ...danger, cwd: "/code/demo" } }));
+    expect(document.querySelector('[data-testid="permission-allow-always-danger"]')).toBeNull();
+    expect(document.querySelector('[data-testid="permission-allow-always"]')).toBeNull();
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="danger-reviewed"]')!.click());
+    // 核对后仍只有单次确认，没有危险总允许按钮
+    expect(document.querySelector('[data-testid="permission-allow-always-danger"]')).toBeNull();
+    const confirm = document.querySelector<HTMLButtonElement>('[data-testid="danger-confirm"]')!;
+    expect(confirm).not.toBeNull();
+    await act(async () => confirm.click());
+    expect(mocks.replyPermission).toHaveBeenCalledWith("danger-1", true, undefined);
   });
 });
 

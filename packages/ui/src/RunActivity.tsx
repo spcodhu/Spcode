@@ -1,43 +1,36 @@
 import type { RemoteToolCall } from "@spcode/shared";
 import { i18n } from "@spcode/shared/i18n";
 import type { ThemeBase } from "@spcode/shared/theme";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { DiffPatch } from "./DiffPatch";
 import { Markdown } from "./Markdown";
 import {
-  type ActivitySegment,
   buildRunBlocks,
   currentRunProgress,
-  type RunBlock,
   type RunSegment,
   type RunTextBlock,
   splitCompletedRun,
 } from "./run-activity";
 import { isCommandTool, summarizeArgs, toolLabel } from "./tooling";
 
-/** 可预览本地文件的工具：这三个的 args.path 是模型在本会话中读写过的真实文件路径 */
 const PREVIEWABLE_TOOLS = new Set(["read", "write", "edit"]);
+const ICON_PATHS = {
+  check: "M20 6 9 17l-5-5",
+  error: "M12 8v5m0 4h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0",
+  list: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
+  chevronRight: "m9 18 6-6-6-6",
+  panelRight: "M3 4h18v16H3zm12 0v16",
+  thinking: "M9 18h6m-5 3h4M8 14a6 6 0 1 1 8 0c-1 1-1 2-1 2H9s0-1-1-2Z",
+  file: "M14 3H5v18h14V8Zm0 0v5h5M8 12h8m-8 4h6",
+  edit: "m14 5 5 5M5 19l4-1L20 7a2 2 0 0 0-4-4L5 14ZM4 22h16",
+  terminal: "m5 7 5 5-5 5m8 0h6",
+  tool: "m8 4-6 8 6 8m8-16 6 8-6 8M14 3l-4 18",
+} as const;
 
-function RunIcon({
-  name,
-  size = 16,
-  className,
-  strokeWidth = 1.8,
-}: {
-  name: "check" | "x" | "chevronRight" | "panelRight";
-  size?: number;
-  className?: string;
-  strokeWidth?: number;
-}) {
-  const d =
-    name === "check"
-      ? "M20 6 9 17l-5-5"
-      : name === "x"
-        ? "M18 6 6 18M6 6l12 12"
-        : name === "chevronRight"
-          ? "m9 18 6-6-6-6"
-          : "M3 4h18v16H3zm12 0v16";
+type IconName = keyof typeof ICON_PATHS;
+
+function RunIcon({ name, size = 14, className }: { name: IconName; size?: number; className?: string }) {
   return (
     <svg
       width={size}
@@ -45,18 +38,47 @@ function RunIcon({
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={strokeWidth}
+      strokeWidth={1.5}
       strokeLinecap="round"
       strokeLinejoin="round"
       className={className}
       aria-hidden
     >
-      <path d={d} />
+      <path d={ICON_PATHS[name]} />
     </svg>
   );
 }
 
-/** 双端共用的运行时间线：活动组、逐步工具状态、折叠过程与当前动作完全一致。 */
+function Spinner() {
+  return (
+    <span
+      aria-hidden
+      className="size-3 shrink-0 animate-spin rounded-full border-[1.5px] border-border border-t-text-secondary motion-reduce:animate-none"
+    />
+  );
+}
+
+function NodeIcon({ name, running = false, error = false }: { name: IconName; running?: boolean; error?: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={`absolute top-1 left-0 flex h-5 w-5 items-center justify-center bg-bg-root ${error ? "text-danger" : "text-text-tertiary"}`}
+    >
+      {running ? <Spinner /> : <RunIcon name={error ? "error" : name} />}
+    </span>
+  );
+}
+
+function Chevron({ open, size = 11 }: { open: boolean; size?: number }) {
+  return (
+    <RunIcon
+      name="chevronRight"
+      size={size}
+      className={`shrink-0 text-text-tertiary transition-transform duration-150 motion-reduce:transition-none ${open ? "rotate-90" : ""}`}
+    />
+  );
+}
+
 export function RunActivityTimeline({
   segments,
   active,
@@ -71,257 +93,150 @@ export function RunActivityTimeline({
   progressSegment?: RunSegment;
   startedAt?: number;
   themeBase?: ThemeBase;
-  /** 桌面注入本机 Plan 文件动作；手机缺省使用共享 Markdown。 */
   renderText?: (block: RunTextBlock) => ReactNode;
-  /** 桌面注入：点击 read/write/edit 调用行的预览入口，传回该次调用的原始路径；缺省不显示该入口。 */
-  onOpenFile?: (rawPath: string) => void;
-}) {
-  const blocks = buildRunBlocks(segments);
-  const renderBlock = (block: RunTextBlock): ReactNode =>
-    renderText ? renderText(block) : <Markdown key={block.key} text={block.text} themeBase={themeBase} />;
-  if (!active) {
-    const { process, summary } = splitCompletedRun(blocks);
-    return process.length > 0 ? (
-      <RunProcess blocks={process} summary={summary} renderText={renderBlock} onOpenFile={onOpenFile} />
-    ) : (
-      summary && renderBlock(summary)
-    );
-  }
-
-  const activeGroupIdx = blocks[blocks.length - 1]?.kind === "activity" ? blocks.length - 1 : -1;
-  const progress = currentRunProgress(progressSegment);
-  return (
-    <>
-      {blocks.map((block, i) =>
-        block.kind === "text" ? (
-          renderBlock(block)
-        ) : (
-          <ActivityGroup
-            key={block.key}
-            segments={block.segments}
-            active={i === activeGroupIdx}
-            startedAt={i === activeGroupIdx ? startedAt : undefined}
-            onOpenFile={onOpenFile}
-          />
-        ),
-      )}
-      <RunProgress state={progress} />
-    </>
-  );
-}
-
-function ActivityGroup({
-  segments,
-  active,
-  startedAt,
-  onOpenFile,
-}: {
-  segments: ActivitySegment[];
-  active: boolean;
-  startedAt?: number;
   onOpenFile?: (rawPath: string) => void;
 }) {
   const { t } = useTranslation("chat");
-  const [open, setOpen] = useState(active);
-  useEffect(() => setOpen(active), [active]);
+  const [open, setOpen] = useState(true);
+  const bodyId = useId();
   const elapsed = useElapsedSeconds(startedAt, active);
-
-  return (
-    <div className="mb-1 min-w-0" data-testid="run-activity" data-state={active ? "running" : "done"}>
-      <ActivityHeader
-        open={open}
-        onToggle={() => setOpen(!open)}
-        testId="run-activity-header"
-        label={
-          <>
-            {t(active ? "message.running" : "message.processed")}
-            {elapsed !== undefined && <span className="tabular-nums"> · {t("run.seconds", { seconds: elapsed })}</span>}
-          </>
-        }
-      />
-      <div className="collapse-grid" data-open={open} aria-hidden={!open} inert={!open}>
-        <div className="collapse-inner">
-          <div className="ml-[10px] border-l border-border pb-1 pl-4">
-            <div className="min-w-0 space-y-0.5" data-testid="run-activity-steps">
-              {segments.map((seg) =>
-                seg.kind === "thinking" ? (
-                  <ThinkingRow key={seg.id} text={seg.text} streaming={!seg.done && active} />
-                ) : (
-                  <ToolRowGroup key={seg.id} calls={seg.calls} onOpenFile={onOpenFile} />
-                ),
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ActivityHeader({
-  open,
-  onToggle,
-  label,
-  testId,
-}: {
-  open: boolean;
-  onToggle: () => void;
-  label: ReactNode;
-  testId: string;
-}) {
-  return (
-    <button
-      type="button"
-      aria-expanded={open}
-      onClick={onToggle}
-      data-testid={testId}
-      className="group grid min-h-8 w-full grid-cols-[20px_minmax(0,1fr)] items-center gap-2 rounded-md py-1.5 text-left text-[13px] leading-5 text-text-tertiary transition-colors hover:text-text-secondary"
-    >
-      <span className="flex size-5 items-center justify-center rounded-md border border-border bg-bg-elevated text-text-tertiary shadow-sm transition-colors group-hover:text-text-secondary">
-        <RunIcon
-          name="chevronRight"
-          size={12}
-          className={`transition-transform duration-150 ${open ? "rotate-90" : ""}`}
-        />
-      </span>
-      <span className="min-w-0 truncate">{label}</span>
-    </button>
-  );
-}
-
-function RunProcess({
-  blocks,
-  summary,
-  renderText,
-  onOpenFile,
-}: {
-  blocks: RunBlock[];
-  summary?: RunTextBlock;
-  renderText: (block: RunTextBlock) => ReactNode;
-  onOpenFile?: (rawPath: string) => void;
-}) {
-  const { t } = useTranslation("chat");
-  const [open, setOpen] = useState(false);
-  let toolCount = 0;
-  let failedCount = 0;
-  for (const block of blocks) {
-    if (block.kind !== "activity") continue;
-    for (const seg of block.segments) {
-      if (seg.kind !== "tools") continue;
-      toolCount += seg.calls.length;
-      failedCount += seg.calls.filter((call) => call.status === "error").length;
-    }
-  }
-  const label =
-    toolCount === 0
-      ? t("message.processed")
-      : failedCount > 0
-        ? t("message.toolsRanWithFailures", { count: toolCount, failed: failedCount })
-        : t("message.toolsRan", { count: toolCount });
+  const blocks = buildRunBlocks(segments);
+  const { process, summary } = active ? { process: blocks, summary: undefined } : splitCompletedRun(blocks);
+  const progress = currentRunProgress(progressSegment);
+  const calls = blocks.flatMap((block) => (block.kind === "tools" ? block.calls : []));
+  const failedCount = calls.filter((call) => call.status === "error").length;
+  const hasProcess = active || process.length > 0;
+  const renderBlock = (block: RunTextBlock): ReactNode =>
+    renderText ? renderText(block) : <Markdown text={block.text} themeBase={themeBase} />;
 
   return (
     <>
-      <div className="mb-1 min-w-0" data-testid="run-process" data-state={open ? "expanded" : "collapsed"}>
-        <ActivityHeader
-          open={open}
-          onToggle={() => setOpen(!open)}
-          testId="run-process-header"
-          label={<span className="tabular-nums">{label}</span>}
-        />
-        <div className="collapse-grid" data-open={open} aria-hidden={!open} inert={!open}>
-          <div className="collapse-inner">
-            <div className="min-w-0" data-testid="run-process-body">
-              {blocks.map((block) =>
-                block.kind === "text" ? (
-                  renderText(block)
-                ) : (
-                  <ActivityGroup key={block.key} segments={block.segments} active={false} onOpenFile={onOpenFile} />
-                ),
+      {hasProcess && (
+        <div
+          className="mb-2 min-w-0"
+          data-testid="run-process"
+          data-state={open ? "expanded" : "collapsed"}
+          data-active={active}
+        >
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-controls={bodyId}
+            onClick={() => setOpen(!open)}
+            data-testid="run-process-header"
+            className="group flex min-h-10 w-full min-w-0 items-center gap-2.5 rounded-lg border border-border/70 bg-bg-hover/35 px-3 py-2 text-left text-[13px] leading-5 font-medium text-text-primary transition-colors hover:border-border hover:bg-bg-hover/60 motion-reduce:transition-none"
+          >
+            <span
+              className="flex size-6 shrink-0 items-center justify-center rounded-md bg-bg-root text-text-secondary"
+              data-testid="run-process-icon"
+            >
+              <RunIcon name="list" size={15} />
+            </span>
+            <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              {active ? <RunProgress state={progress} /> : <span>{t("run.process")}</span>}
+              {elapsed !== undefined && (
+                <span className="shrink-0 text-[11px] text-text-tertiary tabular-nums" data-testid="run-elapsed">
+                  ·{" "}
+                  {elapsed < 60
+                    ? t("run.seconds", { seconds: elapsed })
+                    : t("run.minutesSeconds", { minutes: Math.floor(elapsed / 60), seconds: elapsed % 60 })}
+                </span>
               )}
+              {calls.length > 0 && (
+                <span className="shrink-0 text-[11px] text-text-tertiary tabular-nums" data-testid="run-tool-count">
+                  · {t("run.toolCalls", { count: calls.length })}
+                </span>
+              )}
+              {failedCount > 0 && (
+                <span className="shrink-0 text-[11px] text-danger tabular-nums" data-testid="run-failed-count">
+                  · {t("run.failedCalls", { count: failedCount })}
+                </span>
+              )}
+            </span>
+            <span className="flex size-6 shrink-0 items-center justify-center rounded-md text-text-secondary group-hover:bg-bg-root/70">
+              <Chevron open={open} size={14} />
+            </span>
+          </button>
+          <div id={bodyId} className="collapse-grid" data-open={open} aria-hidden={!open} inert={!open}>
+            <div className="collapse-inner">
+              <ol className="min-w-0 pt-1" data-testid="run-process-body">
+                {process.map((block) => (
+                  <li
+                    key={block.key}
+                    data-testid="run-timeline-item"
+                    data-kind={block.kind}
+                    className="relative min-w-0 pb-2 pl-7 before:absolute before:top-6 before:bottom-0 before:left-[9px] before:w-px before:bg-border last:pb-1 last:before:hidden"
+                  >
+                    {block.kind === "text" ? (
+                      <>
+                        <span
+                          aria-hidden
+                          className={`absolute top-2.5 left-[7px] size-[5px] rounded-full ${active && progressSegment?.id === block.key ? "animate-pulse bg-text-tertiary motion-reduce:animate-none" : "bg-border-strong"}`}
+                        />
+                        <div data-testid="run-stage-output" className="min-w-0 pb-1 [&_.md-body]:mb-0">
+                          {renderBlock(block)}
+                        </div>
+                      </>
+                    ) : block.kind === "thinking" ? (
+                      <ThinkingRow text={block.text} streaming={active && !block.done} />
+                    ) : (
+                      <ToolRowGroup calls={block.calls} active={active} onOpenFile={onOpenFile} />
+                    )}
+                  </li>
+                ))}
+              </ol>
             </div>
           </div>
         </div>
-      </div>
-      {summary && renderText(summary)}
+      )}
+      {summary && (
+        <div data-testid="run-summary" className={hasProcess ? "mt-3 min-w-0 border-t border-border pt-4" : "min-w-0"}>
+          {renderBlock(summary)}
+        </div>
+      )}
     </>
   );
 }
 
 function useElapsedSeconds(startedAt: number | undefined, active: boolean): number | undefined {
-  const [now, setNow] = useState(() => Date.now());
+  const [elapsed, setElapsed] = useState<number>();
   useEffect(() => {
     if (!active || startedAt === undefined) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 1000);
+    const update = () => setElapsed(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    update();
+    const timer = setInterval(update, 1000);
     return () => clearInterval(timer);
   }, [active, startedAt]);
-  if (!active || startedAt === undefined) return undefined;
-  return Math.max(0, Math.floor((now - startedAt) / 1000));
-}
-
-function StepStatusIcon({ status }: { status: "running" | "done" | "error" }) {
-  if (status === "running") {
-    return (
-      <span
-        aria-hidden
-        className="size-3.5 shrink-0 animate-spin rounded-full border-[1.5px] border-border-strong border-t-text-tertiary motion-reduce:animate-none"
-      />
-    );
-  }
-  return (
-    <span
-      aria-hidden
-      className={`flex size-3.5 shrink-0 items-center justify-center rounded-full text-on-accent ${
-        status === "error" ? "bg-danger" : "bg-success"
-      }`}
-    >
-      <RunIcon name={status === "error" ? "x" : "check"} size={9} strokeWidth={3} />
-    </span>
-  );
+  return elapsed;
 }
 
 function RunProgress({ state }: { state: ReturnType<typeof currentRunProgress> }) {
   const { t } = useTranslation("chat");
   const label =
     state.kind === "tool"
-      ? toolStepTitle(state.call.name, state.call.status)
+      ? isCommandTool(state.call.name)
+        ? t("run.command")
+        : t("run.tool", { tool: toolLabel(state.call.name) })
       : state.kind === "thinking"
         ? t("message.thinking")
         : state.kind === "output"
           ? t("run.output")
           : t("message.continueThinking");
   const detail = state.kind === "tool" ? summarizeArgs(state.call.name, state.call.args) : "";
-
   return (
-    <div
-      className="flex min-h-7 min-w-0 items-center gap-2 px-0.5 py-1 text-[13px] leading-5 text-text-tertiary"
+    <span
+      className="flex min-w-0 max-w-full items-baseline gap-1.5"
       data-testid="run-progress"
       data-kind={state.kind}
       data-tool={state.kind === "tool" ? state.call.name : undefined}
     >
-      <span className="flex size-5 shrink-0 items-center justify-center" aria-hidden>
-        <span className="grid grid-cols-2 gap-[3px]">
-          {[0, 1, 2, 3].map((i) => (
-            <span
-              key={i}
-              className="size-[3px] animate-pulse rounded-full bg-text-tertiary"
-              style={{ animationDelay: `${i * 140}ms` }}
-            />
-          ))}
+      <span className="shrink-0">{label}</span>
+      {detail && (
+        <span className="mono min-w-0 truncate text-[11px] text-text-tertiary" title={detail}>
+          · {detail}
         </span>
-      </span>
-      <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
-        <span className="thinking-shimmer shrink-0">{label}</span>
-        {detail && (
-          <>
-            <span className="shrink-0 text-text-tertiary">·</span>
-            <span className="mono min-w-0 truncate text-[12px] text-text-tertiary" title={detail}>
-              {detail}
-            </span>
-          </>
-        )}
-      </span>
-    </div>
+      )}
+    </span>
   );
 }
 
@@ -333,6 +248,7 @@ function firstLine(text: string): string {
 function ThinkingRow({ text, streaming }: { text: string; streaming: boolean }) {
   const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
+  const bodyId = useId();
   const bodyRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
 
@@ -343,43 +259,34 @@ function ThinkingRow({ text, streaming }: { text: string; streaming: boolean }) 
   // biome-ignore lint/correctness/useExhaustiveDependencies: text 仅作内容增长信号驱动滚动
   useEffect(() => {
     const el = bodyRef.current;
-    if (streaming && el && stickRef.current) el.scrollTop = el.scrollHeight;
-  }, [text, streaming]);
-
-  if (!streaming && !text.trim()) return null;
-  const preview = firstLine(text);
-  const expanded = streaming || open;
+    if (streaming && open && el && stickRef.current) el.scrollTop = el.scrollHeight;
+  }, [text, streaming, open]);
 
   return (
     <div className="min-w-0" data-testid="run-thinking">
+      <NodeIcon name="thinking" running={streaming} />
       <button
         type="button"
-        aria-expanded={expanded}
+        aria-expanded={open}
+        aria-controls={bodyId}
         onClick={() => setOpen(!open)}
-        className="group flex min-h-6 w-full min-w-0 items-center gap-2 rounded-md py-0.5 text-left transition-colors hover:bg-bg-hover/40"
+        className="flex min-h-7 w-full min-w-0 items-center gap-2 rounded py-0.5 text-left text-[12px] leading-5 hover:bg-bg-hover/40"
       >
-        <StepStatusIcon status={streaming ? "running" : "done"} />
-        <span className="min-w-0 flex-1 truncate text-[13px] leading-5">
-          <span className={streaming ? "thinking-shimmer" : "text-text-secondary"}>
-            {t(streaming ? "message.thinking" : "message.thought")}
-          </span>
-          {!streaming && preview && (
-            <>
-              <span className="text-text-tertiary"> · </span>
-              <span className="text-text-tertiary">{preview}</span>
-            </>
-          )}
+        <span className={`shrink-0 ${streaming ? "text-text-primary" : "text-text-secondary"}`}>
+          {t(streaming ? "message.thinking" : "run.thought")}
         </span>
+        <span className="min-w-0 flex-1 truncate text-[11px] text-text-tertiary">{firstLine(text)}</span>
+        <Chevron open={open} />
       </button>
-      <div className="collapse-grid" data-open={expanded} aria-hidden={!expanded} inert={!expanded}>
+      <div id={bodyId} className="collapse-grid" data-open={open} aria-hidden={!open} inert={!open}>
         <div className="collapse-inner">
           <div
             ref={bodyRef}
-            onScroll={(e) => {
-              const el = e.currentTarget;
+            onScroll={(event) => {
+              const el = event.currentTarget;
               stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
             }}
-            className="ml-5 mt-0.5 mb-1 max-h-48 overflow-y-auto whitespace-pre-wrap rounded-md bg-bg-elevated/70 px-2.5 py-1.5 text-[11.5px] leading-5 text-text-tertiary"
+            className="mt-1.5 max-h-48 overflow-y-auto whitespace-pre-wrap break-words rounded-md bg-bg-hover/50 px-3 py-2 text-[11.5px] leading-5 text-text-secondary"
           >
             {text || "…"}
           </div>
@@ -389,100 +296,151 @@ function ThinkingRow({ text, streaming }: { text: string; streaming: boolean }) 
   );
 }
 
-function toolStepTitle(name: string, status: RemoteToolCall["status"]): string {
-  if (!isCommandTool(name)) return toolLabel(name);
-  if (status === "running") return i18n.t("chat:message.commandRunning");
-  if (status === "error") return i18n.t("chat:message.commandError");
-  return i18n.t("chat:message.commandDone");
+function toolIcon(name: string): IconName {
+  if (isCommandTool(name)) return "terminal";
+  if (name.toLowerCase() === "read") return "file";
+  if (name.toLowerCase() === "write" || name.toLowerCase() === "edit") return "edit";
+  return "tool";
 }
 
-function ToolRowGroup({ calls, onOpenFile }: { calls: RemoteToolCall[]; onOpenFile?: (rawPath: string) => void }) {
+function toolGroupTitle(name: string, count: number): string {
+  if (count === 1) return toolLabel(name);
+  return i18n.t("chat:run.toolGroup", { tool: toolLabel(name), count });
+}
+
+function FilePreview({ call, onOpenFile }: { call: RemoteToolCall; onOpenFile?: (rawPath: string) => void }) {
+  const { t } = useTranslation("chat");
+  const path = summarizeArgs(call.name, call.args);
+  if (!onOpenFile || !path || !PREVIEWABLE_TOOLS.has(call.name.toLowerCase())) return null;
   return (
-    <div className="min-w-0">
-      {calls.map((tc) => (
-        <ToolRow key={tc.id} toolCall={tc} onOpenFile={onOpenFile} />
-      ))}
-    </div>
+    <button
+      type="button"
+      data-testid="run-tool-preview"
+      title={`${t("message.previewFile")} · ${path}`}
+      aria-label={`${t("message.previewFile")} · ${path}`}
+      onClick={() => onOpenFile(path)}
+      className="shrink-0 rounded p-1 text-text-tertiary hover:bg-bg-hover hover:text-accent"
+    >
+      <RunIcon name="panelRight" size={13} />
+    </button>
   );
 }
 
-function ToolRow({ toolCall, onOpenFile }: { toolCall: RemoteToolCall; onOpenFile?: (rawPath: string) => void }) {
+function ToolRowGroup({
+  calls,
+  active,
+  onOpenFile,
+}: {
+  calls: RemoteToolCall[];
+  active: boolean;
+  onOpenFile?: (rawPath: string) => void;
+}) {
   const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
-  const error = toolCall.status === "error";
-  const summary = summarizeArgs(toolCall.name, toolCall.args);
-  // read/write/edit 的 args.path 是模型本次调用给到的真实文件路径，只有桌面端注入了 onOpenFile 才显示预览入口
-  const previewable = !!onOpenFile && !!summary && PREVIEWABLE_TOOLS.has(toolCall.name.toLowerCase());
+  const bodyId = useId();
+  const first = calls[0]!;
+  const failedCount = calls.filter((call) => call.status === "error").length;
+  const running = active && calls.some((call) => call.status === "running");
+  const status = running ? "running" : failedCount > 0 ? "error" : "done";
+  const summary = calls
+    .map((call) => summarizeArgs(call.name, call.args))
+    .filter(Boolean)
+    .join(" · ");
 
   return (
-    <div className="min-w-0" data-testid="run-tool-step" data-tool={toolCall.name} data-status={toolCall.status}>
-      <div className="flex min-w-0 items-center gap-0.5">
+    <div
+      className="min-w-0"
+      data-testid="run-tool-step"
+      data-tool={first.name}
+      data-status={status}
+      data-count={calls.length}
+    >
+      <NodeIcon name={toolIcon(first.name)} running={running} error={failedCount > 0} />
+      <div className="flex min-w-0 items-center gap-1">
         <button
           type="button"
           aria-expanded={open}
+          aria-controls={bodyId}
           onClick={() => setOpen(!open)}
-          className="flex min-h-6 min-w-0 flex-1 items-center gap-2 rounded-md py-0.5 text-left transition-colors hover:bg-bg-hover/40"
+          className="flex min-h-7 min-w-0 flex-1 items-center gap-2 rounded py-0.5 text-left text-[12px] leading-5 hover:bg-bg-hover/40"
         >
-          <StepStatusIcon status={toolCall.status} />
-          <span className="min-w-0 flex-1 truncate text-[13px] leading-5 text-text-secondary">
-            <span title={toolCall.name}>{toolStepTitle(toolCall.name, toolCall.status)}</span>
-            {summary && (
-              <>
-                <span className="text-text-tertiary"> · </span>
-                <span className="mono text-[12px] text-text-tertiary" title={summary}>
-                  {summary}
-                </span>
-              </>
+          <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
+            <span
+              className={`max-w-full break-words ${failedCount > 0 ? "text-danger" : running ? "text-text-primary" : "text-text-secondary"}`}
+            >
+              {toolGroupTitle(first.name, calls.length)}
+            </span>
+            <span className="mono min-w-0 flex-1 basis-24 truncate text-[11px] text-text-tertiary" title={summary}>
+              {summary}
+            </span>
+            {failedCount > 0 && (
+              <span data-testid="run-failed-count" className="shrink-0 text-[11px] text-danger">
+                {t("run.failedCalls", { count: failedCount })}
+              </span>
             )}
           </span>
+          <Chevron open={open} />
         </button>
-        {previewable && (
-          <button
-            type="button"
-            data-testid="run-tool-preview"
-            title={t("message.previewFile")}
-            aria-label={t("message.previewFile")}
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenFile?.(summary);
-            }}
-            className="shrink-0 rounded-md p-1 text-text-tertiary transition-colors hover:bg-bg-hover hover:text-accent"
-          >
-            <RunIcon name="panelRight" size={13} />
-          </button>
-        )}
+        {calls.length === 1 && <FilePreview call={first} onOpenFile={onOpenFile} />}
       </div>
-      <div className="collapse-grid" data-open={open} aria-hidden={!open} inert={!open}>
+      <div id={bodyId} className="collapse-grid" data-open={open} aria-hidden={!open} inert={!open}>
         <div className="collapse-inner">
           <div
-            className="ml-5 mt-1 mb-1 overflow-hidden rounded-md bg-bg-elevated/70 px-2.5 py-1.5"
+            className="mt-1.5 divide-y divide-border overflow-hidden rounded-md bg-bg-hover/50 px-3"
             data-testid="run-step-detail"
           >
-            {toolCall.patch ? (
-              <DiffPatch patch={toolCall.patch} />
-            ) : (
-              <>
-                <div className="text-[10.5px] leading-4 text-text-tertiary">{t("message.input")}</div>
-                <pre className="mono max-h-40 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-[18px] text-text-secondary">
-                  {formatArgs(toolCall.args)}
-                </pre>
-              </>
-            )}
-            {toolCall.output && (
-              <>
-                <div className={`mt-1 text-[10.5px] leading-4 ${error ? "text-danger/70" : "text-text-tertiary"}`}>
-                  {t("message.response")}
-                </div>
-                <pre
-                  className={`mono max-h-48 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-[18px] ${
-                    error ? "text-danger/90" : "text-text-secondary"
-                  }`}
-                >
-                  {toolCall.output.slice(0, 4000)}
-                  {toolCall.output.length > 4000 ? t("message.truncated") : ""}
-                </pre>
-              </>
-            )}
+            {calls.map((call) => (
+              <div
+                key={call.id}
+                className="min-w-0 py-2"
+                data-testid="run-tool-call"
+                data-call-id={call.id}
+                data-status={call.status}
+              >
+                {calls.length > 1 && (
+                  <div className="mb-1 flex min-w-0 items-center gap-2 text-[11px] text-text-tertiary">
+                    {active && call.status === "running" ? (
+                      <Spinner />
+                    ) : (
+                      <RunIcon
+                        name={call.status === "error" ? "error" : "check"}
+                        size={12}
+                        className={call.status === "error" ? "shrink-0 text-danger" : "shrink-0"}
+                      />
+                    )}
+                    <span className="mono min-w-0 flex-1 break-all">
+                      {summarizeArgs(call.name, call.args) || call.name}
+                    </span>
+                    <FilePreview call={call} onOpenFile={onOpenFile} />
+                  </div>
+                )}
+                {call.patch ? (
+                  <DiffPatch patch={call.patch} />
+                ) : (
+                  <>
+                    <div className="text-[10.5px] leading-4 text-text-tertiary">{t("message.input")}</div>
+                    <pre className="mono max-h-40 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-[18px] text-text-secondary">
+                      {formatArgs(call.args)}
+                    </pre>
+                  </>
+                )}
+                {call.output && (
+                  <>
+                    <div
+                      className={`mt-2 text-[10.5px] leading-4 ${call.status === "error" ? "text-danger" : "text-text-tertiary"}`}
+                    >
+                      {t("message.response")}
+                    </div>
+                    <pre
+                      className={`mono max-h-48 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-[18px] ${call.status === "error" ? "text-danger" : "text-text-secondary"}`}
+                    >
+                      {call.output.slice(0, 4000)}
+                      {call.output.length > 4000 ? t("message.truncated") : ""}
+                    </pre>
+                  </>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       </div>

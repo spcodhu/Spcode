@@ -114,6 +114,15 @@ function options(): HTMLButtonElement[] {
 }
 
 describe("会话搜索弹窗", () => {
+  it("自动聚焦组合输入框，输入区使用统一留白而不是内部描边", async () => {
+    await render();
+    expect(document.activeElement).toBe(input());
+    expect(input().classList.contains("field-input")).toBe(true);
+    expect(input().parentElement?.classList.contains("field-group")).toBe(true);
+    expect(input().parentElement?.classList.contains("m-2")).toBe(true);
+    expect(container.querySelector('[role="listbox"]')?.classList.contains("p-1.5")).toBe(false);
+  });
+
   it("忽略乱序响应，并在清空查询后作废未完成的请求", async () => {
     const oldRequest = deferred<any>();
     const newRequest = deferred<any>();

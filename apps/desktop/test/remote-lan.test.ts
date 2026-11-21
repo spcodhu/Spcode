@@ -270,7 +270,7 @@ describe("LAN transport HTTP 层", () => {
     try {
       const html = await fetch(`http://127.0.0.1:${packagedTransport.getPort()}/`).then((res) => res.text());
       expect(html).toContain("安装包中的手机端 PWA 资源缺失或损坏");
-      expect(html).toContain("重新安装完整的 Spcod 安装包");
+      expect(html).toContain("重新安装完整的 Spcode 安装包");
       expect(html).not.toContain("pnpm --filter");
     } finally {
       await packagedTransport.stop();

@@ -13,6 +13,7 @@ import { buildFileBlocks, type DraftFile } from "../file-blocks";
 import { formatCompact, formatFileSize } from "../format";
 import { openImageContextMenu } from "../image-actions";
 import { resolveImageRefs } from "../md-editor";
+import { usePresence } from "../presence";
 import { composerDraftKeyOf, useStore } from "../store";
 import { thinkingLevelLabel } from "../tooling";
 import { Icon } from "./Icon";
@@ -829,6 +830,48 @@ function ContextRing({
         <div className="mt-2 text-[12px] leading-snug text-text-tertiary">
           {used === null ? t("context.unavailable") : context?.estimated ? t("context.estimated") : t("context.engine")}
         </div>
+        {context?.details && (
+          <div className="mt-2 space-y-0.5 border-t border-border pt-2" data-testid="context-details">
+            {(
+              [
+                ["systemHost", context.details.parts.systemHost],
+                ["rulesMemory", context.details.parts.rulesMemory],
+                ["toolSchema", context.details.parts.toolSchema],
+                ["summaries", context.details.parts.summaries],
+                ["recentMessages", context.details.parts.recentMessages],
+                ["toolResults", context.details.parts.toolResults],
+                ["readEvidence", context.details.parts.readEvidence],
+              ] as const
+            ).map(([key, measure]) => (
+              <div key={key} className="flex items-baseline justify-between gap-2 text-[11px]">
+                <span className="text-text-tertiary">{t(`context.parts.${key}`)}</span>
+                <span className="tabular-nums text-text-secondary">
+                  {measure.tokens === null ? t("context.unknownShort") : `≈${formatCompact(measure.tokens)}`}
+                </span>
+              </div>
+            ))}
+            <div className="flex items-baseline justify-between gap-2 pt-1 text-[11px]">
+              <span className="text-text-tertiary">{t("context.providerInput")}</span>
+              <span className="tabular-nums text-text-secondary">
+                {context.details.providerInput.tokens === null
+                  ? t("context.unknownShort")
+                  : formatCompact(context.details.providerInput.tokens)}
+              </span>
+            </div>
+            <div className="flex items-baseline justify-between gap-2 text-[11px]">
+              <span className="text-text-tertiary">{t("context.outputReserve")}</span>
+              <span className="tabular-nums text-text-secondary">
+                {context.details.outputReserve.tokens === null
+                  ? t("context.unknownShort")
+                  : formatCompact(context.details.outputReserve.tokens)}
+              </span>
+            </div>
+            {context.details.warning === "fixed-overhead" && (
+              <div className="pt-1 text-[11px] leading-snug text-warning">{t("context.fixedOverhead")}</div>
+            )}
+            <div className="pt-0.5 text-[10px] leading-snug text-text-tertiary">{t("context.partsNote")}</div>
+          </div>
+        )}
         <button
           type="button"
           data-testid="compact-now"
@@ -875,6 +918,7 @@ export function ModelMenu({
 }) {
   const { t } = useTranslation("chat");
   const [open, setOpen] = useState(false);
+  const presence = usePresence(open, 200);
   const [view, setView] = useState<MenuView>("main");
   const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
@@ -1006,18 +1050,28 @@ export function ModelMenu({
       >
         <Icon name="cpu" size={13} className="text-text-tertiary" />
         <span className="max-w-44 truncate">{pillText}</span>
-        <Icon name="chevronDown" size={11} className="text-text-tertiary" />
+        <Icon
+          name="chevronDown"
+          size={11}
+          className={`text-text-tertiary transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+        />
       </button>
 
-      {/* 弹出面板 */}
-      {open && (
+      {/* 弹出面板：退出期间保留 DOM，但立即移出焦点与命中测试。 */}
+      {presence.mounted && (
         <div
           id="composer-model-popup"
           ref={panelRef}
           role="dialog"
           aria-label={t("common.model")}
+          aria-hidden={!open}
+          inert={!open}
           onKeyDown={onMenuKeyDown}
-          className="absolute bottom-9 right-0 z-50 w-80 rounded-2xl border border-border bg-bg-elevated p-2 shadow-2xl"
+          className={`absolute bottom-9 right-0 z-50 w-80 origin-bottom-right rounded-2xl border border-border bg-bg-elevated p-2 shadow-2xl transition-[opacity,transform] duration-200 ease-out ${
+            presence.visible
+              ? "translate-y-0 scale-100 opacity-100"
+              : "pointer-events-none translate-y-1 scale-[0.98] opacity-0"
+          }`}
         >
           {view === "main" && (
             <>
@@ -1067,7 +1121,7 @@ export function ModelMenu({
                   <Icon
                     name="search"
                     size={13}
-                    className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-text-tertiary"
+                    className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-tertiary"
                   />
                   <input
                     ref={searchInputRef}
@@ -1077,7 +1131,7 @@ export function ModelMenu({
                     placeholder={t("model.searchPlaceholder")}
                     aria-label={t("model.searchPlaceholder")}
                     data-testid="composer-model-search"
-                    className="w-full rounded-lg border border-border bg-bg-main py-1.5 pl-8 pr-2.5 text-[12.5px] text-text-primary outline-none placeholder:text-text-tertiary focus:border-accent"
+                    className="form-control w-full pl-9 bg-bg-main"
                   />
                 </div>
               )}

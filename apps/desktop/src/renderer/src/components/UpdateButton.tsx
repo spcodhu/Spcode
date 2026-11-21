@@ -12,10 +12,11 @@ import { Modal } from "./ui/Modal";
  * - available：「更新」按钮 → 弹窗展示版本号与发布说明，可「确认更新」或「忽略此版本」
  * - downloading：按钮变为小进度条（点击可回看弹窗里的进度）
  * - downloaded：按钮变为「重启」→ 弹窗警告会话会中断，可「稍后」或「立即重启」
- * - error：红色「更新失败」→ 弹窗给原因与重试入口
+ * - error（下载/安装）：红色「更新失败」→ 弹窗给原因与重试入口
+ * - checking / up-to-date / error（检查失败）：关于页手动检查的中间态，侧栏不渲染
  * - idle：不渲染
  */
-function formatPercent(value: number): string {
+export function formatPercent(value: number): string {
   return new Intl.NumberFormat(getLocale(), { style: "percent", maximumFractionDigits: 0 }).format(
     Math.round(value) / 100,
   );
@@ -64,7 +65,7 @@ export function UpdateButton() {
           {t("update.restart")}
         </button>
       )}
-      {state.status === "error" && (
+      {state.status === "error" && state.source !== "check" && (
         <button
           type="button"
           data-testid="update-button"
@@ -81,8 +82,8 @@ export function UpdateButton() {
   );
 }
 
-/** 更新弹窗：版本信息 + 发布说明 + 各状态的操作区 */
-function UpdateDialog({ state, onClose }: { state: UpdateState; onClose: () => void }) {
+/** 更新弹窗：版本信息 + 发布说明 + 各状态的操作区（侧栏按钮与关于页共用） */
+export function UpdateDialog({ state, onClose }: { state: UpdateState; onClose: () => void }) {
   const { t } = useTranslation("settings");
   const version = "version" in state ? state.version : "";
   const title =
@@ -198,12 +199,13 @@ function UpdateDialog({ state, onClose }: { state: UpdateState; onClose: () => v
             <button
               type="button"
               onClick={() => {
-                void window.spcode.updateDownload();
+                if (state.source === "check") void window.spcode.updateCheck();
+                else void window.spcode.updateDownload();
                 onClose();
               }}
               className="rounded-lg bg-accent px-4 py-1.5 text-[12.5px] font-medium text-on-accent transition-colors hover:bg-accent-dim"
             >
-              {t("update.retry")}
+              {state.source === "check" ? t("about.retryCheck") : t("update.retry")}
             </button>
           </div>
         </>

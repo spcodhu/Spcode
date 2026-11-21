@@ -69,8 +69,7 @@ export function NetworkProxySection() {
     }
   };
 
-  const inputCls =
-    "w-full rounded-lg border border-border bg-bg-main px-3 py-2 text-[13px] text-text-primary outline-none focus:border-accent/50";
+  const inputCls = "form-control w-full bg-bg-main";
 
   return (
     <div className="rounded-xl border border-border bg-bg-elevated px-4 py-3" data-testid="settings-proxy">

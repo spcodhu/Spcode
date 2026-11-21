@@ -309,6 +309,8 @@ export interface ContextUsageSnapshot {
   percent: number | null;
   /** true = 来自 compaction_end.estimatedTokensAfter 或投影估算 */
   estimated?: boolean;
+  /** 本地分项估算；与 provider 总量来源分离，不强行凑平 */
+  details?: import("./context.js").ContextDetails;
 }
 
 /** 按四类 token 与单价计算一条 usage 的成本（不改 token 原始值）。 */
@@ -347,14 +349,18 @@ export function resolveUsageRecordPricing(
 import type { PermissionMode, PermissionRequest, ProjectPermissionRule } from "./permission.js";
 import { DEFAULT_PERMISSION_MODE } from "./permission.js";
 
+export type { ContextDetails, ContextMeasure, ContextPart } from "./context.js";
 /**
  * 权限裁决矩阵下沉到 permission.ts（纯函数，宿主与主进程共用）：
  * 模式只管"问不问"，沙盒只管"拦不拦"，逃生舱是三档共用的唯一人工确认点。
  */
 export type {
   DecidePermissionInput,
+  PermissionGrantSelector,
   PermissionMode,
+  PermissionReplyResult,
   PermissionRequest,
+  PermissionScope,
   PermissionVerdict,
   ProjectPermissionRule,
   ToolRisk,
@@ -365,13 +371,27 @@ export {
   decidePermissionMatrix,
   deriveProjectPermissionRule,
   deriveProjectPermissionRules,
+  matchesPermissionSelector,
   matchesProjectPermissionRule,
   matchesProjectPermissionRules,
   normalizePermissionMode,
   normalizeProjectCwd,
   PERMISSION_MODES,
   permissionModeLabel,
+  permissionScopes,
 } from "./permission.js";
+export type {
+  TaskArtifact,
+  TaskBudgetRequest,
+  TaskInput,
+  TaskLimits,
+  TaskResult,
+  TaskRole,
+  TaskStatus,
+  TaskToolEvidence,
+  TaskUsage,
+} from "./task-runtime.js";
+export { DEFAULT_TASK_LIMITS, normalizeTaskLimits, TASK_SUMMARY_MAX_TOKENS } from "./task-runtime.js";
 
 // ---------------------------------------------------------------------------
 // 结构化提问（AskUserQuestion 工具走这条通道）
@@ -587,6 +607,10 @@ export type HostCommand =
   /** 每次任务运行的模型回合上限；主进程变更后实时下发 */
   | { type: "runGuard.setConfig"; payload: { maxTurns: number } }
   | { type: "permission.reply"; payload: { requestId: string; approved: boolean } }
+  /** 撤销免审批：递增策略版本、结清待决请求；不回滚已发生的副作用 */
+  | { type: "permission.revoke"; payload: { sessionId?: string; revision: number } }
+  /** 子任务预算上限下发；只能收紧默认值，不能解除有限上限 */
+  | { type: "task.setLimits"; payload: { limits: Partial<import("./task-runtime.js").TaskLimits> } }
   | { type: "question.reply"; payload: { requestId: string; answers: QuestionAnswers } }
   | { type: "shutdown" };
 
@@ -930,6 +954,7 @@ export const IPC = {
   hostEvent: "spcode:host-event",
   /** renderer -> main：权限确认回复 */
   permissionReply: "spcode:permission-reply",
+  permissionRevoke: "spcode:permission-revoke",
   /** renderer -> main：结构化提问回复 */
   questionReply: "spcode:question-reply",
   /** renderer -> main (invoke)：会话注册表列表/删除 */
@@ -1013,8 +1038,9 @@ export const IPC = {
   windowCloseResolve: "spcode:window-close-resolve",
   /** main -> renderer：更新状态机变化推送（UpdateState） */
   updateState: "spcode:update-state",
-  /** renderer -> main (invoke)：更新状态查询 / 手动下载 / 重启安装 / 忽略版本 */
+  /** renderer -> main (invoke)：更新状态查询 / 手动检查 / 手动下载 / 重启安装 / 忽略版本 */
   updateGetState: "spcode:update-get-state",
+  updateCheck: "spcode:update-check",
   updateDownload: "spcode:update-download",
   updateInstall: "spcode:update-install",
   updateIgnore: "spcode:update-ignore",
@@ -1028,13 +1054,17 @@ export const IPC = {
  * 更新状态机（主进程持有，变化时推送渲染进程）：
  * idle → available（发现新版本，附发布说明）→ downloading（进度）→ downloaded（待重启）
  * 任何阶段出错进 error（渲染进程可据此前重试下载）；忽略版本/无更新回 idle。
+ * 关于页手动检查额外经过 checking（检查中）与 up-to-date（已是最新）；
+ * error.source 区分检查失败（check，关于页内联展示）与下载/安装失败（download，侧栏按钮）。
  */
 export type UpdateState =
   | { status: "idle" }
+  | { status: "checking" }
+  | { status: "up-to-date"; version: string }
   | { status: "available"; version: string; releaseNotes: string }
   | { status: "downloading"; version: string; percent: number }
   | { status: "downloaded"; version: string }
-  | { status: "error"; message: string };
+  | { status: "error"; message: string; source?: "check" | "download" };
 
 /** electron-updater 的 releaseNotes 有三种形态（字符串/数组/空），统一归一为展示用纯文本 */
 export function normalizeReleaseNotes(

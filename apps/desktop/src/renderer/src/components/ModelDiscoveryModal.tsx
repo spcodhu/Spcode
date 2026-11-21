@@ -211,7 +211,7 @@ export function ModelDiscoveryModal({
                     aria-label={t("models.discoverySearchPlaceholder")}
                     data-testid="model-discovery-search"
                     data-modal-initial-focus
-                    className="min-w-0 flex-1 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-[13px] outline-none placeholder:text-text-tertiary focus:border-accent"
+                    className="form-control flex-1 bg-bg-elevated"
                   />
                   <button
                     type="button"
@@ -300,7 +300,7 @@ export function ModelDiscoveryModal({
                 value={defaultContext}
                 data-testid="discovery-default-context"
                 onChange={(event) => setDefaultContext(event.target.value)}
-                className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-[12px] outline-none focus:border-accent"
+                className="form-control w-full bg-bg-main"
               />
             </label>
             <label>
@@ -311,7 +311,7 @@ export function ModelDiscoveryModal({
                 value={defaultMaxTokens}
                 data-testid="discovery-default-max-tokens"
                 onChange={(event) => setDefaultMaxTokens(event.target.value)}
-                className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-[12px] outline-none focus:border-accent"
+                className="form-control w-full bg-bg-main"
               />
             </label>
           </div>

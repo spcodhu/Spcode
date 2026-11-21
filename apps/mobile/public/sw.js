@@ -6,9 +6,9 @@ const supportedLocales = (scriptParams.get("supportedLocales") || "zh-CN,en").sp
 const initialLocale = scriptParams.get("locale") || scriptParams.get("defaultLocale");
 
 function fallbackTitle(locale) {
-  if (locale === "en") return "Spcod Remote Control";
-  if (locale === "zh-CN") return "Spcod 远程控制";
-  return "Spcod";
+  if (locale === "en") return "Spcode Remote Control";
+  if (locale === "zh-CN") return "Spcode 远程控制";
+  return "Spcode";
 }
 
 self.addEventListener("message", (event) => {

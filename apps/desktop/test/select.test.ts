@@ -83,6 +83,8 @@ describe("Select listbox 与键盘交互", () => {
     await render();
     expect(container.firstElementChild?.className).toContain("w-44");
     expect(trigger().getAttribute("aria-label")).toBe("选择模型");
+    expect(trigger().classList.contains("form-control")).toBe(true);
+    expect(trigger().querySelector("span")?.classList.contains("truncate")).toBe(true);
     expect(trigger().getAttribute("aria-haspopup")).toBe("listbox");
     expect(trigger().getAttribute("aria-expanded")).toBe("false");
     const controls = trigger().getAttribute("aria-controls");

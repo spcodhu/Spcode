@@ -20,7 +20,7 @@
 
 ## 架构
 
-Renderer 使用 React 19、Zustand 和 Tailwind 4。Electron 主进程管理本地服务和远程连接，`AgentBridge` 通过结构化克隆与 `utilityProcess` 中的 AgentHost 交换类型化消息。AgentHost 基于 Pi 0.87.1，负责模型调用、会话状态和工具执行。
+Renderer 使用 React 19、Zustand 和 Tailwind 4。Electron 主进程管理本地服务和远程连接，`AgentBridge` 通过结构化克隆与 `utilityProcess` 中的 AgentHost 交换类型化消息。AgentHost 基于 Pi 1.5.2，负责模型调用、会话状态和工具执行。
 
 ![Spcod 分层架构](docs/assets/release/architecture-zh.png)
 
@@ -115,4 +115,4 @@ E2E 使用临时 `SPCODE_HOME` 和独立 Electron 数据目录，不读写真实
 
 ## 技术栈
 
-TypeScript · pnpm monorepo · Electron 44 · React 19 · Zustand · Tailwind 4 · Pi 0.87.1 · Streamdown · electron-builder · electron-updater
+TypeScript · pnpm monorepo · Electron 44 · React 19 · Zustand · Tailwind 4 · Pi 1.5.2 · Streamdown · electron-builder · electron-updater

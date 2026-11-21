@@ -53,15 +53,19 @@ test("Windows 顶栏融合窗口按钮且不显示原生菜单", async () => {
   await window.getByTestId("sidebar-new-chat").click();
   const usageChip = window.getByTestId("session-usage-chip");
   await expect(usageChip).toBeVisible();
+  // 用应用实际预留窗口按钮区的同一 CSS env 探测覆盖层左边界（Electron 各版本
+  // navigator.windowControlsOverlay 的 JS API 不一致，env(titlebar-area-width) 稳定）。
+  // Windows titlebar-area-x=0，覆盖层左边界即 titlebar-area-width。
   const overlayLeft = await window.evaluate(() => {
-    const overlay = (
-      navigator as Navigator & {
-        windowControlsOverlay?: { getBoundingClientRect: () => DOMRect };
-      }
-    ).windowControlsOverlay;
-    return overlay?.getBoundingClientRect().left;
+    const probe = document.createElement("div");
+    probe.style.cssText =
+      "position:fixed;top:0;left:0;height:0;visibility:hidden;width:env(titlebar-area-width,100vw);";
+    document.body.appendChild(probe);
+    const left = probe.getBoundingClientRect().width;
+    probe.remove();
+    return left;
   });
-  expect(overlayLeft).toBeDefined();
+  expect(overlayLeft).toBeGreaterThan(0);
   for (const testId of ["workspace-panel-toggle", "session-usage-chip"]) {
     const box = await window.getByTestId(testId).boundingBox();
     expect(box).not.toBeNull();
@@ -112,6 +116,8 @@ test("Windows 点关闭后需确认，可取消、最小化继续运行或完全
   test.skip(process.platform !== "win32", "窗口关闭确认仅在 Windows 验收");
   const app = await launchApp();
   const window = await app.firstWindow();
+  // 等 React 挂载 onWindowCloseRequested 监听器后再触发关闭，避免慢启动 CI 竞态丢 IPC
+  await expect(window.getByTestId("brand")).toBeVisible({ timeout: 15000 });
   const closeWindow = () =>
     app.evaluate(({ BrowserWindow }) => {
       BrowserWindow.getAllWindows()[0]!.close();
@@ -125,7 +131,9 @@ test("Windows 点关闭后需确认，可取消、最小化继续运行或完全
   expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isMinimized())).toBe(false);
 
   await closeWindow();
-  await window.getByTestId("window-close-minimize").click();
+  await expect(window.getByTestId("window-close-dialog")).toBeVisible({ timeout: 10000 });
+  // 最小化会立即让窗口隐藏，noWaitAfter 避免 click 动作后校验在 Windows 挂起
+  await window.getByTestId("window-close-minimize").click({ noWaitAfter: true });
   await expect
     .poll(() => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isMinimized()))
     .toBe(true);
@@ -134,8 +142,13 @@ test("Windows 点关闭后需确认，可取消、最小化继续运行或完全
   expect(app.process().exitCode).toBeNull();
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.restore());
 
-  await closeWindow();
+  // 提前挂退出监听，避免错过 exit 事件；quit 会立即退出进程，dispatchEvent 容忍 browser closed
   const exited = new Promise<number | null>((resolve) => app.process().once("exit", (code) => resolve(code)));
-  await window.getByTestId("window-close-quit").click();
+  await closeWindow();
+  await expect(window.getByTestId("window-close-dialog")).toBeVisible({ timeout: 10000 });
+  await window
+    .getByTestId("window-close-quit")
+    .dispatchEvent("click")
+    .catch(() => {});
   expect(await exited).toBe(0);
 });

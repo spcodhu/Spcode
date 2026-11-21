@@ -56,17 +56,17 @@ describe("service-worker localized push fallback", () => {
   it("persists only locale and generic title and uses them for empty push payloads", async () => {
     const sw = worker();
     await sw.emit("message", {
-      data: { type: "locale.changed", locale: "en", title: "Spcod Remote Control", task: "private task" },
+      data: { type: "locale.changed", locale: "en", title: "Spcode Remote Control", task: "private task" },
     });
     await sw.emit("push");
-    expect(sw.showNotification).toHaveBeenCalledWith("Spcod Remote Control", { body: "" });
+    expect(sw.showNotification).toHaveBeenCalledWith("Spcode Remote Control", { body: "" });
     expect(JSON.stringify(sw.showNotification.mock.calls)).not.toContain("private task");
   });
 
   it("preserves desktop-localized payloads and ignores arbitrary malformed plaintext", async () => {
     const sw = worker();
-    await sw.emit("push", { data: { json: () => ({ title: "Spcod", body: "An action needs approval." }) } });
-    expect(sw.showNotification).toHaveBeenLastCalledWith("Spcod", { body: "An action needs approval." });
+    await sw.emit("push", { data: { json: () => ({ title: "Spcode", body: "An action needs approval." }) } });
+    expect(sw.showNotification).toHaveBeenLastCalledWith("Spcode", { body: "An action needs approval." });
     await sw.emit("push", {
       data: {
         json() {
@@ -75,21 +75,21 @@ describe("service-worker localized push fallback", () => {
         text: () => "private task content",
       },
     });
-    expect(sw.showNotification).toHaveBeenLastCalledWith("Spcod 远程控制", { body: "" });
+    expect(sw.showNotification).toHaveBeenLastCalledWith("Spcode 远程控制", { body: "" });
   });
 
   it("respects fixed English builds even when a prior build cached Chinese", async () => {
     const sw = worker("defaultLocale=en&locale=en&supportedLocales=en", { locale: "zh-CN", title: "旧标题" });
     await sw.emit("message", { data: { type: "locale.changed", locale: "zh-CN", title: "不支持" } });
     await sw.emit("push");
-    expect(sw.showNotification).toHaveBeenCalledWith("Spcod Remote Control", { body: "" });
+    expect(sw.showNotification).toHaveBeenCalledWith("Spcode Remote Control", { body: "" });
   });
 
   it("falls back to the registration locale if browser cache access fails", async () => {
     const sw = worker("defaultLocale=en&locale=en&supportedLocales=en", undefined, true);
     await sw.emit("message", { data: { type: "locale.changed", locale: "en" } });
     await sw.emit("push");
-    expect(sw.showNotification).toHaveBeenCalledWith("Spcod Remote Control", { body: "" });
+    expect(sw.showNotification).toHaveBeenCalledWith("Spcode Remote Control", { body: "" });
   });
 
   it("still focuses the PWA when the notification is clicked", async () => {

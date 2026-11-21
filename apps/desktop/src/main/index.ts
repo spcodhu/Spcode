@@ -12,7 +12,6 @@ import {
   baseName,
   type ComposerDraft,
   cleanSessionTitle,
-  deriveProjectPermissionRules,
   filterEnabledModels,
   type HostCommand,
   type HostCommandInput,
@@ -59,12 +58,20 @@ import {
   isDefaultTitle,
   prepareForkCommand,
   recordSessionTodos,
+  rememberProjectPermissionRules,
   removeSession as removeSessionEverywhere,
 } from "./session-helpers.js";
 import { SessionRegistry } from "./session-registry.js";
 import { searchSessions } from "./session-search.js";
 import { redactSettingsForRenderer, restoreMaskedSecrets, SettingsStore } from "./settings-store.js";
-import { downloadUpdate, getUpdateState, ignoreVersion, installUpdate, setupAutoUpdater } from "./updater.js";
+import {
+  checkForUpdatesNow,
+  downloadUpdate,
+  getUpdateState,
+  ignoreVersion,
+  installUpdate,
+  setupAutoUpdater,
+} from "./updater.js";
 import { UsageLedger } from "./usage-ledger.js";
 import { nativeWindowChromeOptions, windowsTitleBarOverlay } from "./window-chrome.js";
 import { WindowCloseController } from "./window-close.js";
@@ -191,7 +198,7 @@ function createWindow(): void {
     height: 840,
     minWidth: 900,
     minHeight: 600,
-    title: "Spcod",
+    title: "Spcode",
     ...(devIcon ? { icon: devIcon } : {}),
     backgroundColor: "#0b0f14",
     ...nativeWindowChromeOptions(process.platform, settings.get()),
@@ -501,24 +508,28 @@ function registerIpc(): void {
 
   ipcMain.on(
     IPC.permissionReply,
-    (_e, payload: { requestId: string; approved: boolean; rememberProject?: boolean }) => {
-      if (payload.approved && payload.rememberProject) {
-        const request = bridge.getPendingPermission(payload.requestId);
-        const derived = request ? deriveProjectPermissionRules(request) : [];
-        const cwd = normalizeProjectCwd(request?.cwd ?? "");
-        if (derived.length > 0 && cwd) {
-          const current = settings.get().projectPermissionRules;
-          const rules = [...(current[cwd] ?? [])];
-          for (const rule of derived) {
-            if (!rules.some((r) => r.command === rule.command && r.match === rule.match)) rules.push(rule);
-          }
-          // 主进程同步落盘后再批准：当前与后续会话共用同一项目规则，且无渲染层保存竞态。
-          settings.set({ projectPermissionRules: { ...current, [cwd]: rules } });
-        }
+    (
+      _e,
+      payload: {
+        requestId: string;
+        approved: boolean;
+        scope?: import("@spcode/shared").PermissionScope;
+        rememberProject?: boolean;
+      },
+    ) => {
+      const scope = payload.scope ?? (payload.rememberProject ? "project" : "once");
+      if (payload.approved && scope === "project") {
+        // 主进程同步落盘后再批准：当前与后续会话共用同一项目规则，且无渲染层保存竞态。
+        rememberProjectPermissionRules(settings, bridge.getPendingPermission(payload.requestId));
       }
-      bridge.replyPermission(payload.requestId, payload.approved);
+      bridge.replyPermission(payload.requestId, payload.approved, "local", scope);
     },
   );
+
+  ipcMain.handle(IPC.permissionRevoke, (_e, sessionId?: string) => {
+    bridge.revokePermissions(sessionId);
+    return { ok: true };
+  });
 
   ipcMain.on(
     IPC.questionReply,
@@ -742,6 +753,7 @@ function registerIpc(): void {
 
   // 更新：状态查询 / 手动下载 / 重启安装 / 忽略版本（状态推送见 setupAutoUpdater 的 onState）
   ipcMain.handle(IPC.updateGetState, () => getUpdateState());
+  ipcMain.handle(IPC.updateCheck, () => checkForUpdatesNow());
   ipcMain.handle(IPC.updateDownload, () => downloadUpdate());
   ipcMain.handle(IPC.updateInstall, () => installUpdate());
   ipcMain.handle(IPC.updateIgnore, (_e, version: string) => {

@@ -219,19 +219,21 @@ describe("RemoteEventAggregator", () => {
     ]);
   });
 
-  it("question.request / renamed / planmode / usage / schedule.fired / sessions.changed 透传", () => {
+  it("question.request / renamed / planmode / permissionmode / usage / schedule.fired / sessions.changed 透传", () => {
     const s = setup();
     agg = s.agg;
     const q = { requestId: "q1", sessionId: "s1", questions: [{ question: "继续吗？" }] };
     s.agg.handle({ type: "question.request", request: q });
     s.agg.handle({ type: "session.renamed", sessionId: "s1", title: "新标题" });
     s.agg.handle({ type: "session.planmode", sessionId: "s1", enabled: true });
+    s.agg.handle({ type: "session.permissionmode", sessionId: "s1", mode: "never" });
     s.agg.handle({ type: "schedule.fired", taskId: "t1", name: "晨报", sessionId: "s2" });
     s.agg.handle({ type: "sessions.changed" });
     expect(s.events).toEqual([
       { type: "question.request", request: q },
       { type: "session.renamed", sessionId: "s1", title: "新标题" },
       { type: "session.planmode", sessionId: "s1", enabled: true },
+      { type: "session.permissionmode", sessionId: "s1", mode: "never" },
       { type: "schedule.fired", taskId: "t1", name: "晨报", sessionId: "s2" },
       { type: "sessions.changed" },
     ]);

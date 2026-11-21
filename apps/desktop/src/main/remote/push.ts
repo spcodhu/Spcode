@@ -62,11 +62,11 @@ export function isValidSubscription(v: unknown): v is RemotePushSubscription {
 function payloadFor(event: HostEvent): { title: string; body: string } | null {
   switch (event.type) {
     case "permission.request":
-      return { title: "Spcod", body: i18n.t("main:push.permission") };
+      return { title: "Spcode", body: i18n.t("main:push.permission") };
     case "question.request":
-      return { title: "Spcod", body: i18n.t("main:push.question") };
+      return { title: "Spcode", body: i18n.t("main:push.question") };
     case "schedule.fired":
-      return { title: "Spcod", body: i18n.t("main:push.schedule") };
+      return { title: "Spcode", body: i18n.t("main:push.schedule") };
     default:
       return null;
   }

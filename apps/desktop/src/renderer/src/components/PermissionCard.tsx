@@ -1,15 +1,15 @@
-import { deriveProjectPermissionRules } from "@spcode/shared";
+import { deriveProjectPermissionRules, permissionScopes } from "@spcode/shared";
 import { useTranslation } from "react-i18next";
 import { useStore } from "../store";
 import { DiffReplace } from "./DiffBlock";
 
 /**
- * 权限批准卡：拒绝 / 允许 / 总允许（Finch 式规则沉淀）。
+ * 权限批准卡：拒绝 / 单次允许 / 本会话允许 / 项目总允许。
  *
- * - 「总允许」由主进程按当前项目沉淀：普通命令记前缀；复合命令逐段记前缀，
- *   整条命令的所有段都命中才放行；危险命令只记完整 exact。
- * - bypass 沙盒外执行不生成免审批规则，仍然逐次确认。
- * - 仅 bash/powershell 支持「总允许」；edit/write/network 只支持单次批准。
+ * - 作用域由宿主按真实请求推导（allowedScopes）：危险/逃生舱仅 once；
+ *   对外动作持久授权绑定完整命令；普通写命令可记前缀。
+ * - 「本会话允许」仅当前会话运行周期有效，不跨 fork/重启继承。
+ * - 「总允许」由主进程按当前项目沉淀，可在设置页撤销。
  */
 export function PermissionInline({ sessionId }: { sessionId: string }) {
   const { t } = useTranslation("chat");
@@ -23,11 +23,12 @@ export function PermissionInline({ sessionId }: { sessionId: string }) {
   const outward = request.risk === "outward";
   const bypass = request.bypass === true;
   const rules = deriveProjectPermissionRules(request);
+  const scopes = request.allowedScopes ?? permissionScopes(request);
 
   const title = t("permission.shortTitle");
   const severe = danger || outward || bypass;
 
-  const allowAlways = () => reply(request.requestId, true, true);
+  const allowAlways = () => reply(request.requestId, true, "project");
 
   return (
     <div className="shrink-0 px-6 pb-2" data-testid="permission-inline" data-session-id={sessionId}>
@@ -81,7 +82,18 @@ export function PermissionInline({ sessionId }: { sessionId: string }) {
             >
               {t("permission.deny")}
             </button>
-            {rules.length > 0 && (
+            {scopes.includes("session") && (
+              <button
+                type="button"
+                data-testid="permission-allow-session"
+                onClick={() => reply(request.requestId, true, "session")}
+                title={t("permission.sessionHint")}
+                className="rounded-md border border-border px-4 py-1.5 text-xs text-text-secondary hover:bg-bg-hover"
+              >
+                {t("permission.allowSession")}
+              </button>
+            )}
+            {scopes.includes("project") && rules.length > 0 && (
               <button
                 type="button"
                 data-testid="permission-allow-always"

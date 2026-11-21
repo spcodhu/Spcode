@@ -41,7 +41,9 @@ export interface SpcodeApi {
   /** 订阅宿主事件流 */
   onEvent(cb: (event: HostEvent) => void): () => void;
   /** 权限确认回复；rememberProject=true 时由主进程把真实请求沉淀为当前项目规则 */
-  replyPermission(requestId: string, approved: boolean, rememberProject?: boolean): void;
+  replyPermission(requestId: string, approved: boolean, scope?: import("@spcode/shared").PermissionScope): void;
+  /** 撤销免审批授权（会话级临时授权与待决请求）；项目持久规则在设置页逐条移除 */
+  revokePermissions(sessionId?: string): Promise<{ ok: boolean }>;
   /** 结构化提问回复（AskUserQuestion 工具） */
   replyQuestion(requestId: string, answers: import("@spcode/shared").QuestionAnswers): void;
   /** 会话注册表（跨重启持久化） */
@@ -140,9 +142,11 @@ export interface SpcodeApi {
   }): Promise<{ ok: true } | { ok: false; error: string }>;
   /** 飞书通道：解绑授权用户（open_id） */
   remoteFeishuUnbind(openId: string): Promise<boolean>;
-  /** 更新：状态查询与订阅 / 手动下载 / 重启安装 / 忽略版本 */
+  /** 更新：状态查询与订阅 / 手动检查 / 手动下载 / 重启安装 / 忽略版本 */
   updateGetState(): Promise<UpdateState>;
   onUpdateState(cb: (state: UpdateState) => void): () => void;
+  /** 关于页主动检查；返回 false = 更新器未初始化（开发运行/未配置更新源） */
+  updateCheck(): Promise<boolean>;
   updateDownload(): Promise<void>;
   updateInstall(): Promise<void>;
   updateIgnore(version: string): Promise<void>;
@@ -158,8 +162,11 @@ const api: SpcodeApi = {
     ipcRenderer.on(IPC.hostEvent, listener);
     return () => ipcRenderer.removeListener(IPC.hostEvent, listener);
   },
-  replyPermission(requestId, approved, rememberProject) {
-    ipcRenderer.send(IPC.permissionReply, { requestId, approved, rememberProject });
+  replyPermission(requestId, approved, scope) {
+    ipcRenderer.send(IPC.permissionReply, { requestId, approved, scope });
+  },
+  revokePermissions(sessionId) {
+    return ipcRenderer.invoke(IPC.permissionRevoke, sessionId);
   },
   replyQuestion(requestId, answers) {
     ipcRenderer.send(IPC.questionReply, { requestId, answers });
@@ -326,6 +333,9 @@ const api: SpcodeApi = {
   },
   updateGetState() {
     return ipcRenderer.invoke(IPC.updateGetState);
+  },
+  updateCheck() {
+    return ipcRenderer.invoke(IPC.updateCheck);
   },
   onUpdateState(cb) {
     const listener = (_e: unknown, state: UpdateState) => cb(state);

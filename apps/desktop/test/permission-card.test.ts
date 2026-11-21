@@ -72,26 +72,31 @@ describe("会话内嵌权限卡", () => {
     expect(container.textContent).not.toContain("还有");
   });
 
-  it("普通、危险和复合命令都能请求项目级总允许，bypass 不提供", async () => {
-    state.pending = [
-      { ...request("danger", "s1", "rm -rf /tmp/x"), risk: "danger" },
-      request("compound", "s1", "pnpm build && pnpm test"),
-      { ...request("bypass", "s1", "open ."), bypass: true },
-    ];
+  it("危险仅单次；普通/复合可会话或项目授权；bypass 不提供持久授权", async () => {
+    state.pending = [{ ...request("danger", "s1", "rm -rf /tmp/x"), risk: "danger" }];
     await render("s1");
-    container.querySelector<HTMLButtonElement>('[data-testid="permission-allow-always"]')!.click();
-    expect(state.reply).toHaveBeenLastCalledWith("danger", true, true);
+    expect(container.querySelector('[data-testid="permission-allow-always"]')).toBeNull();
+    expect(container.querySelector('[data-testid="permission-allow-session"]')).toBeNull();
+    container.querySelector<HTMLButtonElement>('[data-testid="permission-allow"]')!.click();
+    expect(state.reply).toHaveBeenLastCalledWith("danger", true);
 
     state.pending = [request("compound", "s1", "pnpm build && pnpm test")];
     await render("s1");
     const always = container.querySelector<HTMLButtonElement>('[data-testid="permission-allow-always"]')!;
     expect(always).not.toBeNull();
-    expect(always.title).toContain("pnpm build");
-    expect(always.title).toContain("pnpm test");
+    // 复合命令只沉淀完整 exact
+    expect(always.title).toContain("pnpm build && pnpm test");
+    const session = container.querySelector<HTMLButtonElement>('[data-testid="permission-allow-session"]')!;
+    expect(session).not.toBeNull();
+    await act(async () => session.click());
+    expect(state.reply).toHaveBeenLastCalledWith("compound", true, "session");
+    await act(async () => always.click());
+    expect(state.reply).toHaveBeenLastCalledWith("compound", true, "project");
 
     state.pending = [{ ...request("bypass", "s1", "open ."), bypass: true }];
     await render("s1");
     expect(container.querySelector('[data-testid="permission-allow-always"]')).toBeNull();
+    expect(container.querySelector('[data-testid="permission-allow-session"]')).toBeNull();
   });
 
   it("Shell 卡直接展示未经截断的完整命令并启用换行而非横滚", async () => {

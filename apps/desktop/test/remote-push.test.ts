@@ -176,7 +176,7 @@ describe("触发推送", () => {
     const [sub, payload] = sendNotification.mock.calls[0]!;
     expect(sub).toEqual(VALID_SUB);
     const body = JSON.parse(payload!) as { title: string; body: string };
-    expect(body.title).toBe("Spcod");
+    expect(body.title).toBe("Spcode");
     expect(body.body).toBe("有权限请求待处理");
     // 不泄露工具名/命令/会话 id
     expect(payload).not.toContain("rm -rf");

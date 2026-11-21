@@ -6,7 +6,6 @@ export type { LocalMediaToken, PlanMarkdownPart } from "./plan-links";
 export { decodeLocalMediaToken, encodeLocalMedia, splitPlanLinks } from "./plan-links";
 export { RunActivityTimeline } from "./RunActivity";
 export type {
-  ActivitySegment,
   CompletedRunView,
   RunBlock,
   RunProgressState,

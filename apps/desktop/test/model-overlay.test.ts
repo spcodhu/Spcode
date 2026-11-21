@@ -539,24 +539,24 @@ describe("与真实 ModelRuntime 集成（allowModelNetwork=false）", () => {
     });
     const kimiModels = () => rt.getModels("kimi-coding").map((m) => m.id);
     // 目录与引擎内置一致（无写死注入）
-    expect(kimiModels()).not.toContain("k3.1-pro");
+    expect(kimiModels()).not.toContain("spcode-custom-pro");
 
     // 添加自定义模型 → refresh 即时生效（无需重建 runtime）
     addCustomModel(store, {
       provider: "kimi-coding",
-      modelId: "k3.1-pro",
+      modelId: "spcode-custom-pro",
       contextWindow: 262144,
       reasoning: true,
       vision: false,
     });
     await rt.refresh({ allowNetwork: false });
-    expect(kimiModels()).toContain("k3.1-pro");
+    expect(kimiModels()).toContain("spcode-custom-pro");
     expect(kimiModels()).toContain("k3"); // 内置模型未被挤掉
 
     // 删除 → refresh 后消失；内置模型不可删
-    removeCustomModel(store, "kimi-coding", "k3.1-pro");
+    removeCustomModel(store, "kimi-coding", "spcode-custom-pro");
     await rt.refresh({ allowNetwork: false });
-    expect(kimiModels()).not.toContain("k3.1-pro");
+    expect(kimiModels()).not.toContain("spcode-custom-pro");
     expect(kimiModels()).toContain("k3");
     expect(() => removeCustomModel(store, "kimi-coding", "k3")).toThrow("models.notRemovable");
   }, 30_000);

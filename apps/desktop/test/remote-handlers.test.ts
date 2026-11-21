@@ -6,9 +6,11 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  type AppSettings,
   DEFAULT_SETTINGS,
   type HostCommand,
   type HostEvent,
+  type PermissionRequest,
   type ScheduleTask,
   type ScheduleTaskInput,
 } from "@spcode/shared";
@@ -38,6 +40,13 @@ function makeDeps() {
   const questionReplies: { requestId: string; answers: Record<string, string> }[] = [];
   const localEvents: HostEvent[] = [];
   const schedulerCalls: string[] = [];
+  const pendingPermissions = new Map<string, PermissionRequest>();
+  const settingsWrites: Partial<AppSettings>[] = [];
+  let settingsState: AppSettings = {
+    ...DEFAULT_SETTINGS,
+    defaultModel: { provider: "openai", modelId: "gpt-x" },
+    defaultThinkingLevel: "medium",
+  };
   const registry = makeRegistry();
   const task: ScheduleTask = {
     id: "t1",
@@ -90,10 +99,14 @@ function makeDeps() {
             supportedThinkingLevels: ["low", "medium", "high"],
           };
         }
+        if (cmd.type === "session.setPermissionMode") {
+          return { sessionId: cmd.payload.sessionId, permissionMode: cmd.payload.mode };
+        }
         return { ok: true };
       },
-      replyPermission: (requestId, approved, by) => permissionReplies.push({ requestId, approved, by }),
+      replyPermission: (requestId, approved, by, scope) => permissionReplies.push({ requestId, approved, by, scope }),
       replyQuestion: (requestId, answers) => questionReplies.push({ requestId, answers }),
+      getPendingPermission: (requestId) => pendingPermissions.get(requestId) ?? null,
       emitLocal: (event: HostEvent) => void localEvents.push(event),
     },
     scheduler: {
@@ -117,14 +130,26 @@ function makeDeps() {
     },
     registry,
     settings: {
-      get: () => ({
-        ...DEFAULT_SETTINGS,
-        defaultModel: { provider: "openai", modelId: "gpt-x" },
-        defaultThinkingLevel: "medium",
-      }),
+      get: () => settingsState,
+      set: (patch) => {
+        settingsWrites.push(patch);
+        settingsState = { ...settingsState, ...patch };
+        return settingsState;
+      },
     },
   };
-  return { deps, bridgeCalls, permissionReplies, questionReplies, schedulerCalls, registry, task, localEvents };
+  return {
+    deps,
+    bridgeCalls,
+    permissionReplies,
+    questionReplies,
+    schedulerCalls,
+    registry,
+    task,
+    localEvents,
+    pendingPermissions,
+    settingsWrites,
+  };
 }
 
 describe("session.create 链路", () => {
@@ -297,13 +322,94 @@ describe("permission / question 回复", () => {
   it('permission.reply → bridge.replyPermission（by="remote"，双端撤卡来源标记）', async () => {
     const { deps, permissionReplies } = makeDeps();
     await handleRemoteCommand({ type: "permission.reply", requestId: "r1", approved: true }, deps);
-    expect(permissionReplies).toEqual([{ requestId: "r1", approved: true, by: "remote" }]);
+    expect(permissionReplies).toEqual([{ requestId: "r1", approved: true, by: "remote", scope: "once" }]);
   });
 
   it("question.reply → bridge.replyQuestion", async () => {
     const { deps, questionReplies } = makeDeps();
     await handleRemoteCommand({ type: "question.reply", requestId: "q1", answers: { a: "b" } }, deps);
     expect(questionReplies).toEqual([{ requestId: "q1", answers: { a: "b" } }]);
+  });
+});
+
+describe("permission.reply 总允许（项目规则沉淀）", () => {
+  it("scope=project：按真实待决请求沉淀前缀规则后再批准", async () => {
+    const { deps, pendingPermissions, settingsWrites, permissionReplies } = makeDeps();
+    pendingPermissions.set("r1", {
+      requestId: "r1",
+      sessionId: "s1",
+      toolName: "bash",
+      args: { command: "pnpm test --run" },
+      risk: "write",
+      cwd: "/code/demo",
+    });
+    await handleRemoteCommand({ type: "permission.reply", requestId: "r1", approved: true, scope: "project" }, deps);
+    expect(settingsWrites).toEqual([
+      { projectPermissionRules: { "/code/demo": [{ command: "pnpm test", match: "prefix" }] } },
+    ]);
+    expect(permissionReplies).toEqual([{ requestId: "r1", approved: true, by: "remote", scope: "project" }]);
+  });
+
+  it("旧客户端 rememberProject 不再沉淀持久规则，仅单次批准", async () => {
+    const { deps, pendingPermissions, settingsWrites, permissionReplies } = makeDeps();
+    pendingPermissions.set("r1", {
+      requestId: "r1",
+      sessionId: "s1",
+      toolName: "bash",
+      args: { command: "pnpm test --run" },
+      risk: "write",
+      cwd: "/code/demo",
+    });
+    await handleRemoteCommand(
+      { type: "permission.reply", requestId: "r1", approved: true, rememberProject: true },
+      deps,
+    );
+    expect(settingsWrites).toEqual([]);
+    expect(permissionReplies).toEqual([{ requestId: "r1", approved: true, by: "remote", scope: "once" }]);
+  });
+
+  it("danger/bypass/无待决请求：即使请求 project 也不沉淀规则", async () => {
+    const { deps, pendingPermissions, settingsWrites } = makeDeps();
+    pendingPermissions.set("r2", {
+      requestId: "r2",
+      sessionId: "s1",
+      toolName: "bash",
+      args: { command: "rm -rf build" },
+      risk: "danger",
+      cwd: "/code/demo",
+    });
+    await handleRemoteCommand({ type: "permission.reply", requestId: "r2", approved: true, scope: "project" }, deps);
+    // 危险操作不推导任何持久规则
+    expect(settingsWrites).toEqual([]);
+
+    settingsWrites.length = 0;
+    pendingPermissions.set("r3", {
+      requestId: "r3",
+      sessionId: "s1",
+      toolName: "bash",
+      args: { command: "ls" },
+      risk: "write",
+      cwd: "/code/demo",
+      bypass: true,
+    });
+    await handleRemoteCommand({ type: "permission.reply", requestId: "r3", approved: true, scope: "project" }, deps);
+    await handleRemoteCommand({ type: "permission.reply", requestId: "ghost", approved: true, scope: "project" }, deps);
+    expect(settingsWrites).toEqual([]);
+  });
+
+  it("拒绝时即使带 rememberProject 也不沉淀规则", async () => {
+    const { deps, pendingPermissions, settingsWrites, permissionReplies } = makeDeps();
+    pendingPermissions.set("r4", {
+      requestId: "r4",
+      sessionId: "s1",
+      toolName: "bash",
+      args: { command: "pnpm test" },
+      risk: "write",
+      cwd: "/code/demo",
+    });
+    await handleRemoteCommand({ type: "permission.reply", requestId: "r4", approved: false, scope: "project" }, deps);
+    expect(settingsWrites).toEqual([]);
+    expect(permissionReplies).toEqual([{ requestId: "r4", approved: false, by: "remote", scope: "project" }]);
   });
 });
 
@@ -423,6 +529,65 @@ describe("session.setThinkingLevel", () => {
         supportedThinkingLevels: ["low", "medium", "high"],
       },
     ]);
+  });
+});
+
+describe("session.create 权限模式", () => {
+  it("手机端显式 never：宿主载荷与注册表都记录档位", async () => {
+    const { deps, bridgeCalls, registry } = makeDeps();
+    const result = (await handleRemoteCommand(
+      { type: "session.create", mode: "chat", permissionMode: "never" },
+      deps,
+    )) as { sessionId: string };
+    const createCmd = bridgeCalls[0] as Extract<HostCommand, { type: "session.create" }>;
+    expect(createCmd.payload.permissionMode).toBe("never");
+    expect(registry.entries.get(result.sessionId)?.permissionMode).toBe("never");
+  });
+
+  it("旧客户端缺省 / 非法值回落桌面设置默认档", async () => {
+    const { deps, bridgeCalls } = makeDeps();
+    deps.settings.get = () => ({ ...DEFAULT_SETTINGS, permissionMode: "auto" });
+    await handleRemoteCommand({ type: "session.create", mode: "chat" }, deps);
+    await handleRemoteCommand({ type: "session.create", mode: "chat", permissionMode: "bogus" as never }, deps);
+    const creates = bridgeCalls.filter((call) => call.type === "session.create") as Extract<
+      HostCommand,
+      { type: "session.create" }
+    >[];
+    expect(creates.map((call) => call.payload.permissionMode)).toEqual(["auto", "auto"]);
+  });
+});
+
+describe("session.setPermissionMode", () => {
+  it("调宿主切换并回写注册表；广播由宿主 session.permissionmode 事件负责", async () => {
+    const { deps, registry, bridgeCalls, localEvents } = makeDeps();
+    seedEntry(registry, "s1");
+    const info = await handleRemoteCommand({ type: "session.setPermissionMode", sessionId: "s1", mode: "never" }, deps);
+    expect(info).toMatchObject({ permissionMode: "never" });
+    expect(bridgeCalls[0]).toMatchObject({
+      type: "session.setPermissionMode",
+      payload: { sessionId: "s1", mode: "never" },
+    });
+    expect(registry.entries.get("s1")?.permissionMode).toBe("never");
+    expect(localEvents).toEqual([]);
+  });
+
+  it("旧值 act 归一为 auto", async () => {
+    const { deps, registry, bridgeCalls } = makeDeps();
+    seedEntry(registry, "s1");
+    await handleRemoteCommand({ type: "session.setPermissionMode", sessionId: "s1", mode: "act" as never }, deps);
+    expect(bridgeCalls[0]).toMatchObject({ payload: { mode: "auto" } });
+    expect(registry.entries.get("s1")?.permissionMode).toBe("auto");
+  });
+
+  it("会话不存在 / 非法档位拒绝切换", async () => {
+    const { deps, registry } = makeDeps();
+    await expect(
+      handleRemoteCommand({ type: "session.setPermissionMode", sessionId: "missing", mode: "ask" }, deps),
+    ).rejects.toThrow("会话不存在");
+    seedEntry(registry, "s1");
+    await expect(
+      handleRemoteCommand({ type: "session.setPermissionMode", sessionId: "s1", mode: "bogus" as never }, deps),
+    ).rejects.toThrow("无效的权限模式");
   });
 });
 

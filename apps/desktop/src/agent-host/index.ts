@@ -13,12 +13,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
-import {
-  CredentialSynchronizationError,
-  ModelRuntime,
-  SessionManager,
-  SettingsManager,
-} from "@earendil-works/pi-coding-agent";
+import { CredentialSynchronizationError, ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
 import type {
   AdvancedSearchConfig,
   HostCommand,
@@ -71,6 +66,7 @@ import {
   syncManagedModelsJson,
   updateCustomProvider,
 } from "./model-overlay.js";
+import { createSpcodeSettingsManager } from "./pi-session-config.js";
 import { getSandboxService } from "./sandbox/manager.js";
 import { SessionController } from "./session-controller.js";
 import { getOrCreateOpenedController } from "./session-open.js";
@@ -137,12 +133,16 @@ let webFetchConfig: WebFetchConfig | null = null;
 let skillsSettings: SkillsSettings = DEFAULT_SKILLS_SETTINGS;
 /** 沙盒设置（主进程设置页经 sandbox.setConfig 下发；未下发前用默认值） */
 let sandboxSettings: SandboxSettings = DEFAULT_SANDBOX_SETTINGS;
+/** 子任务预算上限（主进程经 task.setLimits 下发；只能收紧默认值） */
+let taskLimits: Partial<import("@spcode/shared").TaskLimits> = {};
+/** 权限策略版本：撤销/会话销毁时递增，使旧批准绑定与待决回复失效 */
+let policyRevision = 0;
 /**
  * 共享的 pi SettingsManager（纯内存）：压缩设置的唯一事实源是主进程 AppSettings，
  * 经 compaction.setConfig 下发后 applyOverrides 合并。引擎每次压缩判断都实时读它，
  * 故活跃会话也即时生效；不落盘，避免与 ~/.spcode/agent/settings.json 出现两个事实源。
  */
-const piSettings = SettingsManager.inMemory({
+const piSettings = createSpcodeSettingsManager({
   compaction: { ...DEFAULT_COMPACTION_SETTINGS },
 });
 const sessions = new Map<string, SessionController>();
@@ -158,6 +158,7 @@ const pendingPermissions = new Map<
   string,
   {
     sessionId: string;
+    principalId: string;
     resolve: (approved: boolean) => void;
     timer: ReturnType<typeof setTimeout>;
   }
@@ -292,7 +293,12 @@ function requestPermission(request: PermissionRequest): Promise<boolean> {
       // 超时兜底：主进程掉线/无窗口可答时按拒绝放行，agent 循环收到"用户拒绝"后自然收尾
       if (pendingPermissions.delete(request.requestId)) resolve(false);
     }, PERMISSION_TIMEOUT_MS);
-    pendingPermissions.set(request.requestId, { sessionId: request.sessionId, resolve, timer });
+    pendingPermissions.set(request.requestId, {
+      sessionId: request.sessionId,
+      principalId: request.principalId ?? request.sessionId,
+      resolve,
+      timer,
+    });
     emit({ type: "permission.request", request });
   });
 }
@@ -313,8 +319,20 @@ function askQuestion(request: QuestionRequest): Promise<QuestionAnswers> {
   });
 }
 
+/** 子任务取消时只结清该执行主体的待决审批，不影响兄弟任务与主会话 */
+function settlePendingForPrincipal(principalId: string): void {
+  for (const [rid, p] of pendingPermissions) {
+    if (p.principalId !== principalId) continue;
+    pendingPermissions.delete(rid);
+    clearTimeout(p.timer);
+    p.resolve(false);
+    emit({ type: "permission.resolved", requestId: rid, approved: false, by: "local" });
+  }
+}
+
 /** 会话终结（dispose/abort）时结清其所有待决请求：权限按拒绝、提问按未答 */
 function settlePendingForSession(sessionId: string): void {
+  getSandboxService().clearSessionNetworkGrants(sessionId);
   for (const [rid, p] of pendingPermissions) {
     if (p.sessionId !== sessionId) continue;
     pendingPermissions.delete(rid);
@@ -456,6 +474,9 @@ async function createController(params: {
     permissionMode: params.permissionMode,
     noTitleAutomation: params.noTitleAutomation,
     getMaxModelTurns: () => maxModelTurns,
+    getPolicyRevision: () => policyRevision,
+    getTaskLimits: () => taskLimits,
+    cancelPendingPermissions: settlePendingForPrincipal,
     emitRunGuard: (pause) => emit({ type: "session.runGuard", sessionId: params.sessionId, pause }),
     emitEvent: (event) => emit({ type: "session.event", sessionId: params.sessionId, event }),
     emitUsage: (usage) =>
@@ -500,6 +521,26 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
       clearTimeout(p.timer);
       p.resolve(cmd.payload.approved);
     }
+    return;
+  }
+  if (cmd.type === "permission.revoke") {
+    // 撤销免审批：递增策略版本使旧批准绑定失效，并结清受影响会话的待决请求。
+    // 不回滚已发生的副作用；后续调用按当前模式重新裁决。
+    policyRevision = Math.max(policyRevision + 1, cmd.payload.revision);
+    if (cmd.payload.sessionId) settlePendingForSession(cmd.payload.sessionId);
+    else {
+      for (const rid of [...pendingPermissions.keys()]) {
+        const p = pendingPermissions.get(rid);
+        if (!p) continue;
+        pendingPermissions.delete(rid);
+        clearTimeout(p.timer);
+        p.resolve(false);
+      }
+    }
+    return;
+  }
+  if (cmd.type === "task.setLimits") {
+    taskLimits = cmd.payload.limits;
     return;
   }
   if (cmd.type === "question.reply") {

@@ -1,146 +1,215 @@
-/**
- * 权限网关（beforeToolCall）的统一实现：计划模式门禁 → 文件路径守卫 → 权限模式矩阵。
- *
- * 从 session-controller 抽出独立模块的原因（评审 R3-C4）：Task 子代理的会话
- * 与主会话共享同一套裁决链——子代理此前不挂网关，edit/write 可无审批写任意文件
- * （记忆投毒面）。现在主会话与子代理都调 createBeforeToolCallGate，唯一差别是
- * 子代理永远不在计划模式（计划模式下 Task 工具本身不挂载）。
- *
- * 三档权限模式（总是询问/必要时询问/总不询问）的判定下沉到 shared 的纯函数
- * decidePermissionMatrix：模式决定"问不问"，沙盒决定"拦不拦"，两者正交。
- * 本文件只负责在矩阵前后摆好三道硬闸（计划模式、凭据区、逃生舱严格模式）
- * 与权限请求的组装。
+/** Final-argument gate shared by ordinary and nested Pi tool calls.
+ * Execution-layer file/shell guards remain required. Trusted JS extensions are not an OS sandbox.
  */
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { realpathSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import {
   decidePermissionMatrix,
+  normalizeProjectCwd,
   type PermissionMode,
   type PermissionRequest,
+  permissionScopes,
   type SandboxSettings,
 } from "@spcode/shared";
 import type { LocalizedText } from "@spcode/shared/i18n";
 import { isPlanModeSafeCommand, PLAN_MODE_BASH_BLOCK_REASON, PLAN_MODE_WRITE_BLOCK_REASON } from "./plan-mode.js";
 import { matchesExcludedCommand } from "./sandbox/bash-tool.js";
-import { type FsGuardPolicy, judgeFsToolCall } from "./sandbox/fs-guard.js";
+import { type FsGuardPolicy, judgeFsToolCall, resolveFsPath } from "./sandbox/fs-guard.js";
 import type { SandboxState } from "./sandbox/manager.js";
 import { applyModelRiskHint, classifyToolRisk, extractCommand, READONLY_TOOLS } from "./session-controller.js";
 
-/** pi beforeToolCall 钩子的上下文结构（只用到 toolCall 的 name/arguments） */
 export interface BeforeToolCallCtx {
-  toolCall: { name: string; arguments?: unknown };
+  toolCall: { id?: string; name: string; arguments?: unknown };
+  /** Pi's prepared args, not toolCall.arguments. Mandatory on the managed extension path. */
+  args?: unknown;
 }
-
-/** Keep model-facing reasons canonical; render reasonMessage at the UI boundary. */
 export type ToolCallVerdict = { block: true; reason: string; reasonMessage?: LocalizedText } | undefined;
 
 export interface PermissionGateDeps {
   sessionId: string;
-  /** 实时读取计划模式状态（子代理恒 false） */
+  principalId?: string;
   isPlanMode: () => boolean;
-  /** 实时读取当前会话的权限模式（三档，运行中切换立即生效）；缺省按最保守的「总是询问」 */
   getPermissionMode?: () => PermissionMode;
-  /** 实时读取文件路径守卫策略（cwd/敏感清单） */
   getFsPolicy: () => FsGuardPolicy;
-  /** 实时读取沙盒设置（enabled/excludedCommands/allowUnsandboxedCommands 热生效） */
   getSandboxSettings?: () => SandboxSettings;
-  /** 每次 shell 调用实时解析沙盒状态；开关与初始化结果均不绑定会话创建时刻 */
   getSandboxState: () => Promise<SandboxState>;
   requestPermission: (req: PermissionRequest) => Promise<boolean>;
+  getPolicyRevision?: () => number;
+  isCancelled?: () => boolean;
+  /** Task ceiling/role checks: called both before approval and immediately before returning. */
+  validateToolCall?: (name: string, args: unknown) => ToolCallVerdict;
+  /** Hash of trusted server configuration (including credentials), never annotations. */
+  getMcpServerIdentity?: (toolName: string) => string | undefined;
 }
 
-const DENIED_BY_USER = "User denied this tool call in Spcod permission dialog.";
-const DENIED_MESSAGE: LocalizedText = { key: "main:permission.denied" };
+export function canonicalArgsDigest(value: unknown): string {
+  const canonical = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(canonical);
+    if (v && typeof v === "object") {
+      return Object.fromEntries(
+        Object.keys(v)
+          .sort()
+          .map((k) => [k, canonical((v as Record<string, unknown>)[k])]),
+      );
+    }
+    return v;
+  };
+  return createHash("sha256")
+    .update(JSON.stringify(canonical(value)) ?? "null")
+    .digest("hex");
+}
+
+/** Resolve missing leaf paths through the nearest real ancestor (new-file grants). */
+export function permissionRealpath(path: string): string {
+  let parent = resolve(path);
+  for (;;) {
+    try {
+      const real = realpathSync(parent);
+      return normalizeProjectCwd(resolve(real, path.slice(parent.length).replace(/^[/\\]+/, "")));
+    } catch {
+      const next = dirname(parent);
+      if (next === parent) throw new Error("Permission path cannot be resolved");
+      parent = next;
+    }
+  }
+}
+
+const blocked = (reason: string): ToolCallVerdict => ({ block: true, reason });
+const denied = (): ToolCallVerdict => ({
+  block: true,
+  reason: "User denied this tool call in Spcode permission dialog.",
+  reasonMessage: { key: "main:permission.denied" },
+});
 
 export function createBeforeToolCallGate(deps: PermissionGateDeps) {
   return async (ctx: BeforeToolCallCtx): Promise<ToolCallVerdict> => {
-    const toolName = ctx.toolCall.name.toLowerCase();
-    const mode: PermissionMode = deps.getPermissionMode?.() ?? "ask";
-
-    // 文件路径守卫必须先于计划模式的 readonly 快路径：只读不等于可以读凭据区。
-    // deny 硬拦（三档都不放开）；prompt 按 danger 级风险参与权限矩阵。
-    const fsPolicy = deps.getFsPolicy();
-    const fsVerdict = judgeFsToolCall(ctx.toolCall.name, ctx.toolCall.arguments, fsPolicy);
-    if (fsVerdict?.action === "deny") {
-      return { block: true, reason: `Spcode path policy: ${fsVerdict.reason}`, reasonMessage: fsVerdict.reasonMessage };
-    }
-    if (fsVerdict?.action === "prompt") {
-      if (decidePermissionMatrix({ risk: "danger", mode }).action !== "allow") {
-        const approved = await deps.requestPermission({
-          requestId: randomUUID(),
-          sessionId: deps.sessionId,
-          toolName: ctx.toolCall.name,
-          args: ctx.toolCall.arguments,
-          risk: "danger",
-          cwd: fsPolicy.cwd,
-          sandboxed: false,
+    try {
+      if (deps.isCancelled?.()) return blocked("Permission principal is cancelled.");
+      const name = ctx.toolCall.name;
+      const toolName = name.toLowerCase();
+      const original = "args" in ctx ? ctx.args : ctx.toolCall.arguments;
+      const args = structuredClone(original);
+      const digest = canonicalArgsDigest(args);
+      const revision = deps.getPolicyRevision?.() ?? 0;
+      const fsPolicy = deps.getFsPolicy();
+      const policyKey = () =>
+        canonicalArgsDigest({
+          mode: deps.getPermissionMode?.() ?? "ask",
+          plan: deps.isPlanMode(),
+          fs: deps.getFsPolicy(),
+          sandbox: deps.getSandboxSettings?.(),
+          mcp: deps.getMcpServerIdentity?.(name),
         });
-        if (!approved) return { block: true, reason: DENIED_BY_USER, reasonMessage: DENIED_MESSAGE };
-      }
-      // 已获路径许可后仍需经过计划模式的写操作硬闸，不能直接 return。
-    }
-
-    // 计划模式门禁（实时读取，运行中切换也立即生效），三档模式下都是硬闸：
-    // bash 走只读白名单；写类调用本不该出现在计划工具集里，兜底拦截。
-    if (deps.isPlanMode()) {
-      if (toolName === "bash" || toolName === "powershell") {
-        const cmd = extractCommand(ctx.toolCall.arguments);
-        if (cmd && isPlanModeSafeCommand(cmd)) return undefined;
-        return { block: true, reason: PLAN_MODE_BASH_BLOCK_REASON, reasonMessage: { key: "main:permission.planBash" } };
-      }
-      if (!READONLY_TOOLS.has(toolName)) {
+      const policy = policyKey();
+      const mode = deps.getPermissionMode?.() ?? "ask";
+      const ceiling = deps.validateToolCall?.(name, args);
+      if (ceiling) return ceiling;
+      const fsVerdict = judgeFsToolCall(name, args, fsPolicy);
+      if (fsVerdict?.action === "deny")
         return {
           block: true,
-          reason: PLAN_MODE_WRITE_BLOCK_REASON,
-          reasonMessage: { key: "main:permission.planWrite" },
+          reason: `Spcode path policy: ${fsVerdict.reason}`,
+          reasonMessage: fsVerdict.reasonMessage,
         };
+      const shell = toolName === "bash" || toolName === "powershell";
+      const cmd = extractCommand(args);
+      if (deps.isPlanMode()) {
+        if (shell) {
+          if (!cmd || !isPlanModeSafeCommand(cmd))
+            return {
+              block: true,
+              reason: PLAN_MODE_BASH_BLOCK_REASON,
+              reasonMessage: { key: "main:permission.planBash" },
+            };
+          // 计划态安全只读命令不再进入风险审批流
+          return undefined;
+        }
+        if (!READONLY_TOOLS.has(toolName))
+          return {
+            block: true,
+            reason: PLAN_MODE_WRITE_BLOCK_REASON,
+            reasonMessage: { key: "main:permission.planWrite" },
+          };
+        // 只读但命中路径 prompt（如应用记忆区）：仍走 danger 审批，不因计划态豁免
+        if (fsVerdict?.action !== "prompt") return undefined;
       }
-      return undefined;
+      const settings = deps.getSandboxSettings?.();
+      const state = shell ? await deps.getSandboxState() : undefined;
+      const sandboxed = shell && settings?.enabled !== false && state?.state === "active";
+      // Escape requests always require once approval, even when the OS sandbox is unavailable.
+      const bypass =
+        shell && (args as { dangerouslyDisableSandbox?: unknown } | null)?.dangerouslyDisableSandbox === true;
+      const excluded =
+        sandboxed && cmd !== null && (settings?.excludedCommands ?? []).some((r) => matchesExcludedCommand(cmd, r));
+      const mcp = toolName.startsWith("mcp__");
+      const localRisk = mcp ? "outward" : classifyToolRisk(name, args);
+      const risk = fsVerdict?.action === "prompt" ? "danger" : shell ? applyModelRiskHint(localRisk, args) : localRisk;
+      const cwd = permissionRealpath(resolve(fsPolicy.cwd));
+      const selector = (): PermissionRequest["selector"] => {
+        if (fsVerdict) {
+          const raw = (args as { path?: unknown } | null)?.path;
+          return {
+            kind: "file",
+            operation: toolName,
+            realpath: permissionRealpath(resolveFsPath(fsPolicy.cwd, typeof raw === "string" ? raw : fsPolicy.cwd)),
+          };
+        }
+        const serverIdentity = mcp ? deps.getMcpServerIdentity?.(name) : undefined;
+        return serverIdentity ? { kind: "mcp", serverIdentity, toolName: name, argsDigest: digest } : undefined;
+      };
+      const binding = selector();
+      const request: PermissionRequest = {
+        requestId: randomUUID(),
+        sessionId: deps.sessionId,
+        principalId: deps.principalId ?? deps.sessionId,
+        toolCallId: ctx.toolCall.id,
+        argsDigest: digest,
+        policyRevision: revision,
+        toolName: name,
+        args,
+        risk,
+        cwd,
+        selector: binding,
+        sandboxed: sandboxed && !excluded && !bypass,
+        bypass: bypass || undefined,
+        executionBoundary: !shell
+          ? "in-process"
+          : bypass
+            ? "bypass"
+            : excluded
+              ? "excluded"
+              : sandboxed
+                ? "sandbox"
+                : state?.state === "disabled"
+                  ? "disabled"
+                  : "unavailable",
+      };
+      request.allowedScopes = permissionScopes(request);
+      const verdict = decidePermissionMatrix({
+        risk,
+        mode,
+        bypass,
+        bypassDisabled: !settings?.allowUnsandboxedCommands,
+      });
+      if (verdict.action === "block")
+        return { block: true, reason: verdict.reason, reasonMessage: { key: verdict.reasonKey } };
+      if (verdict.action === "ask" && !(await deps.requestPermission(request))) return denied();
+      // No stale approval: revocation/cancellation/args/path/server changes require a fresh invocation.
+      if (
+        deps.isCancelled?.() ||
+        revision !== (deps.getPolicyRevision?.() ?? 0) ||
+        policy !== policyKey() ||
+        digest !== canonicalArgsDigest(original) ||
+        canonicalArgsDigest(binding) !== canonicalArgsDigest(selector())
+      ) {
+        return blocked("Permission binding changed or was revoked; retry with the current policy and arguments.");
+      }
+      const finalFs = judgeFsToolCall(name, args, deps.getFsPolicy());
+      if (finalFs?.action === "deny") return blocked(`Spcode path policy: ${finalFs.reason}`);
+      return deps.validateToolCall?.(name, args);
+    } catch (error) {
+      return blocked(`Permission check failed closed: ${error instanceof Error ? error.message : String(error)}`);
     }
-    if (fsVerdict?.action === "prompt") return undefined;
-
-    // 沙盒联动（每次 shell 调用实时读取设置与状态）：
-    // - 仅 bash/powershell 受沙盒约束；edit/write 等进程内文件工具由上面的路径守卫约束
-    // - excludedCommands（沙盒外白名单）命中的命令不经沙盒，卡片上不再标「沙盒内」
-    // - 逃生舱（dangerouslyDisableSandbox=true）：三档模式都要弹窗；设置关闭则直接拒
-    const isShellTool = toolName === "bash" || toolName === "powershell";
-    const sandboxSettings = deps.getSandboxSettings?.();
-    const sandboxed =
-      isShellTool && sandboxSettings?.enabled !== false && (await deps.getSandboxState()).state === "active";
-    const bypassRequested =
-      isShellTool &&
-      sandboxed &&
-      (ctx.toolCall.arguments as { dangerouslyDisableSandbox?: unknown } | null)?.dangerouslyDisableSandbox === true;
-    const cmd = extractCommand(ctx.toolCall.arguments);
-    const excludedHit =
-      isShellTool &&
-      sandboxed &&
-      cmd !== null &&
-      (sandboxSettings?.excludedCommands ?? []).some((r) => matchesExcludedCommand(cmd, r));
-    const effectiveSandboxed = sandboxed && isShellTool && !excludedHit;
-
-    const localRisk = classifyToolRisk(ctx.toolCall.name, ctx.toolCall.arguments);
-    const risk = isShellTool ? applyModelRiskHint(localRisk, ctx.toolCall.arguments) : localRisk;
-    const verdict = decidePermissionMatrix({
-      risk,
-      mode,
-      bypass: bypassRequested,
-      bypassDisabled: !sandboxSettings?.allowUnsandboxedCommands,
-    });
-    if (verdict.action === "allow") return undefined;
-    if (verdict.action === "block") {
-      return { block: true, reason: verdict.reason, reasonMessage: { key: verdict.reasonKey } };
-    }
-    const approved = await deps.requestPermission({
-      requestId: randomUUID(),
-      sessionId: deps.sessionId,
-      toolName: ctx.toolCall.name,
-      args: ctx.toolCall.arguments,
-      risk,
-      cwd: fsPolicy.cwd,
-      // 逃生舱请求最终会在沙盒外执行，卡片不能标「沙盒内」
-      sandboxed: effectiveSandboxed && !bypassRequested,
-      bypass: bypassRequested || undefined,
-    });
-    return approved ? undefined : { block: true, reason: DENIED_BY_USER, reasonMessage: DENIED_MESSAGE };
   };
 }

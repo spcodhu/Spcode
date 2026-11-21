@@ -24,6 +24,7 @@ export const NORMAL_MODE_TOOLS = [
   "TodoWrite",
   "AskUserQuestion",
   "RenameSession",
+  "ReadEvidence",
   "Task",
 ];
 
@@ -40,6 +41,7 @@ export const PLAN_MODE_TOOLS = [
   "WebFetch",
   "AskUserQuestion",
   "RenameSession",
+  "ReadEvidence",
   "WritePlan",
 ];
 

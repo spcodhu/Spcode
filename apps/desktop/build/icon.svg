@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Spcode S_</title>
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="#ffffff"/>
+  <g fill="none" stroke="#000000" stroke-width="88" stroke-linecap="butt" stroke-linejoin="round">
+    <path d="M568 332H360Q342 332 329 345L297 377Q284 390 284 408V422Q284 455 315 466L502 533Q536 545 536 579V606Q536 624 523 637L491 669Q478 682 460 682H252"/>
+    <path d="M644 682H804"/>
+  </g>
+</svg>

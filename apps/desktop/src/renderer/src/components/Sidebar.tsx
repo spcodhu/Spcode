@@ -184,16 +184,17 @@ export function Sidebar({
           type="button"
           onClick={() => setActive("")}
           data-testid="sidebar-home"
-          className="titlebar-no-drag flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] text-text-primary hover:bg-bg-hover"
+          title={t("sidebar.home")}
+          className="titlebar-no-drag flex h-7 shrink-0 items-center justify-center gap-2 rounded-md px-2 text-[13px] text-text-primary hover:bg-bg-hover"
         >
           <Icon name="home" size={16} />
-          {t("sidebar.home")}
+          <span className={reserveTrafficLights && width < 240 ? "sr-only" : undefined}>{t("sidebar.home")}</span>
         </button>
         <div className="flex-1" />
         <button
           type="button"
           onClick={onOpenSearch}
-          className="titlebar-no-drag rounded-md p-1.5 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
+          className="titlebar-no-drag flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
           title={t("sidebar.search")}
           aria-label={t("sidebar.search")}
           data-testid="sidebar-search"
@@ -203,7 +204,7 @@ export function Sidebar({
         <button
           type="button"
           onClick={onOpenSchedule}
-          className="titlebar-no-drag rounded-md p-1.5 text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
+          className="titlebar-no-drag flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-tertiary hover:bg-bg-hover hover:text-text-secondary"
           title={t("sidebar.schedule")}
           aria-label={t("sidebar.schedule")}
           data-testid="sidebar-schedule"

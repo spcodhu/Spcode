@@ -91,19 +91,70 @@ button:disabled {
   cursor: not-allowed;
 }
 
-/* 统一的键盘焦点：鼠标点击不显示焦点环，键盘导航清晰可见。
-   选择器特意高于 .outline-none，避免表单组件把唯一的焦点提示也移除。 */
-button:focus-visible,
+button:not(.form-control):focus-visible,
 a:focus-visible,
-input:focus-visible,
-textarea:focus-visible,
-select:focus-visible,
+input:is([type="checkbox"], [type="radio"]):focus-visible,
 [role="button"]:focus-visible,
 [role="menuitem"]:focus-visible,
-[role="option"]:focus-visible,
-[contenteditable="true"]:focus-visible {
+[role="option"]:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
+}
+
+input:not([type="checkbox"]):not([type="radio"]),
+textarea,
+select,
+[contenteditable="true"] {
+  outline: none;
+}
+
+@layer components {
+  .form-control,
+  .field-group {
+    min-width: 0;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    background-color: var(--color-bg-main);
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+  }
+
+  .form-control,
+  .field-input {
+    min-width: 0;
+    min-height: 36px;
+    padding: 7px 12px;
+    color: var(--color-text-primary);
+    font-size: 13px;
+    line-height: 20px;
+    outline: none;
+  }
+
+  .form-control::placeholder,
+  .field-input::placeholder {
+    color: var(--color-text-tertiary);
+  }
+
+  .form-control:focus,
+  .field-group:focus-within {
+    border-color: var(--color-border-strong);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-border-strong) 25%, transparent);
+  }
+
+  .form-control[aria-invalid="true"] {
+    border-color: var(--color-danger);
+  }
+
+  .form-control[aria-invalid="true"]:focus {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 15%, transparent);
+  }
+
+  .field-input {
+    border: 0;
+    border-radius: 0;
+    padding-inline: 0;
+    background: transparent;
+    box-shadow: none;
+  }
 }
 
 /* 标题栏拖拽区 */

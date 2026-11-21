@@ -20,6 +20,7 @@ let onChange: ReturnType<typeof vi.fn>;
 let onThinkingChange: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
+  vi.useFakeTimers();
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
     cb(0);
@@ -38,6 +39,7 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -68,6 +70,10 @@ function element<T extends HTMLElement = HTMLButtonElement>(testId: string): T {
 
 function options(): HTMLButtonElement[] {
   return [...container.querySelectorAll<HTMLButtonElement>('[data-testid="composer-model-option"]')];
+}
+
+async function finishClose() {
+  await act(async () => vi.advanceTimersByTime(200));
 }
 
 async function openModels() {
@@ -138,16 +144,47 @@ describe("模型菜单", () => {
 
     await act(async () => options()[1]!.click());
     expect(onChange).toHaveBeenCalledWith({ provider: "deepseek", modelId: "deepseek-pro" });
-    expect(options()).toHaveLength(0);
+    expect(container.querySelector("#composer-model-popup")?.getAttribute("aria-hidden")).toBe("true");
     expect(document.activeElement).toBe(element("composer-model-menu"));
+    await finishClose();
+    expect(options()).toHaveLength(0);
 
     await openModels();
     await key("Escape");
     expect(element("composer-open-models")).toBeTruthy();
     expect(options()).toHaveLength(0);
     await key("Escape");
-    expect(container.querySelector("#composer-model-popup")).toBeNull();
+    expect(container.querySelector("#composer-model-popup")?.getAttribute("aria-hidden")).toBe("true");
     expect(document.activeElement).toBe(element("composer-model-menu"));
+    await finishClose();
+    expect(container.querySelector("#composer-model-popup")).toBeNull();
+  });
+
+  it("打开与收起有过渡，快速重开会取消待执行的退出卸载", async () => {
+    await render();
+    await act(async () => element("composer-model-menu").click());
+    const popup = container.querySelector<HTMLElement>("#composer-model-popup")!;
+    expect(popup.className).toContain("opacity-100");
+    expect(popup.className).toContain("origin-bottom-right");
+
+    await act(async () => element("composer-model-menu").click());
+    expect(popup.className).toContain("opacity-0");
+    expect(popup.className).toContain("translate-y-1");
+    expect(popup.className).toContain("scale-[0.98]");
+    expect(popup.getAttribute("aria-hidden")).toBe("true");
+    expect(popup.hasAttribute("inert")).toBe(true);
+
+    await act(async () => element("composer-model-menu").click());
+    await act(async () => vi.advanceTimersByTime(200));
+    expect(container.querySelector("#composer-model-popup")).toBe(popup);
+    expect(popup.getAttribute("aria-hidden")).toBe("false");
+    expect(popup.className).toContain("opacity-100");
+
+    await act(async () => element("composer-model-menu").click());
+    await act(async () => vi.advanceTimersByTime(199));
+    expect(container.querySelector("#composer-model-popup")).not.toBeNull();
+    await act(async () => vi.advanceTimersByTime(1));
+    expect(container.querySelector("#composer-model-popup")).toBeNull();
   });
 
   it("仅同名冲突时补真实模型 ID，不自动美化原始 ID", async () => {

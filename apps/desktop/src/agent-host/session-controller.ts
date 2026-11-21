@@ -10,12 +10,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { getSupportedThinkingLevels, type Model } from "@earendil-works/pi-ai";
 import type { AgentSession, AgentSessionEvent, ModelRuntime, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import {
-  createAgentSession,
-  DefaultResourceLoader,
-  SessionManager,
-  type SettingsManager,
-} from "@earendil-works/pi-coding-agent";
+import { createAgentSession, SessionManager, type SettingsManager } from "@earendil-works/pi-coding-agent";
 import type {
   AdvancedSearchConfig,
   ContextUsageSnapshot,
@@ -45,12 +40,16 @@ import { isAdvancedSearchReady } from "@spcode/shared/advanced-search";
 import { getLocale } from "@spcode/shared/i18n";
 import { isImageGenReady } from "@spcode/shared/image-gen";
 import { resolveSpcodeHome } from "@spcode/shared/node";
+import { estimateContextBreakdown, installContextBudgetObserver } from "./context-budget.js";
+import { createContextEvidence } from "./context-evidence.js";
+import { installSessionContextPolicy } from "./context-policy.js";
 import { MemoryDistiller } from "./distill.js";
 import { buildLanguagePolicy, installLanguagePolicy } from "./language-policy.js";
 import type { MemoryStore } from "./memory-store.js";
 import { maybeMicrocompact } from "./microcompact.js";
-import { createBeforeToolCallGate } from "./permission-gate.js";
+import { createPermissionResourceLoader } from "./permission-extension.js";
 import { PERMISSION_MODE_CUSTOM_TYPE, permissionModeNote } from "./permission-mode.js";
+import { createSpcodeSettingsManager } from "./pi-session-config.js";
 import {
   NORMAL_MODE_TOOLS,
   PLAN_MODE_CUSTOM_TYPE,
@@ -64,6 +63,7 @@ import { createGuardedFsTools, type FsGuardPolicy } from "./sandbox/fs-guard.js"
 import { getSandboxService } from "./sandbox/manager.js";
 import { createManagedPowerShellTool } from "./sandbox/powershell-tool.js";
 import { installSubagentPolicy } from "./subagent-policy.js";
+import { TaskRuntime } from "./task-runtime.js";
 import { createSessionToolEnvironment } from "./tool-environment.js";
 import { createAdvancedSearchTool } from "./tools/advanced-search.js";
 import { createAskUserQuestionTool } from "./tools/ask-user.js";
@@ -74,6 +74,7 @@ import { createTodoWriteTool } from "./tools/todowrite.js";
 import { createWebFetchTool } from "./tools/webfetch.js";
 import { createWebSearchTool } from "./tools/websearch.js";
 import { createWritePlanTool } from "./tools/write-plan.js";
+import { resolveWorkspaceWriterKey, workspaceWriterManager } from "./workspace-writer.js";
 
 /** 工具风险分级：只读工具自动放行，写类/Shell 要确认（renamesession 无副作用，只读；writeplan/exitplanmode 只写应用自身目录/只改模式状态，只读） */
 export const READONLY_TOOLS = new Set([
@@ -88,6 +89,7 @@ export const READONLY_TOOLS = new Set([
   "todowrite",
   "askuserquestion",
   "renamesession",
+  "readevidence",
   "writeplan",
   "exitplanmode",
 ]);
@@ -246,6 +248,12 @@ export interface SessionControllerOptions {
   piSettings?: SettingsManager;
   /** 每次任务运行的模型回合上限；getter 让活跃会话读取最新设置 */
   getMaxModelTurns?: () => number;
+  /** 权限策略版本；撤销/模式变化后递增，使旧批准绑定失效 */
+  getPolicyRevision?: () => number;
+  /** 子任务预算上限（只能收紧默认值） */
+  getTaskLimits?: () => Partial<import("@spcode/shared").TaskLimits>;
+  /** 按执行主体结清真实待决审批（子任务取消时用） */
+  cancelPendingPermissions?: (principalId: string) => void;
   /** 运行保护暂停事件（先于 agent_settled） */
   emitRunGuard?: (pause: RunGuardPause) => void;
   requestPermission: (req: PermissionRequest) => Promise<boolean>;
@@ -255,12 +263,16 @@ export interface SessionControllerOptions {
 export class SessionController {
   private running = false;
   private distiller: MemoryDistiller | null = null;
+  /** 每次用户 prompt 一棵子任务树；steering/续跑不重置 */
+  taskRuntime!: TaskRuntime;
   /** 兜底标题只尝试一次（首轮 agent_settled 后） */
   private fallbackTitleTried = false;
   /** 首条用户消息原文（兜底标题的语料） */
   private firstUserText: string | null = null;
-  /** 计划模式状态（beforeToolCall 门禁实时读取；持久化在主进程注册表） */
+  /** 计划模式状态（权限扩展实时读取；持久化在主进程注册表） */
   private planMode = false;
+  /** 与 planMode 同步的 ref：权限扩展在 controller 构造前就要拿到 getter */
+  planModeRef!: { current: boolean };
   /**
    * 权限模式（三档）的唯一事实源：用 ref 对象而非普通字段，因为 Task 子代理工具
    * 在 controller 构造完成前就要拿到 getter——子代理与主会话共用同一档位。
@@ -294,6 +306,8 @@ export class SessionController {
     const cwd = opts.cwd?.trim() ? opts.cwd : join(opts.agentDir, "..", "scratch");
     mkdirSync(cwd, { recursive: true });
     const toolEnvironment = createSessionToolEnvironment();
+    const settingsManager = opts.piSettings ?? createSpcodeSettingsManager();
+    settingsManager.setCacheWarmingMode("off");
 
     const model = opts.modelRef ? opts.modelRuntime.getModel(opts.modelRef.provider, opts.modelRef.modelId) : undefined;
 
@@ -307,21 +321,15 @@ export class SessionController {
     // 只约束工作区内文件，实际读取仍由主进程按 cwd/realpath/凭据目录校验。
     const fileLinkBlock =
       "Local file links: When your response refers to a file you created, modified, or want the user to inspect, format it as [filename](file:<absolute-path>) so the desktop can preview it in the right-hand workspace panel. Only link files inside the session working directory; do not use file: links for web URLs.";
-    const resourceLoader = new DefaultResourceLoader({
-      cwd,
-      agentDir: opts.agentDir,
-      appendSystemPrompt: [
-        fileLinkBlock,
-        ...(opts.noTitleAutomation ? [] : [titleBlock]),
-        ...(memoryBlock ? [memoryBlock] : []),
-      ],
-    });
-    await resourceLoader.reload();
-
     // RenameSession 触发探针：模型主动改名后置位，兜底生成器据此让位
     const renameProbe = { fired: false };
     // 权限模式唯一事实源（Task 工具与网关都拿这个 ref；controller 构造前就需可读）
     const permissionModeRef: { current: PermissionMode } = { current: opts.permissionMode ?? DEFAULT_PERMISSION_MODE };
+    const planModeRef: { current: boolean } = { current: opts.planMode === true };
+    const taskRuntime = new TaskRuntime({
+      getTaskLimits: opts.getTaskLimits,
+      emitUsage: (usage) => opts.emitUsage(usage),
+    });
 
     // 沙盒：下发设置并惰性初始化；执行器与权限网关会在后续每次调用时重读状态
     const sandbox = getSandboxService();
@@ -340,6 +348,54 @@ export class SessionController {
       };
     };
 
+    // 工作区写入串行：主会话与写子任务共用同一 FIFO 租约（真实 Git worktree 根）
+    const writerKey = await resolveWorkspaceWriterKey(cwd, cwd).catch(() => cwd);
+    const writerOwner = { principalId: opts.sessionId };
+    const withWriterLease = (tool: ToolDefinition): ToolDefinition => ({
+      ...tool,
+      execute: (id, args, signal, onUpdate, ctx) =>
+        workspaceWriterManager.withLease(writerKey, writerOwner, signal, () =>
+          tool.execute(id, args, signal, onUpdate, ctx),
+        ),
+    });
+
+    // 证据服务：登记执行时来源，折叠后可按引用回读原文，绝不重跑操作
+    let sessionHolder: AgentSession | undefined;
+    const evidence = createContextEvidence({
+      getSessionManager: () => {
+        if (!sessionHolder) throw new Error("Session is not initialized yet");
+        return sessionHolder.sessionManager;
+      },
+      getFsPolicy,
+      sessionId: opts.sessionId,
+    });
+
+    // 强制末尾权限扩展：普通调用与 ctx.executeTool 嵌套调用共用 tool_call 事件链，
+    // 保留上游扩展 veto；不再直接覆盖 agent.beforeToolCall。
+    const resourceLoader = createPermissionResourceLoader(
+      {
+        cwd,
+        agentDir: opts.agentDir,
+        settingsManager,
+        appendSystemPrompt: [
+          fileLinkBlock,
+          ...(opts.noTitleAutomation ? [] : [titleBlock]),
+          ...(memoryBlock ? [memoryBlock] : []),
+        ],
+      },
+      {
+        sessionId: opts.sessionId,
+        isPlanMode: () => planModeRef.current,
+        getPermissionMode: () => permissionModeRef.current,
+        getFsPolicy,
+        getSandboxSettings: opts.getSandboxSettings,
+        getSandboxState: () => sandbox.ensureReady(),
+        requestPermission: opts.requestPermission,
+        getPolicyRevision: opts.getPolicyRevision,
+      },
+    );
+    await resourceLoader.reload();
+
     const mcpTools = opts.getMcpTools?.() ?? [];
     // off 档把 Task 摘出活跃工具集（工具仍注册，支持热启用）；prefer/direct 保留
     const baseTools =
@@ -352,6 +408,9 @@ export class SessionController {
       ...new Set([...baseTools, ...(imageGenReady ? ["GenerateImage"] : []), ...mcpTools.map((tool) => tool.name)]),
     ];
 
+    const guardedFsTools = createGuardedFsTools(cwd, getFsPolicy, toolEnvironment.path).map((tool) =>
+      evidence.wrapTool(tool),
+    );
     const { session } = await createAgentSession({
       cwd,
       agentDir: opts.agentDir,
@@ -360,22 +419,28 @@ export class SessionController {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       thinkingLevel: opts.thinkingLevel as any,
       resourceLoader,
-      settingsManager: opts.piSettings,
+      settingsManager,
       sessionManager: opts.sessionManager ?? (opts.sessionFile ? SessionManager.open(opts.sessionFile) : undefined),
       excludeTools: process.platform === "win32" ? [] : ["powershell"],
       customTools: [
         // 所有会话统一注册动态 Bash：每条命令实时选择沙盒/本地路径，会话环境始终一致
-        createSandboxedBashTool(cwd, {
-          allowBypass: true,
-          sessionId: opts.sessionId,
-          environment: toolEnvironment,
-          getSettings: opts.getSandboxSettings,
-        }),
-        ...(process.platform === "win32" ? [createManagedPowerShellTool(cwd, { environment: toolEnvironment })] : []),
-        // 六个路径守卫版 FS 工具：同名覆盖 pi 内置（进程内 fs 不受 OS 沙盒约束）
-        ...createGuardedFsTools(cwd, getFsPolicy, toolEnvironment.path),
-        // MCP 工具（R3-F3）：配置下发后新会话生效；mcp__server__tool 经权限网关（默认 write 风险）
-        ...mcpTools,
+        withWriterLease(
+          createSandboxedBashTool(cwd, {
+            allowBypass: true,
+            sessionId: opts.sessionId,
+            environment: toolEnvironment,
+            getSettings: opts.getSandboxSettings,
+          }),
+        ),
+        ...(process.platform === "win32"
+          ? [withWriterLease(createManagedPowerShellTool(cwd, { environment: toolEnvironment }))]
+          : []),
+        // 六个路径守卫版 FS 工具：同名覆盖 pi 内置（进程内 fs 不受 OS 沙盒约束）；
+        // 写类工具进入工作区写入租约，读类保持并行
+        ...guardedFsTools.map((tool) => (["edit", "write"].includes(tool.name) ? withWriterLease(tool) : tool)),
+        // MCP 工具（R3-F3）：配置下发后新会话生效；副作用未知，按写类进入租约与审批
+        ...mcpTools.map(withWriterLease),
+        evidence.readTool(),
         createWebSearchTool(),
         // 高级搜索：仅当用户在设置页配置了完整可用的搜索 API 才注册，
         // 没配置时工具列表里根本没有它（模型无从误调）。配置变更对己创建会话不生效，新会话生效。
@@ -402,6 +467,8 @@ export class SessionController {
           sessionId: opts.sessionId,
           modelRuntime: opts.modelRuntime,
           model: model as Model<never> | undefined,
+          // 子代理 spawn 时实时读主会话模型：refreshModelFromRegistry/setModel 后新子代理即用新快照（R6 P1-1）
+          getModel: () => session.model as Model<never> | undefined,
           thinkingLevel: opts.thinkingLevel ?? "medium",
           depth: 0,
           getSandboxSettings: opts.getSandboxSettings,
@@ -409,11 +476,28 @@ export class SessionController {
           getSubagentMode: opts.getSubagentMode,
           requestPermission: opts.requestPermission,
           toolEnvironment,
+          getTaskTree: () => taskRuntime.currentTree,
+          getTaskLimits: opts.getTaskLimits,
+          emitUsage: (usage) => opts.emitUsage(usage),
+          authorizedRoot: cwd,
+          writerManager: workspaceWriterManager,
+          getPolicyRevision: opts.getPolicyRevision,
+          cancelPendingPermissions: opts.cancelPendingPermissions,
+          createEvidenceTool: (refs) => evidence.readTool(refs),
+          publishEvidence: (taskId, entries) => evidence.publishTask(taskId, entries),
         }),
       ],
     });
+    sessionHolder = session;
     installLanguagePolicy(session.agent);
     installSubagentPolicy(session.agent, () => opts.getSubagentMode?.() ?? DEFAULT_SUBAGENT_MODE);
+    installSessionContextPolicy(session.agent, () => ({
+      permissionMode: permissionModeRef.current,
+      planMode: planModeRef.current,
+      evidenceCatalog: evidence.catalog(12),
+    }));
+    // 预算观察必须最后安装：统计最终请求投影，而非中间变换
+    installContextBudgetObserver(session.agent);
 
     const ctl = new SessionController(
       opts.sessionId,
@@ -442,6 +526,8 @@ export class SessionController {
         emitPause: (pause) => opts.emitRunGuard?.(pause),
       }),
     );
+    ctl.taskRuntime = taskRuntime;
+    ctl.planModeRef = planModeRef;
 
     // 保留 AgentSession 已安装的扩展 finishTurn，再叠加安全裁决；暂停优先于扩展续跑。
     const previousFinishTurn = session.agent.finishTurn;
@@ -474,6 +560,7 @@ export class SessionController {
     // 初始工具集：正常态摘除 WritePlan；恢复的计划态会话重注一次落盘即结束约定。
     const initialPlanMode = opts.planMode === true;
     ctl.planMode = initialPlanMode;
+    planModeRef.current = initialPlanMode;
     session.setActiveToolsByName(initialPlanMode ? PLAN_MODE_TOOLS : ctl.normalModeTools);
     if (initialPlanMode) {
       await session.sendCustomMessage({
@@ -507,9 +594,12 @@ export class SessionController {
       if (event.type === "agent_start") ctl.running = true;
       if (event.type === "agent_settled") {
         ctl.running = false;
-        // 渐进式压缩第一层：接近触发线时先无损折叠旧工具结果，
+        // 渐进式压缩第一层：接近触发线时折叠旧工具结果为可回读证据引用，
         // 让引擎的全量 LLM 摘要压缩更晚（甚至不再）触发
-        maybeMicrocompact(session, opts.piSettings);
+        maybeMicrocompact(session, settingsManager, {
+          referenceEntry: (entryId) => evidence.referenceEntry(entryId),
+          protectedEntryIds: evidence.protectedEntryIds(),
+        });
         distiller.schedule(session);
         ctl.maybeGenerateFallbackTitle();
       }
@@ -528,18 +618,8 @@ export class SessionController {
       }
     });
 
-    // 权限网关：挂在 pi 的 beforeToolCall 钩子上（实现已抽 permission-gate.ts，
-    // 与 Task 子代理共享同一裁决链——评审 R3-C4）
-    session.agent.beforeToolCall = createBeforeToolCallGate({
-      sessionId: opts.sessionId,
-      isPlanMode: () => ctl.planMode,
-      getPermissionMode: () => permissionModeRef.current,
-      getFsPolicy,
-      getSandboxSettings: opts.getSandboxSettings,
-      getSandboxState: () => sandbox.ensureReady(),
-      requestPermission: opts.requestPermission,
-    });
-
+    // 权限网关经强制末尾扩展注入（permission-extension.ts）：普通与嵌套调用共用
+    // tool_call 事件链，保留上游扩展 veto；不再覆盖 agent.beforeToolCall。
     return ctl;
   }
 
@@ -590,6 +670,7 @@ export class SessionController {
   private async applyPlanMode(enabled: boolean): Promise<void> {
     if (this.planMode === enabled) return;
     this.planMode = enabled;
+    this.planModeRef.current = enabled;
     this.session.setActiveToolsByName(enabled ? PLAN_MODE_TOOLS : this.normalModeTools);
     await this.session.sendCustomMessage({
       customType: PLAN_MODE_CUSTOM_TYPE,
@@ -626,15 +707,22 @@ export class SessionController {
   contextUsage(estimatedTokensAfter?: number): ContextUsageSnapshot | null {
     const current = this.session.getContextUsage();
     const contextWindow = current?.contextWindow ?? this.session.model?.contextWindow ?? 0;
+    let details: ContextUsageSnapshot["details"];
+    try {
+      details = estimateContextBreakdown(this.session, this.session.settingsManager);
+    } catch {
+      details = undefined; // 分项估算失败不影响权威总量
+    }
     if (estimatedTokensAfter !== undefined && contextWindow > 0) {
       return {
         tokens: estimatedTokensAfter,
         contextWindow,
         percent: (estimatedTokensAfter / contextWindow) * 100,
         estimated: true,
+        details,
       };
     }
-    return current ?? null;
+    return current ? { ...current, details } : null;
   }
 
   /** 是否正在运行（含引擎流式中）：宿主休眠/安全释放的前置检查 */
@@ -662,6 +750,8 @@ export class SessionController {
       return;
     }
     this.runGuard.reset();
+    // 每次新的用户 prompt 开启一棵新的子任务预算树；steering/续跑不重置
+    this.taskRuntime.startMainPrompt();
     await this.session.prompt(text, imageContents?.length ? { images: imageContents } : undefined);
   }
 
@@ -746,6 +836,7 @@ export class SessionController {
   }
 
   async abort(): Promise<void> {
+    this.taskRuntime.cancel();
     await this.session.abort();
   }
 
@@ -784,6 +875,7 @@ export class SessionController {
 
   async dispose(): Promise<void> {
     this.distiller?.cancel();
+    this.taskRuntime.dispose();
     await this.session.dispose();
   }
 }

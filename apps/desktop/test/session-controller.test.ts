@@ -63,7 +63,7 @@ describe("SessionController 集成", () => {
     }
 
     // 系统提示里应有记忆块（SOUL 播种内容）与标题约定
-    expect(ctl.session.systemPrompt).toContain("Spcod Memory");
+    expect(ctl.session.systemPrompt).toContain("Spcode Memory");
     expect(ctl.session.systemPrompt).toContain("Session title convention");
 
     await ctl.dispose();
@@ -136,12 +136,18 @@ describe("SessionController 集成", () => {
 });
 
 describe("Task 子代理工具面", () => {
-  it("启用基础检索工具，并按深度限制嵌套 Task", () => {
-    for (const name of ["read", "bash", "powershell", "edit", "write", "grep", "find", "ls"]) {
+  it("默认只读角色仅检索/证据工具；写角色显式开放执行工具；按深度限制嵌套 Task", () => {
+    for (const name of ["read", "grep", "find", "ls", "ReadEvidence"]) {
       expect(taskSessionToolNames(0)).toContain(name);
       expect(taskSessionToolNames(1)).toContain(name);
       expect(taskSessionToolNames(2)).toContain(name);
     }
+    // 只读角色不开放任意 Shell/写工具/MCP
+    for (const name of ["bash", "powershell", "edit", "write"]) {
+      expect(taskSessionToolNames(0)).not.toContain(name);
+    }
+    expect(taskSessionToolNames(0, undefined, "write")).toContain("bash");
+    expect(taskSessionToolNames(0, undefined, "write")).toContain("edit");
     expect(taskSessionToolNames(0)).toContain("Task");
     expect(taskSessionToolNames(1)).not.toContain("Task");
     expect(taskSessionToolNames(2)).not.toContain("Task");

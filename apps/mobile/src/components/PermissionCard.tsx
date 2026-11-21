@@ -1,10 +1,12 @@
 /**
  * 权限批准卡：permission.request 到达时全屏置顶。
  * - 完整参数可滚动核对；danger 支持单指长按与可访问的两步确认；
+ * - 「总允许」与桌面同口径：仅 bash/powershell 且非 bypass 可沉淀项目规则；
+ *   危险命令的总允许同样走两步核对，只记完整命令 exact；
  * - 回复等待桌面确认，失败保留卡片并允许用户手动重试。
  */
 
-import type { PermissionRequest, ToolRisk } from "@spcode/shared";
+import { deriveProjectPermissionRules, type PermissionRequest, permissionScopes, type ToolRisk } from "@spcode/shared";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { errorText } from "../lib/i18n";
@@ -138,11 +140,24 @@ function HoldToApproveButton({ onConfirm, disabled }: { onConfirm: () => void; d
 }
 
 export function PermissionCard({ request }: { request: PermissionRequest }) {
-  const { t } = useTranslation("mobile");
+  const { t, i18n } = useTranslation("mobile");
   const session = useAppStore((s) => s.sessions[request.sessionId]);
   const danger = request.risk === "danger";
   const bypass = request.bypass === true;
   const severe = danger || bypass;
+  // 「总允许」可沉淀的规则（与桌面 PermissionInline 同一纯函数）；bypass/非 shell/无项目 cwd 为空
+  const rules = deriveProjectPermissionRules(request);
+  const scopes = request.allowedScopes ?? permissionScopes(request);
+  // 复合命令提示分隔符随语言：中文顿号 / 英文逗号
+  const ruleSeparator = i18n.language?.startsWith("zh") ? "、" : ", ";
+  const alwaysHint =
+    rules.length === 1
+      ? t(rules[0]!.match === "exact" ? "permission.alwaysExactHint" : "permission.alwaysHint", {
+          rule: rules[0]!.command,
+        })
+      : rules.length > 1
+        ? t("permission.alwaysCompoundHint", { rules: rules.map((item) => item.command).join(ruleSeparator) })
+        : "";
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [reviewed, setReviewed] = useState(false);
@@ -156,13 +171,13 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
     [],
   );
 
-  const reply = async (approved: boolean) => {
+  const reply = async (approved: boolean, scope?: import("@spcode/shared").PermissionScope) => {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
     setError(null);
     try {
-      await replyPermission(request.requestId, approved);
+      await replyPermission(request.requestId, approved, scope);
     } catch (err) {
       if (mountedRef.current) setError(err);
     } finally {
@@ -192,6 +207,28 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
               className="min-h-12 flex-1 rounded-xl bg-accent px-3 py-3 text-sm font-medium text-on-accent transition-colors active:bg-accent-dim disabled:opacity-40"
             >
               {busy ? t("request.submitting") : t("permission.allow")}
+            </button>
+          )}
+          {!danger && scopes.includes("session") && (
+            <button
+              type="button"
+              data-testid="permission-allow-session"
+              disabled={busy}
+              onClick={() => void reply(true, "session")}
+              className="min-h-12 flex-1 rounded-xl border border-border-strong bg-bg-elevated px-3 py-3 text-sm font-medium text-text-primary transition-colors active:bg-bg-active disabled:opacity-40"
+            >
+              {t("permission.allowSession")}
+            </button>
+          )}
+          {!danger && scopes.includes("project") && rules.length > 0 && (
+            <button
+              type="button"
+              data-testid="permission-allow-always"
+              disabled={busy}
+              onClick={() => void reply(true, "project")}
+              className="min-h-12 flex-1 rounded-xl border border-accent/50 bg-accent-soft px-3 py-3 text-sm font-medium text-accent transition-colors active:bg-bg-active disabled:opacity-40"
+            >
+              {t("permission.always")}
             </button>
           )}
           <button
@@ -240,6 +277,7 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
             >
               {busy ? t("request.submitting") : reviewed ? t("permission.confirmDanger") : t("permission.reviewedArgs")}
             </button>
+            {/* 危险操作仅单次批准：不提供任何持久免审批入口 */}
           </div>
         )}
         {bypass && !danger && (
@@ -247,6 +285,7 @@ export function PermissionCard({ request }: { request: PermissionRequest }) {
             {t("permission.bypassWarning")}
           </div>
         )}
+        {!danger && rules.length > 0 && <p className="mt-3 text-[11px] leading-4 text-text-tertiary">{alwaysHint}</p>}
         {error != null && (
           <div
             role="alert"

@@ -5,7 +5,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SessionRow } from "../src/renderer/src/components/Sidebar.js";
+import { SessionRow, Sidebar } from "../src/renderer/src/components/Sidebar.js";
 
 const entry: SessionRegistryEntry = {
   id: "s1",
@@ -59,6 +59,57 @@ async function render(active = true, permissionWaiting = false) {
     ),
   );
 }
+
+describe("侧栏顶栏", () => {
+  it.each([
+    { platform: "darwin", fullScreen: false, inset: "pl-20", width: 220 },
+    { platform: "darwin", fullScreen: false, inset: "pl-20", width: 248 },
+    { platform: "darwin", fullScreen: true, inset: "px-3", width: 220 },
+    { platform: "win32", fullScreen: false, inset: "px-3", width: 220 },
+    { platform: "linux", fullScreen: false, inset: "px-3", width: 220 },
+  ])("$platform fullScreen=$fullScreen width=$width 保留留白与拖拽，三个按钮统一居中且不收缩", async (state) => {
+    vi.stubGlobal("spcode", { getWindowChrome: vi.fn(async () => state) });
+    await act(async () =>
+      root.render(
+        createElement(
+          I18nextProvider,
+          { i18n },
+          createElement(Sidebar, {
+            width: state.width,
+            onOpenSettings: vi.fn(),
+            onOpenSearch: vi.fn(),
+            onOpenSchedule: vi.fn(),
+          }),
+        ),
+      ),
+    );
+    const header = container.querySelector('[data-testid="sidebar-titlebar"]')!;
+    expect([...header.classList]).toEqual(
+      expect.arrayContaining(["titlebar-drag", "h-12", "items-center", state.inset]),
+    );
+    expect(header.classList.contains("pl-20")).toBe(state.inset === "pl-20");
+    const homeLabel = header.querySelector('[data-testid="sidebar-home"] span')!;
+    expect(homeLabel.textContent).toBe(i18n.t("chat:sidebar.home"));
+    expect(homeLabel.classList.contains("sr-only")).toBe(state.inset === "pl-20" && state.width < 240);
+    for (const id of ["sidebar-home", "sidebar-search", "sidebar-schedule"]) {
+      const button = header.querySelector<HTMLButtonElement>(`[data-testid="${id}"]`)!;
+      expect(button.tagName).toBe("BUTTON");
+      expect([...button.classList]).toEqual(
+        expect.arrayContaining([
+          "titlebar-no-drag",
+          "flex",
+          "h-7",
+          "shrink-0",
+          "items-center",
+          "justify-center",
+          id === "sidebar-home" ? "px-2" : "w-7",
+        ]),
+      );
+      expect(button.classList.contains("py-1.5")).toBe(false);
+      expect(button.classList.contains("p-1.5")).toBe(false);
+    }
+  });
+});
 
 describe("侧栏会话行", () => {
   it("当前态明确，时间与操作共用固定区域且支持键盘焦点", async () => {

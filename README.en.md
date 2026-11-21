@@ -20,7 +20,7 @@ An Agentic Code desktop workspace powered by [Pi](https://github.com/earendil-wo
 
 ## Architecture
 
-The Renderer uses React 19, Zustand, and Tailwind 4. The Electron main process manages local services and remote connections. `AgentBridge` exchanges typed messages with AgentHost in a `utilityProcess` through structured cloning. AgentHost runs Pi 0.87.1 and handles model calls, session state, and tool execution.
+The Renderer uses React 19, Zustand, and Tailwind 4. The Electron main process manages local services and remote connections. `AgentBridge` exchanges typed messages with AgentHost in a `utilityProcess` through structured cloning. AgentHost runs Pi 1.5.2 and handles model calls, session state, and tool execution.
 
 ![Spcod layered architecture](docs/assets/release/architecture-en.png)
 
@@ -117,4 +117,4 @@ The detailed design documents are currently written in Chinese.
 
 ## Technology stack
 
-TypeScript · pnpm monorepo · Electron 44 · React 19 · Zustand · Tailwind 4 · Pi 0.87.1 · Streamdown · electron-builder · electron-updater
+TypeScript · pnpm monorepo · Electron 44 · React 19 · Zustand · Tailwind 4 · Pi 1.5.2 · Streamdown · electron-builder · electron-updater

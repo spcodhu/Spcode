@@ -64,8 +64,9 @@ class SandboxService {
   private networkAskHandler:
     | ((host: string, port: number | undefined, sessionIds: string[]) => Promise<boolean>)
     | null = null;
-  /** 本次运行内用户已放行的域名（应用级；永久放行需用户写进设置白名单） */
-  private sessionAllowedHosts = new Set<string>();
+  /** 会话级网络授权：sessionId → host:port 集合。先唯一归因再查缓存，跨会话不串权；
+   * 永久放行需用户写进设置白名单；「总不询问」的静默放行不沉淀为授权。 */
+  private sessionAllowedHosts = new Map<string, Set<string>>();
   /** 「总不询问」档下静默放行的域名（审计用；这些没有经过用户确认） */
   private silentlyAllowedHosts: string[] = [];
   /** 在跑命令的会话归属：commandId → sessionId（代理回调无会话信息，靠它归因） */
@@ -189,11 +190,13 @@ class SandboxService {
       }
       await SandboxManager.initialize(
         this.baseNetworkOnlyConfig(settings),
-        // 未知域名：会话内已放行 → 直接过；总不询问档 → 静默放行并记审计；否则弹窗问用户
+        // 未知域名：唯一归因会话内已放行 → 直接过；总不询问档 → 静默放行并记审计；否则弹窗问用户
         async ({ host, port }) => {
-          if (this.sessionAllowedHosts.has(host)) return true;
+          const candidates = [...new Set(this.inflight.values())];
+          const sessionId = candidates.length === 1 ? candidates[0]! : null;
+          const grantKey = `${host}:${port ?? ""}`;
+          if (sessionId && this.sessionAllowedHosts.get(sessionId)?.has(grantKey)) return true;
           if (this.allInflightNeverAsk()) {
-            this.sessionAllowedHosts.add(host);
             this.silentlyAllowedHosts.push(host);
             console.info(
               `[sandbox] network allowed without asking (never-ask mode): ${host}${typeof port === "number" ? `:${port}` : ""}`,
@@ -201,8 +204,16 @@ class SandboxService {
             return true;
           }
           if (!this.networkAskHandler) return false;
-          const approved = await this.networkAskHandler(host, port, [...new Set(this.inflight.values())]);
-          if (approved) this.sessionAllowedHosts.add(host);
+          const approved = await this.networkAskHandler(host, port, candidates);
+          // 只有唯一归因且用户确认才沉淀会话级授权；归因不唯一时绝不借用他人缓存
+          if (approved && sessionId) {
+            let grants = this.sessionAllowedHosts.get(sessionId);
+            if (!grants) {
+              grants = new Set();
+              this.sessionAllowedHosts.set(sessionId, grants);
+            }
+            grants.add(grantKey);
+          }
           return approved;
         },
         // macOS 违规归因需要 seatbelt 日志监视器（否则 violations() 恒空）
@@ -283,9 +294,14 @@ class SandboxService {
     }
   }
 
-  /** 测试/诊断用：会话级已放行域名快照 */
+  /** 会话结束/休眠：清除该会话的临时网络授权（不删除设置白名单） */
+  clearSessionNetworkGrants(sessionId: string): void {
+    this.sessionAllowedHosts.delete(sessionId);
+  }
+
+  /** 测试/诊断用：会话级已放行域名快照（host:port） */
   approvedHostsSnapshot(): string[] {
-    return [...this.sessionAllowedHosts];
+    return [...this.sessionAllowedHosts.values()].flatMap((grants) => [...grants]);
   }
 
   /** 测试/审计用：「总不询问」档下未经确认就放行的域名 */

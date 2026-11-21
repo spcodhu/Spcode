@@ -145,7 +145,7 @@ function QuestionCard({ request, queueSize }: { request: QuestionRequest; queueS
           }}
           placeholder={t("card.otherAnswer")}
           data-testid="question-free-text"
-          className="w-full rounded-lg bg-bg-main px-3 py-2 text-[13px] text-text-primary outline-none placeholder:text-text-tertiary focus:ring-1 focus:ring-accent/40"
+          className="form-control w-full bg-bg-main"
         />
       </div>
 

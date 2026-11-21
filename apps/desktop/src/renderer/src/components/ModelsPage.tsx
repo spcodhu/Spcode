@@ -409,14 +409,14 @@ function ProviderDetail({
       </div>
       <p className="mt-1 text-[13px] text-text-tertiary">{t("models.detailDescription")}</p>
 
-      <div className="mt-5 flex items-center gap-2 rounded-xl border border-border bg-bg-elevated px-4 py-3">
+      <div className="field-group mt-5 flex items-center gap-3 bg-bg-elevated px-3 py-1">
         <Icon name="key" size={15} className="shrink-0 text-text-tertiary" />
         <input
           type="password"
           value={key}
           onChange={(e) => setKey(e.target.value)}
           placeholder={provider.configured ? t("models.keyPlaceholder") : "sk-..."}
-          className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-text-tertiary"
+          className="field-input flex-1"
         />
         <button
           type="button"
@@ -496,7 +496,7 @@ function ProviderDetail({
             placeholder={t("models.searchPlaceholder")}
             aria-label={t("models.searchPlaceholder")}
             data-testid="model-search-input"
-            className="w-full rounded-lg border border-border bg-bg-elevated py-2 pl-9 pr-3 text-[13px] text-text-primary outline-none placeholder:text-text-tertiary focus:border-accent"
+            className="form-control w-full pl-9 bg-bg-elevated"
           />
         </div>
       )}
@@ -709,7 +709,7 @@ function ProviderFormModal({
               data-testid="provider-id-input"
               onChange={(event) => setProviderId(event.target.value)}
               placeholder={t("models.providerIdPlaceholder")}
-              className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-[13px] outline-none placeholder:text-text-tertiary focus:border-accent disabled:opacity-60"
+              className="form-control w-full bg-bg-elevated disabled:opacity-60"
             />
             <span className="mt-1 block text-[11px] text-text-tertiary">{t("models.providerIdHint")}</span>
           </label>
@@ -721,7 +721,7 @@ function ProviderFormModal({
               data-testid="provider-name-input"
               onChange={(event) => setName(event.target.value)}
               placeholder={t("models.providerNamePlaceholder")}
-              className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-[13px] outline-none placeholder:text-text-tertiary focus:border-accent"
+              className="form-control w-full bg-bg-elevated"
             />
           </label>
           <label className="block sm:col-span-2">
@@ -732,7 +732,7 @@ function ProviderFormModal({
               onChange={(event) => setBaseUrl(event.target.value)}
               placeholder={t("models.providerBaseUrlPlaceholder")}
               inputMode="url"
-              className="mono w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-[13px] outline-none placeholder:text-text-tertiary focus:border-accent"
+              className="form-control mono w-full bg-bg-elevated"
             />
           </label>
           <div>
@@ -754,7 +754,7 @@ function ProviderFormModal({
               onChange={(event) => setApiKey(event.target.value)}
               placeholder={t(provider?.configured ? "models.providerKeyKeep" : "models.providerKeyOptional")}
               autoComplete="off"
-              className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-[13px] outline-none placeholder:text-text-tertiary focus:border-accent"
+              className="form-control w-full bg-bg-elevated"
             />
           </label>
         </div>
@@ -864,7 +864,7 @@ function ModelPricingEditor({ model, modelKey }: { model: CatalogModel; modelKey
               value={rates[field.key]}
               data-testid={`model-price-${field.key}`}
               onChange={(e) => setRates((current) => ({ ...current, [field.key]: e.target.value }))}
-              className="mono w-full rounded-lg border border-border bg-bg-elevated px-2 py-1.5 text-[12px] outline-none focus:border-accent"
+              className="form-control mono w-full bg-bg-elevated"
             />
           </label>
         ))}
@@ -977,7 +977,7 @@ function AddModelForm({
             data-testid="custom-model-id-input"
             onChange={(e) => setModelId(e.target.value)}
             placeholder={t("models.addModelIdPlaceholder")}
-            className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-[13px] outline-none placeholder:text-text-tertiary focus:border-accent disabled:cursor-not-allowed disabled:opacity-60"
+            className="form-control w-full bg-bg-main disabled:cursor-not-allowed disabled:opacity-60"
           />
         </label>
         <label className="block">
@@ -987,7 +987,7 @@ function AddModelForm({
             data-testid="custom-model-name-input"
             onChange={(e) => setDisplayName(e.target.value)}
             placeholder={t("models.addModelNamePlaceholder")}
-            className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-[13px] outline-none placeholder:text-text-tertiary focus:border-accent"
+            className="form-control w-full bg-bg-main"
           />
         </label>
         <label className="block">
@@ -999,7 +999,7 @@ function AddModelForm({
             data-testid="custom-model-context-input"
             onChange={(e) => setContext(e.target.value)}
             placeholder="262144"
-            className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-[13px] outline-none placeholder:text-text-tertiary focus:border-accent"
+            className="form-control w-full bg-bg-main"
           />
         </label>
         <label className="block">
@@ -1011,7 +1011,7 @@ function AddModelForm({
             data-testid="custom-model-max-tokens-input"
             onChange={(e) => setMaxTokens(e.target.value)}
             placeholder="131072"
-            className="w-full rounded-lg border border-border bg-bg px-3 py-2 text-[13px] outline-none placeholder:text-text-tertiary focus:border-accent"
+            className="form-control w-full bg-bg-main"
           />
         </label>
       </div>

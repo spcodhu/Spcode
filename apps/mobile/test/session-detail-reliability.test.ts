@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   sendPrompt: vi.fn(),
   setSessionModel: vi.fn(),
   setSessionThinkingLevel: vi.fn(),
+  setSessionPermissionMode: vi.fn(),
   refreshModels: vi.fn(),
   abortSession: vi.fn(),
   ensureSessionOutput: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock("../src/state/controller", () => ({
   sendPrompt: mocks.sendPrompt,
   setSessionModel: mocks.setSessionModel,
   setSessionThinkingLevel: mocks.setSessionThinkingLevel,
+  setSessionPermissionMode: mocks.setSessionPermissionMode,
   refreshModels: mocks.refreshModels,
   abortSession: mocks.abortSession,
   ensureSessionOutput: mocks.ensureSessionOutput,
@@ -78,6 +80,7 @@ beforeEach(async () => {
   mocks.sendPrompt.mockReset();
   mocks.setSessionModel.mockReset().mockResolvedValue(undefined);
   mocks.setSessionThinkingLevel.mockReset().mockResolvedValue(undefined);
+  mocks.setSessionPermissionMode.mockReset().mockResolvedValue(undefined);
   mocks.refreshModels.mockReset().mockResolvedValue([]);
   useAppStore.getState().setModels(
     [
@@ -231,10 +234,24 @@ describe("已有会话设置", () => {
     );
     expect(mocks.setSessionThinkingLevel).toHaveBeenCalledWith("s1", "high");
   });
+
+  it("设置面板可切换权限询问模式；旧桌面不带档位时按总是询问展示", async () => {
+    await renderPage("s1");
+    await act(async () => document.querySelector<HTMLButtonElement>('[data-testid="session-settings"]')!.click());
+    const modeButton = (mode: string) =>
+      document.querySelector<HTMLButtonElement>(`[data-testid="permission-mode"][data-mode="${mode}"]`)!;
+    expect(modeButton("ask").getAttribute("aria-pressed")).toBe("true");
+    expect(modeButton("never").getAttribute("aria-pressed")).toBe("false");
+
+    await act(async () => useAppStore.getState().patchSession("s1", { permissionMode: "never" }));
+    expect(modeButton("never").getAttribute("aria-pressed")).toBe("true");
+    await act(async () => modeButton("auto").click());
+    expect(mocks.setSessionPermissionMode).toHaveBeenCalledWith("s1", "auto");
+  });
 });
 
 describe("与桌面共用的运行进度", () => {
-  it("运行中展示活动组、工具参数和当前工具进度", async () => {
+  it("运行中共用单一过程与工具进度，结束后保留展开的工具详情和最终答复", async () => {
     await renderPage("s1");
     await act(async () => {
       useAppStore.getState().setOutputSync("s1", { status: "loaded" });
@@ -248,13 +265,49 @@ describe("与桌面共用的运行进度", () => {
         output: "",
       });
     });
-    expect(document.querySelector('[data-testid="run-activity"]')?.getAttribute("data-state")).toBe("running");
-    expect(document.querySelector('[data-testid="run-tool-step"]')?.getAttribute("data-status")).toBe("running");
-    expect(document.querySelector('[data-testid="run-progress"]')?.getAttribute("data-kind")).toBe("tool");
-    expect(document.querySelector('[data-testid="run-progress"]')?.textContent).toContain("pnpm test");
+    const process = document.querySelector('[data-testid="run-process"]')!;
+    const header = process.querySelector<HTMLButtonElement>('[data-testid="run-process-header"]')!;
+    const step = process.querySelector('[data-testid="run-tool-step"]')!;
+    const toggle = step.querySelector<HTMLButtonElement>("button[aria-expanded]")!;
+    expect(document.querySelectorAll('[data-testid="run-process"]')).toHaveLength(1);
+    expect(process.getAttribute("data-state")).toBe("expanded");
+    expect(document.querySelector('[data-testid="run-activity"]')).toBeNull();
+    expect(step.getAttribute("data-status")).toBe("running");
+    expect(header.querySelector('[data-testid="run-progress"]')?.getAttribute("data-kind")).toBe("tool");
+    await act(async () => header.click());
+    expect(header.getAttribute("aria-expanded")).toBe("false");
+    expect(header.querySelector('[data-testid="run-progress"]')?.textContent).toContain("pnpm test");
+    await act(async () => header.click());
+    await act(async () => toggle.click());
+
+    await act(async () => {
+      useAppStore.getState().appendOutput("s1", "", "tool", 2, {
+        id: "tool-live",
+        name: "bash",
+        args: { command: "pnpm test" },
+        status: "done",
+        output: "checks passed",
+      });
+      useAppStore.getState().appendOutput("s1", "最终答复", "text", 3);
+    });
+    expect(header.querySelector('[data-testid="run-progress"]')?.getAttribute("data-kind")).toBe("output");
+    await act(async () => useAppStore.getState().patchSession("s1", { status: "idle", runStartedAt: undefined }));
+
+    expect(document.querySelector('[data-testid="run-process"]')).toBe(process);
+    expect(process.getAttribute("data-state")).toBe("expanded");
+    expect(header.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector('[data-testid="run-tool-step"]')).toBe(step);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(step.getAttribute("data-status")).toBe("done");
+    expect(step.querySelector('[data-testid="run-step-detail"]')?.textContent).toContain("checks passed");
+    expect(document.querySelector('[data-testid="run-progress"]')).toBeNull();
+    const summary = document.querySelector('[data-testid="run-summary"]')!;
+    expect(summary.textContent).toBe("最终答复");
+    expect(process.contains(summary)).toBe(false);
+    expect(summary.querySelector('[data-testid="markdown-body"]')).not.toBeNull();
   });
 
-  it("结束后与 PC 一样折叠过程，保留总结并显示成功/失败图标", async () => {
+  it("历史默认展开，平级过程保序，同名组保留原始调用数和混合失败", async () => {
     await renderPage("s1");
     await act(async () => {
       useAppStore.getState().replaceHistory("s1", {
@@ -266,11 +319,16 @@ describe("与桌面共用的运行进度", () => {
             chunk: "",
             tool: { id: "read-ok", name: "read", args: { path: "a.ts" }, status: "done", output: "ok" },
           },
+          {
+            kind: "tool",
+            chunk: "",
+            tool: { id: "read-bad", name: "read", args: { path: "b.ts" }, status: "error", output: "failed" },
+          },
           { kind: "text", chunk: "继续验证" },
           {
             kind: "tool",
             chunk: "",
-            tool: { id: "test-bad", name: "bash", args: { command: "pnpm test" }, status: "error", output: "failed" },
+            tool: { id: "test-ok", name: "bash", args: { command: "pnpm test" }, status: "done", output: "passed" },
           },
           { kind: "text", chunk: "最终总结" },
         ],
@@ -278,11 +336,44 @@ describe("与桌面共用的运行进度", () => {
         outputSeq: -1,
       });
     });
-    expect(document.querySelector('[data-testid="run-process-header"]')?.textContent).toContain("其中 1 次失败");
-    expect(document.querySelectorAll('[data-testid="run-tool-step"]')).toHaveLength(2);
-    expect(document.querySelector('[data-testid="run-tool-step"][data-status="done"] .bg-success')).not.toBeNull();
-    expect(document.querySelector('[data-testid="run-tool-step"][data-status="error"] .bg-danger')).not.toBeNull();
-    expect(document.body.textContent).toContain("最终总结");
-    expect(document.body.textContent).not.toContain("展开思考过程");
+    const process = document.querySelector('[data-testid="run-process"]')!;
+    const header = process.querySelector<HTMLButtonElement>('[data-testid="run-process-header"]')!;
+    expect(process.getAttribute("data-state")).toBe("expanded");
+    expect(header.getAttribute("aria-expanded")).toBe("true");
+    expect(header.textContent).toContain("执行过程");
+    expect(header.textContent).toMatch(/\D3\D/);
+    expect(header.querySelector('[data-testid="run-failed-count"]')?.textContent).toContain("1 次失败");
+    expect(header.textContent).not.toContain("其中");
+    expect(document.querySelector('[data-testid="run-summary"]')?.textContent).toBe("最终总结");
+    expect(document.querySelector('[data-testid="run-progress"]')).toBeNull();
+
+    const body = process.querySelector('[data-testid="run-process-body"]')!;
+    const list = body.matches("ol") ? body : body.querySelector("ol")!;
+    expect(Array.from(list.children).map((item) => item.getAttribute("data-kind"))).toEqual([
+      "thinking",
+      "tools",
+      "text",
+      "tools",
+    ]);
+    expect(process.querySelector('[data-testid="run-stage-output"]')?.textContent).toBe("继续验证");
+    expect(document.querySelector('[data-testid="run-activity-header"]')).toBeNull();
+    const steps = process.querySelectorAll('[data-testid="run-tool-step"]');
+    expect(steps).toHaveLength(2);
+    expect(steps[0]!.getAttribute("data-count")).toBe("2");
+    expect(steps[0]!.getAttribute("data-status")).toBe("error");
+    expect(steps[1]!.getAttribute("data-status")).toBe("done");
+    expect(steps[0]!.querySelector('[data-testid="run-failed-count"]')?.textContent).toContain("1 次失败");
+    for (const step of steps) {
+      expect(step.querySelector("button[aria-expanded]")?.getAttribute("aria-expanded")).toBe("false");
+    }
+    await act(async () => steps[0]!.querySelector<HTMLButtonElement>("button[aria-expanded]")!.click());
+    const calls = steps[0]!.querySelectorAll('[data-testid="run-tool-call"]');
+    expect(
+      Array.from(calls).map((call) => [call.getAttribute("data-call-id"), call.getAttribute("data-status")]),
+    ).toEqual([
+      ["read-ok", "done"],
+      ["read-bad", "error"],
+    ]);
+    expect(calls[1]!.textContent).toContain("failed");
   });
 });

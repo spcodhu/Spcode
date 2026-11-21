@@ -347,7 +347,7 @@ interface StoreState {
   setPlanMode(enabled: boolean): Promise<void>;
   /** 切换当前会话的权限模式（三档，立即生效并持久化到注册表） */
   setPermissionMode(mode: PermissionMode): Promise<void>;
-  replyPermission(requestId: string, approved: boolean, rememberProject?: boolean): void;
+  replyPermission(requestId: string, approved: boolean, scope?: import("@spcode/shared").PermissionScope): void;
   replyQuestion(requestId: string, answers: import("@spcode/shared").QuestionAnswers): void;
   /** 打开一个工作区文件（计划文件走 kind:"plan"；普通文件由主进程按当前会话确定 cwd/scratch） */
   openWorkspaceFile(input: { path: string; kind: "plan" | "file"; label?: string }): Promise<void>;
@@ -1796,8 +1796,8 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
 
-  replyPermission(requestId, approved, rememberProject) {
-    window.spcode.replyPermission(requestId, approved, rememberProject);
+  replyPermission(requestId, approved, scope) {
+    window.spcode.replyPermission(requestId, approved, scope);
     set((s) => ({
       pendingPermissions: s.pendingPermissions.filter((p) => p.requestId !== requestId),
     }));

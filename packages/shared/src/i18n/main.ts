@@ -20,13 +20,13 @@ export const zhCN = {
     "计划模式为只读：此命令不在只读白名单中。请继续使用只读命令（cat/grep/find/ls/git status 等）调研；计划就绪后调用 WritePlan 落盘并以文件链接结束，用户会在右侧阅读面板决定是否执行。",
   "permission.planWrite":
     "计划模式禁止修改。请完成计划并调用 WritePlan 落盘；用户在右侧阅读面板显式开始执行后才会恢复写入工具。",
-  "lan.title": "Spcod 远程控制",
+  "lan.title": "Spcode 远程控制",
   "lan.started": "远程控制服务已启动",
   "lan.notBuilt": "开发环境的手机端 PWA 尚未构建（{{path}} 不可用）。",
   "lan.instructions":
     "请在电脑的项目根目录执行 pnpm --filter @spcode/mobile build，然后在桌面设置中关闭并重新开启远程控制。",
   "lan.packagedMissing": "安装包中的手机端 PWA 资源缺失或损坏。",
-  "lan.packagedInstructions": "请重新安装完整的 Spcod 安装包；无需在手机或终端手动构建 PWA。",
+  "lan.packagedInstructions": "请重新安装完整的 Spcode 安装包；无需在手机或终端手动构建 PWA。",
   "lan.badRequest": "请求无效",
   "lan.forbidden": "禁止访问",
   "quota.availableBalance": "可用余额",
@@ -70,7 +70,7 @@ export const zhCN = {
   "sandbox.path.appDataWrite":
     "目标在应用数据目录（~/.spcode）内：含记忆/设置/会话注册表/配对密钥，写入需要用户明确批准",
   "sandbox.path.outsideWorkspace": "目标在工作目录之外（写入工作区外需要用户明确批准）",
-  "permission.denied": "用户在 Spcod 权限对话框中拒绝了此工具调用。",
+  "permission.denied": "用户在 Spcode 权限对话框中拒绝了此工具调用。",
   "permission.sandboxStrict":
     "沙盒严格模式：dangerouslyDisableSandbox 已禁用（sandbox.allowUnsandboxedCommands=false）。请在沙盒内运行命令，或请用户在「设置 → 沙盒」中允许。",
 } as const;
@@ -97,14 +97,14 @@ export const en = {
     "Plan mode is read-only: this command is not on the read-only allowlist. Continue with read-only commands (cat/grep/find/ls/git status, etc.); when ready, save via WritePlan and finish with a file link. The user decides whether to execute from the plan panel.",
   "permission.planWrite":
     "Modifications are forbidden in plan mode. Save the plan with WritePlan; write tools are restored only after the user explicitly starts execution from the plan panel.",
-  "lan.title": "Spcod Remote Control",
+  "lan.title": "Spcode Remote Control",
   "lan.started": "Remote control service is running",
   "lan.notBuilt": "The development mobile PWA is unavailable ({{path}}).",
   "lan.instructions":
     "Run pnpm --filter @spcode/mobile build in the project root on this computer, then restart Remote Control in desktop Settings.",
   "lan.packagedMissing": "The mobile PWA resource bundled with this installation is missing or damaged.",
   "lan.packagedInstructions":
-    "Reinstall the complete Spcod package. You do not need to build a PWA on your phone or in a terminal.",
+    "Reinstall the complete Spcode package. You do not need to build a PWA on your phone or in a terminal.",
   "lan.badRequest": "Bad request",
   "lan.forbidden": "Forbidden",
   "quota.availableBalance": "Available balance",
@@ -151,7 +151,7 @@ export const en = {
     "The target is in the application data directory (~/.spcode), which contains memory, settings, the session registry, and pairing keys. Writing requires explicit user approval.",
   "sandbox.path.outsideWorkspace":
     "The target is outside the working directory. Writing outside the workspace requires explicit user approval.",
-  "permission.denied": "User denied this tool call in Spcod permission dialog.",
+  "permission.denied": "User denied this tool call in Spcode permission dialog.",
   "permission.sandboxStrict":
     "Sandbox strict mode: dangerouslyDisableSandbox is disabled (sandbox.allowUnsandboxedCommands=false). Run the command inside the sandbox or ask the user to allow it in Settings → Sandbox.",
 } as const satisfies Record<keyof typeof zhCN, string>;

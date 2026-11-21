@@ -35,7 +35,7 @@ describe("手机 PWA 资源定位", () => {
 
   it("安装版固定使用 process.resourcesPath/mobile，不退回源码目录", () => {
     const root = tempDir();
-    const resourcesPath = join(root, "Spcod.app/Contents/Resources");
+    const resourcesPath = join(root, "Spcode.app/Contents/Resources");
     const expected = join(resourcesPath, "mobile");
     const runtime = { appPath: join(resourcesPath, "app.asar"), resourcesPath, isPackaged: true };
 

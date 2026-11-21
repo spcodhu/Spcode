@@ -11,11 +11,13 @@ describe("原生窗口标题栏", () => {
     });
   });
 
-  it("macOS 保持 hiddenInset 与原有红绿灯位置", () => {
-    expect(nativeWindowChromeOptions("darwin", DEFAULT_SETTINGS)).toEqual({
+  it("macOS 保持 hiddenInset 与 14px 左距，14px 高红绿灯在 48px 顶栏垂直居中", () => {
+    const options = nativeWindowChromeOptions("darwin", DEFAULT_SETTINGS);
+    expect(options).toEqual({
       titleBarStyle: "hiddenInset",
-      trafficLightPosition: { x: 14, y: 14 },
+      trafficLightPosition: { x: 14, y: 17 },
     });
+    expect(options.trafficLightPosition!.y + 14 / 2).toBe(48 / 2);
   });
 
   it("窗口按钮跟随内置暗色主题", () => {
