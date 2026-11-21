@@ -176,7 +176,7 @@ function EmptyHome() {
             <Icon name="zap" size={23} className="text-accent" strokeWidth={1.8} />
           </div>
           <h1 data-testid="brand" className="text-[24px] font-semibold tracking-tight text-text-primary">
-            Spcod
+            Spcode
           </h1>
           <p className="mt-2 text-[13px] leading-6 text-text-secondary">{t("home.tagline")}</p>
         </div>

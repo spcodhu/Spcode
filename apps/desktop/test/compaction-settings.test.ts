@@ -1,5 +1,5 @@
 /**
- * 压缩设置链路保障测试：锁定 Spcod 依赖的 pi 引擎行为假设——
+ * 压缩设置链路保障测试：锁定 Spcode 依赖的 pi 引擎行为假设——
  * SettingsManager.inMemory + applyOverrides 后，getCompactionSettings 实时读到新值
  * （引擎每轮压缩判断都实时调它，所以设置变更对活跃会话即时生效）。
  * pi 升级若改变该行为（缓存快照/延迟合并等），这里会红。

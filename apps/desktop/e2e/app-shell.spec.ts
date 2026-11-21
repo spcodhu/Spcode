@@ -37,6 +37,8 @@ test("启动就绪：后台窗口、首页与新建聊天、无模型发送不�
   expect(windowState.active).toBe(false);
 
   await expect(window.getByTestId("brand")).toBeVisible({ timeout: 15000 });
+  await expect(window.getByTestId("brand")).toHaveText("Spcode");
+  await expect(window).toHaveTitle("Spcode");
 
   // 新建聊天（侧栏提示文本也含「新建聊天」，必须按 role 选按钮）
   await window.getByRole("button", { name: /新建聊天/ }).click();

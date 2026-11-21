@@ -1108,7 +1108,7 @@ function AboutPage() {
     <div>
       <PageHeader title={t("nav.about")} subtitle={t("about.description")} />
       <div className="rounded-xl border border-border bg-bg-elevated px-5 py-4 text-[13px] leading-7 text-text-secondary">
-        <div className="text-[16px] font-semibold text-text-primary">Spcod</div>
+        <div className="text-[16px] font-semibold text-text-primary">Spcode</div>
         <div>{t("about.version", { version: version || "…" })}</div>
         <div>{t("about.mobilePwa")}</div>
         <div>

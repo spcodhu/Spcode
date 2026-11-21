@@ -78,7 +78,7 @@ export function permissionRealpath(path: string): string {
 const blocked = (reason: string): ToolCallVerdict => ({ block: true, reason });
 const denied = (): ToolCallVerdict => ({
   block: true,
-  reason: "User denied this tool call in Spcod permission dialog.",
+  reason: "User denied this tool call in Spcode permission dialog.",
   reasonMessage: { key: "main:permission.denied" },
 });
 

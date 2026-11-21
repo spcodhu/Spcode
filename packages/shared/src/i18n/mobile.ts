@@ -1,5 +1,5 @@
 export const zhCN = {
-  "app.title": "Spcod 远程控制",
+  "app.title": "Spcode 远程控制",
   "connection.connecting": "正在连接桌面端…",
   "connection.reconnecting": "连接已断开，正在重连…",
   "connection.detail": "{{message}}（{{detail}}）",
@@ -26,7 +26,7 @@ export const zhCN = {
   "common.chatSession": "聊天会话",
   "common.projectSession": "项目会话",
   "common.projectPath": "项目目录（桌面端绝对路径，如 /Users/…/project）",
-  "pair.title": "连接到桌面 Spcod",
+  "pair.title": "连接到桌面 Spcode",
   "pair.help":
     "在桌面端「设置 → 远程控制」开启服务并展示配对二维码，然后用下方任一方式完成配对。配对为端到端加密（X25519 + NaCl box），配对码 5 分钟内有效、仅可使用一次。",
   "pair.deviceName": "本机设备名",
@@ -76,7 +76,7 @@ export const zhCN = {
   "sessions.emptyHint": "点右上角「+ 新任务」开始。",
   "sessions.actions": "会话操作：{{title}}",
   "sessions.confirmUnpair": "确定解除配对？",
-  "sessions.footer": "Spcod 远程控制 · 端到端加密 · 解除配对",
+  "sessions.footer": "Spcode 远程控制 · 端到端加密 · 解除配对",
   "status.running": "运行中",
   "status.idle": "空闲",
   "status.waiting_permission": "待批准",
@@ -247,7 +247,7 @@ export const zhCN = {
 } as const;
 
 export const en = {
-  "app.title": "Spcod Remote Control",
+  "app.title": "Spcode Remote Control",
   "connection.connecting": "Connecting to desktop…",
   "connection.reconnecting": "Disconnected. Reconnecting…",
   "connection.detail": "{{message}} ({{detail}})",
@@ -275,7 +275,7 @@ export const en = {
   "common.chatSession": "Chat session",
   "common.projectSession": "Project session",
   "common.projectPath": "Project directory (absolute desktop path, e.g. /Users/…/project)",
-  "pair.title": "Connect to Spcod on desktop",
+  "pair.title": "Connect to Spcode on desktop",
   "pair.help":
     "Enable the service in desktop Settings → Remote Control and display the pairing QR code. Pair using either option below. Pairing is end-to-end encrypted (X25519 + NaCl box). The code expires in 5 minutes and can only be used once.",
   "pair.deviceName": "Device name",
@@ -330,7 +330,7 @@ export const en = {
   "sessions.emptyHint": "Tap “+ New task” above to get started.",
   "sessions.actions": "Session actions: {{title}}",
   "sessions.confirmUnpair": "Unpair this device?",
-  "sessions.footer": "Spcod Remote Control · End-to-end encrypted · Unpair",
+  "sessions.footer": "Spcode Remote Control · End-to-end encrypted · Unpair",
   "status.running": "Running",
   "status.idle": "Idle",
   "status.waiting_permission": "Awaiting approval",

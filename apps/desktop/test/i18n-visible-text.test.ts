@@ -7,7 +7,6 @@ import { describe, expect, it } from "vitest";
 const root = join(dirname(fileURLToPath(import.meta.url)), "../../..");
 const visibleAttributes = new Set(["title", "placeholder", "aria-label", "alt", "label", "subtitle"]);
 const technicalLabels = new Set([
-  "Spcod",
   "Spcode",
   "MCP",
   "JSON",

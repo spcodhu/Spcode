@@ -1,9 +1,9 @@
 {
-  "name": "Spcod",
-  "short_name": "Spcod",
+  "name": "Spcode",
+  "short_name": "Spcode",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#f7f7f5",
   "theme_color": "#ffffff",
-  "description": "Spcod"
+  "description": "Spcode"
 }

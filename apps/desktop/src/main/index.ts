@@ -196,7 +196,7 @@ function createWindow(): void {
     height: 840,
     minWidth: 900,
     minHeight: 600,
-    title: "Spcod",
+    title: "Spcode",
     ...(devIcon ? { icon: devIcon } : {}),
     backgroundColor: "#0b0f14",
     ...nativeWindowChromeOptions(process.platform, settings.get()),

@@ -93,11 +93,11 @@ export const zhCN = {
     "覆盖 AI、搜索、网页抓取、自动更新与桌面远程通道；命令行工具继承标准代理环境变量。手机浏览器和外部浏览器不受此设置控制。",
   "general.search": "高级搜索",
   "general.autoLaunch": "开机自动启动",
-  "general.autoLaunchTitle": "登录时启动 Spcod",
+  "general.autoLaunchTitle": "登录时启动 Spcode",
   "general.autoLaunchDescription": "直接配置 Windows/macOS 系统登录项，切换后立即回读实际状态",
   "general.autoLaunchPackagedOnly": "开发环境不会注册 Electron 本体；此开关在正式安装包中可用",
-  "general.autoLaunchApproval": "macOS 需要你在「系统设置 → 通用 → 登录项与扩展」中批准 Spcod",
-  "general.autoLaunchWindowsDeactivated": "Windows 已停用此启动项，请在任务管理器的「启动应用」中启用 Spcod",
+  "general.autoLaunchApproval": "macOS 需要你在「系统设置 → 通用 → 登录项与扩展」中批准 Spcode",
+  "general.autoLaunchWindowsDeactivated": "Windows 已停用此启动项，请在任务管理器的「启动应用」中启用 Spcode",
   "general.autoLaunchFailed": "开机启动状态操作失败：{{error}}",
   "general.checkUpdates": "启动时检查更新",
   "general.checkUpdatesDescription": "启动时自动检查，之后每 4 小时复查；发现新版本仅提醒，不自动下载",
@@ -420,7 +420,7 @@ export const zhCN = {
   "remote.pwaMissing": "手机端 PWA 当前不可用",
   "remote.pwaDevMissingDescription":
     "开发环境请在项目根目录执行 pnpm --filter @spcode/mobile build，然后重启远程控制。",
-  "remote.pwaPackagedMissingDescription": "安装包资源缺失或损坏，请重新安装完整的 Spcod 安装包。",
+  "remote.pwaPackagedMissingDescription": "安装包资源缺失或损坏，请重新安装完整的 Spcode 安装包。",
   "remote.phoneGuide": "手机连接说明（无需安装 App）",
   "remote.phoneGuide.summary": "按实际网络环境选择一种流程；公网配对不需要先连接局域网。",
   "remote.phoneGuide.link": "在 GitHub 查看完整教程与原理",
@@ -583,7 +583,7 @@ export const zhCN = {
   "usage.today": "今日",
   "usage.week": "近 7 天",
   "usage.all": "累计",
-  "usage.description": "查看 Spcod 本地 token 使用统计和模型订阅额度",
+  "usage.description": "查看 Spcode 本地 token 使用统计和模型订阅额度",
   "usage.totalTokens": "总 Token",
   "usage.requests": "请求次数",
   "usage.inputTokens": "输入 Token",
@@ -742,13 +742,13 @@ export const en = {
     "Applies to AI, search, web fetching, automatic updates, and desktop remote channels. Command-line tools inherit standard proxy environment variables. Phone and external browsers are not controlled by this setting.",
   "general.search": "Advanced search",
   "general.autoLaunch": "Launch at login",
-  "general.autoLaunchTitle": "Start Spcod when you log in",
+  "general.autoLaunchTitle": "Start Spcode when you log in",
   "general.autoLaunchDescription": "Configures the Windows/macOS login item directly and reads back the actual state",
   "general.autoLaunchPackagedOnly":
     "Development mode never registers Electron itself; this switch is available in installed builds",
-  "general.autoLaunchApproval": "Approve Spcod in macOS System Settings → General → Login Items & Extensions",
+  "general.autoLaunchApproval": "Approve Spcode in macOS System Settings → General → Login Items & Extensions",
   "general.autoLaunchWindowsDeactivated":
-    "Windows has disabled this startup item. Enable Spcod in Task Manager → Startup apps",
+    "Windows has disabled this startup item. Enable Spcode in Task Manager → Startup apps",
   "general.autoLaunchFailed": "Could not read or change launch at login: {{error}}",
   "general.checkUpdates": "Check for updates on startup",
   "general.checkUpdatesDescription":
@@ -1096,7 +1096,7 @@ export const en = {
   "remote.pwaDevMissingDescription":
     "For development, run pnpm --filter @spcode/mobile build in the project root, then restart Remote Control.",
   "remote.pwaPackagedMissingDescription":
-    "The installation resource is missing or damaged. Reinstall the complete Spcod package.",
+    "The installation resource is missing or damaged. Reinstall the complete Spcode package.",
   "remote.phoneGuide": "Phone connection guide (no app installation needed)",
   "remote.phoneGuide.summary":
     "Choose the workflow for your actual networks. Public pairing does not require joining the LAN first.",
@@ -1284,7 +1284,7 @@ export const en = {
   "usage.today": "Today",
   "usage.week": "Last 7 days",
   "usage.all": "All time",
-  "usage.description": "View local Spcod token usage and model subscription allowances",
+  "usage.description": "View local Spcode token usage and model subscription allowances",
   "usage.totalTokens": "Total tokens",
   "usage.requests": "Requests",
   "usage.inputTokens": "Input tokens",
