@@ -135,7 +135,7 @@ export function RunActivityTimeline({
               {active ? (
                 <RunProgress state={progress} />
               ) : (
-                <span className="text-[14px] leading-5 font-semibold">{t("run.process")}</span>
+                <span className="text-[13px] leading-5 font-normal">{t("run.process")}</span>
               )}
               {elapsed !== undefined && (
                 <span className="shrink-0 text-[11px] text-text-tertiary tabular-nums" data-testid="run-elapsed">
@@ -230,7 +230,7 @@ function RunProgress({ state }: { state: ReturnType<typeof currentRunProgress> }
       data-kind={state.kind}
       data-tool={state.kind === "tool" ? state.call.name : undefined}
     >
-      <span className="shrink-0 text-[14px] leading-5 font-semibold text-text-primary">{label}</span>
+      <span className="shrink-0 text-[13px] leading-5 font-normal text-text-primary">{label}</span>
       {detail && (
         <span className="mono min-w-0 truncate text-[11px] text-text-tertiary" title={detail}>
           · {detail}

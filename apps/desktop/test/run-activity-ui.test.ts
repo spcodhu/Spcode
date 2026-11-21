@@ -92,7 +92,9 @@ describe("共享运行时间线 DOM", () => {
     expect(header.textContent).toMatch(/\D4\D/);
     expect(header.className).not.toContain("border");
     expect(header.firstElementChild).toBe(element("run-process-icon", header));
-    expect(element("run-progress", header).querySelector("span")?.className).toContain("font-semibold");
+    const title = element("run-progress", header).querySelector("span");
+    expect(title?.className).toContain("text-[13px]");
+    expect(title?.className).toContain("font-normal");
     const body = element("run-process-body", process);
     const list = body.matches("ol") ? body : body.querySelector("ol")!;
     const items = elements("run-timeline-item", body);
