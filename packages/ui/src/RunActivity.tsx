@@ -18,7 +18,6 @@ const PREVIEWABLE_TOOLS = new Set(["read", "write", "edit"]);
 const ICON_PATHS = {
   check: "M20 6 9 17l-5-5",
   error: "M12 8v5m0 4h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0",
-  list: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
   chevronRight: "m9 18 6-6-6-6",
   panelRight: "M3 4h18v16H3zm12 0v16",
   thinking: "M9 18h6m-5 3h4M8 14a6 6 0 1 1 8 0c-1 1-1 2-1 2H9s0-1-1-2Z",
@@ -62,7 +61,7 @@ function NodeIcon({ name, running = false, error = false }: { name: IconName; ru
   return (
     <span
       aria-hidden
-      className={`absolute top-1 left-0 flex h-5 w-5 items-center justify-center bg-bg-root ${error ? "text-danger" : "text-text-tertiary"}`}
+      className={`absolute top-1 left-4 flex h-5 w-5 items-center justify-center bg-bg-root ${error ? "text-danger" : "text-text-tertiary"}`}
     >
       {running ? <Spinner /> : <RunIcon name={error ? "error" : name} />}
     </span>
@@ -124,16 +123,20 @@ export function RunActivityTimeline({
             aria-controls={bodyId}
             onClick={() => setOpen(!open)}
             data-testid="run-process-header"
-            className="group flex min-h-10 w-full min-w-0 items-center gap-2.5 rounded-lg border border-border/70 bg-bg-hover/35 px-3 py-2 text-left text-[13px] leading-5 font-medium text-text-primary transition-colors hover:border-border hover:bg-bg-hover/60 motion-reduce:transition-none"
+            className="group flex min-h-9 w-full min-w-0 items-start gap-2 px-0 py-1 text-left text-text-primary motion-reduce:transition-none"
           >
             <span
-              className="flex size-6 shrink-0 items-center justify-center rounded-md bg-bg-root text-text-secondary"
+              className="mt-0.5 flex size-5 shrink-0 items-center justify-center text-text-tertiary transition-colors group-hover:text-text-primary"
               data-testid="run-process-icon"
             >
-              <RunIcon name="list" size={15} />
+              <Chevron open={open} size={14} />
             </span>
-            <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-              {active ? <RunProgress state={progress} /> : <span>{t("run.process")}</span>}
+            <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2.5 gap-y-0.5">
+              {active ? (
+                <RunProgress state={progress} />
+              ) : (
+                <span className="text-[14px] leading-5 font-semibold">{t("run.process")}</span>
+              )}
               {elapsed !== undefined && (
                 <span className="shrink-0 text-[11px] text-text-tertiary tabular-nums" data-testid="run-elapsed">
                   ·{" "}
@@ -153,25 +156,22 @@ export function RunActivityTimeline({
                 </span>
               )}
             </span>
-            <span className="flex size-6 shrink-0 items-center justify-center rounded-md text-text-secondary group-hover:bg-bg-root/70">
-              <Chevron open={open} size={14} />
-            </span>
           </button>
           <div id={bodyId} className="collapse-grid" data-open={open} aria-hidden={!open} inert={!open}>
             <div className="collapse-inner">
-              <ol className="min-w-0 pt-1" data-testid="run-process-body">
+              <ol className="ml-[9px] min-w-0 pt-1" data-testid="run-process-body">
                 {process.map((block) => (
                   <li
                     key={block.key}
                     data-testid="run-timeline-item"
                     data-kind={block.kind}
-                    className="relative min-w-0 pb-2 pl-7 before:absolute before:top-6 before:bottom-0 before:left-[9px] before:w-px before:bg-border last:pb-1 last:before:hidden"
+                    className="relative min-w-0 pb-2 pl-10 before:absolute before:top-0 before:bottom-0 before:left-0 before:w-px before:bg-border after:absolute after:top-[14px] after:left-0 after:h-px after:w-3 after:bg-border last:pb-1 last:before:bottom-auto last:before:h-[14px]"
                   >
                     {block.kind === "text" ? (
                       <>
                         <span
                           aria-hidden
-                          className={`absolute top-2.5 left-[7px] size-[5px] rounded-full ${active && progressSegment?.id === block.key ? "animate-pulse bg-text-tertiary motion-reduce:animate-none" : "bg-border-strong"}`}
+                          className={`absolute top-[11px] left-[23px] size-[5px] rounded-full ${active && progressSegment?.id === block.key ? "animate-pulse bg-text-tertiary motion-reduce:animate-none" : "bg-border-strong"}`}
                         />
                         <div data-testid="run-stage-output" className="min-w-0 pb-1 [&_.md-body]:mb-0">
                           {renderBlock(block)}
@@ -230,7 +230,7 @@ function RunProgress({ state }: { state: ReturnType<typeof currentRunProgress> }
       data-kind={state.kind}
       data-tool={state.kind === "tool" ? state.call.name : undefined}
     >
-      <span className="shrink-0">{label}</span>
+      <span className="shrink-0 text-[14px] leading-5 font-semibold text-text-primary">{label}</span>
       {detail && (
         <span className="mono min-w-0 truncate text-[11px] text-text-tertiary" title={detail}>
           · {detail}
@@ -240,9 +240,17 @@ function RunProgress({ state }: { state: ReturnType<typeof currentRunProgress> }
   );
 }
 
-function firstLine(text: string): string {
-  const line = text.split("\n").find((l) => l.trim()) ?? "";
-  return line.trim().replace(/^[-*>#\s]+/, "");
+const THOUGHT_PREVIEW_MAX_LENGTH = 160;
+
+/** 折叠时展示最近的思考尾部，而不是一直停留在首句。 */
+function recentThought(text: string): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (!normalized) return "";
+  const sentences = normalized.match(/[^.!?。！？]+[.!?。！？]*/g) ?? [normalized];
+  const recent = sentences.slice(-2).join("").trim();
+  return recent.length > THOUGHT_PREVIEW_MAX_LENGTH
+    ? `…${recent.slice(-(THOUGHT_PREVIEW_MAX_LENGTH - 1)).trimStart()}`
+    : recent;
 }
 
 function ThinkingRow({ text, streaming }: { text: string; streaming: boolean }) {
@@ -275,7 +283,9 @@ function ThinkingRow({ text, streaming }: { text: string; streaming: boolean }) 
         <span className={`shrink-0 ${streaming ? "text-text-primary" : "text-text-secondary"}`}>
           {t(streaming ? "message.thinking" : "run.thought")}
         </span>
-        <span className="min-w-0 flex-1 truncate text-[11px] text-text-tertiary">{firstLine(text)}</span>
+        <span className="min-w-0 flex-1 truncate text-[11px] text-text-tertiary" data-testid="run-thinking-preview">
+          {recentThought(text)}
+        </span>
         <Chevron open={open} />
       </button>
       <div id={bodyId} className="collapse-grid" data-open={open} aria-hidden={!open} inert={!open}>

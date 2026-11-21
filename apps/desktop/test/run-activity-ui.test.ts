@@ -87,8 +87,12 @@ describe("共享运行时间线 DOM", () => {
 
     const process = element("run-process");
     expect(process.dataset.state).toBe("expanded");
-    expect(element("run-process-header").tagName).toBe("BUTTON");
-    expect(element("run-process-header").textContent).toMatch(/\D4\D/);
+    const header = element("run-process-header");
+    expect(header.tagName).toBe("BUTTON");
+    expect(header.textContent).toMatch(/\D4\D/);
+    expect(header.className).not.toContain("border");
+    expect(header.firstElementChild).toBe(element("run-process-icon", header));
+    expect(element("run-progress", header).querySelector("span")?.className).toContain("font-semibold");
     const body = element("run-process-body", process);
     const list = body.matches("ol") ? body : body.querySelector("ol")!;
     const items = elements("run-timeline-item", body);
@@ -96,6 +100,8 @@ describe("共享运行时间线 DOM", () => {
     for (const item of items) {
       expect(item.tagName).toBe("LI");
       expect(item.parentElement).toBe(list);
+      expect(item.className).toContain("pl-10");
+      expect(item.className).toContain("after:w-3");
     }
     expect(elements("run-activity")).toHaveLength(0);
     expect(elements("run-activity-header")).toHaveLength(0);
@@ -276,6 +282,25 @@ describe("共享运行时间线 DOM", () => {
     await click(button);
     expect(button.getAttribute("aria-expanded")).toBe("true");
     expect(row.textContent).toContain("先检查，再验证");
+  });
+
+  it("思考折叠摘要持续跟随最新尾部，长段落也不固定显示开头", async () => {
+    const opening = "开场白不应一直固定显示。";
+    const initial = `${opening}${"中间分析内容".repeat(40)}最近完成的第一步。`;
+    const thinking: RunSegment = { kind: "thinking", id: "thinking-tail", text: initial, done: false };
+    await renderTimeline({ segments: [thinking], active: true, progressSegment: thinking });
+    const preview = element("run-thinking-preview");
+    expect(preview.textContent).toContain("最近完成的第一步");
+    expect(preview.textContent).not.toContain(opening);
+
+    const latest = "最新一步正在检查生图结果";
+    const updated = { ...thinking, text: `${initial}${latest}` };
+    await renderTimeline({ segments: [updated], active: true, progressSegment: updated });
+    expect(element("run-thinking-preview")).toBe(preview);
+    expect(preview.textContent).toContain(latest);
+    expect(preview.textContent).not.toContain(opening);
+    expect(preview.textContent!.length).toBeLessThanOrEqual(160);
+    expect(toggle(element("run-thinking")).getAttribute("aria-expanded")).toBe("false");
   });
 
   it("只有最终文本时只展示一次总结，没有空过程和工具", async () => {

@@ -61,7 +61,6 @@ export function GeneratedImageGallery({
         <ImageGenProgress
           key={call.id}
           title={t("imageGen.generating")}
-          description={t("imageGen.generatingHint")}
           testId="generated-image-progress"
           variant="card"
         />

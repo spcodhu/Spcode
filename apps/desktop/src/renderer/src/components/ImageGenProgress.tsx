@@ -35,7 +35,7 @@ export function ImageGenProgress({
       data-testid={testId}
       className={
         variant === "card"
-          ? "flex h-44 w-52 shrink-0 flex-col justify-center overflow-hidden rounded-xl border border-accent/20 bg-bg-elevated px-4 py-3"
+          ? "flex aspect-[16/10] w-80 max-w-full shrink-0 flex-col justify-center overflow-hidden rounded-xl border border-accent/20 bg-bg-elevated px-5 py-4"
           : "mt-3 rounded-xl border border-accent/20 bg-accent-soft/35 px-4 py-3"
       }
     >
@@ -45,18 +45,21 @@ export function ImageGenProgress({
           <Icon name="sparkles" size={17} className="relative animate-pulse" />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="flex items-baseline justify-between gap-2">
-            <span className="thinking-shimmer truncate text-[13px] font-medium">{title}</span>
-            <span className="shrink-0 tabular-nums text-[11px] text-text-tertiary">
-              {t("imageGen.elapsed", { seconds: elapsed })}
-            </span>
+          <span
+            className="thinking-shimmer block whitespace-nowrap text-[14px] font-medium"
+            data-testid={`${testId}-title`}
+          >
+            {title}
           </span>
-          {description && (
-            <span className="mt-0.5 block text-[11.5px] leading-4 text-text-tertiary">{description}</span>
+          <span className="mt-1 block tabular-nums text-[11px] text-text-tertiary" data-testid={`${testId}-elapsed`}>
+            {t("imageGen.elapsed", { seconds: elapsed })}
+          </span>
+          {variant === "inline" && description && (
+            <span className="mt-1 block text-[11.5px] leading-4 text-text-tertiary">{description}</span>
           )}
         </span>
       </div>
-      <div className="image-gen-progress-track mt-3" aria-hidden>
+      <div className="image-gen-progress-track mt-4" aria-hidden>
         <span className="image-gen-progress-bar" />
       </div>
     </div>
