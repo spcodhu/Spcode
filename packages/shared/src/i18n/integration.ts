@@ -42,7 +42,7 @@ export const zhCN = {
   "files.theme": "导入主题 JSON",
   "files.themes": "主题",
   "search.incomplete": "配置不完整（baseUrl / apiKey / 响应映射）",
-  "imageGen.incomplete": "配置不完整（端点 / API 密钥 / 模型）",
+  "imageGen.incomplete": "配置不完整或无效（端点 / API 密钥 / 模型 / 自定义 Body 与响应路径）",
   "theme.noModel": "没有可用模型，请先在设置里配置 API Key",
   "theme.invalidJson": "模型未返回有效 JSON",
   "host.promptFailed": "请求失败：{{error}}",
@@ -99,7 +99,8 @@ export const en = {
   "files.theme": "Import theme JSON",
   "files.themes": "Themes",
   "search.incomplete": "Incomplete configuration (baseUrl / apiKey / response mapping)",
-  "imageGen.incomplete": "Incomplete configuration (endpoint / API key / model)",
+  "imageGen.incomplete":
+    "Incomplete or invalid configuration (endpoint / API key / model / custom body and response path)",
   "theme.noModel": "No models are available. Configure an API key in Settings first.",
   "theme.invalidJson": "The model did not return valid JSON",
   "host.promptFailed": "Request failed: {{error}}",

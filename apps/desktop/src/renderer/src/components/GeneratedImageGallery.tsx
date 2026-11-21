@@ -11,10 +11,23 @@ import { useTranslation } from "react-i18next";
 import { openImageContextMenu } from "../image-actions";
 import { type GeneratedImageRef, useStore } from "../store";
 import { Icon } from "./Icon";
+import { ImageGenProgress } from "./ImageGenProgress";
 import { ImageLightbox } from "./ImageLightbox";
 
-export function GeneratedImageGallery({ images }: { images: GeneratedImageRef[] }) {
+export interface PendingGeneratedImage {
+  id: string;
+}
+
+export function GeneratedImageGallery({
+  images,
+  pending = [],
+}: {
+  images: GeneratedImageRef[];
+  /** 正在执行的 GenerateImage 调用；并行调用各自展示一张等待卡片 */
+  pending?: PendingGeneratedImage[];
+}) {
   const sessionId = useStore((s) => s.activeSessionId);
+  const { t } = useTranslation("chat");
   const [loaded, setLoaded] = useState<Record<string, ImageAttachment>>({});
   const [failed, setFailed] = useState<Record<string, true>>({});
   const [previewIdx, setPreviewIdx] = useState<number | null>(null);
@@ -41,9 +54,18 @@ export function GeneratedImageGallery({ images }: { images: GeneratedImageRef[] 
     setPreviewIdx(idx);
   };
 
-  if (images.length === 0) return null;
+  if (images.length === 0 && pending.length === 0) return null;
   return (
     <div className="my-3 flex flex-wrap gap-2.5" data-testid="generated-images">
+      {pending.map((call) => (
+        <ImageGenProgress
+          key={call.id}
+          title={t("imageGen.generating")}
+          description={t("imageGen.generatingHint")}
+          testId="generated-image-progress"
+          variant="card"
+        />
+      ))}
       {images.map((ref) => (
         <GeneratedImageCard
           key={ref.path}

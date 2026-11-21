@@ -5,6 +5,7 @@
  * 纯展示与纯计算的分区（开机启动、上下文压缩阈值、i18n 文案）已由 test/ 覆盖。
  */
 import { mkdtempSync, readFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "@playwright/test";
@@ -262,7 +263,7 @@ test("子代理三档：切换落盘 settings.json 且重启后回显", async ()
   await app.close();
 });
 
-test("生图技能：配置落盘 settings.json、重启后密钥掩码、停用清空", async () => {
+test("生图技能：千问与自定义配置落盘、重启后密钥掩码、停用清空", async () => {
   const spcodeHome = mkdtempSync(join(tmpdir(), "spcode-e2e-skills-"));
   let app = await launchApp({ spcodeHome });
   let window = await app.firstWindow();
@@ -271,10 +272,13 @@ test("生图技能：配置落盘 settings.json、重启后密钥掩码、停用
   await window.getByTestId("settings-nav-skills").click();
   const card = window.getByTestId("skills-image-gen-card");
   await expect(card).toBeVisible();
-  // 预设默认端点/模型已自动填充；密钥为空
-  await expect(card.getByTestId("skills-image-gen-baseurl")).toHaveValue(/images\/generations/);
+  // 千问官方同步端点自动填充；模型由用户填写，密钥为空
+  await expect(card.getByTestId("skills-image-gen-baseurl")).toHaveValue(/multimodal-generation\/generation/);
+  await expect(card.getByTestId("skills-image-gen-model")).toHaveValue("");
   await expect(card.getByTestId("skills-image-gen-apikey")).toHaveValue("");
+  await expect(card.getByTestId("skills-image-gen-sync-note")).toBeVisible();
 
+  await card.getByTestId("skills-image-gen-model").fill("user-selected-qwen-model");
   await card.getByTestId("skills-image-gen-apikey").fill("sk-e2e-secret");
   await card.getByTestId("skills-image-gen-save").click();
   await expect
@@ -307,5 +311,70 @@ test("生图技能：配置落盘 settings.json、重启后密钥掩码、停用
       return saved.skills?.imageGen;
     })
     .toBeNull();
-  await app.close();
+
+  // 本地延迟服务：验证自定义 Body 真实到达主进程 HTTP 请求，并覆盖同步等待动画。
+  const pngDataUrl =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  let postedBody = "";
+  const server = createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+    req.on("end", () => {
+      postedBody = Buffer.concat(chunks).toString("utf8");
+      setTimeout(() => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ result: { images: [{ url: pngDataUrl }] } }));
+      }, 800);
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Local image test server did not bind a port");
+  const customEndpoint = `http://127.0.0.1:${address.port}/generate`;
+
+  try {
+    // 自定义协议：完整 Body 与响应路径校验并落盘
+    await reopened.getByTestId("skills-image-gen-protocol").click();
+    await window.locator('[role="option"][data-value="custom"]').click();
+    await expect(reopened.getByTestId("skills-image-gen-custom")).toBeVisible();
+    await reopened.getByTestId("skills-image-gen-baseurl").fill(customEndpoint);
+    await reopened.getByTestId("skills-image-gen-model").fill("custom-model");
+    await reopened.getByTestId("skills-image-gen-apikey").fill("sk-custom-secret");
+    await reopened.getByTestId("skills-image-gen-body").fill("{");
+    await expect(reopened.getByTestId("skills-image-gen-body-error")).toBeVisible();
+    const customBody = '{"model":"{{model}}","prompt":"{{prompt}}","size":"{{size}}"}';
+    await reopened.getByTestId("skills-image-gen-body").fill(customBody);
+    await expect(reopened.getByTestId("skills-image-gen-body-error")).toHaveCount(0);
+    await reopened.getByTestId("skills-image-gen-response-path").fill("result.images[*].url");
+    await reopened.getByTestId("skills-image-gen-save").click();
+    await expect
+      .poll(() => {
+        const saved = JSON.parse(readFileSync(join(spcodeHome, "settings.json"), "utf8")) as {
+          skills?: {
+            imageGen?: { protocol?: string; requestBody?: string; responsePath?: string; apiKey?: string } | null;
+          };
+        };
+        return saved.skills?.imageGen;
+      })
+      .toMatchObject({
+        protocol: "custom",
+        requestBody: customBody,
+        responsePath: "result.images[*].url",
+        apiKey: "sk-custom-secret",
+      });
+
+    await reopened.getByTestId("skills-image-gen-test").click();
+    await expect(reopened.getByTestId("skills-image-gen-progress")).toBeVisible();
+    await expect(reopened.getByTestId("skills-image-gen-test")).toBeDisabled();
+    await expect(reopened.getByTestId("skills-image-gen-preview")).toBeVisible({ timeout: 15000 });
+    await expect(reopened.getByTestId("skills-image-gen-progress")).toHaveCount(0);
+    await expect.poll(() => (JSON.parse(postedBody || "{}") as { model?: string }).model).toBe("custom-model");
+    expect(JSON.parse(postedBody)).toMatchObject({
+      prompt: "A simple red circle centered on a plain white background",
+      size: "1024x1024",
+    });
+    await app.close();
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
+  }
 });

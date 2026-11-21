@@ -18,10 +18,10 @@ import {
 import { applySessionEvent, extractImages, historyToMessages, type SessionState } from "../src/renderer/src/store.js";
 
 const CONFIG: ImageGenConfig = {
-  protocol: "openai-images",
-  baseUrl: "https://api.example.com/v1/images/generations",
+  protocol: "qwen",
+  baseUrl: "https://maas.qianwenaiapi.com/api/v1/services/aigc/multimodal-generation/generation",
   apiKey: "sk-real-secret",
-  model: "gpt-image-1",
+  model: "user-selected-model",
 };
 
 function makeSession(overrides: Partial<SessionState> = {}): SessionState {

@@ -58,6 +58,16 @@ describe("bundled language resources", () => {
     expect(i18n.t("chat:message.toolsRan", { count: 2 })).toBe("执行工具 2 次");
   });
 
+  it("keeps custom image protocol placeholders literal in both locales", () => {
+    for (const locale of ["zh-CN", "en"]) {
+      setLocale(locale);
+      expect(i18n.t("settings:skills.imageGen.requestBodyHint")).toContain("{{prompt}}");
+      expect(i18n.t("settings:skills.imageGen.requestBodyHint")).toContain("{{model}}");
+      expect(i18n.t("settings:skills.imageGen.authHint")).toContain("{{apiKey}}");
+      expect(i18n.t("settings:skills.imageGen.bodyError.missingPrompt")).toContain("{{prompt}}");
+    }
+  });
+
   it("uses the requested locale and independently initialized instances", () => {
     const first = createI18n();
     const second = createI18n();

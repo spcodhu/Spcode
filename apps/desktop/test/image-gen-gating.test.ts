@@ -16,10 +16,10 @@ import { MemoryStore } from "../src/agent-host/memory-store.js";
 import { SessionController, type SessionControllerOptions } from "../src/agent-host/session-controller.js";
 
 const READY: ImageGenConfig = {
-  protocol: "openai-images",
-  baseUrl: "https://api.example.com/v1/images/generations",
+  protocol: "qwen",
+  baseUrl: "https://maas.qianwenaiapi.com/api/v1/services/aigc/multimodal-generation/generation",
   apiKey: "sk-test",
-  model: "gpt-image-1",
+  model: "user-selected-model",
 };
 
 const dirs: string[] = [];

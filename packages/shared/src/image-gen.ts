@@ -1,41 +1,72 @@
 /**
- * 图像生成：协议适配层（OpenAI Images / OpenAI 兼容 Chat / Gemini 原生）。
+ * 图像生成：同步 HTTP JSON 协议适配层。
  *
- * 放在 shared 包里是因为三处都要用：
- * - 主进程：「测试生成」IPC 发真实请求（executeImageGen）；
- * - agent-host：GenerateImage 工具执行（executeImageGen）；
- * - 渲染进程设置页：isImageGenReady 判定配置状态、预设端点自动填充。
+ * 内置仅保留千问AI平台「同步图像生成」：
+ * POST /api/v1/services/aigc/multimodal-generation/generation
+ * 文档：https://platform.qianwenai.com/docs/api-reference/image-generation/qwen-text-to-image
  *
- * 请求侧统一约定：POST JSON；OpenAI 系走 Bearer 鉴权，Gemini 走 x-goog-api-key。
- * 响应侧：三种协议各自解析出 base64 位图（url 形态会代为下载），失败抛出带服务端原文的错误。
+ * 自定义协议由用户提供完整请求 Body JSON 模板与图片响应路径，不猜测响应结构。
+ * 模板先按 JSON 解析，再递归替换占位符，因此提示词中的引号、换行不会破坏请求体。
+ * 图片值支持 http(s) URL、data URL 与原始 base64；URL 会立即下载，避免临时链接过期。
+ *
+ * shared 包同时服务主进程「测试生成」、agent-host 的 GenerateImage 工具和设置页校验。
  */
 import type { ImageGenConfig, ImageGenProtocol } from "./index.js";
 
-/** 预设协议的默认端点与模型（设置页切换预设时自动填充） */
-export const IMAGE_GEN_PRESETS: Record<ImageGenProtocol, { baseUrl: string; model: string }> = {
-  "openai-images": { baseUrl: "https://api.openai.com/v1/images/generations", model: "gpt-image-1" },
-  "openai-chat": { baseUrl: "https://api.openai.com/v1/chat/completions", model: "gemini-2.5-flash-image" },
-  gemini: { baseUrl: "https://generativelanguage.googleapis.com/v1beta", model: "gemini-2.5-flash-image" },
+export const QWEN_IMAGE_GEN_ENDPOINT =
+  "https://maas.qianwenaiapi.com/api/v1/services/aigc/multimodal-generation/generation";
+export const QWEN_IMAGE_RESPONSE_PATH = "output.choices[*].message.content[*].image";
+
+/** 自定义表单的初始模板，只是可编辑起点，不属于额外内置协议。 */
+export const DEFAULT_CUSTOM_IMAGE_GEN_BODY = `{
+  "model": "{{model}}",
+  "prompt": "{{prompt}}",
+  "size": "{{size}}",
+  "n": 1
+}`;
+
+export const IMAGE_GEN_PRESETS: Record<
+  ImageGenProtocol,
+  { baseUrl: string; model: string; requestBody: string; responsePath: string }
+> = {
+  qwen: { baseUrl: QWEN_IMAGE_GEN_ENDPOINT, model: "", requestBody: "", responsePath: QWEN_IMAGE_RESPONSE_PATH },
+  custom: {
+    baseUrl: "",
+    model: "",
+    requestBody: DEFAULT_CUSTOM_IMAGE_GEN_BODY,
+    responsePath: "data[0].b64_json",
+  },
 };
+
+export type ImageGenRequestBodyError = "empty" | "invalidJson" | "notObject" | "missingPrompt";
 
 /** 配置是否完整到可以生效（session-controller 据此决定 GenerateImage 是否进活跃工具集） */
 export function isImageGenReady(config: ImageGenConfig | null | undefined): boolean {
   if (!config) return false;
-  return !!(config.protocol && config.baseUrl?.trim() && config.apiKey?.trim() && config.model?.trim());
+  if (!config.protocol || !config.baseUrl?.trim() || !config.apiKey?.trim() || !config.model?.trim()) return false;
+  if (config.protocol === "qwen") return true;
+  if (config.protocol !== "custom") return false;
+  return (
+    validateImageGenRequestBody(config.requestBody ?? "") === null &&
+    isValidImageGenResponsePath(config.responsePath ?? "")
+  );
 }
 
-/** 字段级 sanitize（fail-safe）：非法协议/缺字段直接判 null，绝不带病合并进设置 */
+/** 字段级 sanitize（fail-safe）：旧协议、非法自定义配置或缺字段直接判 null，绝不带病合并进设置 */
 export function sanitizeImageGenConfig(input: unknown): ImageGenConfig | null {
   if (!input || typeof input !== "object" || Array.isArray(input)) return null;
   const src = input as Partial<ImageGenConfig>;
   const protocol = src.protocol;
-  if (protocol !== "openai-images" && protocol !== "openai-chat" && protocol !== "gemini") return null;
+  if (protocol !== "qwen" && protocol !== "custom") return null;
   if (typeof src.baseUrl !== "string" || typeof src.apiKey !== "string" || typeof src.model !== "string") return null;
-  return { protocol, baseUrl: src.baseUrl, apiKey: src.apiKey, model: src.model };
+  const base = { protocol, baseUrl: src.baseUrl, apiKey: src.apiKey, model: src.model };
+  if (protocol === "qwen") return base;
+  if (typeof src.requestBody !== "string" || typeof src.responsePath !== "string") return null;
+  return { ...base, requestBody: src.requestBody, responsePath: src.responsePath };
 }
 
 export interface ImageGenOptions {
-  /** 期望尺寸（如 1024x1024 / 1536x1024 / 1024x1536）；协议不支持时忽略或映射为宽高比 */
+  /** 期望尺寸（如 1024x1024）；千问请求中转换为官方要求的 宽*高 */
   size?: string;
   timeoutMs?: number;
   signal?: AbortSignal;
@@ -53,7 +84,7 @@ export interface ImageGenOutcome {
   text: string;
 }
 
-const DEFAULT_TIMEOUT_MS = 120_000;
+const DEFAULT_TIMEOUT_MS = 180_000;
 /** 下载 url 形态图片的大小上限（防畸形响应把内存吃光） */
 const MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024;
 
@@ -71,6 +102,7 @@ export function sniffImageMime(base64: string): string {
   if (base64.startsWith("/9j/")) return "image/jpeg";
   if (base64.startsWith("R0lGOD")) return "image/gif";
   if (base64.startsWith("UklGR")) return "image/webp";
+  if (base64.startsWith("Qk0")) return "image/bmp";
   return "image/png";
 }
 
@@ -85,7 +117,7 @@ export function parseDataUrl(url: string): GeneratedImage | null {
   return { mimeType: (m[1] ?? "image/png").toLowerCase(), data };
 }
 
-/** 提取服务端错误原文（OpenAI {error:{message}} / Gemini 同构或数组包裹），截断防刷屏 */
+/** 提取服务端错误原文（{error:{message}} 或 {message}），截断防刷屏 */
 async function extractErrorDetail(res: Response): Promise<string> {
   try {
     const text = await res.text();
@@ -107,7 +139,7 @@ async function extractErrorDetail(res: Response): Promise<string> {
   }
 }
 
-/** 下载 http(s) 图片（dall-e 的 url 形态 / chat 响应里的外链图），校验类型与大小 */
+/** 下载 http(s) 图片，校验类型与大小 */
 async function downloadImage(url: string, signal: AbortSignal): Promise<GeneratedImage> {
   const res = await fetch(url, { redirect: "follow", signal });
   if (!res.ok) throw new Error(`Image download failed (HTTP ${res.status})`);
@@ -120,12 +152,18 @@ async function downloadImage(url: string, signal: AbortSignal): Promise<Generate
   return { mimeType, data };
 }
 
-/** 任意形态的 url 字段（data URL / http 外链）→ 位图 */
-async function resolveImageUrl(url: string, signal: AbortSignal): Promise<GeneratedImage | null> {
-  const inline = parseDataUrl(url);
+/** 响应图片字段可以是 data URL、临时 URL 或原始 base64。 */
+async function resolveImageValue(value: string, signal: AbortSignal): Promise<GeneratedImage | null> {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const inline = parseDataUrl(trimmed);
   if (inline) return inline;
-  if (/^https?:\/\//i.test(url.trim())) return downloadImage(url.trim(), signal);
-  return null;
+  if (/^https?:\/\//i.test(trimmed)) return downloadImage(trimmed, signal);
+  const data = trimmed.replace(/\s+/g, "");
+  if (data.length < 8 || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) return null;
+  // 无 MIME 的原始 base64 必须能嗅探出真实位图魔数，避免把普通文本当 PNG 落盘。
+  if (!/^(iVBOR|\/9j\/|R0lGOD|UklGR|Qk0)/.test(data)) return null;
+  return { mimeType: sniffImageMime(data), data };
 }
 
 async function postJson(
@@ -151,175 +189,198 @@ async function postJson(
 }
 
 // ---------------------------------------------------------------------------
-// 协议一：OpenAI Images API（POST /v1/images/generations）
+// 请求 Body 模板：先 parse JSON，再替换值，保证任意提示词都安全序列化
 // ---------------------------------------------------------------------------
 
-/** gpt-image 系列恒返 b64_json 且拒绝 response_format 参数；dall-e 等需要显式声明 */
-function buildImagesBody(config: ImageGenConfig, prompt: string, size?: string): Record<string, unknown> {
-  const body: Record<string, unknown> = { model: config.model, prompt, n: 1 };
-  if (size?.trim()) body.size = size.trim();
-  if (!/^gpt-image/i.test(config.model)) body.response_format = "b64_json";
-  return body;
+interface TemplateValues {
+  prompt: string;
+  model: string;
+  apiKey: string;
+  size: string;
+  width: number;
+  height: number;
+  n: number;
 }
 
-export async function parseImagesResponse(json: unknown, signal: AbortSignal): Promise<ImageGenOutcome> {
-  if (!isPlainObject(json) || !Array.isArray(json.data)) throw new Error("Unexpected response: missing data array");
-  const images: GeneratedImage[] = [];
-  let text = "";
-  for (const item of json.data) {
-    if (!isPlainObject(item)) continue;
-    if (typeof item.revised_prompt === "string" && item.revised_prompt.trim()) text = item.revised_prompt;
-    if (typeof item.b64_json === "string" && item.b64_json) {
-      images.push({ mimeType: sniffImageMime(item.b64_json), data: item.b64_json });
-    } else if (typeof item.url === "string" && item.url) {
-      const img = await resolveImageUrl(item.url, signal);
-      if (img) images.push(img);
+function parseSize(size?: string): { size: string; width: number; height: number } {
+  const normalized = size?.trim() || "1024x1024";
+  const match = /^(\d+)\s*[x×*]\s*(\d+)$/i.exec(normalized);
+  return match
+    ? { size: normalized, width: Number(match[1]), height: Number(match[2]) }
+    : { size: normalized, width: 1024, height: 1024 };
+}
+
+function substituteTemplate(node: unknown, values: TemplateValues): unknown {
+  if (typeof node === "string") {
+    const exact = /^\{\{(prompt|model|apiKey|size|width|height|n)\}\}$/.exec(node.trim());
+    if (exact) return values[exact[1] as keyof TemplateValues];
+    return node.replace(/\{\{(prompt|model|apiKey|size|width|height|n)\}\}/g, (_all, key: keyof TemplateValues) =>
+      String(values[key]),
+    );
+  }
+  if (Array.isArray(node)) return node.map((item) => substituteTemplate(item, values));
+  if (isPlainObject(node)) {
+    return Object.fromEntries(Object.entries(node).map(([key, value]) => [key, substituteTemplate(value, values)]));
+  }
+  return node;
+}
+
+/** 返回可直接映射到设置页文案的错误码；null 表示模板有效。 */
+export function validateImageGenRequestBody(template: string): ImageGenRequestBodyError | null {
+  if (!template.trim()) return "empty";
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(template);
+  } catch {
+    return "invalidJson";
+  }
+  if (!isPlainObject(parsed)) return "notObject";
+  return template.includes("{{prompt}}") ? null : "missingPrompt";
+}
+
+export function buildCustomImageGenBody(
+  config: ImageGenConfig,
+  prompt: string,
+  size?: string,
+): Record<string, unknown> {
+  const error = validateImageGenRequestBody(config.requestBody ?? "");
+  if (error) throw new Error(`Invalid custom image request body: ${error}`);
+  const parsed = JSON.parse(config.requestBody as string) as Record<string, unknown>;
+  const dimensions = parseSize(size);
+  return substituteTemplate(parsed, {
+    prompt,
+    model: config.model,
+    apiKey: config.apiKey,
+    ...dimensions,
+    n: 1,
+  }) as Record<string, unknown>;
+}
+
+// ---------------------------------------------------------------------------
+// 响应路径：点号属性 + [0] 下标 + [*] 通配，支持单图与多图
+// ---------------------------------------------------------------------------
+
+type ResponsePathToken = { kind: "key"; key: string } | { kind: "index"; index: number } | { kind: "all" };
+
+function parseResponsePath(path: string): ResponsePathToken[] | null {
+  const trimmed = path.trim();
+  if (!trimmed) return null;
+  const tokens: ResponsePathToken[] = [];
+  for (const segment of trimmed.split(".")) {
+    const match = /^([^[\]]+)((?:\[(?:\d+|\*)\])*)$/.exec(segment);
+    if (!match) return null;
+    tokens.push({ kind: "key", key: match[1] as string });
+    for (const suffix of (match[2] ?? "").matchAll(/\[(\d+|\*)\]/g)) {
+      const value = suffix[1] as string;
+      tokens.push(value === "*" ? { kind: "all" } : { kind: "index", index: Number(value) });
     }
   }
-  if (images.length === 0) throw new Error("Response contained no image data");
+  return tokens.length ? tokens : null;
+}
+
+export function isValidImageGenResponsePath(path: string): boolean {
+  return parseResponsePath(path) !== null;
+}
+
+function responseValues(json: unknown, path: string): unknown[] {
+  const tokens = parseResponsePath(path);
+  if (!tokens) return [];
+  let nodes: unknown[] = [json];
+  for (const token of tokens) {
+    const next: unknown[] = [];
+    for (const node of nodes) {
+      if (token.kind === "key") {
+        if (isPlainObject(node) && Object.hasOwn(node, token.key)) next.push(node[token.key]);
+      } else if (token.kind === "index") {
+        if (Array.isArray(node) && token.index < node.length) next.push(node[token.index]);
+      } else if (Array.isArray(node)) {
+        next.push(...node);
+      }
+    }
+    nodes = next;
+    if (nodes.length === 0) break;
+  }
+  // 路径直接指向字符串数组时也合法，无需强制写 [*]。
+  return nodes.flatMap((node) => (Array.isArray(node) ? node : [node]));
+}
+
+function responseErrorHint(json: unknown): string {
+  if (!isPlainObject(json)) return "";
+  if (typeof json.message === "string") return `: ${json.message.slice(0, 200)}`;
+  if (isPlainObject(json.error) && typeof json.error.message === "string") {
+    return `: ${json.error.message.slice(0, 200)}`;
+  }
+  return "";
+}
+
+async function parseResponseByPath(
+  json: unknown,
+  imagePath: string,
+  signal: AbortSignal,
+  textPath?: string,
+): Promise<ImageGenOutcome> {
+  if (!isValidImageGenResponsePath(imagePath)) throw new Error("Invalid image response path");
+  const rawImages = responseValues(json, imagePath).filter(
+    (value): value is string => typeof value === "string" && !!value.trim(),
+  );
+  if (rawImages.length === 0) {
+    throw new Error(`Response contained no image at ${imagePath}${responseErrorHint(json)}`);
+  }
+  const resolved = await Promise.all(rawImages.map((value) => resolveImageValue(value, signal)));
+  const images = resolved.filter((image): image is GeneratedImage => image !== null);
+  if (images.length === 0) throw new Error(`Response image field is not a URL, data URL or base64: ${imagePath}`);
+  const text = textPath
+    ? responseValues(json, textPath)
+        .filter((value): value is string => typeof value === "string" && !!value.trim())
+        .join("\n")
+        .trim()
+    : "";
   return { images, text };
 }
 
 // ---------------------------------------------------------------------------
-// 协议二：OpenAI 兼容 Chat Completions（中转/订阅套餐常见的生图路由）
+// 千问AI平台同步图像生成
 // ---------------------------------------------------------------------------
 
-/** Markdown 内嵌图：![alt](data:… 或 https://…) */
-const MD_IMAGE_RE = /!\[[^\]]*\]\(\s*([^)\s]+)\s*\)/g;
+export function sizeToQwenSize(size?: string): string | null {
+  const trimmed = size?.trim();
+  if (!trimmed) return null;
+  const match = /^(\d+)\s*[x×*]\s*(\d+)$/i.exec(trimmed);
+  return match ? `${match[1]}*${match[2]}` : null;
+}
 
-export async function parseChatResponse(json: unknown, signal: AbortSignal): Promise<ImageGenOutcome> {
-  if (!isPlainObject(json) || !Array.isArray(json.choices))
-    throw new Error("Unexpected response: missing choices array");
-  const choice = json.choices[0];
-  const message = isPlainObject(choice) ? choice.message : undefined;
-  if (!isPlainObject(message)) throw new Error("Unexpected response: missing message");
-
-  const images: GeneratedImage[] = [];
-  const textParts: string[] = [];
-  const pushUrl = async (url: unknown) => {
-    if (typeof url !== "string" || !url) return;
-    const img = await resolveImageUrl(url, signal);
-    if (img) images.push(img);
+export function buildQwenImageGenBody(config: ImageGenConfig, prompt: string, size?: string): Record<string, unknown> {
+  const parameters: Record<string, unknown> = {
+    n: 1,
+    prompt_extend: true,
+    watermark: false,
+    response_format: "url",
   };
+  const qwenSize = sizeToQwenSize(size);
+  if (qwenSize) parameters.size = qwenSize;
+  return {
+    model: config.model,
+    input: { messages: [{ role: "user", content: [{ text: prompt }] }] },
+    parameters,
+  };
+}
 
-  // 形态一：message.images（OpenRouter 风格）[{ image_url: { url } }]
-  if (Array.isArray(message.images)) {
-    for (const item of message.images) {
-      if (isPlainObject(item)) {
-        const imageUrl = item.image_url;
-        await pushUrl(isPlainObject(imageUrl) ? imageUrl.url : item.url);
-      }
-    }
-  }
+export function parseQwenImageGenResponse(json: unknown, signal: AbortSignal): Promise<ImageGenOutcome> {
+  return parseResponseByPath(json, QWEN_IMAGE_RESPONSE_PATH, signal, "output.choices[*].message.content[*].text");
+}
 
-  // 形态二：content 为分块数组 [{ type: "image_url" | "text", … }]
-  if (Array.isArray(message.content)) {
-    for (const part of message.content) {
-      if (!isPlainObject(part)) continue;
-      if (part.type === "image_url") {
-        const imageUrl = part.image_url;
-        await pushUrl(isPlainObject(imageUrl) ? imageUrl.url : undefined);
-      } else if (part.type === "text" && typeof part.text === "string") {
-        textParts.push(part.text);
-      }
-    }
-  } else if (typeof message.content === "string") {
-    // 形态三：content 为字符串，图片以 Markdown 内嵌（data URL 或外链）
-    let content = message.content;
-    for (const m of content.matchAll(MD_IMAGE_RE)) {
-      await pushUrl(m[1]);
-    }
-    content = content.replace(MD_IMAGE_RE, "").trim();
-    if (content) textParts.push(content);
-  }
-
-  if (images.length === 0) {
-    const hint = textParts.join(" ").slice(0, 200);
-    throw new Error(`Model returned no image (it may not support image output)${hint ? `: ${hint}` : ""}`);
-  }
-  return { images, text: textParts.join("\n").trim() };
+export function parseCustomImageGenResponse(
+  json: unknown,
+  responsePath: string,
+  signal: AbortSignal,
+): Promise<ImageGenOutcome> {
+  return parseResponseByPath(json, responsePath, signal);
 }
 
 // ---------------------------------------------------------------------------
-// 协议三：Gemini 原生 generateContent
+// 统一入口：所有协议均为一次同步 POST，不创建或轮询异步任务。
 // ---------------------------------------------------------------------------
 
-/** 尺寸 → Gemini 宽高比（取最接近的官方档位）；无法识别时返回 null */
-export function sizeToAspectRatio(size?: string): string | null {
-  const m = /^(\d+)\s*[x×]\s*(\d+)$/i.exec(size?.trim() ?? "");
-  if (!m) return null;
-  const w = Number(m[1]);
-  const h = Number(m[2]);
-  if (!w || !h) return null;
-  const ratio = w / h;
-  const candidates: [string, number][] = [
-    ["1:1", 1],
-    ["3:2", 1.5],
-    ["2:3", 2 / 3],
-    ["4:3", 4 / 3],
-    ["3:4", 0.75],
-    ["16:9", 16 / 9],
-    ["9:16", 9 / 16],
-    ["4:5", 0.8],
-    ["5:4", 1.25],
-    ["21:9", 21 / 9],
-  ];
-  let best: [string, number] = ["1:1", 1];
-  for (const c of candidates) {
-    if (Math.abs(Math.log(ratio / c[1])) < Math.abs(Math.log(ratio / best[1]))) best = c;
-  }
-  return best[0];
-}
-
-function buildGeminiBody(prompt: string, model: string, size?: string): Record<string, unknown> {
-  const generationConfig: Record<string, unknown> = { responseModalities: ["TEXT", "IMAGE"] };
-  // imageConfig 仅 gemini-3 系列图像模型支持；flash-image 传了会报错
-  const aspectRatio = sizeToAspectRatio(size);
-  if (aspectRatio && /gemini-3/i.test(model)) generationConfig.imageConfig = { aspectRatio };
-  return { contents: [{ parts: [{ text: prompt }] }], generationConfig };
-}
-
-export function parseGeminiResponse(json: unknown): ImageGenOutcome {
-  if (!isPlainObject(json)) throw new Error("Unexpected response from Gemini");
-  const feedback = json.promptFeedback;
-  if (isPlainObject(feedback) && typeof feedback.blockReason === "string" && feedback.blockReason) {
-    throw new Error(`Prompt blocked by Gemini: ${feedback.blockReason}`);
-  }
-  const candidates = json.candidates;
-  const first = Array.isArray(candidates) ? candidates[0] : undefined;
-  const content = isPlainObject(first) ? first.content : undefined;
-  const parts = isPlainObject(content) && Array.isArray(content.parts) ? content.parts : [];
-  const images: GeneratedImage[] = [];
-  const textParts: string[] = [];
-  for (const part of parts) {
-    if (!isPlainObject(part)) continue;
-    const inline = part.inlineData;
-    if (isPlainObject(inline) && typeof inline.data === "string" && inline.data) {
-      const mimeType =
-        typeof inline.mimeType === "string" && inline.mimeType ? inline.mimeType : sniffImageMime(inline.data);
-      images.push({ mimeType, data: inline.data });
-    } else if (typeof part.text === "string" && part.text.trim()) {
-      textParts.push(part.text);
-    }
-  }
-  if (images.length === 0) {
-    const finish = isPlainObject(first) ? first.finishReason : undefined;
-    const hint = textParts.join(" ").slice(0, 200);
-    throw new Error(
-      `Gemini returned no image${typeof finish === "string" ? ` (finishReason: ${finish})` : ""}${hint ? `: ${hint}` : ""}`,
-    );
-  }
-  return { images, text: textParts.join("\n").trim() };
-}
-
-// ---------------------------------------------------------------------------
-// 统一入口
-// ---------------------------------------------------------------------------
-
-/**
- * 执行一次生图。超时与中断合并进同一个 AbortController（与 executeSearch 同口径）。
- * 失败抛出 Error（message 含服务端原文），由调用方决定展示形态。
- */
 export async function executeImageGen(
   config: ImageGenConfig,
   prompt: string,
@@ -331,32 +392,25 @@ export async function executeImageGen(
   const onAbort = () => controller.abort();
   opts.signal?.addEventListener("abort", onAbort);
   try {
-    if (config.protocol === "openai-images") {
+    if (config.protocol === "qwen") {
       const json = await postJson(
         config.baseUrl,
         { Authorization: `Bearer ${config.apiKey}` },
-        buildImagesBody(config, prompt, opts.size),
+        buildQwenImageGenBody(config, prompt, opts.size),
         controller.signal,
       );
-      return await parseImagesResponse(json, controller.signal);
+      return await parseQwenImageGenResponse(json, controller.signal);
     }
-    if (config.protocol === "openai-chat") {
+    if (config.protocol === "custom") {
       const json = await postJson(
         config.baseUrl,
         { Authorization: `Bearer ${config.apiKey}` },
-        { model: config.model, messages: [{ role: "user", content: prompt }] },
+        buildCustomImageGenBody(config, prompt, opts.size),
         controller.signal,
       );
-      return await parseChatResponse(json, controller.signal);
+      return await parseCustomImageGenResponse(json, config.responsePath ?? "", controller.signal);
     }
-    const base = config.baseUrl.replace(/\/+$/, "");
-    const json = await postJson(
-      `${base}/models/${encodeURIComponent(config.model)}:generateContent`,
-      { "x-goog-api-key": config.apiKey },
-      buildGeminiBody(prompt, config.model, opts.size),
-      controller.signal,
-    );
-    return parseGeminiResponse(json);
+    throw new Error(`Unsupported image generation protocol: ${String(config.protocol)}`);
   } finally {
     clearTimeout(timer);
     opts.signal?.removeEventListener("abort", onAbort);

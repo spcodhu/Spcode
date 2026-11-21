@@ -521,7 +521,12 @@ function AssistantRunItemImpl({
   const segments = flattenSegments(messages);
   const blocks = buildRunBlocks(segments);
   // 生图工具落盘的图片：不藏在折叠的工具步骤里，直接在运行下方展示（重启回放同样可见）
-  const generatedImages = segments.flatMap((s) => (s.kind === "tools" ? s.calls.flatMap((c) => c.images ?? []) : []));
+  const toolCalls = segments.flatMap((s) => (s.kind === "tools" ? s.calls : []));
+  const generatedImages = toolCalls.flatMap((c) => c.images ?? []);
+  // 每次生图调用都有独立等待卡片；同一助手消息里的并行调用会同时展示。
+  const generatingImages = toolCalls
+    .filter((c) => c.name.toLowerCase() === "generateimage" && c.status === "running")
+    .map((c) => ({ id: c.id }));
   const lastMessage = messages[messages.length - 1];
   const streamingTail = lastMessage?.streaming ? lastMessage.segments[lastMessage.segments.length - 1] : undefined;
   const renderText = (block: RunTextBlock) => <Markdown key={block.key} text={block.text} />;
@@ -536,7 +541,7 @@ function AssistantRunItemImpl({
     return (
       <div className="group/message mb-6">
         <RunActivityTimeline segments={segments} active={false} renderText={renderText} onOpenFile={onOpenFile} />
-        <GeneratedImageGallery images={generatedImages} />
+        <GeneratedImageGallery images={generatedImages} pending={generatingImages} />
         <MessageHoverMeta timestamp={timestamp} copyText={copyText} align="start" />
       </div>
     );

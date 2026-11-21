@@ -53,10 +53,13 @@ export function createImageGenTool(opts: ImageGenToolOptions): ToolDefinition {
     name: "GenerateImage",
     label: "Generate Image",
     description:
-      "Generate an image from a text prompt using the user's configured image model (Settings → Skills). The image is saved into the session workspace and automatically displayed to the user inline in the chat — do not embed or re-read it. Returns the saved file path(s). Use for photos, illustrations, artwork and visual concepts; for precise diagrams, charts or text-heavy graphics prefer code/SVG instead.",
-    promptSnippet: "Generate images from text prompts via the user-configured image model (Settings → Skills)",
+      "Generate an image from a text prompt using the user's configured synchronous image model (Settings → Skills). The image is saved into the session workspace and automatically displayed to the user inline in the chat — do not embed or re-read it. Returns the saved file path(s). Use for photos, illustrations, artwork and visual concepts; for precise diagrams, charts or text-heavy graphics prefer code/SVG instead. Each request waits synchronously for its image, but independent GenerateImage calls and other independent tools can run in parallel: issue them together in one assistant message instead of serializing unrelated work.",
+    promptSnippet:
+      "Generate images synchronously via the configured model; independent image and other tool calls may run in parallel",
     parameters: schema,
     constrainedSampling: STRICT_PREFER_TOOL_SAMPLING,
+    // 单次 HTTP 请求是同步等待，但调用之间不共享状态，可与其它独立工具并行执行。
+    executionMode: "parallel",
     execute: async (_id, args: Params, signal) => {
       const prompt = (args.prompt ?? "").trim();
       if (!prompt) {

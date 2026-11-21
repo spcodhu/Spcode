@@ -884,7 +884,7 @@ function registerIpc(): void {
     try {
       const outcome = await executeImageGen(resolved, "A simple red circle centered on a plain white background", {
         size: "1024x1024",
-        timeoutMs: 120_000,
+        timeoutMs: 180_000,
       });
       const first = outcome.images[0];
       if (!first) return { ok: false as const, error: "No image returned" };

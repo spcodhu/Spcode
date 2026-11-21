@@ -1,15 +1,22 @@
 /**
  * 技能设置页：内置工具技能的独立配置入口（与对话模型分开）。
- * 每个技能一张卡片、独立 apiKey；当前只有图像生成（GenerateImage），
- * 后续新增内置技能按同款卡片追加。保存后经 skills.setConfig 热下发生效。
+ * 图像生成内置千问AI平台同步协议；自定义协议由完整 Body 模板 + 图片响应路径组成。
+ * 保存后经 skills.setConfig 热下发生效。
  */
 
 import type { ImageGenConfig, ImageGenProtocol } from "@spcode/shared";
-import { IMAGE_GEN_PRESETS, isImageGenReady } from "@spcode/shared/image-gen";
+import {
+  IMAGE_GEN_PRESETS,
+  isImageGenReady,
+  isValidImageGenResponsePath,
+  QWEN_IMAGE_GEN_ENDPOINT,
+  validateImageGenRequestBody,
+} from "@spcode/shared/image-gen";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useStore } from "../store";
 import { Icon } from "./Icon";
+import { ImageGenProgress } from "./ImageGenProgress";
 import { Select } from "./ui/Select";
 
 export function SkillsPage() {
@@ -34,7 +41,7 @@ function PageHeader({ title, subtitle }: { title: string; subtitle: string }) {
   );
 }
 
-const PROTOCOLS: ImageGenProtocol[] = ["openai-images", "openai-chat", "gemini"];
+const PROTOCOLS: ImageGenProtocol[] = ["qwen", "custom"];
 
 function ImageGenSkillCard() {
   const { t } = useTranslation("settings");
@@ -42,10 +49,13 @@ function ImageGenSkillCard() {
   const saveSettings = useStore((s) => s.saveSettings);
   const saved = settings?.skills?.imageGen ?? null;
 
-  const [protocol, setProtocol] = useState<ImageGenProtocol>(saved?.protocol ?? "openai-images");
-  const [baseUrl, setBaseUrl] = useState(saved?.baseUrl ?? IMAGE_GEN_PRESETS["openai-images"].baseUrl);
+  const [protocol, setProtocol] = useState<ImageGenProtocol>(saved?.protocol ?? "qwen");
+  const [baseUrl, setBaseUrl] = useState(saved?.baseUrl ?? IMAGE_GEN_PRESETS.qwen.baseUrl);
   const [apiKey, setApiKey] = useState(saved?.apiKey ?? "");
-  const [model, setModel] = useState(saved?.model ?? IMAGE_GEN_PRESETS["openai-images"].model);
+  // 模型始终由用户填写，不随协议预设写死。
+  const [model, setModel] = useState(saved?.model ?? "");
+  const [requestBody, setRequestBody] = useState(saved?.requestBody ?? IMAGE_GEN_PRESETS.custom.requestBody);
+  const [responsePath, setResponsePath] = useState(saved?.responsePath ?? IMAGE_GEN_PRESETS.custom.responsePath);
   const [hint, setHint] = useState<{ ok: boolean; text: string } | null>(null);
   const [testing, setTesting] = useState(false);
   const [preview, setPreview] = useState<{ mimeType: string; data: string } | null>(null);
@@ -61,6 +71,8 @@ function ImageGenSkillCard() {
     setBaseUrl(s.baseUrl);
     setApiKey(s.apiKey);
     setModel(s.model);
+    setRequestBody(s.requestBody ?? IMAGE_GEN_PRESETS.custom.requestBody);
+    setResponsePath(s.responsePath ?? IMAGE_GEN_PRESETS.custom.responsePath);
   }, [settings]);
 
   const flash = (ok: boolean, text: string) => {
@@ -68,14 +80,14 @@ function ImageGenSkillCard() {
     setTimeout(() => setHint(null), 5000);
   };
 
-  // 切预设：端点/模型为空或仍是别的预设默认值时，跟着换成当前预设默认值
-  const switchProtocol = (p: ImageGenProtocol) => {
-    setProtocol(p);
-    const presetUrls = PROTOCOLS.map((k) => IMAGE_GEN_PRESETS[k].baseUrl);
-    const presetModels = PROTOCOLS.map((k) => IMAGE_GEN_PRESETS[k].model);
-    if (!baseUrl.trim() || presetUrls.includes(baseUrl.trim())) setBaseUrl(IMAGE_GEN_PRESETS[p].baseUrl);
-    if (!model.trim() || presetModels.includes(model.trim())) setModel(IMAGE_GEN_PRESETS[p].model);
+  const switchProtocol = (next: ImageGenProtocol) => {
+    setProtocol(next);
+    if (next === "qwen") setBaseUrl(QWEN_IMAGE_GEN_ENDPOINT);
+    else if (baseUrl.trim() === QWEN_IMAGE_GEN_ENDPOINT) setBaseUrl("");
   };
+
+  const bodyError = protocol === "custom" ? validateImageGenRequestBody(requestBody) : null;
+  const responsePathValid = isValidImageGenResponsePath(responsePath);
 
   const buildConfig = (): ImageGenConfig | null => {
     const url = baseUrl.trim();
@@ -85,7 +97,23 @@ function ImageGenSkillCard() {
       flash(false, t("skills.imageGen.missingFields"));
       return null;
     }
-    return { protocol, baseUrl: url, apiKey: key, model: m };
+    if (protocol === "qwen") return { protocol, baseUrl: url, apiKey: key, model: m };
+    if (bodyError) {
+      flash(false, t(`skills.imageGen.bodyError.${bodyError}`));
+      return null;
+    }
+    if (!responsePathValid) {
+      flash(false, t("skills.imageGen.invalidResponsePath"));
+      return null;
+    }
+    return {
+      protocol,
+      baseUrl: url,
+      apiKey: key,
+      model: m,
+      requestBody,
+      responsePath: responsePath.trim(),
+    };
   };
 
   const save = async () => {
@@ -145,6 +173,14 @@ function ImageGenSkillCard() {
       </div>
 
       <div className="px-4 py-3">
+        <div
+          className="mb-4 flex items-start gap-2.5 rounded-lg border border-accent/20 bg-accent-soft/30 px-3 py-2.5 text-[12px] leading-5 text-text-secondary"
+          data-testid="skills-image-gen-sync-note"
+        >
+          <Icon name="info" size={15} className="mt-0.5 shrink-0 text-accent" />
+          <p>{t("skills.imageGen.syncParallel")}</p>
+        </div>
+
         <div className="grid grid-cols-[140px_minmax(0,1fr)] items-center gap-x-3 gap-y-2.5">
           <div className="text-[13px] text-text-secondary">{t("skills.imageGen.protocol")}</div>
           <div>
@@ -157,6 +193,17 @@ function ImageGenSkillCard() {
             <p className="mt-1 text-[11.5px] leading-4 text-text-tertiary">
               {t(`skills.imageGen.protocolHint.${protocol}`)}
             </p>
+            {protocol === "qwen" && (
+              <a
+                href="https://platform.qianwenai.com/docs/api-reference/image-generation/qwen-text-to-image"
+                target="_blank"
+                rel="noreferrer"
+                className="mt-1 inline-flex items-center gap-1 text-[11.5px] text-accent hover:underline"
+              >
+                {t("skills.imageGen.qwenDocs")}
+                <Icon name="link" size={11} />
+              </a>
+            )}
           </div>
 
           <div className="text-[13px] text-text-secondary">{t("skills.imageGen.baseUrl")}</div>
@@ -169,14 +216,19 @@ function ImageGenSkillCard() {
           />
 
           <div className="text-[13px] text-text-secondary">{t("skills.imageGen.apiKey")}</div>
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder={t("skills.imageGen.keyPlaceholder")}
-            data-testid="skills-image-gen-apikey"
-            className={inputCls}
-          />
+          <div>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder={t("skills.imageGen.keyPlaceholder")}
+              data-testid="skills-image-gen-apikey"
+              className={inputCls}
+            />
+            {protocol === "custom" && (
+              <p className="mt-1 text-[11.5px] leading-4 text-text-tertiary">{t("skills.imageGen.authHint")}</p>
+            )}
+          </div>
 
           <div className="text-[13px] text-text-secondary">{t("skills.imageGen.model")}</div>
           <input
@@ -187,6 +239,43 @@ function ImageGenSkillCard() {
             className={`${inputCls} mono`}
           />
         </div>
+
+        {protocol === "custom" && (
+          <div className="mt-4 border-t border-border pt-3" data-testid="skills-image-gen-custom">
+            <label className="block text-[13px] text-text-secondary" htmlFor="skills-image-gen-body">
+              {t("skills.imageGen.requestBody")}
+            </label>
+            <textarea
+              id="skills-image-gen-body"
+              value={requestBody}
+              onChange={(e) => setRequestBody(e.target.value)}
+              spellCheck={false}
+              rows={9}
+              data-testid="skills-image-gen-body"
+              className={`${inputCls} mono mt-1.5 resize-y whitespace-pre text-[12px] leading-5`}
+            />
+            <p className="mt-1 text-[11.5px] leading-4 text-text-tertiary">{t("skills.imageGen.requestBodyHint")}</p>
+            {bodyError && (
+              <p className="mt-1 text-[12px] text-danger" data-testid="skills-image-gen-body-error">
+                {t(`skills.imageGen.bodyError.${bodyError}`)}
+              </p>
+            )}
+
+            <label className="mt-3 block text-[13px] text-text-secondary" htmlFor="skills-image-gen-response-path">
+              {t("skills.imageGen.responsePath")}
+            </label>
+            <input
+              id="skills-image-gen-response-path"
+              value={responsePath}
+              onChange={(e) => setResponsePath(e.target.value)}
+              placeholder={t("skills.imageGen.responsePathPlaceholder")}
+              spellCheck={false}
+              data-testid="skills-image-gen-response-path"
+              className={`${inputCls} mono mt-1.5`}
+            />
+            <p className="mt-1 text-[11.5px] leading-4 text-text-tertiary">{t("skills.imageGen.responsePathHint")}</p>
+          </div>
+        )}
 
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button
@@ -203,8 +292,9 @@ function ImageGenSkillCard() {
             disabled={testing}
             data-testid="skills-image-gen-test"
             title={t("skills.imageGen.testHint")}
-            className="rounded-lg border border-border px-4 py-1.5 text-[13px] text-text-secondary transition-colors hover:bg-bg-hover disabled:opacity-40"
+            className="flex items-center gap-1.5 rounded-lg border border-border px-4 py-1.5 text-[13px] text-text-secondary transition-colors hover:bg-bg-hover disabled:opacity-40"
           >
+            {testing && <Icon name="refresh" size={13} className="animate-spin" />}
             {testing ? t("skills.imageGen.testing") : t("skills.imageGen.test")}
           </button>
           {saved && (
@@ -228,6 +318,13 @@ function ImageGenSkillCard() {
         </div>
         <p className="mt-1.5 text-[11.5px] text-text-tertiary">{t("skills.imageGen.testHint")}</p>
 
+        {testing && (
+          <ImageGenProgress
+            title={t("skills.imageGen.testing")}
+            description={t("skills.imageGen.progressHint")}
+            testId="skills-image-gen-progress"
+          />
+        )}
         {preview && (
           <img
             src={`data:${preview.mimeType};base64,${preview.data}`}

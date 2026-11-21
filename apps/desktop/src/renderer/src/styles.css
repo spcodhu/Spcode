@@ -150,6 +150,31 @@ select:focus-visible,
   min-height: 0;
 }
 
+/* 生图等待：不确定进度条（同步接口无真实百分比，不用假进度误导用户） */
+.image-gen-progress-track {
+  position: relative;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+.image-gen-progress-bar {
+  position: absolute;
+  inset-block: 0;
+  width: 42%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent, var(--color-accent), transparent);
+  animation: image-gen-progress 1.5s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+@keyframes image-gen-progress {
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
+
 /* 思考中 · 流光加载文字（Kimi 风格：灰底上一道亮光扫过） */
 .thinking-shimmer {
   background: linear-gradient(

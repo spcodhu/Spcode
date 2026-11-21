@@ -1085,16 +1085,22 @@ export interface AdvancedSearchMapping {
   snippetField: string;
 }
 
-/** 生图协议预设：OpenAI Images API / OpenAI 兼容 Chat（中转生图路由）/ Gemini 原生 generateContent */
-export type ImageGenProtocol = "openai-images" | "openai-chat" | "gemini";
+/** 生图协议：千问AI平台同步生图 / 用户自定义同步 HTTP JSON 协议 */
+export type ImageGenProtocol = "qwen" | "custom";
 
 /** 图像生成技能配置（技能页维护，独立 apiKey；协议适配在 @spcode/shared/image-gen） */
 export interface ImageGenConfig {
   protocol: ImageGenProtocol;
-  /** openai 系为完整端点 URL；gemini 为 API 根（如 https://generativelanguage.googleapis.com/v1beta） */
+  /** 完整的同步生图端点 URL */
   baseUrl: string;
+  /** 通过 Authorization: Bearer 发送；自定义 Body 内也可使用 {{apiKey}} */
   apiKey: string;
+  /** 模型 ID 由用户填写，不写死；自定义 Body 通过 {{model}} 引用 */
   model: string;
+  /** custom 专用：完整 JSON Body 模板，支持 {{prompt}} / {{model}} / {{size}} 等占位符 */
+  requestBody?: string;
+  /** custom 专用：图片在响应 JSON 中的路径，如 data[0].b64_json、images[*].url */
+  responsePath?: string;
 }
 
 /**
