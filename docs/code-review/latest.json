@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "status": "pass",
-  "reviewedCommit": "9eeb8c718994ac1e2d8cd52fa6285e7ca96c08fc",
+  "reviewedCommit": "65b3284be91f3925c57e05ee20b5858ad9879666",
   "baseline": "v0.1.0-beta.44",
   "date": "2026-11-22",
   "reviewer": "agent",
@@ -13,5 +13,5 @@
   },
   "openP0Accepted": null,
   "openP1Accepted": null,
-  "note": "用户选择整改后发：P1-1（steering 误清空快照）与 P1-2+P2-1（failed 终态死条件+终态路径测试缺口）已修复并终审通过；剩余 7 项 P2 记录排期。"
+  "note": "v1.0.1 复发：v1.0.0 tag 的 macOS CI 因测试 helper 未捕获 ECONNRESET 失败（产品代码无关，144 文件/1112 用例全绿）；按失败 tag 不移动规则修复 helper（56b3cf9，仅测试，门禁+抽查口径）后另起 v1.0.1。初审 P1 两项与 P2-1 已修复终审通过，剩余 7 项 P2 排期。"
 }
