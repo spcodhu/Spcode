@@ -67,6 +67,9 @@ async function startRejectingRelay(status: number) {
   });
   server.on("upgrade", (_request, socket) => {
     attempts++;
+    // ws 客户端收到拒绝响应后会 abort：socket.end() 后对端 RST 会触发 ECONNRESET，
+    // 不挂 error 监听会升级为 uncaught exception（macOS CI 时序下曾让 vitest exit 1）
+    socket.on("error", () => {});
     socket.end(
       `HTTP/1.1 ${status} ${status === 401 ? "Unauthorized" : status === 403 ? "Forbidden" : "Error"}\r\n\r\n`,
     );
