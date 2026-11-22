@@ -1,17 +1,17 @@
 {
   "schema": 1,
   "status": "pass",
-  "reviewedCommit": "d20dc7424423e6e5d9d872e9c2208f234c391f8b",
-  "baseline": "v0.1.0-beta.43",
+  "reviewedCommit": "9eeb8c718994ac1e2d8cd52fa6285e7ca96c08fc",
+  "baseline": "v0.1.0-beta.44",
   "date": "2026-11-22",
   "reviewer": "agent",
-  "report": "docs/code-review/R8-2026-11-22.md",
+  "report": "docs/code-review/R9-2026-11-22.md",
   "findings": {
     "p0": 0,
     "p1": 0,
-    "p2": 14
+    "p2": 7
   },
   "openP0Accepted": null,
   "openP1Accepted": null,
-  "note": "用户选择部分整改：4 项 P1 全部修复并终审通过；13 项初审 P2 与 1 项整改期新增 P2 记录排期。"
+  "note": "用户选择整改后发：P1-1（steering 误清空快照）与 P1-2+P2-1（failed 终态死条件+终态路径测试缺口）已修复并终审通过；剩余 7 项 P2 记录排期。"
 }
