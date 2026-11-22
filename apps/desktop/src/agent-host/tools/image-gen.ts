@@ -15,6 +15,7 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { ImageGenConfig } from "@spcode/shared";
 import { executeImageGen, isImageGenReady } from "@spcode/shared/image-gen";
 import { type Static, Type } from "typebox";
+import { assertPublicHttpUrl } from "./ssrf.js";
 import { STRICT_PREFER_TOOL_SAMPLING } from "./tool-schema.js";
 
 const schema = Type.Object({
@@ -82,6 +83,7 @@ export function createImageGenTool(opts: ImageGenToolOptions): ToolDefinition {
         const outcome = await executeImageGen(config as ImageGenConfig, prompt, {
           size: typeof args.size === "string" ? args.size : undefined,
           signal,
+          assertPublicUrl: assertPublicHttpUrl,
         });
         const dir = join(opts.cwd, "spcode-images");
         mkdirSync(dir, { recursive: true });

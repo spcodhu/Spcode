@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./node": "./src/node.ts",
+    "./node-ssrf": "./src/node-ssrf.ts",
     "./advanced-search": "./src/advanced-search.ts",
     "./image-gen": "./src/image-gen.ts",
     "./web-fetch": "./src/web-fetch.ts",

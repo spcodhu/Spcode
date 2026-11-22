@@ -87,11 +87,16 @@ export function sanitizeImageGenConfig(input: unknown): ImageGenConfig | null {
   return { ...base, requestBody: src.requestBody, responsePath: src.responsePath };
 }
 
+export type ImageGenUrlCheck = { ok: true; url: string } | { ok: false; reason: string };
+export type ImageGenUrlGuard = (rawUrl: string) => Promise<ImageGenUrlCheck>;
+
 export interface ImageGenOptions {
   /** 期望尺寸（如 1024x1024）；千问请求中转换为官方要求的 宽*高 */
   size?: string;
   timeoutMs?: number;
   signal?: AbortSignal;
+  /** Node 执行端注入公网 URL/DNS 校验；未注入时拒绝下载远程图片（fail-closed）。 */
+  assertPublicUrl?: ImageGenUrlGuard;
 }
 
 export interface GeneratedImage {
@@ -161,26 +166,48 @@ async function extractErrorDetail(res: Response): Promise<string> {
   }
 }
 
-/** 下载 http(s) 图片，校验类型与大小 */
-async function downloadImage(url: string, signal: AbortSignal): Promise<GeneratedImage> {
-  const res = await fetch(url, { redirect: "follow", signal });
-  if (!res.ok) throw new Error(`Image download failed (HTTP ${res.status})`);
-  const contentType = (res.headers.get("content-type") ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
-  const buf = Buffer.from(await res.arrayBuffer());
-  if (buf.byteLength === 0) throw new Error("Image download failed: empty response");
-  if (buf.byteLength > MAX_DOWNLOAD_BYTES) throw new Error("Image download failed: exceeds 25MB limit");
-  const data = buf.toString("base64");
-  const mimeType = contentType.startsWith("image/") ? contentType : sniffImageMime(data);
-  return { mimeType, data };
+/** 下载 http(s) 图片：逐跳 SSRF 校验，校验器缺失时 fail-closed。 */
+async function downloadImage(
+  url: string,
+  signal: AbortSignal,
+  assertPublicUrl?: ImageGenUrlGuard,
+): Promise<GeneratedImage> {
+  if (!assertPublicUrl) throw new Error("Image download blocked: SSRF URL validation is unavailable");
+  let current = url;
+  for (let hop = 0; hop <= 5; hop++) {
+    const check = await assertPublicUrl(current);
+    if (!check.ok) throw new Error(`Image download blocked: ${check.reason}`);
+    const res = await fetch(check.url, { redirect: "manual", signal });
+    if (res.status >= 300 && res.status < 400) {
+      const location = res.headers.get("location");
+      if (!location) throw new Error(`Image download failed: HTTP ${res.status} redirect has no Location`);
+      await res.body?.cancel();
+      current = new URL(location, check.url).href;
+      continue;
+    }
+    if (!res.ok) throw new Error(`Image download failed (HTTP ${res.status})`);
+    const contentType = (res.headers.get("content-type") ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.byteLength === 0) throw new Error("Image download failed: empty response");
+    if (buf.byteLength > MAX_DOWNLOAD_BYTES) throw new Error("Image download failed: exceeds 25MB limit");
+    const data = buf.toString("base64");
+    const mimeType = contentType.startsWith("image/") ? contentType : sniffImageMime(data);
+    return { mimeType, data };
+  }
+  throw new Error("Image download failed: too many redirects");
 }
 
 /** 响应图片字段可以是 data URL、临时 URL 或原始 base64。 */
-async function resolveImageValue(value: string, signal: AbortSignal): Promise<GeneratedImage | null> {
+async function resolveImageValue(
+  value: string,
+  signal: AbortSignal,
+  assertPublicUrl?: ImageGenUrlGuard,
+): Promise<GeneratedImage | null> {
   const trimmed = value.trim();
   if (!trimmed) return null;
   const inline = parseDataUrl(trimmed);
   if (inline) return inline;
-  if (/^https?:\/\//i.test(trimmed)) return downloadImage(trimmed, signal);
+  if (/^https?:\/\//i.test(trimmed)) return downloadImage(trimmed, signal, assertPublicUrl);
   const data = trimmed.replace(/\s+/g, "");
   if (data.length < 8 || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) return null;
   // 无 MIME 的原始 base64 必须能嗅探出真实位图魔数，避免把普通文本当 PNG 落盘。
@@ -340,6 +367,7 @@ async function parseResponseByPath(
   imagePath: string,
   signal: AbortSignal,
   textPath?: string,
+  assertPublicUrl?: ImageGenUrlGuard,
 ): Promise<ImageGenOutcome> {
   if (!isValidImageGenResponsePath(imagePath)) throw new Error("Invalid image response path");
   const rawImages = responseValues(json, imagePath).filter(
@@ -348,7 +376,7 @@ async function parseResponseByPath(
   if (rawImages.length === 0) {
     throw new Error(`Response contained no image at ${imagePath}${responseErrorHint(json)}`);
   }
-  const resolved = await Promise.all(rawImages.map((value) => resolveImageValue(value, signal)));
+  const resolved = await Promise.all(rawImages.map((value) => resolveImageValue(value, signal, assertPublicUrl)));
   const images = resolved.filter((image): image is GeneratedImage => image !== null);
   if (images.length === 0) throw new Error(`Response image field is not a URL, data URL or base64: ${imagePath}`);
   const text = textPath
@@ -387,16 +415,27 @@ export function buildQwenImageGenBody(config: ImageGenConfig, prompt: string, si
   };
 }
 
-export function parseQwenImageGenResponse(json: unknown, signal: AbortSignal): Promise<ImageGenOutcome> {
-  return parseResponseByPath(json, QWEN_IMAGE_RESPONSE_PATH, signal, "output.choices[*].message.content[*].text");
+export function parseQwenImageGenResponse(
+  json: unknown,
+  signal: AbortSignal,
+  assertPublicUrl?: ImageGenUrlGuard,
+): Promise<ImageGenOutcome> {
+  return parseResponseByPath(
+    json,
+    QWEN_IMAGE_RESPONSE_PATH,
+    signal,
+    "output.choices[*].message.content[*].text",
+    assertPublicUrl,
+  );
 }
 
 export function parseCustomImageGenResponse(
   json: unknown,
   responsePath: string,
   signal: AbortSignal,
+  assertPublicUrl?: ImageGenUrlGuard,
 ): Promise<ImageGenOutcome> {
-  return parseResponseByPath(json, responsePath, signal);
+  return parseResponseByPath(json, responsePath, signal, undefined, assertPublicUrl);
 }
 
 // ---------------------------------------------------------------------------
@@ -421,7 +460,7 @@ export async function executeImageGen(
         buildQwenImageGenBody(config, prompt, opts.size),
         controller.signal,
       );
-      return await parseQwenImageGenResponse(json, controller.signal);
+      return await parseQwenImageGenResponse(json, controller.signal, opts.assertPublicUrl);
     }
     if (config.protocol === "custom") {
       const json = await postJson(
@@ -430,7 +469,12 @@ export async function executeImageGen(
         buildCustomImageGenBody(config, prompt, opts.size),
         controller.signal,
       );
-      return await parseCustomImageGenResponse(json, config.responsePath ?? "", controller.signal);
+      return await parseCustomImageGenResponse(
+        json,
+        config.responsePath ?? "",
+        controller.signal,
+        opts.assertPublicUrl,
+      );
     }
     throw new Error(`Unsupported image generation protocol: ${String(config.protocol)}`);
   } finally {

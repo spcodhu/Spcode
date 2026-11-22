@@ -24,6 +24,7 @@ import {
 } from "@spcode/shared/image-gen";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createImageGenTool } from "../src/agent-host/tools/image-gen.js";
+import { assertPublicHttpUrl } from "../src/agent-host/tools/ssrf.js";
 
 /** 1x1 透明 PNG（真实魔数，sniff/落盘断言用） */
 const PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
@@ -78,6 +79,8 @@ function qwenResponse(image: string, text?: string): unknown {
     request_id: "req-test",
   };
 }
+
+const allowUrl = async (url: string) => ({ ok: true as const, url });
 
 describe("sanitizeImageGenConfig / isImageGenReady", () => {
   it("千问配置原样保留；模型由用户填写且不能为空", () => {
@@ -232,12 +235,39 @@ describe("千问同步协议", () => {
     const out = await parseQwenImageGenResponse(
       qwenResponse("https://cdn.example.com/result.png?Expires=123"),
       new AbortController().signal,
+      allowUrl,
     );
     expect(out.images[0]).toEqual({ mimeType: "image/png", data: PNG_B64 });
     expect(fetchMock).toHaveBeenCalledWith(
       "https://cdn.example.com/result.png?Expires=123",
-      expect.objectContaining({ redirect: "follow" }),
+      expect.objectContaining({ redirect: "manual" }),
     );
+  });
+
+  it("未注入 SSRF 校验器时默认拒绝远程图片，且不发起下载", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(
+      parseQwenImageGenResponse(qwenResponse("https://cdn.example.com/result.png"), new AbortController().signal),
+    ).rejects.toThrow(/SSRF URL validation is unavailable/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("重定向逐跳复检，下一跳指向私网时拒绝且不请求该地址", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response(null, { status: 302, headers: { location: "http://127.0.0.1/private.png" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const guard = vi.fn(async (url: string) =>
+      url.startsWith("http://127.0.0.1")
+        ? { ok: false as const, reason: "private address" }
+        : { ok: true as const, url },
+    );
+    await expect(
+      parseQwenImageGenResponse(qwenResponse("https://cdn.example.com/redirect"), new AbortController().signal, guard),
+    ).rejects.toThrow(/private address/);
+    expect(guard).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("HTTP 错误带服务端原文", async () => {
@@ -343,6 +373,17 @@ describe("createImageGenTool（落盘、并行声明与门控）", () => {
     expect(res.content[0]?.text).toMatch(/already displayed/);
   });
 
+  it("服务返回私网图片 URL 时，生产 SSRF 校验在下载前阻断", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(qwenResponse("http://127.0.0.1/private.png")));
+    vi.stubGlobal("fetch", fetchMock);
+    const tool = setup(() => CONFIG);
+    const res = await exec(tool, { prompt: "a cat" });
+    expect(res.isError).toBe(true);
+    expect(res.content[0]?.text).toMatch(/blocked by SSRF protection/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(res.details?.images).toBeUndefined();
+  });
+
   it("服务端失败 → isError 带原因，不落盘", async () => {
     vi.stubGlobal(
       "fetch",
@@ -378,7 +419,7 @@ describe("真网连通性（默认不跑）", () => {
       const out = await executeImageGen(
         { protocol: "qwen", baseUrl: QWEN_IMAGE_GEN_ENDPOINT, apiKey, model },
         "a simple red circle on white background",
-        { size: "1024x1024", timeoutMs: 180_000 },
+        { size: "1024x1024", timeoutMs: 180_000, assertPublicUrl: assertPublicHttpUrl },
       );
       expect(out.images.length).toBeGreaterThan(0);
     },

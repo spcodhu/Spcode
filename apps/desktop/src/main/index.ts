@@ -37,6 +37,7 @@ import { executeSearch, isAdvancedSearchReady } from "@spcode/shared/advanced-se
 import { i18n, setLocale } from "@spcode/shared/i18n";
 import { executeImageGen, isImageGenReady } from "@spcode/shared/image-gen";
 import { resolveSpcodeHome } from "@spcode/shared/node";
+import { assertPublicHttpUrl } from "@spcode/shared/node-ssrf";
 import { executeFetch, isWebFetchReady } from "@spcode/shared/web-fetch";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { AgentBridge } from "./agent-bridge.js";
@@ -904,6 +905,7 @@ function registerIpc(): void {
         {
           size: "1024x1024",
           timeoutMs: 180_000,
+          assertPublicUrl: assertPublicHttpUrl,
         },
       );
       const first = outcome.images[0];
