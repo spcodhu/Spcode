@@ -10,6 +10,7 @@ import { join } from "node:path";
 import {
   type AppSettings,
   DEFAULT_SETTINGS,
+  type ImageGenConfig,
   normalizePermissionMode,
   normalizeProjectCwd,
   normalizeSubagentMode,
@@ -18,7 +19,7 @@ import {
   sanitizeModelPricing,
 } from "@spcode/shared";
 import { resolveLocale } from "@spcode/shared/i18n";
-import { sanitizeImageGenConfig } from "@spcode/shared/image-gen";
+import { resolveQwenImageGenEndpoint, sanitizeImageGenConfig } from "@spcode/shared/image-gen";
 import { readJsonFile, resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
 import { sanitizeNetworkProxySettings } from "@spcode/shared/proxy";
 
@@ -308,6 +309,17 @@ export function redactSettingsForRenderer(s: AppSettings): AppSettings {
   };
 }
 
+/** 掩码只代表同一协议与实际端点的原密钥；跨端点必须重新输入，避免旧密钥被转发。 */
+export function restoreImageGenMaskedSecret(config: ImageGenConfig, current: ImageGenConfig | null): ImageGenConfig {
+  if (config.apiKey !== SECRET_MASK) return config;
+  const endpoint = (value: ImageGenConfig) =>
+    value.protocol === "qwen" ? resolveQwenImageGenEndpoint(value) : value.baseUrl.trim();
+  if (!current || config.protocol !== current.protocol || endpoint(config) !== endpoint(current)) {
+    throw new Error("Image generation API key must be re-entered after changing protocol, billing, or endpoint");
+  }
+  return { ...config, apiKey: current.apiKey };
+}
+
 /** setSettings 的掩码还原：patch 里仍是掩码的密钥字段换回当前存储的真值 */
 export function restoreMaskedSecrets(patch: Partial<AppSettings>, current: AppSettings): Partial<AppSettings> {
   const out = { ...patch };
@@ -320,7 +332,7 @@ export function restoreMaskedSecrets(patch: Partial<AppSettings>, current: AppSe
   if (out.skills?.imageGen && out.skills.imageGen.apiKey === SECRET_MASK) {
     out.skills = {
       ...out.skills,
-      imageGen: { ...out.skills.imageGen, apiKey: current.skills.imageGen?.apiKey ?? "" },
+      imageGen: restoreImageGenMaskedSecret(out.skills.imageGen, current.skills.imageGen),
     };
   }
   if (out.proxy && out.proxy.password === SECRET_MASK) {

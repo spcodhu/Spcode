@@ -63,7 +63,12 @@ import {
 } from "./session-helpers.js";
 import { SessionRegistry } from "./session-registry.js";
 import { searchSessions } from "./session-search.js";
-import { redactSettingsForRenderer, restoreMaskedSecrets, SettingsStore } from "./settings-store.js";
+import {
+  redactSettingsForRenderer,
+  restoreImageGenMaskedSecret,
+  restoreMaskedSecrets,
+  SettingsStore,
+} from "./settings-store.js";
 import {
   checkForUpdatesNow,
   downloadUpdate,
@@ -889,11 +894,10 @@ function registerIpc(): void {
 
   // 生图技能「测试生成」：真实生成一张小图验证端点/密钥/模型（消耗少量额度，UI 已提示）
   ipcMain.handle(IPC.imageGenTest, async (_e, config: ImageGenConfig) => {
-    // 掩码密钥还原（渲染层拿到的是掩码，原样回传时用存储的真值——同 searchTest）
-    const resolved =
-      config.apiKey === SECRET_MASK ? { ...config, apiKey: settings.get().skills.imageGen?.apiKey ?? "" } : config;
-    if (!isImageGenReady(resolved)) return { ok: false as const, error: i18n.t("integration:imageGen.incomplete") };
     try {
+      // 掩码只允许还原到原协议和实际端点，不能随自定义地址转发旧密钥。
+      const resolved = restoreImageGenMaskedSecret(config, settings.get().skills.imageGen);
+      if (!isImageGenReady(resolved)) return { ok: false as const, error: i18n.t("integration:imageGen.incomplete") };
       const outcome = await executeImageGen(
         resolved,
         "A serene natural landscape at sunrise: forested mountains, a calm clear lake with soft reflections, and gentle clouds in the sky; natural colors, no people, no buildings, no text.",

@@ -5,6 +5,7 @@
  */
 
 import type { ImageGenConfig, ImageGenProtocol, QwenImageGenBilling } from "@spcode/shared";
+import { SECRET_MASK } from "@spcode/shared";
 import {
   IMAGE_GEN_PRESETS,
   inferQwenImageGenBilling,
@@ -108,13 +109,19 @@ function ImageGenSkillCard() {
     }
   };
 
+  const clearMaskedKey = () => {
+    if (apiKey === SECRET_MASK) setApiKey("");
+  };
+
   const switchProtocol = (next: ImageGenProtocol) => {
+    if (next !== protocol) clearMaskedKey();
     setProtocol(next);
     if (next === "qwen") setBaseUrl(QWEN_IMAGE_GEN_ENDPOINTS[billing]);
     else if (Object.values(QWEN_IMAGE_GEN_ENDPOINTS).includes(baseUrl.trim())) setBaseUrl("");
   };
 
   const switchBilling = (next: QwenImageGenBilling) => {
+    if (next !== billing) clearMaskedKey();
     setBilling(next);
     setBaseUrl(QWEN_IMAGE_GEN_ENDPOINTS[next]);
   };
@@ -268,7 +275,10 @@ function ImageGenSkillCard() {
           <div className="text-[13px] text-text-secondary">{t("skills.imageGen.baseUrl")}</div>
           <input
             value={baseUrl}
-            onChange={(e) => setBaseUrl(e.target.value)}
+            onChange={(e) => {
+              if (e.target.value !== baseUrl) clearMaskedKey();
+              setBaseUrl(e.target.value);
+            }}
             readOnly={protocol === "qwen"}
             placeholder={t("skills.imageGen.urlPlaceholder")}
             data-testid="skills-image-gen-baseurl"

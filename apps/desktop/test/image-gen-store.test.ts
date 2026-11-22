@@ -11,6 +11,7 @@ import { SECRET_MASK } from "@spcode/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   redactSettingsForRenderer,
+  restoreImageGenMaskedSecret,
   restoreMaskedSecrets,
   SettingsStore,
   sanitizeAppSettings,
@@ -177,6 +178,36 @@ describe("设置存储：skills sanitize 与密钥脱敏往返", () => {
     expect(restored.skills?.imageGen?.apiKey).toBe("sk-real-secret");
     store.set(restored);
     expect(store.get().skills.imageGen?.apiKey).toBe("sk-real-secret");
+
+    // 同协议与实际端点可保留掩码，改模型不需要重输密钥
+    expect(
+      restoreImageGenMaskedSecret(
+        { ...CONFIG, apiKey: SECRET_MASK, model: "another-model" },
+        store.get().skills.imageGen,
+      ).apiKey,
+    ).toBe("sk-real-secret");
+
+    // 跨计费端点、跨协议或修改自定义端点时，主进程必须拒绝还原旧密钥
+    expect(() =>
+      restoreImageGenMaskedSecret(
+        {
+          ...CONFIG,
+          billing: "token-plan",
+          baseUrl: "https://token-plan.maas.qianwenaiapi.com/api/v1/services/aigc/multimodal-generation/generation",
+          apiKey: SECRET_MASK,
+        },
+        store.get().skills.imageGen,
+      ),
+    ).toThrow(/re-entered/);
+    const custom = {
+      ...CONFIG,
+      protocol: "custom" as const,
+      baseUrl: "https://example.com/generate",
+      apiKey: SECRET_MASK,
+      requestBody: '{"prompt":"{{prompt}}"}',
+      responsePath: "data[0].b64_json",
+    };
+    expect(() => restoreMaskedSecrets({ skills: { imageGen: custom } }, store.get())).toThrow(/re-entered/);
 
     // 换新密钥则正常覆盖
     store.set({ skills: { imageGen: { ...CONFIG, apiKey: "sk-new" } } });
