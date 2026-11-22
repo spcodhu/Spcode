@@ -1,7 +1,7 @@
 /**
  * 子任务面板（第三屏）与 store 子任务切片：
  * - session.task 事件按 taskId 覆盖式 upsert，垃圾载荷被 wire 守卫丢弃
- * - 新用户 prompt（message_end role=user）清空上一轮子任务快照
+ * - 新用户 prompt（message_end role=user，空闲时发送）清空上一轮子任务快照；steering 插话（运行中发送）不清空
  * - workspacePanelVisible：运行中/排队中子任务自动可见，全部终态不再撑开，dismissed 优先
  * - WorkspacePanel 渲染：默认仅运行中/排队中芯片，点芯片展开完整列表（含终态摘要与嵌套层级）
  */
@@ -57,7 +57,7 @@ function baseTask(overrides: Partial<TaskActivity> = {}): TaskActivity {
   };
 }
 
-function seedSession(tasks: TaskActivity[] = []) {
+function seedSession(tasks: TaskActivity[] = [], running = true) {
   useStore.setState((s) => ({
     activeSessionId: SESSION_ID,
     sessions: {
@@ -74,7 +74,7 @@ function seedSession(tasks: TaskActivity[] = []) {
           updatedAt: 0,
         },
         messages: [],
-        running: true,
+        running,
         usage: {
           input: 0,
           output: 0,
@@ -143,8 +143,8 @@ describe("store 子任务切片", () => {
     expect(useStore.getState().sessions[SESSION_ID]!.tasks).toHaveLength(1);
   });
 
-  it("新用户 prompt 清空上一轮快照（与宿主每轮重开任务树对齐）", () => {
-    seedSession([baseTask(), baseTask({ taskId: "task-2" })]);
+  it("新用户 prompt（空闲时发送）清空上一轮快照（与宿主每轮重开任务树对齐）", () => {
+    seedSession([baseTask(), baseTask({ taskId: "task-2" })], false);
     useStore.getState().applyHostEvent({
       type: "session.event",
       sessionId: SESSION_ID,
@@ -154,6 +154,19 @@ describe("store 子任务切片", () => {
       },
     });
     expect(useStore.getState().sessions[SESSION_ID]!.tasks).toEqual([]);
+  });
+
+  it("steering 插话（运行中 user 消息）不清空本轮快照（宿主 session.steer 不重开任务树）", () => {
+    seedSession([baseTask(), baseTask({ taskId: "task-2" })]);
+    useStore.getState().applyHostEvent({
+      type: "session.event",
+      sessionId: SESSION_ID,
+      event: {
+        type: "message_end",
+        message: { role: "user", content: [{ type: "text", text: "插话：顺便看下 X" }] },
+      },
+    });
+    expect(useStore.getState().sessions[SESSION_ID]!.tasks).toHaveLength(2);
   });
 });
 

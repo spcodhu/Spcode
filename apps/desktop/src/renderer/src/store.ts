@@ -775,8 +775,10 @@ export function applySessionEvent(session: SessionState, event: Record<string, u
         timestamp?: number;
       };
       if (msg.role === "user") {
-        // 新用户 prompt：宿主每轮重开子任务树，面板同步清空上一轮快照
-        session.tasks = [];
+        // 新一轮 prompt：宿主空闲时才会 runGuard.reset + startMainPrompt 重开子任务树，面板同步清空上一轮快照；
+        // 运行中插话（steering）宿主走 session.steer 不重开任务树，快照必须保留。
+        // agent_start（引擎事件）晚于本轮 user 消息落盘，故此处 running=false 即新轮次。
+        if (!session.running) session.tasks = [];
         const images = Array.isArray(msg.content)
           ? (msg.content as PiContentBlock[])
               .filter((block) => block.type === "image" && block.data)
