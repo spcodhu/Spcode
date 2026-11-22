@@ -5,6 +5,7 @@
  *   queued → running → 工具边界进度（lastTool/turns/usage）→ 终态（status/summary/endedAt）
  * - 嵌套子任务事件带 depth=1 与 parentTaskId（ctx 展开继承 emitTask）
  * - 取消传播：外部 signal abort → 终态 cancelled
+ * - 终态矩阵：error 终止无产出 → failed；工具全失败 → blocked；部分成功后异常 → partial
  * - 聊天行 onUpdate 实时状态文本（i18n agent:tool.taskProgress）
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -230,6 +231,81 @@ describe("createTaskTool 活动事件全链路", () => {
     }
     expect(nestedEvents.at(-1)).toMatchObject({ status: "completed", summary: "嵌套结论" });
     expect(outerEvents.at(-1)).toMatchObject({ status: "completed", summary: "外层结论" });
+  }, 60000);
+
+  it("子代理异常终止（stopReason=error）且无成功产出 → 终态 failed", async () => {
+    setLocale("zh-CN");
+    const f = await fixture();
+    const events: TaskActivity[] = [];
+    f.faux.setResponses([() => fauxAssistantMessage("出错前的部分输出", { stopReason: "error" })]);
+    const task = createTaskTool({
+      ...f.context,
+      emitTask: (activity) => events.push(structuredClone(activity)),
+    });
+    const result = await task.execute("error-call", { description: "会失败的任务", prompt: "随便做点什么" }, undefined);
+
+    // 引擎侧以 error stopReason 结束：无成功工具产出 → 终态必须是 failed（不是 partial）
+    const terminal = events.at(-1)!;
+    expect(terminal).toMatchObject({ status: "failed", sourceToolCallId: "error-call", endedAt: expect.any(Number) });
+    const handoff = JSON.parse((result.content[0] as { text: string }).text) as {
+      status: string;
+      unresolved: string[];
+    };
+    expect(handoff.status).toBe("failed");
+    expect(handoff.unresolved.length).toBeGreaterThan(0);
+  }, 60000);
+
+  it("工具全部失败 → 终态 blocked", async () => {
+    setLocale("zh-CN");
+    const f = await fixture();
+    const events: TaskActivity[] = [];
+    f.faux.setResponses([
+      () =>
+        fauxAssistantMessage(fauxToolCall("read", { path: join(f.dir, "project", "missing.txt") }), {
+          stopReason: "toolUse",
+        }),
+      () => fauxAssistantMessage("工具全失败后的结论"),
+    ]);
+    const task = createTaskTool({
+      ...f.context,
+      emitTask: (activity) => events.push(structuredClone(activity)),
+    });
+    const result = await task.execute(
+      "blocked-call",
+      { description: "会被工具拒绝", prompt: "读取一个不存在的文件" },
+      undefined,
+    );
+
+    expect(events.at(-1)).toMatchObject({ status: "blocked", sourceToolCallId: "blocked-call" });
+    const handoff = JSON.parse((result.content[0] as { text: string }).text) as { status: string };
+    expect(handoff.status).toBe("blocked");
+  }, 60000);
+
+  it("部分成功后异常终止 → 终态 partial", async () => {
+    setLocale("zh-CN");
+    const f = await fixture();
+    const events: TaskActivity[] = [];
+    f.faux.setResponses([
+      () =>
+        fauxAssistantMessage(fauxToolCall("read", { path: join(f.dir, "project", "sample.txt") }), {
+          stopReason: "toolUse",
+        }),
+      () => fauxAssistantMessage("成功过但随后出错", { stopReason: "error" }),
+    ]);
+    const task = createTaskTool({
+      ...f.context,
+      emitTask: (activity) => events.push(structuredClone(activity)),
+    });
+    const result = await task.execute(
+      "partial-call",
+      { description: "部分成功的任务", prompt: "先读文件再出错" },
+      undefined,
+    );
+
+    // 有成功产出 + error 终止：成功部分保留语义，终态 partial
+    expect(events.at(-1)).toMatchObject({ status: "partial", sourceToolCallId: "partial-call" });
+    const handoff = JSON.parse((result.content[0] as { text: string }).text) as { status: string };
+    expect(handoff.status).toBe("partial");
   }, 60000);
 
   it("外部 signal 中途 abort → 终态 cancelled 事件与取消结果", async () => {

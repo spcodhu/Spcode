@@ -633,18 +633,23 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
             unresolved.push("Handoff lists are truncated; consult persisted evidence");
           const successful = evidence.some((item) => !item.isError && actualCalls.has(item.toolCallId));
           const blocked = evidence.some((item) => item.isError);
+          // 异常/error 终止且无任何成功产出 → failed；有部分成功产出 → partial。
+          // （原实现 error 命中时 unresolved 必非空，恒判 partial，failed 分支死条件）
+          const failed = (error || lastStop === "error") && !successful;
           const status =
             run.stopReason === "cancelled"
               ? "cancelled"
-              : run.stopReason || unresolved.length
-                ? "partial"
-                : error || lastStop === "error" || lastStop === "aborted"
-                  ? "failed"
-                  : blocked
-                    ? successful
-                      ? "partial"
-                      : "blocked"
-                    : "completed";
+              : failed
+                ? "failed"
+                : run.stopReason || unresolved.length
+                  ? "partial"
+                  : error || lastStop === "error" || lastStop === "aborted"
+                    ? "failed"
+                    : blocked
+                      ? successful
+                        ? "partial"
+                        : "blocked"
+                      : "completed";
           result = {
             schemaVersion: 1,
             taskId: run.id,
