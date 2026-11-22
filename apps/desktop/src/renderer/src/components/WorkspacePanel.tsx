@@ -3,12 +3,14 @@
  * 会话文件只从助手正文明确分享的 file:/本地文件链接派生；工具过程文件仍可手动预览，
  * 但不会自动混入列表。面板关闭后由右侧悬浮按钮随时唤回，空会话也展示明确空态。
  */
-import type { TodoItem } from "@spcode/shared";
+import type { TaskActivity, TodoItem } from "@spcode/shared";
 import { baseName } from "@spcode/shared";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { langOf } from "../file-blocks";
+import { formatCompact } from "../format";
 import { usePresence } from "../presence";
+import { formatElapsed } from "../run-status";
 import { useStore, type WorkspaceFileTab, workspacePanelVisible } from "../store";
 import { type WorkspaceDeliverable, workspaceDeliverables } from "../workspace-deliverables";
 import { ErrorBoundary } from "./ErrorBoundary";
@@ -130,6 +132,8 @@ export function WorkspacePanel({ width = 560, forceVisible = false }: { width?: 
       </header>
 
       <TodoSection todos={session.todos} planMode={session.planMode} />
+
+      <SubtaskSection tasks={session.tasks} />
 
       {activeFile && files.length > 0 && (
         <FileTabs
@@ -307,6 +311,199 @@ function TaskRow({ todo }: { todo: TodoItem }) {
       >
         {isCurrent && todo.activeForm ? todo.activeForm : todo.content}
       </span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 子任务活动：默认只显示运行中/排队中的状态芯片，点开查看完整状态（含已完成）
+// ---------------------------------------------------------------------------
+
+const SUBTASK_CHIP_LIMIT = 5;
+
+function isTaskActive(task: TaskActivity): boolean {
+  return task.status === "queued" || task.status === "running";
+}
+
+const SUBTASK_DOT_CLASS: Record<TaskActivity["status"], string> = {
+  queued: "bg-bg-hover",
+  running: "bg-accent",
+  completed: "bg-success",
+  partial: "bg-warning",
+  blocked: "bg-warning",
+  failed: "bg-danger",
+  cancelled: "bg-border-strong",
+};
+
+const SUBTASK_STATUS_COLOR: Record<TaskActivity["status"], string> = {
+  queued: "text-text-tertiary",
+  running: "text-accent",
+  completed: "text-success",
+  partial: "text-warning",
+  blocked: "text-warning",
+  failed: "text-danger",
+  cancelled: "text-text-tertiary",
+};
+
+const SUBTASK_STATUS_KEY = {
+  queued: "subtasks.queued",
+  running: "subtasks.running",
+  completed: "subtasks.completed",
+  partial: "subtasks.partial",
+  blocked: "subtasks.blocked",
+  failed: "subtasks.failed",
+  cancelled: "subtasks.cancelled",
+} as const;
+
+function SubtaskSection({ tasks }: { tasks: TaskActivity[] }) {
+  const { t } = useTranslation("chat");
+  const [open, setOpen] = useState(false);
+  const activeCount = tasks.filter(isTaskActive).length;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (activeCount === 0) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [activeCount]);
+
+  if (tasks.length === 0) return null;
+
+  const done = tasks.filter((task) => task.status === "completed").length;
+  const visibleTasks = open ? tasks : tasks.filter(isTaskActive);
+  const chips = open ? visibleTasks : visibleTasks.slice(0, SUBTASK_CHIP_LIMIT);
+  const overflow = open ? 0 : visibleTasks.length - SUBTASK_CHIP_LIMIT;
+
+  return (
+    <div data-testid="workspace-subtask-section" className="shrink-0 px-3 pt-2">
+      <div className="overflow-hidden rounded-2xl border border-border bg-bg-elevated shadow-[0_8px_28px_rgba(0,0,0,0.07)]">
+        <button
+          type="button"
+          data-testid="workspace-subtask-toggle"
+          onClick={() => setOpen(!open)}
+          aria-expanded={open}
+          className="flex min-h-11 w-full shrink-0 items-center gap-2.5 px-3.5 py-2.5 text-left transition-colors hover:bg-bg-hover/50"
+        >
+          <Icon
+            name="chevronRight"
+            size={12}
+            className={`shrink-0 text-text-tertiary transition-transform duration-150 ${open ? "rotate-90" : ""}`}
+          />
+          <span
+            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md ${
+              activeCount > 0 ? "bg-accent-soft text-accent" : "bg-bg-hover text-text-tertiary"
+            }`}
+          >
+            <Icon name="zap" size={11} strokeWidth={2.2} />
+          </span>
+          <span className="shrink-0 text-[12.5px] font-medium text-text-primary">{t("subtasks.title")}</span>
+          {activeCount > 0 ? (
+            <span className="flex shrink-0 items-center gap-1 text-[11.5px] text-accent">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+              <span className="tabular-nums">{t("subtasks.runningCount", { count: activeCount })}</span>
+            </span>
+          ) : (
+            <span className="shrink-0 tabular-nums text-[11.5px] text-text-tertiary">
+              {t("subtasks.doneCount", { done, total: tasks.length })}
+            </span>
+          )}
+        </button>
+        {open ? (
+          <div data-testid="workspace-subtask-list" className="space-y-1 px-3.5 pb-3.5">
+            {visibleTasks.map((task) => (
+              <SubtaskRow key={task.taskId} task={task} now={now} />
+            ))}
+          </div>
+        ) : (
+          <div data-testid="workspace-subtask-chips" className="flex flex-wrap gap-1.5 px-3.5 pb-3">
+            {chips.map((task) => (
+              <SubtaskChip key={task.taskId} task={task} onExpand={() => setOpen(true)} />
+            ))}
+            {overflow > 0 && (
+              <button
+                type="button"
+                data-testid="workspace-subtask-more"
+                onClick={() => setOpen(true)}
+                className="flex items-center rounded-full border border-border bg-bg-main px-2.5 py-1 text-[11.5px] text-text-tertiary transition-colors hover:border-accent/40 hover:text-accent"
+              >
+                {t("subtasks.more", { count: overflow })}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SubtaskChip({ task, onExpand }: { task: TaskActivity; onExpand: () => void }) {
+  const { t } = useTranslation("chat");
+  return (
+    <button
+      type="button"
+      data-testid="workspace-subtask-chip"
+      data-status={task.status}
+      onClick={onExpand}
+      title={task.description}
+      className="flex max-w-full items-center gap-1.5 rounded-full border border-border bg-bg-main px-2.5 py-1 text-[11.5px] transition-colors hover:border-accent/40 hover:bg-accent-soft/40"
+    >
+      <span
+        className={`h-1.5 w-1.5 shrink-0 rounded-full ${SUBTASK_DOT_CLASS[task.status]} ${
+          isTaskActive(task) ? "animate-pulse" : ""
+        }`}
+      />
+      <span className="max-w-44 truncate text-text-secondary">{task.description}</span>
+      <span className="mono shrink-0 tabular-nums text-text-tertiary">
+        {t("subtasks.turns", { turns: task.turns, maxTurns: task.maxTurns })}
+      </span>
+    </button>
+  );
+}
+
+function SubtaskRow({ task, now }: { task: TaskActivity; now: number }) {
+  const { t } = useTranslation("chat");
+  const tokens = task.usage.input + task.usage.output + task.usage.cacheRead + task.usage.cacheWrite;
+  const seconds = Math.max(0, Math.floor(((task.endedAt ?? now) - task.startedAt) / 1000));
+  return (
+    <div
+      data-testid="workspace-subtask-row"
+      data-status={task.status}
+      data-depth={task.depth}
+      style={task.depth > 0 ? { marginLeft: 12 * task.depth } : undefined}
+      className="rounded-xl border border-border/60 bg-bg-main/60 px-3 py-2"
+    >
+      <div className="flex items-center gap-2">
+        <span
+          className={`h-1.5 w-1.5 shrink-0 rounded-full ${SUBTASK_DOT_CLASS[task.status]} ${
+            isTaskActive(task) ? "animate-pulse" : ""
+          }`}
+        />
+        <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-text-primary" title={task.description}>
+          {task.description}
+        </span>
+        <span className={`shrink-0 text-[11px] ${SUBTASK_STATUS_COLOR[task.status]}`}>
+          {t(SUBTASK_STATUS_KEY[task.status])}
+        </span>
+      </div>
+      <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-text-tertiary">
+        {task.depth > 0 && <span className="mono">{t("subtasks.nested", { depth: task.depth })}</span>}
+        <span className="rounded-full bg-bg-hover px-1.5 py-px text-[10.5px]">
+          {t(task.role === "write" ? "subtasks.roleWrite" : "subtasks.roleReadonly")}
+        </span>
+        <span className="mono tabular-nums">{t("subtasks.turns", { turns: task.turns, maxTurns: task.maxTurns })}</span>
+        <span className="mono tabular-nums">{formatCompact(tokens)}</span>
+        <span className="mono tabular-nums">{formatElapsed(seconds)}</span>
+        {task.lastTool && (
+          <span className="min-w-0 max-w-full truncate">{t("subtasks.lastTool", { tool: task.lastTool })}</span>
+        )}
+      </div>
+      {task.summary && (
+        <p
+          data-testid="workspace-subtask-summary"
+          className="mt-1.5 line-clamp-2 text-[11.5px] leading-4 text-text-secondary"
+        >
+          {task.summary}
+        </p>
+      )}
     </div>
   );
 }

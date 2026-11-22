@@ -74,6 +74,7 @@ function seedSession(sessionId: string) {
         },
         supportedThinkingLevels: [],
         todos: [],
+        tasks: [],
       },
     },
   }));
@@ -139,6 +140,7 @@ describe("store.init 宿主事件订阅", () => {
           },
           supportedThinkingLevels: [],
           todos: [],
+          tasks: [],
         },
       },
     }));
@@ -942,6 +944,7 @@ describe("安全暂停丢弃插话时退回输入框（评审 R5 P1-1）", () =>
           ],
           supportedThinkingLevels: [],
           todos: [],
+          tasks: [],
         } as never,
       },
     }));
@@ -979,6 +982,7 @@ describe("安全暂停丢弃插话时退回输入框（评审 R5 P1-1）", () =>
           messages: [],
           supportedThinkingLevels: [],
           todos: [],
+          tasks: [],
         } as never,
       },
     }));
@@ -1013,6 +1017,7 @@ describe("安全暂停丢弃插话时退回输入框（评审 R5 P1-1）", () =>
           ],
           supportedThinkingLevels: [],
           todos: [],
+          tasks: [],
         } as never,
       },
     }));

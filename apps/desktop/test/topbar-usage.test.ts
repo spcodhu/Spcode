@@ -42,6 +42,7 @@ function session(usage: Partial<SessionState["usage"]> = {}): SessionState {
     lastUsage: null,
     supportedThinkingLevels: [],
     todos: [],
+    tasks: [],
     planMode: false,
     permissionMode: "ask",
   };

@@ -48,6 +48,7 @@ describe("会话切换的宿主休眠/唤醒联动", () => {
           lastUsage: null,
           supportedThinkingLevels: [],
           todos: [],
+          tasks: [],
           planMode: false,
           sessionFile: `/tmp/${sessionId}.jsonl`,
           hostAwake: true,

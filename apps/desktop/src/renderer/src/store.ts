@@ -28,6 +28,7 @@ import type {
   SessionMeta,
   SessionMode,
   SessionRegistryEntry,
+  TaskActivity,
   TodoItem,
   UpdateState,
   UsageAggregate,
@@ -37,6 +38,7 @@ import {
   baseName,
   cleanSessionTitle,
   isModelEnabled,
+  normalizeTaskActivity,
   parseRunGuardCustomDetails,
   RUN_GUARD_CUSTOM_TYPE,
   stripImageProcessingHints,
@@ -213,6 +215,8 @@ export interface SessionState {
   compacting?: boolean;
   supportedThinkingLevels: string[];
   todos: TodoItem[];
+  /** 本轮用户 prompt 的子任务活动快照（session.task 事件按 taskId 覆盖式 upsert；新 prompt 清空） */
+  tasks: TaskActivity[];
   /** 计划模式：模型只读调研并出计划，批准后才执行（持久化在主进程注册表） */
   planMode: boolean;
   /** 权限模式：三档（总是询问 / 必要时询问 / 总不询问），按会话生效（持久化在主进程注册表） */
@@ -277,14 +281,19 @@ const MAX_WORKSPACE_FILES = 8;
 /** 函数式补丁在设置保存队列执行时读取最新状态，避免快速连续操作相互覆盖。 */
 export type SettingsPatch = Partial<AppSettings> | ((current: AppSettings | null) => Partial<AppSettings>);
 
-/** 面板是否应该显示：显式打开、有已打开文件、任务清单或计划模式任一即可；收起状态优先。 */
+/** 面板是否应该显示：显式打开、有已打开文件、任务清单、子任务运行中或计划模式任一即可；收起状态优先。 */
 export function workspacePanelVisible(
-  session: Pick<SessionState, "todos" | "planMode"> | undefined,
+  session: Pick<SessionState, "todos" | "planMode" | "tasks"> | undefined,
   panel: WorkspacePanelState | undefined,
 ): boolean {
   if (!session || panel?.dismissed) return false;
   return (
-    panel?.opened === true || (panel?.files.length ?? 0) > 0 || session.todos.length > 0 || session.planMode === true
+    panel?.opened === true ||
+    (panel?.files.length ?? 0) > 0 ||
+    session.todos.length > 0 ||
+    // 子任务运行中自动展开右侧面板（与 todo 同语义；用户显式关闭仍优先）
+    session.tasks.some((task) => task.status === "queued" || task.status === "running") ||
+    session.planMode === true
   );
 }
 
@@ -766,6 +775,8 @@ export function applySessionEvent(session: SessionState, event: Record<string, u
         timestamp?: number;
       };
       if (msg.role === "user") {
+        // 新用户 prompt：宿主每轮重开子任务树，面板同步清空上一轮快照
+        session.tasks = [];
         const images = Array.isArray(msg.content)
           ? (msg.content as PiContentBlock[])
               .filter((block) => block.type === "image" && block.data)
@@ -1325,6 +1336,7 @@ export const useStore = create<StoreState>((set, get) => ({
       context: null,
       supportedThinkingLevels: modelInfo?.thinkingLevels ?? [],
       todos: [],
+      tasks: [],
       planMode: false,
       // 新草稿取设置页的新会话默认档（创建时主进程也会按同一默认值落注册表）
       permissionMode: get().settings?.permissionMode ?? "ask",
@@ -1407,6 +1419,7 @@ export const useStore = create<StoreState>((set, get) => ({
       context: null,
       supportedThinkingLevels: info.supportedThinkingLevels ?? [],
       todos: entry.todos ?? [],
+      tasks: [],
       planMode: info.planMode ?? entry.planMode ?? false,
       permissionMode: info.permissionMode ?? entry.permissionMode ?? get().settings?.permissionMode ?? "ask",
       sessionFile: info.sessionFile ?? entry.sessionFile,
@@ -1485,6 +1498,7 @@ export const useStore = create<StoreState>((set, get) => ({
       lastUsage: null,
       supportedThinkingLevels: info.supportedThinkingLevels ?? [],
       todos: source.todos ?? [],
+      tasks: [],
       planMode,
       permissionMode,
       sessionFile: info.sessionFile ?? null,
@@ -1512,6 +1526,7 @@ export const useStore = create<StoreState>((set, get) => ({
             planFile: null,
             forkedFrom: sourceId,
             todos: source.todos ?? [],
+            tasks: [],
             createdAt: now,
             updatedAt: now,
           },
@@ -2064,6 +2079,16 @@ export const useStore = create<StoreState>((set, get) => ({
               entry.id === event.sessionId ? { ...entry, todos: event.todos } : entry,
             ),
           };
+        }
+        case "session.task": {
+          // wire 守卫：不可用载荷直接丢弃；可用则按 taskId 覆盖式 upsert（保持到达顺序）
+          const task = normalizeTaskActivity(event.task);
+          if (!task) return s;
+          return touchSession(s, event.sessionId, (draft) => {
+            const index = draft.tasks.findIndex((item) => item.taskId === task.taskId);
+            if (index >= 0) draft.tasks[index] = task;
+            else draft.tasks.push(task);
+          });
         }
         case "session.planmode":
           // ExitPlanMode 批准后宿主也会推这个事件；与本地乐观更新幂等

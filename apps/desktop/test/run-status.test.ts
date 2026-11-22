@@ -36,6 +36,7 @@ function makeSession(overrides: Partial<SessionState> = {}): SessionState {
     lastUsage: null,
     supportedThinkingLevels: [],
     todos: [],
+    tasks: [],
     planMode: false,
     ...overrides,
   };

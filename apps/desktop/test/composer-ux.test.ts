@@ -40,6 +40,7 @@ function makeSession(id: string): SessionState {
     lastUsage: null,
     supportedThinkingLevels: [],
     todos: [],
+    tasks: [],
     planMode: false,
     permissionMode: "never",
   };

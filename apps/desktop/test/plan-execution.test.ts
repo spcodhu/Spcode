@@ -41,6 +41,7 @@ function seed(planMode: boolean) {
         lastUsage: null,
         supportedThinkingLevels: [],
         todos: [],
+        tasks: [],
         planMode,
         permissionMode: "ask",
         draft: true,

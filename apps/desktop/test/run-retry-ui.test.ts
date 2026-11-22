@@ -51,6 +51,7 @@ function session(error = makeRunErrorNotice("429 Too Many Requests", 3)): Sessio
     lastUsage: null,
     supportedThinkingLevels: [],
     todos: [],
+    tasks: [],
     planMode: false,
     permissionMode: "never",
   };
