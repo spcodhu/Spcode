@@ -38,6 +38,8 @@ mac:
   hardenedRuntime: false
 
 win:
+  # 显示品牌升级为 Spcode，但保留 beta.43 的 Spcod.exe，避免旧登录项在升级后指向不存在的程序。
+  executableName: Spcod
   target:
     - target: nsis
       arch: [x64]
