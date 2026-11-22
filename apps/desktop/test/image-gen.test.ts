@@ -373,16 +373,19 @@ describe("createImageGenTool（落盘、并行声明与门控）", () => {
     expect(res.content[0]?.text).toMatch(/already displayed/);
   });
 
-  it("服务返回私网图片 URL 时，生产 SSRF 校验在下载前阻断", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse(qwenResponse("http://127.0.0.1/private.png")));
-    vi.stubGlobal("fetch", fetchMock);
-    const tool = setup(() => CONFIG);
-    const res = await exec(tool, { prompt: "a cat" });
-    expect(res.isError).toBe(true);
-    expect(res.content[0]?.text).toMatch(/blocked by SSRF protection/);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(res.details?.images).toBeUndefined();
-  });
+  it.each(["http://127.0.0.1/private.png", "http://[::ffff:7f00:1]/private.png"])(
+    "服务返回私网图片 URL %s 时，生产 SSRF 校验在下载前阻断",
+    async (imageUrl) => {
+      const fetchMock = vi.fn(async () => jsonResponse(qwenResponse(imageUrl)));
+      vi.stubGlobal("fetch", fetchMock);
+      const tool = setup(() => CONFIG);
+      const res = await exec(tool, { prompt: "a cat" });
+      expect(res.isError).toBe(true);
+      expect(res.content[0]?.text).toMatch(/blocked by SSRF protection/);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(res.details?.images).toBeUndefined();
+    },
+  );
 
   it("服务端失败 → isError 带原因，不落盘", async () => {
     vi.stubGlobal(

@@ -26,7 +26,9 @@ describe("isPrivateIp", () => {
       "255.255.255.255",
       "::1",
       "::",
-      "::ffff:127.0.0.1", // IPv4-mapped
+      "::ffff:127.0.0.1", // IPv4-mapped（点分）
+      "::ffff:7f00:1", // IPv4-mapped（URL 规范化后的十六进制 127.0.0.1）
+      "::ffff:c0a8:101", // IPv4-mapped 192.168.1.1
       "fd00::1", // ULA
       "fe80::1", // link-local
     ]) {
@@ -35,7 +37,15 @@ describe("isPrivateIp", () => {
   });
 
   it("公网地址不误伤（172.15/172.32 不在私网段）", () => {
-    for (const ip of ["8.8.8.8", "1.1.1.1", "172.15.0.1", "172.32.0.1", "100.63.0.1", "2606:4700:4700::1111"]) {
+    for (const ip of [
+      "8.8.8.8",
+      "1.1.1.1",
+      "172.15.0.1",
+      "172.32.0.1",
+      "100.63.0.1",
+      "2606:4700:4700::1111",
+      "::ffff:808:808", // IPv4-mapped 公网 8.8.8.8
+    ]) {
       expect(isPrivateIp(ip), ip).toBe(false);
     }
   });
@@ -70,6 +80,8 @@ describe("assertPublicHttpUrl", () => {
   it("字面私网 IP/localhost → 拒（不经 DNS）", async () => {
     expect((await assertPublicHttpUrl("http://127.0.0.1:8080/admin")).ok).toBe(false);
     expect((await assertPublicHttpUrl("http://[::1]/")).ok).toBe(false);
+    expect((await assertPublicHttpUrl("http://[::ffff:7f00:1]/")).ok).toBe(false);
+    expect((await assertPublicHttpUrl("http://[::ffff:127.0.0.1]/")).ok).toBe(false);
     expect((await assertPublicHttpUrl("http://169.254.169.254/latest/meta-data")).ok).toBe(false);
     expect((await assertPublicHttpUrl("http://192.168.1.1/")).ok).toBe(false);
     expect((await assertPublicHttpUrl("http://localhost:3000")).ok).toBe(false);

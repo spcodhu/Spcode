@@ -10,8 +10,18 @@ export function isPrivateIp(ip: string): boolean {
     .trim()
     .toLowerCase()
     .replace(/^\[|\]$/g, ""); // URL.hostname 的 IPv6 带方括号
-  // IPv4-mapped IPv6（::ffff:127.0.0.1）
-  if (v.startsWith("::ffff:")) v = v.slice(7);
+  // IPv4-mapped IPv6：URL 会把点分后缀规范化为两个十六进制 hextet。
+  if (v.startsWith("::ffff:")) {
+    const mapped = v.slice(7);
+    const hex = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(mapped);
+    if (hex) {
+      const high = Number.parseInt(hex[1] as string, 16);
+      const low = Number.parseInt(hex[2] as string, 16);
+      v = `${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`;
+    } else {
+      v = mapped;
+    }
+  }
   if (v === "0" || v === "0.0.0.0" || v === "::" || v === "::1") return true;
   if (v.includes(":")) {
     // IPv6：fc00::/7（ULA）、fe80::/10（link-local）、fec0::/10（废弃站点本地）
