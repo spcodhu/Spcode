@@ -89,4 +89,30 @@ describe("消息悬浮时间、复制与编辑", () => {
     expect(writeText.mock.calls[0]![0]).not.toContain("工具输出");
     expect(document.querySelector('[data-testid="message-edit"]')).toBeNull();
   });
+
+  it("只有活跃回合显示生图等待卡片，结束或历史孤儿调用不悬挂", async () => {
+    const messages: ChatMessage[] = [
+      {
+        id: "a-image",
+        role: "assistant",
+        timestamp,
+        segments: [
+          {
+            kind: "tools",
+            id: "tools",
+            calls: [{ id: "image-call", name: "GenerateImage", args: {}, status: "running", output: "" }],
+          },
+        ],
+        streaming: false,
+      },
+    ];
+    const render = (active: boolean) =>
+      createElement(I18nextProvider, { i18n }, createElement(AssistantRunItem, { messages, active }));
+
+    await act(async () => root.render(render(true)));
+    expect(document.querySelectorAll('[data-testid="generated-image-progress"]')).toHaveLength(1);
+
+    await act(async () => root.render(render(false)));
+    expect(document.querySelector('[data-testid="generated-image-progress"]')).toBeNull();
+  });
 });
