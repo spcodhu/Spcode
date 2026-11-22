@@ -1,17 +1,17 @@
 {
   "schema": 1,
-  "status": "blocked",
-  "reviewedCommit": "ea6f3b077e48fb18a308702b4f153084615086d9",
+  "status": "pass",
+  "reviewedCommit": "d20dc7424423e6e5d9d872e9c2208f234c391f8b",
   "baseline": "v0.1.0-beta.43",
-  "date": "2026-11-21",
+  "date": "2026-11-22",
   "reviewer": "agent",
   "report": "docs/code-review/R8-2026-11-22.md",
   "findings": {
     "p0": 0,
-    "p1": 4,
-    "p2": 13
+    "p1": 0,
+    "p2": 14
   },
   "openP0Accepted": null,
   "openP1Accepted": null,
-  "note": "初审发现 4 项 P1，等待用户决定整改范围；未授权放行。"
+  "note": "用户选择部分整改：4 项 P1 全部修复并终审通过；13 项初审 P2 与 1 项整改期新增 P2 记录排期。"
 }
