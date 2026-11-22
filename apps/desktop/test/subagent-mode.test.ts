@@ -28,7 +28,7 @@ import {
   installSubagentPolicy,
   SUBAGENT_POLICY_SECTION,
 } from "../src/agent-host/subagent-policy.js";
-import { taskSessionToolNames } from "../src/agent-host/tools/task.js";
+import { taskDescriptionFor, taskSessionToolNames } from "../src/agent-host/tools/task.js";
 
 const dirs: string[] = [];
 const controllers: SessionController[] = [];
@@ -56,10 +56,28 @@ describe("buildSubagentPolicy 三档文案", () => {
     const off = buildSubagentPolicy("off");
     expect(new Set([prefer, direct, off]).size).toBe(3);
     expect(off).toContain("disabled by the user");
-    expect(direct).toContain("prefers direct implementation");
-    expect(direct).toContain("overrides any delegation preference");
+    expect(direct).toContain("DIRECT MODE");
+    expect(direct).toContain("selected direct implementation");
+    expect(direct).toContain("roughly 20+ files");
+    expect(direct).toContain("Never delegate implementation");
+    expect(direct).toContain("overrides any delegation guidance elsewhere, including the Task tool description");
     expect(prefer).toContain("prefers delegating");
     for (const text of [prefer, direct, off]) expect(text).toContain("<subagent-policy>");
+  });
+});
+
+describe("taskDescriptionFor 三档工具描述", () => {
+  it("direct 是逃生口语气（与策略段硬规则同向），prefer 维持委派文案，off 中性", () => {
+    const prefer = taskDescriptionFor("prefer");
+    const direct = taskDescriptionFor("direct");
+    const off = taskDescriptionFor("off");
+    expect(new Set([prefer, direct, off]).size).toBe(3);
+    expect(direct).toContain("Escape hatch");
+    expect(direct).toContain("DIRECT implementation");
+    expect(direct).toContain("Do not call this tool for implementation");
+    expect(direct).toContain("roughly 20+ files");
+    expect(prefer).toContain("Delegate a self-contained task");
+    expect(off).toContain("disabled by the user");
   });
 });
 
@@ -205,5 +223,34 @@ describe("SessionController 子代理三档集成", () => {
     expect(ctl.session.getActiveToolNames()).not.toContain("WritePlan");
     ctl.setSubagentMode("prefer");
     expect(ctl.session.getActiveToolNames()).toContain("Task");
+  }, 60000);
+
+  it("direct 档 Task 声明描述与系统提示片段同步切档（创建时快照 + 热切换下一请求生效）", async () => {
+    const f = await fixture();
+    const captured: TranscriptContext[] = [];
+    f.faux.setResponses(
+      Array.from({ length: 2 }, () => (context: TranscriptContext) => {
+        captured.push(structuredClone(context));
+        return fauxAssistantMessage("ok");
+      }),
+    );
+    let mode: SubagentMode = "direct";
+    const ctl = await f.create({ getSubagentMode: () => mode });
+    await ctl.prompt("one");
+    const firstTools = getCurrentTools(resolveTranscript(captured[0]!, true).messages);
+    expect(firstTools.find((tool) => tool.name === "Task")?.description).toBe(taskDescriptionFor("direct"));
+    assertPolicy(captured[0]!, "direct");
+    // 系统提示 tools 段的 promptSnippet 模式中性：不再鼓励委派，裁量权交给策略段
+    expect(getCurrentSystemPrompt(resolveTranscript(captured[0]!, true).messages)).toContain(
+      "follow the subagent policy section",
+    );
+
+    // 热切换：引擎把 description 快照在注册时，就地更新活跃声明对象后下一请求生效
+    mode = "prefer";
+    ctl.setSubagentMode("prefer");
+    await ctl.prompt("two");
+    const secondTools = getCurrentTools(resolveTranscript(captured[1]!, true).messages);
+    expect(secondTools.find((tool) => tool.name === "Task")?.description).toBe(taskDescriptionFor("prefer"));
+    assertPolicy(captured[1]!, "prefer");
   }, 60000);
 });

@@ -216,6 +216,19 @@ function compactTokens(total: number): string {
   return String(total);
 }
 
+/** Task 工具描述按子代理三档切换：direct 档是逃生口语气，与 <subagent-policy> 硬规则同向。 */
+export function taskDescriptionFor(mode: SubagentMode): string {
+  if (mode === "direct")
+    return "Escape hatch for exceptionally large read-only exploration only — the user selected DIRECT implementation and expects you to do the work in this session. Do not call this tool for implementation, single-file work, or small fixes; before each call, state in one sentence why the subtask meets the direct-mode bar (roughly 20+ files, or an explicit user request). Defaults to strictly readonly retrieval; write requests hold a workspace-wide FIFO lease. Returns host status and bounded, unverified model summary plus durable evidence references.";
+  if (mode === "off")
+    return "Subagent delegation is disabled by the user; the active tool set excludes this tool. Do the work directly in this session.";
+  return "Delegate a self-contained task. Defaults to strictly readonly file/evidence retrieval (no shell/MCP). Request write explicitly; writes hold a workspace-wide FIFO lease. Provide goal, background, scope, acceptance and delegated evidenceRefs. Returns host status and bounded, unverified model summary plus durable evidence references.";
+}
+
+/** promptSnippet 在注册时被引擎快照、无法热切换，因此保持模式中性：委派裁量权交给 subagent-policy 策略段。 */
+const TASK_PROMPT_SNIPPET =
+  "Task subagent: isolated context for self-contained subtasks; follow the subagent policy section for when to delegate";
+
 function promptForTask(args: TaskInput, run: TaskRun): string {
   return `${args.prompt}\n\n<task-contract>\n${JSON.stringify({
     goal: args.goal ?? args.prompt,
@@ -235,9 +248,8 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
   return {
     name: "Task",
     label: "Task (subagent)",
-    description:
-      "Delegate a self-contained task. Defaults to strictly readonly file/evidence retrieval (no shell/MCP). Request write explicitly; writes hold a workspace-wide FIFO lease. Provide goal, background, scope, acceptance and delegated evidenceRefs. Returns host status and bounded, unverified model summary plus durable evidence references.",
-    promptSnippet: "Delegate focused self-contained subtasks; readonly parallel, workspace writes serial",
+    description: taskDescriptionFor(ctx.getSubagentMode?.() ?? DEFAULT_SUBAGENT_MODE),
+    promptSnippet: TASK_PROMPT_SNIPPET,
     parameters: taskSchema,
     constrainedSampling: STRICT_PREFER_TOOL_SAMPLING,
     executionMode: "parallel",

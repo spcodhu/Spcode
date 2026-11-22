@@ -69,7 +69,7 @@ import { createAdvancedSearchTool } from "./tools/advanced-search.js";
 import { createAskUserQuestionTool } from "./tools/ask-user.js";
 import { createImageGenTool } from "./tools/image-gen.js";
 import { createRenameSessionTool } from "./tools/rename.js";
-import { createTaskTool } from "./tools/task.js";
+import { createTaskTool, taskDescriptionFor } from "./tools/task.js";
 import { createTodoWriteTool } from "./tools/todowrite.js";
 import { createWebFetchTool } from "./tools/webfetch.js";
 import { createWebSearchTool } from "./tools/websearch.js";
@@ -267,6 +267,8 @@ export class SessionController {
   private distiller: MemoryDistiller | null = null;
   /** 每次用户 prompt 一棵子任务树；steering/续跑不重置 */
   taskRuntime!: TaskRuntime;
+  /** Task 工具定义引用：setSubagentMode 热更新描述（引擎声明快照与活跃对象就地同步） */
+  private taskTool?: ToolDefinition;
   /** 兜底标题只尝试一次（首轮 agent_settled 后） */
   private fallbackTitleTried = false;
   /** 首条用户消息原文（兜底标题的语料） */
@@ -413,6 +415,32 @@ export class SessionController {
     const guardedFsTools = createGuardedFsTools(cwd, getFsPolicy, toolEnvironment.path).map((tool) =>
       evidence.wrapTool(tool),
     );
+    const taskTool = createTaskTool({
+      cwd,
+      agentDir: opts.agentDir,
+      sessionId: opts.sessionId,
+      modelRuntime: opts.modelRuntime,
+      model: model as Model<never> | undefined,
+      // 子代理 spawn 时实时读主会话模型：refreshModelFromRegistry/setModel 后新子代理即用新快照（R6 P1-1）
+      getModel: () => session.model as Model<never> | undefined,
+      thinkingLevel: opts.thinkingLevel ?? "medium",
+      depth: 0,
+      getSandboxSettings: opts.getSandboxSettings,
+      getPermissionMode: () => permissionModeRef.current,
+      getSubagentMode: opts.getSubagentMode,
+      requestPermission: opts.requestPermission,
+      toolEnvironment,
+      getTaskTree: () => taskRuntime.currentTree,
+      getTaskLimits: opts.getTaskLimits,
+      emitUsage: (usage) => opts.emitUsage(usage),
+      emitTask: (activity) => opts.emitTask?.(activity),
+      authorizedRoot: cwd,
+      writerManager: workspaceWriterManager,
+      getPolicyRevision: opts.getPolicyRevision,
+      cancelPendingPermissions: opts.cancelPendingPermissions,
+      createEvidenceTool: (refs) => evidence.readTool(refs),
+      publishEvidence: (taskId, entries) => evidence.publishTask(taskId, entries),
+    });
     const { session } = await createAgentSession({
       cwd,
       agentDir: opts.agentDir,
@@ -463,32 +491,7 @@ export class SessionController {
           renameProbe.fired = true;
           opts.onRename?.(title);
         }),
-        createTaskTool({
-          cwd,
-          agentDir: opts.agentDir,
-          sessionId: opts.sessionId,
-          modelRuntime: opts.modelRuntime,
-          model: model as Model<never> | undefined,
-          // 子代理 spawn 时实时读主会话模型：refreshModelFromRegistry/setModel 后新子代理即用新快照（R6 P1-1）
-          getModel: () => session.model as Model<never> | undefined,
-          thinkingLevel: opts.thinkingLevel ?? "medium",
-          depth: 0,
-          getSandboxSettings: opts.getSandboxSettings,
-          getPermissionMode: () => permissionModeRef.current,
-          getSubagentMode: opts.getSubagentMode,
-          requestPermission: opts.requestPermission,
-          toolEnvironment,
-          getTaskTree: () => taskRuntime.currentTree,
-          getTaskLimits: opts.getTaskLimits,
-          emitUsage: (usage) => opts.emitUsage(usage),
-          emitTask: (activity) => opts.emitTask?.(activity),
-          authorizedRoot: cwd,
-          writerManager: workspaceWriterManager,
-          getPolicyRevision: opts.getPolicyRevision,
-          cancelPendingPermissions: opts.cancelPendingPermissions,
-          createEvidenceTool: (refs) => evidence.readTool(refs),
-          publishEvidence: (taskId, entries) => evidence.publishTask(taskId, entries),
-        }),
+        taskTool,
       ],
     });
     sessionHolder = session;
@@ -530,6 +533,7 @@ export class SessionController {
       }),
     );
     ctl.taskRuntime = taskRuntime;
+    ctl.taskTool = taskTool;
     ctl.planModeRef = planModeRef;
 
     // 保留 AgentSession 已安装的扩展 finishTurn，再叠加安全裁决；暂停优先于扩展续跑。
@@ -653,6 +657,13 @@ export class SessionController {
     const base = mode === "off" ? NORMAL_MODE_TOOLS.filter((name) => name !== "Task") : NORMAL_MODE_TOOLS;
     this.normalModeTools = [...new Set([...base, ...mcpNames])];
     if (!this.planMode) this.session.setActiveToolsByName(this.normalModeTools);
+    // 工具描述随档位热切换：引擎把 description 快照在注册时，活跃声明对象与注册表共享引用，
+    // 就地更新即对下一请求生效（off→prefer 重新激活后同样是这批对象）。
+    const description = taskDescriptionFor(mode);
+    if (this.taskTool && this.taskTool.description !== description) this.taskTool.description = description;
+    for (const tool of this.session.agent.state.tools) {
+      if (tool.name === "Task" && tool.description !== description) tool.description = description;
+    }
   }
 
   /** 生图技能热插拔：配置变完整/被清空时，活跃会话的工具集即时增删 GenerateImage */
