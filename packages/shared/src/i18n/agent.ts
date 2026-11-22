@@ -27,6 +27,7 @@ export const zhCN = {
   "tool.todosUpdated": "任务清单已更新：已完成 {{done}}/{{total}}。",
   "tool.taskResult": "# 子代理结果：{{description}}\n\n{{result}}",
   "tool.taskEmptyResult": "# 子代理结果：{{description}}\n\n（子代理未输出文本）",
+  "tool.taskProgress": "子任务 {{description}}：{{turns}}/{{maxTurns}} 轮 · {{tokens}} · {{tool}}",
 } as const;
 
 export const en = {
@@ -59,4 +60,5 @@ export const en = {
   "tool.todosUpdated": "Todo list updated: {{done}}/{{total}} completed.",
   "tool.taskResult": "# Subagent result: {{description}}\n\n{{result}}",
   "tool.taskEmptyResult": "# Subagent result: {{description}}\n\n(subagent produced no text output)",
+  "tool.taskProgress": "Subagent {{description}}: turn {{turns}}/{{maxTurns}} · {{tokens}} · {{tool}}",
 } as const satisfies Record<keyof typeof zhCN, string>;

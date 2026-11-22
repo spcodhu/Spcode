@@ -381,6 +381,9 @@ export {
   permissionScopes,
 } from "./permission.js";
 export type {
+  TaskActivity,
+  TaskActivityStatus,
+  TaskActivityUsage,
   TaskArtifact,
   TaskBudgetRequest,
   TaskInput,
@@ -391,7 +394,13 @@ export type {
   TaskToolEvidence,
   TaskUsage,
 } from "./task-runtime.js";
-export { DEFAULT_TASK_LIMITS, normalizeTaskLimits, TASK_SUMMARY_MAX_TOKENS } from "./task-runtime.js";
+export {
+  DEFAULT_TASK_LIMITS,
+  normalizeTaskActivity,
+  normalizeTaskLimits,
+  TASK_ACTIVITY_SUMMARY_MAX_CHARS,
+  TASK_SUMMARY_MAX_TOKENS,
+} from "./task-runtime.js";
 
 // ---------------------------------------------------------------------------
 // 结构化提问（AskUserQuestion 工具走这条通道）
@@ -640,6 +649,8 @@ export type HostEvent =
       sandbox: SessionInfo["sandbox"];
     }
   | { type: "session.todo"; sessionId: string; todos: TodoItem[] }
+  /** 子任务活动快照（宿主 Task 运行期间按 taskId 覆盖式下发；仅桌面消费，远程端安全忽略） */
+  | { type: "session.task"; sessionId: string; task: import("./task-runtime.js").TaskActivity }
   /** 运行保护暂停；渲染层在随后的 agent_settled 落持久错误卡 */
   | { type: "session.runGuard"; sessionId: string; pause: import("./run-guard.js").RunGuardPause }
   /** AI 通过 RenameSession 工具主动起的会话标题 */

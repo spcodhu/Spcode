@@ -217,6 +217,8 @@ export interface SessionControllerOptions {
   emitUsage: (usage: UsageRecord) => void;
   emitContext?: (snapshot: ContextUsageSnapshot) => void;
   emitTodo: (todos: TodoItem[]) => void;
+  /** 子任务活动快照（宿主 Task 运行期下发；渲染层右侧面板与聊天行实时状态） */
+  emitTask?: (activity: import("@spcode/shared").TaskActivity) => void;
   /** 计划模式开关变化（主进程回填注册表、渲染进程更新 UI） */
   emitPlanMode: (enabled: boolean) => void;
   /** 权限模式变化（主进程回填注册表、渲染进程更新 UI） */
@@ -479,6 +481,7 @@ export class SessionController {
           getTaskTree: () => taskRuntime.currentTree,
           getTaskLimits: opts.getTaskLimits,
           emitUsage: (usage) => opts.emitUsage(usage),
+          emitTask: (activity) => opts.emitTask?.(activity),
           authorizedRoot: cwd,
           writerManager: workspaceWriterManager,
           getPolicyRevision: opts.getPolicyRevision,

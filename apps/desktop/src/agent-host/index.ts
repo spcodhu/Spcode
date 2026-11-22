@@ -487,6 +487,7 @@ async function createController(params: {
       }),
     emitContext: (snapshot) => emit({ type: "session.context", sessionId: params.sessionId, snapshot }),
     emitTodo: (todos) => emit({ type: "session.todo", sessionId: params.sessionId, todos }),
+    emitTask: (task) => emit({ type: "session.task", sessionId: params.sessionId, task }),
     emitPlanMode: (enabled) => emit({ type: "session.planmode", sessionId: params.sessionId, enabled }),
     emitPermissionMode: (mode) => emit({ type: "session.permissionmode", sessionId: params.sessionId, mode }),
     emitPlan: (path) => emit({ type: "session.plan", sessionId: params.sessionId, path }),

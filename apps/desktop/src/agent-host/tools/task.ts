@@ -15,10 +15,13 @@ import {
   type SandboxSettings,
   type SubagentMode,
 } from "@spcode/shared";
+import { i18n } from "@spcode/shared/i18n";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 import {
   DEFAULT_TASK_LIMITS,
   TASK_SUMMARY_MAX_TOKENS,
+  type TaskActivity,
+  type TaskActivityStatus,
   type TaskArtifact,
   type TaskInput,
   type TaskLimits,
@@ -119,6 +122,8 @@ export interface TaskToolContext {
   getTaskLimits?: () => Partial<TaskLimits>;
   /** Raw stream deltas only; do not account TaskResult.usage a second time. */
   emitUsage?: (usage: TaskUsageRecord) => void;
+  /** 子任务活动快照（queued/running/终态 + 轮次/用量/最近工具）；嵌套 Task 经 ctx 展开继承。 */
+  emitTask?: (activity: TaskActivity) => void;
   parentRun?: TaskRun;
   /** Host-trusted workspace root; never supplied by the model. */
   authorizedRoot?: string;
@@ -204,6 +209,13 @@ async function abortable<T>(
   });
 }
 
+/** 聊天行实时状态里的紧凑 token 计数（12.3k / 1.2M）。 */
+function compactTokens(total: number): string {
+  if (total >= 1_000_000) return `${(total / 1_000_000).toFixed(1)}M`;
+  if (total >= 1000) return `${(total / 1000).toFixed(1)}k`;
+  return String(total);
+}
+
 function promptForTask(args: TaskInput, run: TaskRun): string {
   return `${args.prompt}\n\n<task-contract>\n${JSON.stringify({
     goal: args.goal ?? args.prompt,
@@ -229,7 +241,7 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
     parameters: taskSchema,
     constrainedSampling: STRICT_PREFER_TOOL_SAMPLING,
     executionMode: "parallel",
-    execute: async (id, args: TaskInput, signal) => {
+    execute: async (id, args: TaskInput, signal, onUpdate) => {
       if (signal?.aborted)
         return toolResult(stoppedResult(id, args.description, "Task cancelled before initialization", true));
       const tree = ctx.getTaskTree?.() ?? fallback.currentTree;
@@ -242,6 +254,58 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
       } catch (error) {
         return toolResult(stoppedResult(id, args.description, String(error), signal?.aborted || parent.signal.aborted));
       }
+      // 子任务活动事件：同一 execute 内按 taskId 覆盖式下发（queued → running → 终态）；
+      // 进度只在回合/工具边界发射，无 token 级噪音；聊天行同步收到实时状态文本。
+      const startedAt = Date.now();
+      let lastToolName: string | undefined;
+      const emitActivity = (status: TaskActivityStatus, extra?: Partial<TaskActivity>): void => {
+        if (!ctx.emitTask) return;
+        ctx.emitTask({
+          schemaVersion: 1,
+          taskId: run.id,
+          parentTaskId: ctx.parentRun?.id ?? null,
+          sourceToolCallId: id,
+          description: args.description,
+          role: run.role,
+          // 委派层级 0 起算（0 = 根会话直接派生）；与 TaskToolContext.depth 同口径，区别于 TaskRun.depth（含根）
+          depth: ctx.depth,
+          status,
+          startedAt,
+          updatedAt: Date.now(),
+          turns: run.usage.turns,
+          maxTurns: run.maxTurns,
+          usage: {
+            input: run.usage.input,
+            output: run.usage.output,
+            cacheRead: run.usage.cacheRead,
+            cacheWrite: run.usage.cacheWrite,
+            costTotal: run.usage.costTotal,
+          },
+          ...(lastToolName ? { lastTool: lastToolName } : {}),
+          ...extra,
+        });
+      };
+      const emitProgressLine = (): void => {
+        if (!onUpdate) return;
+        const total = run.usage.input + run.usage.output + run.usage.cacheRead + run.usage.cacheWrite;
+        onUpdate({
+          content: [
+            {
+              type: "text" as const,
+              text: i18n.t("agent:tool.taskProgress", {
+                description: args.description,
+                turns: run.usage.turns,
+                maxTurns: run.maxTurns,
+                tokens: compactTokens(total),
+                tool: lastToolName ?? "—",
+              }),
+            },
+          ],
+          details: {},
+        });
+      };
+      emitActivity("queued");
+      emitProgressLine();
       // Capture BEFORE waiting for a slot/lock. Parent relaxation never expands this cap.
       const permissionCap = ctx.getPermissionMode?.() ?? "ask";
       const getMode = () => intersectTaskPermissionMode(permissionCap, ctx.getPermissionMode?.() ?? "ask");
@@ -315,6 +379,8 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
           // Writer wait never owns an execution slot.
           await run.acquireActiveSlot();
           run.assertLive();
+          emitActivity("running");
+          emitProgressLine();
           const sandbox = getSandboxService();
           if (ctx.getSandboxSettings) sandbox.configure(ctx.getSandboxSettings());
           if (run.role === "write") await abortable(sandbox.ensureReady(), run.signal);
@@ -419,6 +485,11 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
           installSubagentPolicy(session.agent, () => ctx.getSubagentMode?.() ?? DEFAULT_SUBAGENT_MODE);
           const child = session;
           unsubscribe = child.subscribe((event) => {
+            if (event.type === "tool_execution_start") {
+              lastToolName = event.toolName;
+              emitActivity("running");
+              emitProgressLine();
+            }
             if (event.type === "tool_execution_end")
               evidence.push({
                 toolCallId: event.toolCallId,
@@ -518,6 +589,8 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
                   costTotal: finite(u?.cost?.total),
                   source: source === "compaction" ? "compaction" : "conversation",
                 });
+                emitActivity("running");
+                emitProgressLine();
               }),
             );
             return stream;
@@ -577,6 +650,8 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
             })),
             toolEvidence: evidence.slice(0, MAX_TOOL_EVIDENCE),
           };
+          // 终态事件在 run.dispose 之前发射：面板据此结束计时并展示摘要。
+          emitActivity(result.status, { summary: result.summary, endedAt: Date.now() });
         } finally {
           unsubscribe?.();
           run.signal.removeEventListener("abort", abort);
