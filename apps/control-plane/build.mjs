@@ -17,7 +17,9 @@ const common = {
 
 for (const [entry, output] of [
   ["src/index.ts", "dist/index.mjs"],
+  ["src/api.ts", "dist/api.mjs"],
   ["src/fake-worker.ts", "dist/fake-worker.mjs"],
+  ["src/watchdog-main.ts", "dist/watchdog.mjs"],
   ["../../packages/agent-runtime/src/index.ts", "dist/agent-runtime.mjs"],
 ]) {
   await build({

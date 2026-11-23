@@ -21,7 +21,6 @@ export interface ArtifactRecord extends ArtifactMeta {
 
 export function migrateArtifactSchema(db: DatabaseSync): void {
   const { user_version: version } = db.prepare("PRAGMA user_version").get() as { user_version: number };
-  if (version > 4) throw new Error(`控制面数据库版本 ${version} 高于当前程序支持的版本 4`);
   if (version >= 4) return;
   if (version !== 3) throw new Error("Artifact schema 需要从 v3 迁移");
   db.exec("BEGIN IMMEDIATE");

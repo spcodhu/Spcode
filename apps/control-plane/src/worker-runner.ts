@@ -79,6 +79,8 @@ export class NodeWorkerRunner implements WorkerRunner {
       stdio: ["ignore", "pipe", "pipe", "ipc"],
     });
     if (!child.pid) throw new Error("Worker 进程启动失败");
+    log.on("error", (error) => console.warn(`[worker-log] ${logPath}: ${error.message}`));
+    child.once("exit", () => log.end());
     child.stdout?.pipe(log);
     child.stderr?.pipe(log);
     return this.attach(child, input, logPath, onEvent);

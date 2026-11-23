@@ -575,7 +575,7 @@ export function SuperAgentPage() {
         {tab === "digest" && (
           <SuperAgentDigest snapshot={snapshot} repo={repo} onRepoChange={setRepo} busy={busy} execute={execute} />
         )}
-        {tab === "settings" && <SuperAgentSettings config={config} busy={busy} execute={execute} />}
+        {tab === "settings" && <SuperAgentSettings config={config} snapshot={snapshot} busy={busy} execute={execute} />}
       </div>
     </main>
   );

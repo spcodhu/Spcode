@@ -1,4 +1,4 @@
-import * as Lark from "@larksuiteoapi/node-sdk";
+import type * as Lark from "@larksuiteoapi/node-sdk";
 import axios from "axios";
 import { HttpsProxyAgent } from "https-proxy-agent";
 
@@ -49,25 +49,39 @@ export class FeishuApiError extends Error {
 export class LarkFeishuApi implements FeishuApi {
   private readonly client: InstanceType<typeof Lark.Client>;
   private readonly wsClient: InstanceType<typeof Lark.WSClient>;
+  private readonly eventDispatcher: typeof Lark.EventDispatcher;
   private messageCallback: ((message: FeishuInboundMessage) => Promise<void> | void) | null = null;
   private cardCallback: ((action: FeishuCardAction) => Promise<void> | void) | null = null;
 
-  constructor(
+  private constructor(
     private readonly config: { appId: string; appSecret: string; botOpenId: string },
-    proxyUrl = process.env.HTTPS_PROXY ?? process.env.https_proxy,
+    client: InstanceType<typeof Lark.Client>,
+    wsClient: InstanceType<typeof Lark.WSClient>,
+    eventDispatcher: typeof Lark.EventDispatcher,
   ) {
+    this.client = client;
+    this.wsClient = wsClient;
+    this.eventDispatcher = eventDispatcher;
+  }
+
+  static async create(
+    config: { appId: string; appSecret: string; botOpenId: string },
+    proxyUrl = process.env.HTTPS_PROXY ?? process.env.https_proxy,
+  ): Promise<LarkFeishuApi> {
+    const Lark = await import(process.env.SPCODE_LARK_ENTRY ?? "@larksuiteoapi/node-sdk");
     const agent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
     const httpInstance = agent ? axios.create({ httpAgent: agent, httpsAgent: agent, proxy: false }) : undefined;
-    this.client = new Lark.Client({
+    const client = new Lark.Client({
       appId: config.appId,
       appSecret: config.appSecret,
       ...(httpInstance ? { httpInstance: httpInstance as unknown as Lark.HttpInstance } : {}),
     });
-    this.wsClient = new Lark.WSClient({
+    const wsClient = new Lark.WSClient({
       appId: config.appId,
       appSecret: config.appSecret,
       ...(agent ? { agent } : {}),
     });
+    return new LarkFeishuApi(config, client, wsClient, Lark.EventDispatcher);
   }
 
   onMessage(callback: (message: FeishuInboundMessage) => void): void {
@@ -79,7 +93,7 @@ export class LarkFeishuApi implements FeishuApi {
   }
 
   async start(): Promise<void> {
-    const dispatcher = new Lark.EventDispatcher({}).register({
+    const dispatcher = new this.eventDispatcher({}).register({
       "im.message.receive_v1": async (raw: unknown) => {
         const data = raw as Record<string, any>;
         const message = data.message;

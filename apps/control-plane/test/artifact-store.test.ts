@@ -35,7 +35,7 @@ describe("私有 Artifact Store", () => {
     expect(store.artifacts.read(artifact).toString()).toBe("diff --git a/a b/a\n");
     expect(store.artifacts.list().map((item) => item.id)).toContain(artifact.id);
     expect(store.snapshot().artifacts?.map((item) => item.id)).toContain(artifact.id);
-    expect(store.db.prepare("PRAGMA user_version").get()!.user_version).toBe(4);
+    expect(store.db.prepare("PRAGMA user_version").get()!.user_version).toBe(5);
     store.close();
   });
 

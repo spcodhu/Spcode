@@ -95,7 +95,7 @@ describe("SQLite SuperAgent 事实库", () => {
     const reopened = new SqliteSuperAgentStore(file);
     expect(reopened.snapshot().workItems[0]?.status).toBe("AWAITING_PLAN_APPROVAL");
     expect(reopened.db.prepare("PRAGMA foreign_keys").get()!.foreign_keys).toBe(1);
-    expect(reopened.db.prepare("PRAGMA user_version").get()!.user_version).toBe(4);
+    expect(reopened.db.prepare("PRAGMA user_version").get()!.user_version).toBe(5);
     expect(String(reopened.db.prepare("PRAGMA journal_mode").get()!.journal_mode).toLowerCase()).toBe("wal");
     reopened.close();
   });

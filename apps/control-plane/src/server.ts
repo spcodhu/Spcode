@@ -1,7 +1,9 @@
+import { type ChildProcess, fork } from "node:child_process";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { dirname, extname, join, resolve, sep } from "node:path";
 import type { Duplex } from "node:stream";
+import { fileURLToPath } from "node:url";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 import {
   DEFAULT_SUPERAGENT_CONFIG,
@@ -11,10 +13,10 @@ import {
 } from "@spcode/shared/superagent";
 import { SuperAgentEngine } from "@spcode/superagent";
 import { WebSocketServer } from "ws";
-import { AuthService, CONTROL_COOKIE, ensureDeviceToken, parseCookies } from "./auth.js";
+import { AuthService, CONTROL_COOKIE, ensureDeviceToken, parseCookies, tokensEqual } from "./auth.js";
 import { ConfigStore } from "./config.js";
 import { DesktopHub } from "./desktop-hub.js";
-import { removeRuntimeInfo, writeRuntimeInfo } from "./discovery.js";
+import { readRuntimeInfo, removeRuntimeInfo, writeRuntimeInfo } from "./discovery.js";
 import { GitWorkspaceManager } from "./git-workspace.js";
 import { type FeishuApi, LarkFeishuApi } from "./integrations/feishu/api.js";
 import { FeishuGateway } from "./integrations/feishu/gateway.js";
@@ -22,6 +24,8 @@ import { OutboxDispatcher } from "./integrations/feishu/outbox.js";
 import { SourceStore } from "./source-store.js";
 import { DigestService, GitHubConnector, type GitHubIssueConnector } from "./sources/github.js";
 import { SqliteSuperAgentStore } from "./store-sqlite.js";
+import type { WatchdogHealth } from "./watchdog.js";
+import { WatchdogStore } from "./watchdog-store.js";
 import { WorkerManager } from "./worker-manager.js";
 import { createDefaultWorkerRunner, type WorkerRunner } from "./worker-runner.js";
 import { WorkerStore } from "./worker-store.js";
@@ -103,6 +107,10 @@ export interface ControlPlaneOptions {
   digestChatId?: string;
   digestSchedulerEnabled?: boolean;
   outboxPollMs?: number;
+  watchdogEnabled?: boolean;
+  watchdogEntry?: string;
+  watchdogPollMs?: number;
+  exitOnStop?: boolean;
 }
 
 export class ControlPlane {
@@ -114,8 +122,9 @@ export class ControlPlane {
   private readonly store: SqliteSuperAgentStore;
   private readonly workers: WorkerStore;
   private readonly sources: SourceStore;
-  private readonly feishuApi: FeishuApi | null;
+  private feishuApi: FeishuApi | null = null;
   private readonly configuration: ConfigStore;
+  private readonly watchdog: WatchdogStore;
   private readonly digest: DigestService;
   private readonly auth: AuthService;
   private readonly server: Server;
@@ -128,6 +137,8 @@ export class ControlPlane {
   private outboxDispatcher: OutboxDispatcher | null = null;
   private digestTimer: NodeJS.Timeout | null = null;
   private sourcesRunning = false;
+  private sourceConnected = false;
+  private watchdogChild: ChildProcess | null = null;
   private port = 0;
   private closing = false;
 
@@ -143,6 +154,7 @@ export class ControlPlane {
     this.workbenchDir = resolve(options.workbenchDir);
     this.store = new SqliteSuperAgentStore(options.databaseFile ?? join(this.baseDir, "control.sqlite"));
     this.configuration = new ConfigStore(this.baseDir, options.superAgentEnabled);
+    this.watchdog = new WatchdogStore(this.store.db);
     this.workers = new WorkerStore(this.store.db, (sequence, workItemId) => this.publishEvent(sequence, workItemId));
     this.sources = new SourceStore(this.store.db, this.store, (sequence, workItemId) =>
       this.publishEvent(sequence, workItemId),
@@ -154,40 +166,6 @@ export class ControlPlane {
     this.auth = new AuthService(this.store.db, ensureDeviceToken(this.baseDir));
     this.server = createServer((request, response) => void this.handle(request, response));
     this.server.on("upgrade", (request, socket, head) => this.upgrade(request, socket, head));
-    const appId = process.env.SPCODE_FEISHU_APP_ID?.trim();
-    const appSecret = process.env.SPCODE_FEISHU_APP_SECRET?.trim();
-    const botOpenId = process.env.SPCODE_FEISHU_BOT_OPEN_ID?.trim();
-    const feishuApi =
-      options.feishuApi ??
-      (appId && appSecret && botOpenId ? new LarkFeishuApi({ appId, appSecret, botOpenId }) : null);
-    this.feishuApi = feishuApi;
-    if (feishuApi) {
-      this.feishuGateway = new FeishuGateway(
-        this.sources,
-        feishuApi,
-        () => ({
-          enabled: this.enabled,
-          allowedChats: this.configuration.get().allowedChats,
-          authorizedOperators: this.configuration.get().authorizedOperators,
-          defaultRepo: DEFAULT_SUPERAGENT_CONFIG.defaultRepo,
-          botOpenId: process.env.SPCODE_FEISHU_BOT_OPEN_ID ?? "",
-        }),
-        (input) => {
-          this.engine.execute(
-            { type: "plan.approve", workItemId: input.workItemId, planId: input.planId, planHash: input.planHash },
-            `feishu:${input.actorId}`,
-          );
-          this.sources.projectNotifications();
-        },
-        async (message) => {
-          await this.hub.invoke("feishu.privateMessage", [message]).catch(() => {});
-        },
-        async (action) => {
-          await this.hub.invoke("feishu.privateCard", [action]).catch(() => {});
-        },
-      );
-      this.outboxDispatcher = new OutboxDispatcher(this.sources, feishuApi, { pollMs: this.options.outboxPollMs });
-    }
   }
 
   async start(): Promise<{ port: number; deviceToken: string }> {
@@ -211,15 +189,19 @@ export class ControlPlane {
     this.engine = new SuperAgentEngine(this.store, {
       publish: (event) => this.publishEvent(event.sequence, event.workItemId),
     });
+    await this.initializeFeishu();
     this.sources.recoverSending();
     this.sources.projectNotifications();
     await this.startSuperAgent();
+    this.startWatchdog();
     return { port: this.port, deviceToken: ensureDeviceToken(this.baseDir) };
   }
 
   async close(): Promise<void> {
     if (this.closing) return;
     this.closing = true;
+    this.watchdogChild?.kill("SIGTERM");
+    this.watchdogChild = null;
     await this.stopSuperAgent();
     this.hub?.close();
     this.browserWss.close();
@@ -227,6 +209,68 @@ export class ControlPlane {
     await new Promise<void>((resolveClose) => this.server.close(() => resolveClose()));
     this.store.close();
     removeRuntimeInfo(this.baseDir);
+    if (this.options.exitOnStop) process.exit(0);
+  }
+
+  private startWatchdog(): void {
+    if (this.options.watchdogEnabled === false || this.watchdogChild) return;
+    const entry =
+      this.options.watchdogEntry ?? resolve(dirname(fileURLToPath(import.meta.url)), "../dist/watchdog.mjs");
+    if (!existsSync(entry)) return;
+    const child = fork(entry, [], {
+      detached: true,
+      execArgv: [],
+      stdio: ["ignore", "pipe", "pipe", "ipc"],
+      env: {
+        PATH: process.env.PATH,
+        HOME: process.env.HOME,
+        SPCODE_SUPERAGENT_DIR: this.baseDir,
+        SPCODE_WATCHDOG_POLL_MS: String(this.options.watchdogPollMs ?? 5000),
+      },
+    });
+    child.stdout?.on("data", (data) => console.warn("[watchdog]", String(data).trim()));
+    child.stderr?.on("data", (data) => console.error("[watchdog]", String(data).trim()));
+    child.unref();
+    child.once("exit", (code) => {
+      if (this.watchdogChild === child) this.watchdogChild = null;
+      console.warn(`[watchdog] 进程退出 code=${code}`);
+    });
+    this.watchdogChild = child;
+  }
+
+  private async initializeFeishu(): Promise<void> {
+    const appId = process.env.SPCODE_FEISHU_APP_ID?.trim();
+    const appSecret = process.env.SPCODE_FEISHU_APP_SECRET?.trim();
+    const botOpenId = process.env.SPCODE_FEISHU_BOT_OPEN_ID?.trim();
+    this.feishuApi =
+      this.options.feishuApi ??
+      (appId && appSecret && botOpenId ? await LarkFeishuApi.create({ appId, appSecret, botOpenId }) : null);
+    if (!this.feishuApi) return;
+    this.feishuGateway = new FeishuGateway(
+      this.sources,
+      this.feishuApi,
+      () => ({
+        enabled: this.enabled,
+        allowedChats: this.configuration.get().allowedChats,
+        authorizedOperators: this.configuration.get().authorizedOperators,
+        defaultRepo: DEFAULT_SUPERAGENT_CONFIG.defaultRepo,
+        botOpenId: process.env.SPCODE_FEISHU_BOT_OPEN_ID ?? "",
+      }),
+      (input) => {
+        this.engine.execute(
+          { type: "plan.approve", workItemId: input.workItemId, planId: input.planId, planHash: input.planHash },
+          `feishu:${input.actorId}`,
+        );
+        this.sources.projectNotifications();
+      },
+      async (message) => {
+        await this.hub.invoke("feishu.privateMessage", [message]).catch(() => {});
+      },
+      async (action) => {
+        await this.hub.invoke("feishu.privateCard", [action]).catch(() => {});
+      },
+    );
+    this.outboxDispatcher = new OutboxDispatcher(this.sources, this.feishuApi, { pollMs: this.options.outboxPollMs });
   }
 
   private async startSuperAgent(): Promise<void> {
@@ -236,7 +280,9 @@ export class ControlPlane {
         try {
           await this.feishuGateway.start();
           this.outboxDispatcher?.start();
+          this.sourceConnected = true;
         } catch (error) {
+          this.sourceConnected = false;
           console.error("[feishu] 长连接启动失败，Outbox 保持持久化等待恢复", error);
         }
       }
@@ -269,8 +315,9 @@ export class ControlPlane {
   private async stopSuperAgent(): Promise<void> {
     if (this.digestTimer) clearInterval(this.digestTimer);
     this.digestTimer = null;
-    this.outboxDispatcher?.stop();
+    await this.outboxDispatcher?.stop();
     await this.feishuGateway?.stop().catch(() => {});
+    this.sourceConnected = false;
     this.sourcesRunning = false;
     await this.workerManager?.stop();
     this.workerManager = null;
@@ -313,6 +360,7 @@ export class ControlPlane {
   private snapshot(): SuperAgentSnapshot {
     return {
       ...this.store.snapshot(),
+      findings: this.watchdog.list(),
       enabled: this.enabled,
       digests: this.sources.listDigests(),
       outbox: this.sources.listOutbox().map((record) => ({
@@ -386,6 +434,60 @@ export class ControlPlane {
         });
         return;
       }
+      if (url.pathname === "/api/v1/watchdog/health" && request.method === "GET" && this.internalAuthorized(request)) {
+        const outbox = this.sources.listOutbox();
+        const pending = outbox.filter((item) => item.status === "PENDING" || item.status === "RETRY");
+        const oldest = pending.length ? Math.min(...pending.map((item) => item.createdAt)) : null;
+        const health: WatchdogHealth = {
+          controlPlane: { pid: process.pid, startedAt: this.startedAt, database: true },
+          processingPaused: this.store.processingPaused(),
+          attempts: this.workers.listActiveAttempts().map((attempt) => ({
+            id: attempt.id,
+            workItemId: attempt.workItemId,
+            role: attempt.role,
+            status: attempt.status,
+            heartbeatAt: attempt.heartbeatAt,
+            leaseExpiresAt: attempt.leaseExpiresAt,
+            workerPid: attempt.workerPid,
+            fence: attempt.fence,
+          })),
+          outbox: {
+            pendingCount: pending.length,
+            oldestPendingAgeMs: oldest === null ? null : Date.now() - oldest,
+            unknownCount: outbox.filter((item) => item.status === "UNKNOWN").length,
+            failedCount: outbox.filter((item) => item.status === "FAILED").length,
+          },
+          source: { configured: !!this.feishuApi, connected: this.sourceConnected },
+        };
+        this.json(response, 200, health);
+        return;
+      }
+      if (
+        url.pathname === "/api/v1/watchdog/findings" &&
+        request.method === "POST" &&
+        this.internalAuthorized(request)
+      ) {
+        const action = (await this.readJson(request)) as {
+          open?: { type?: string; subjectId?: string; workItemId?: string; evidence?: Record<string, unknown> };
+        };
+        if (!action.open?.type || !action.open.subjectId || !action.open.evidence) throw new Error("Finding 格式无效");
+        this.watchdog.open(action.open.type, action.open.subjectId, action.open.evidence, action.open.workItemId);
+        this.hub.publish(this.store.snapshot().revision);
+        this.json(response, 200, { ok: true });
+        return;
+      }
+      if (
+        url.pathname === "/api/v1/watchdog/resolve" &&
+        request.method === "POST" &&
+        this.internalAuthorized(request)
+      ) {
+        const action = (await this.readJson(request)) as { type?: string; subjectId?: string };
+        if (!action.type || !action.subjectId) throw new Error("Finding 解决格式无效");
+        this.watchdog.resolve(action.type, action.subjectId);
+        this.hub.publish(this.store.snapshot().revision);
+        this.json(response, 200, { ok: true });
+        return;
+      }
       if (url.pathname === "/api/v1/auth/bootstrap" && request.method === "POST") {
         if (!this.validMutation(request, response)) return;
         const authorization = request.headers.authorization ?? "";
@@ -409,6 +511,11 @@ export class ControlPlane {
         if (request.method !== "GET" && !this.validMutation(request, response)) return;
         if (this.closing && request.method !== "GET") {
           this.json(response, 503, { error: { code: "STOPPING", message: "控制面正在停止，不再接收新命令" } });
+          return;
+        }
+        if (url.pathname === "/api/v1/service/stop" && request.method === "POST") {
+          this.json(response, 200, { ok: true });
+          setImmediate(() => void this.close());
           return;
         }
         if (url.pathname === "/api/v1/superagent/snapshot" && request.method === "GET") {
@@ -533,6 +640,14 @@ export class ControlPlane {
     }
     socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
     socket.destroy();
+  }
+
+  private internalAuthorized(request: IncomingMessage): boolean {
+    const runtime = readRuntimeInfo(this.baseDir);
+    const authorization = request.headers.authorization ?? "";
+    return (
+      !!runtime && authorization.startsWith("Bearer ") && tokensEqual(authorization.slice(7), runtime.serviceToken)
+    );
   }
 
   private authenticated(request: IncomingMessage): boolean {

@@ -175,6 +175,61 @@ describe("Headless 控制面 HTTP / WSS", () => {
     expect(events.some((event) => event.type === "superagent.changed" && Number(event.sequence) > 0)).toBe(true);
   });
 
+  it("Watchdog 内部健康与 Finding 接口只接受 serviceToken", async () => {
+    const app = await fixture();
+    const runtime = readRuntimeInfo(app.home)!;
+    expect((await fetch(`${app.origin}/api/v1/watchdog/health`)).status).toBe(401);
+    const health = await fetch(`${app.origin}/api/v1/watchdog/health`, {
+      headers: { Authorization: `Bearer ${runtime.serviceToken}`, "X-Spcode-Control-Client": "1" },
+    });
+    expect(health.status).toBe(200);
+    expect((await health.json()).controlPlane.database).toBe(true);
+    const finding = await fetch(`${app.origin}/api/v1/watchdog/findings`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${runtime.serviceToken}`,
+        "X-Spcode-Control-Client": "1",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        open: { type: "WORKER_STALE", subjectId: "at_test", workItemId: "wi_test", evidence: { ageMs: 100000 } },
+      }),
+    });
+    expect(finding.status).toBe(200);
+    const state = await (
+      await fetch(`${app.origin}/api/v1/superagent/snapshot`, { headers: { Cookie: app.cookie } })
+    ).json();
+    expect(state.findings[0].type).toBe("WORKER_STALE");
+    const resolved = await fetch(`${app.origin}/api/v1/watchdog/resolve`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${runtime.serviceToken}`,
+        "X-Spcode-Control-Client": "1",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ type: "WORKER_STALE", subjectId: "at_test" }),
+    });
+    expect(resolved.status).toBe(200);
+    expect(
+      (await (await fetch(`${app.origin}/api/v1/superagent/snapshot`, { headers: { Cookie: app.cookie } })).json())
+        .findings,
+    ).toHaveLength(0);
+  });
+
+  it("显式停止移除 runtime 且不再接受请求", async () => {
+    const app = await fixture();
+    const response = await fetch(`${app.origin}/api/v1/service/stop`, {
+      method: "POST",
+      headers: mutationHeaders(app.origin, app.cookie),
+      body: "{}",
+    });
+    expect(response.status).toBe(200);
+    const deadline = Date.now() + 3000;
+    while (readRuntimeInfo(app.home) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(readRuntimeInfo(app.home)).toBeNull();
+    await expect(fetch(`${app.origin}/api/v1/health`)).rejects.toThrow();
+  });
+
   it("设备令牌文件不进入 runtime.json，权限保持 0600", async () => {
     const app = await fixture();
     const runtimeRaw = readFileSync(join(app.home, "runtime.json"), "utf8");

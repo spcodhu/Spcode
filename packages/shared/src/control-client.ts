@@ -80,6 +80,10 @@ export class ControlClient {
     return this.request("/api/v1/health");
   }
 
+  async serviceStop(): Promise<void> {
+    await this.request("/api/v1/service/stop", { method: "POST", body: JSON.stringify({}) });
+  }
+
   async bootstrap(token: string): Promise<void> {
     await this.request("/api/v1/auth/bootstrap", {
       method: "POST",

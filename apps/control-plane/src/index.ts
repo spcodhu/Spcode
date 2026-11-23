@@ -3,7 +3,7 @@ import { createLocalControlPlane } from "./runtime.js";
 const port = Number(process.env.SPCODE_CONTROL_PORT ?? 47831);
 if (!Number.isSafeInteger(port) || port < 0 || port > 65535) throw new Error("SPCODE_CONTROL_PORT 无效");
 
-const controlPlane = createLocalControlPlane({ port });
+const controlPlane = createLocalControlPlane({ port, exitOnStop: true });
 const { port: boundPort, deviceToken } = await controlPlane.start();
 const url = `http://127.0.0.1:${boundPort}/?view=superagent#bootstrap=${deviceToken}`;
 console.log(`[control-plane] Spcode 本地工作台：${url}`);

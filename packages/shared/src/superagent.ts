@@ -125,6 +125,17 @@ export interface ArtifactMeta {
   createdAt: number;
 }
 
+export interface WatchdogFinding {
+  id: string;
+  type: string;
+  subjectId: string;
+  status: "OPEN" | "RESOLVED";
+  evidence: Record<string, unknown>;
+  createdAt: number;
+  lastSeenAt: number;
+  resolvedAt: number | null;
+}
+
 export interface DigestSnapshot {
   id: string;
   repo: string;
@@ -180,6 +191,7 @@ export interface SuperAgentSnapshot {
   digests?: DigestSnapshot[];
   outbox?: OutboxSnapshot[];
   artifacts?: ArtifactMeta[];
+  findings?: WatchdogFinding[];
 }
 
 export type SuperAgentCommand =

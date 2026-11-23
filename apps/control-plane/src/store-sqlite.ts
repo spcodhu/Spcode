@@ -14,6 +14,7 @@ import type {
 import { assertPlanApproval, assertTransition } from "@spcode/superagent";
 import { ArtifactStore, migrateArtifactSchema } from "./artifact-store.js";
 import { migrateSourceSchema } from "./source-store.js";
+import { migrateWatchdogSchema } from "./watchdog-store.js";
 import { migrateWorkerSchema } from "./worker-store.js";
 
 const SCHEMA = `
@@ -355,7 +356,7 @@ export class SqliteSuperAgentStore {
 
   private migrate(): void {
     const version = this.db.prepare("PRAGMA user_version").get() as { user_version: number };
-    if (version.user_version > 4) throw new Error(`控制面数据库版本 ${version.user_version} 高于当前程序支持的版本 4`);
+    if (version.user_version > 5) throw new Error(`控制面数据库版本 ${version.user_version} 高于当前程序支持的版本 5`);
     if (version.user_version === 0) {
       this.db.exec(SCHEMA);
       this.db.exec("PRAGMA user_version = 1");
@@ -363,6 +364,7 @@ export class SqliteSuperAgentStore {
     migrateWorkerSchema(this.db);
     migrateSourceSchema(this.db);
     migrateArtifactSchema(this.db);
+    migrateWatchdogSchema(this.db);
   }
 
   close(): void {

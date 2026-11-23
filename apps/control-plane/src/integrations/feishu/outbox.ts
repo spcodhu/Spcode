@@ -22,6 +22,7 @@ export class InjectedOutboxFault extends Error {}
 export class OutboxDispatcher {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
+  private stopping = false;
 
   constructor(
     readonly store: SourceStore,
@@ -30,17 +31,21 @@ export class OutboxDispatcher {
   ) {}
 
   start(): void {
+    this.stopping = false;
     this.store.recoverSending();
     this.timer = setInterval(() => void this.dispatchOne(), this.options.pollMs ?? 1000);
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
+    this.stopping = true;
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    const deadline = Date.now() + 2000;
+    while (this.running && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
   }
 
   async dispatchOne(): Promise<boolean> {
-    if (this.running) return false;
+    if (this.running || this.stopping) return false;
     const record = this.store.claimOutbox();
     if (!record) return false;
     this.running = true;
@@ -57,10 +62,12 @@ export class OutboxDispatcher {
         }),
       ]).finally(() => clearTimeout(timeout!));
       this.options.afterSend?.();
+      if (this.stopping) return true;
       this.store.markSent(record.id, result || record.externalId || "");
       return true;
     } catch (error) {
       if (error instanceof InjectedOutboxFault) throw error;
+      if (this.stopping) return true;
       const cause = error instanceof Error ? error : new Error(String(error));
       if (
         (error instanceof FeishuApiError && error.options.timeout) ||

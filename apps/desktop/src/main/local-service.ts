@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, openSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { HostEvent } from "@spcode/shared";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 import WebSocket from "ws";
@@ -122,6 +123,21 @@ export class LocalService {
         SPCODE_HOME: resolveSpcodeHome(),
         SPCODE_WORKBENCH_DIR: workbenchDir,
         SPCODE_CONTROL_PORT: process.env.SPCODE_CONTROL_PORT ?? "47831",
+        ...(this.options.isPackaged
+          ? {
+              SPCODE_LARK_ENTRY: pathToFileURL(
+                join(
+                  this.options.resourcesPath,
+                  "app.asar.unpacked",
+                  "node_modules",
+                  "@larksuiteoapi",
+                  "node-sdk",
+                  "lib",
+                  "index.js",
+                ),
+              ).href,
+            }
+          : {}),
       },
     });
     child.on("error", (error) => console.error("[local-service] 控制面启动失败", error));
@@ -153,10 +169,19 @@ export class LocalService {
         this.reconnectTimer = setTimeout(() => {
           this.reconnectTimer = null;
           // 服务可能已换端口或 serviceToken；必须重新发现，而不是永久重连旧地址。
-          void this.start().catch((error) => console.warn("[local-service] 控制面重连失败", error));
+          void this.reconnect().catch((error) => console.warn("[local-service] 控制面重连失败", error));
         }, 1500);
       }
     });
+  }
+
+  private async reconnect(): Promise<void> {
+    if (!readRuntimeInfo(this.baseDir)) {
+      // 显式优雅停止会移除 runtime.json，保持停止状态；崩溃遗留文件才允许自动拉起。
+      this.active = false;
+      return;
+    }
+    await this.start();
   }
 
   private async accept(raw: string): Promise<void> {

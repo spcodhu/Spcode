@@ -1,14 +1,17 @@
-import type { SuperAgentCommand, SuperAgentPublicConfig } from "@spcode/shared/superagent";
-import { useEffect, useState } from "react";
+import type { SuperAgentCommand, SuperAgentPublicConfig, SuperAgentSnapshot } from "@spcode/shared/superagent";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { getControlClient } from "../control";
 import { Icon } from "./Icon";
 
 export function SuperAgentSettings({
   config,
+  snapshot,
   busy,
   execute,
 }: {
   config: SuperAgentPublicConfig | null;
+  snapshot: SuperAgentSnapshot | null;
   busy: boolean;
   execute: (command: SuperAgentCommand) => Promise<void>;
 }) {
@@ -26,9 +29,19 @@ export function SuperAgentSettings({
   const [provider, setProvider] = useState("");
   const [modelId, setModelId] = useState("");
   const [error, setError] = useState("");
+  const [confirmStop, setConfirmStop] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const [stopped, setStopped] = useState(false);
+  const dirty = useRef(false);
+  const edit =
+    <T,>(setter: (value: T) => void) =>
+    (value: T) => {
+      dirty.current = true;
+      setter(value);
+    };
 
   useEffect(() => {
-    if (!config) return;
+    if (!config || dirty.current) return;
     setEnabled(config.enabled);
     setConcurrency(String(config.concurrency));
     setDefaultRepo(config.defaultRepo);
@@ -70,8 +83,27 @@ export function SuperAgentSettings({
           model: provider.trim() && modelId.trim() ? { provider: provider.trim(), modelId: modelId.trim() } : null,
         },
       });
+      dirty.current = false;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  };
+
+  const stopService = async () => {
+    if (!confirmStop) {
+      setConfirmStop(true);
+      return;
+    }
+    setStopping(true);
+    setError("");
+    try {
+      await getControlClient().serviceStop();
+      setStopped(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+      setConfirmStop(false);
+    } finally {
+      setStopping(false);
     }
   };
 
@@ -84,7 +116,7 @@ export function SuperAgentSettings({
             <p className="mt-1 text-[11px] text-text-tertiary">{t("settings.subtitle")}</p>
           </div>
           <label className="flex items-center gap-2 text-[12px] text-text-primary">
-            <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
+            <input type="checkbox" checked={enabled} onChange={(event) => edit(setEnabled)(event.target.checked)} />
             {t("settings.enabled")}
           </label>
         </div>
@@ -93,27 +125,27 @@ export function SuperAgentSettings({
           <NumberField
             label={t("settings.concurrency")}
             value={concurrency}
-            onChange={setConcurrency}
+            onChange={edit(setConcurrency)}
             min="1"
             max="8"
           />
-          <NumberField label={t("settings.budget")} value={budget} onChange={setBudget} min="0" />
-          <TextField label={t("settings.defaultRepo")} value={defaultRepo} onChange={setDefaultRepo} mono />
-          <TextField label={t("settings.digestChat")} value={digestChatId} onChange={setDigestChatId} mono />
-          <TextField label={t("settings.dailyTime")} value={dailyTime} onChange={setDailyTime} mono />
-          <TextField label={t("settings.timezone")} value={timezone} onChange={setTimezone} mono />
-          <TextField label={t("settings.provider")} value={provider} onChange={setProvider} mono />
-          <TextField label={t("settings.model")} value={modelId} onChange={setModelId} mono />
+          <NumberField label={t("settings.budget")} value={budget} onChange={edit(setBudget)} min="0" />
+          <TextField label={t("settings.defaultRepo")} value={defaultRepo} onChange={edit(setDefaultRepo)} mono />
+          <TextField label={t("settings.digestChat")} value={digestChatId} onChange={edit(setDigestChatId)} mono />
+          <TextField label={t("settings.dailyTime")} value={dailyTime} onChange={edit(setDailyTime)} mono />
+          <TextField label={t("settings.timezone")} value={timezone} onChange={edit(setTimezone)} mono />
+          <TextField label={t("settings.provider")} value={provider} onChange={edit(setProvider)} mono />
+          <TextField label={t("settings.model")} value={modelId} onChange={edit(setModelId)} mono />
         </div>
 
         <div className="mt-4 grid gap-4 md:grid-cols-2">
-          <TextAreaField label={t("settings.operators")} value={operators} onChange={setOperators} rows={3} />
-          <TextAreaField label={t("settings.chats")} value={chats} onChange={setChats} rows={3} />
+          <TextAreaField label={t("settings.operators")} value={operators} onChange={edit(setOperators)} rows={3} />
+          <TextAreaField label={t("settings.chats")} value={chats} onChange={edit(setChats)} rows={3} />
         </div>
         <TextAreaField
           label={t("settings.repositories")}
           value={repositories}
-          onChange={setRepositories}
+          onChange={edit(setRepositories)}
           rows={12}
           mono
         />
@@ -141,6 +173,25 @@ export function SuperAgentSettings({
       </section>
 
       <aside className="space-y-4">
+        {snapshot?.findings?.length ? (
+          <section className="rounded-xl border border-warning/40 bg-warning/5 p-4" data-testid="watchdog-findings">
+            <h3 className="text-[13px] font-medium text-warning">{t("settings.findings")}</h3>
+            <div className="mt-2 space-y-2">
+              {snapshot.findings.map((finding) => (
+                <div
+                  key={finding.id}
+                  className="rounded-lg border border-warning/30 bg-bg-main p-3 text-[11px] text-text-secondary"
+                >
+                  <div className="font-medium text-warning">{finding.type}</div>
+                  <code className="mt-1 block break-all text-[10px] text-text-tertiary">{finding.subjectId}</code>
+                  <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap break-all text-[10px]">
+                    {JSON.stringify(finding.evidence)}
+                  </pre>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
         <section className="rounded-xl border border-border bg-bg-elevated p-4">
           <h3 className="text-[13px] font-medium text-text-primary">{t("settings.credentials")}</h3>
           <Credential label={t("settings.github")} configured={config?.credentials.github === true} />
@@ -158,6 +209,21 @@ export function SuperAgentSettings({
             {config?.configFile}
           </code>
           <p className="mt-3 text-[11px] leading-5 text-text-tertiary">{t("settings.offlineHint")}</p>
+          {stopped ? (
+            <p className="mt-3 text-[11px] text-text-secondary" role="status">
+              {t("settings.stopped")}
+            </p>
+          ) : (
+            <button
+              type="button"
+              disabled={stopping || busy}
+              onClick={() => void stopService()}
+              className={`mt-3 rounded-lg border px-3 py-2 text-[11px] ${confirmStop ? "border-danger bg-danger/10 text-danger" : "border-border text-text-secondary"}`}
+              data-testid="stop-local-service"
+            >
+              {confirmStop ? t("settings.confirmStop") : t("settings.stop")}
+            </button>
+          )}
         </section>
       </aside>
     </div>
