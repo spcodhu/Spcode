@@ -12,10 +12,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { createSandboxedBashTool } from "@spcode/agent-runtime/sandbox/bash-tool.js";
+import { getSandboxService, resetSandboxServiceForTest } from "@spcode/agent-runtime/sandbox/manager.js";
 import { DEFAULT_SANDBOX_SETTINGS } from "@spcode/shared";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { createSandboxedBashTool } from "../src/agent-host/sandbox/bash-tool.js";
-import { getSandboxService, resetSandboxServiceForTest } from "../src/agent-host/sandbox/manager.js";
 
 const execFileP = promisify(execFile);
 const isMac = process.platform === "darwin";

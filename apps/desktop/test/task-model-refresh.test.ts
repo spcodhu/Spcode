@@ -11,9 +11,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
 import { createAgentSession, ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { MemoryStore } from "@spcode/agent-runtime/memory-store.js";
+import { SessionController } from "@spcode/agent-runtime/session-controller.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MemoryStore } from "../src/agent-host/memory-store.js";
-import { SessionController } from "../src/agent-host/session-controller.js";
 
 vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@earendil-works/pi-coding-agent")>();

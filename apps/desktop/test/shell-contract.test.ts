@@ -1,14 +1,14 @@
 import type { BashOperations, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { DEFAULT_SANDBOX_SETTINGS } from "@spcode/shared";
-import { describe, expect, it } from "vitest";
-import { createSandboxedBashTool } from "../src/agent-host/sandbox/bash-tool.js";
-import { createManagedPowerShellTool } from "../src/agent-host/sandbox/powershell-tool.js";
+import { createSandboxedBashTool } from "@spcode/agent-runtime/sandbox/bash-tool.js";
+import { createManagedPowerShellTool } from "@spcode/agent-runtime/sandbox/powershell-tool.js";
 import {
   DEFAULT_SHELL_TIMEOUT_SECONDS,
   effectiveShellTimeout,
   MAX_SHELL_TIMEOUT_SECONDS,
-} from "../src/agent-host/sandbox/shell-contract.js";
-import type { SessionToolEnvironment } from "../src/agent-host/tool-environment.js";
+} from "@spcode/agent-runtime/sandbox/shell-contract.js";
+import type { SessionToolEnvironment } from "@spcode/agent-runtime/tool-environment.js";
+import { DEFAULT_SANDBOX_SETTINGS } from "@spcode/shared";
+import { describe, expect, it } from "vitest";
 
 interface CapturedCall {
   timeout?: number;

@@ -7,15 +7,15 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { afterEach, describe, expect, it } from "vitest";
-import { MemoryStore } from "../src/agent-host/memory-store.js";
+import { MemoryStore } from "@spcode/agent-runtime/memory-store.js";
 import {
   addCustomModel,
   addCustomProvider,
   createModelOverlayStore,
   removeCustomModel,
-} from "../src/agent-host/model-overlay.js";
-import { SessionController } from "../src/agent-host/session-controller.js";
+} from "@spcode/agent-runtime/model-overlay.js";
+import { SessionController } from "@spcode/agent-runtime/session-controller.js";
+import { afterEach, describe, expect, it } from "vitest";
 
 const dirs: string[] = [];
 afterEach(() => {

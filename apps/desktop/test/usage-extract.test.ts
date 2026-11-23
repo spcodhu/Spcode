@@ -2,8 +2,9 @@
  * extractUsage 结构防御测试（评审 P1-3 回归）：
  * 对引擎事件结构零信任——缺 cost / 缺字段 / 非对象 usage 都不许抛异常。
  */
+
+import { extractUsage } from "@spcode/agent-runtime/session-controller.js";
 import { describe, expect, it } from "vitest";
-import { extractUsage } from "../src/agent-host/session-controller.js";
 
 const model = { provider: "p", modelId: "m" };
 

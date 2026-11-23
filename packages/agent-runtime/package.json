@@ -1,0 +1,33 @@
+{
+  "name": "@spcode/agent-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*.js": "./src/*.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.79",
+    "@earendil-works/pi-agent-core": "1.5.2",
+    "@earendil-works/pi-ai": "1.5.2",
+    "@earendil-works/pi-coding-agent": "1.5.2",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@spcode/shared": "workspace:*",
+    "https-proxy-agent": "7.0.6",
+    "ignore": "^7.0.8",
+    "minimatch": "^10.2.6",
+    "socks-proxy-agent": "8.0.5",
+    "turndown": "^7.2.0",
+    "typebox": "1.3.27",
+    "undici": "8.10.2"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "@types/turndown": "^5.0.6",
+    "typescript": "^5.9.2"
+  }
+}

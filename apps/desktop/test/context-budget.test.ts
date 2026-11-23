@@ -3,8 +3,8 @@
  * 输出预留独立、最终请求投影统计。使用真实 SessionManager 与 SettingsManager。
  */
 import { type AgentSession, SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { estimateContextBreakdown, installContextBudgetObserver } from "@spcode/agent-runtime/context-budget.js";
 import { describe, expect, it } from "vitest";
-import { estimateContextBreakdown, installContextBudgetObserver } from "../src/agent-host/context-budget.js";
 
 function fakeSession(sm: SessionManager, contextWindow = 200_000): AgentSession {
   const agent = { transformContext: undefined as unknown };

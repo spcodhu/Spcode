@@ -1,8 +1,8 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createFindToolWithFallback } from "@spcode/agent-runtime/tools/find-fallback.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createFindToolWithFallback } from "../src/agent-host/tools/find-fallback.js";
 
 let root = "";
 

@@ -6,10 +6,10 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionManager, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { createContextEvidence } from "@spcode/agent-runtime/context-evidence.js";
+import type { FsGuardPolicy } from "@spcode/agent-runtime/sandbox/fs-guard.js";
 import { Type } from "typebox";
 import { afterAll, describe, expect, it } from "vitest";
-import { createContextEvidence } from "../src/agent-host/context-evidence.js";
-import type { FsGuardPolicy } from "../src/agent-host/sandbox/fs-guard.js";
 
 const dir = mkdtempSync(join(tmpdir(), "spcode-evidence-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));

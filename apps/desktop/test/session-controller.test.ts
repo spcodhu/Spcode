@@ -6,11 +6,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ModelRuntime, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { MemoryStore } from "@spcode/agent-runtime/memory-store.js";
+import { SessionController } from "@spcode/agent-runtime/session-controller.js";
+import { taskSessionToolNames } from "@spcode/agent-runtime/tools/task.js";
 import { Type } from "typebox";
 import { afterAll, describe, expect, it } from "vitest";
-import { MemoryStore } from "../src/agent-host/memory-store.js";
-import { SessionController } from "../src/agent-host/session-controller.js";
-import { taskSessionToolNames } from "../src/agent-host/tools/task.js";
 
 let dir = "";
 

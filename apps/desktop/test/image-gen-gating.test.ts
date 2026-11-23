@@ -10,10 +10,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxProvider } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { MemoryStore } from "@spcode/agent-runtime/memory-store.js";
+import { SessionController, type SessionControllerOptions } from "@spcode/agent-runtime/session-controller.js";
 import type { ImageGenConfig } from "@spcode/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MemoryStore } from "../src/agent-host/memory-store.js";
-import { SessionController, type SessionControllerOptions } from "../src/agent-host/session-controller.js";
 
 const READY: ImageGenConfig = {
   protocol: "qwen",

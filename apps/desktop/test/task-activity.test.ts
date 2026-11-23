@@ -13,10 +13,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { createTaskTool, type TaskToolContext } from "@spcode/agent-runtime/tools/task.js";
 import { setLocale } from "@spcode/shared/i18n";
 import { normalizeTaskActivity, TASK_ACTIVITY_SUMMARY_MAX_CHARS, type TaskActivity } from "@spcode/shared/task-runtime";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createTaskTool, type TaskToolContext } from "../src/agent-host/tools/task.js";
 
 const dirs: string[] = [];
 afterEach(() => {

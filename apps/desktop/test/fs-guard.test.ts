@@ -6,16 +6,15 @@
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { renderMessage, setLocale } from "@spcode/shared/i18n";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-
 import {
   createGuardedFsTools,
   type FsGuardPolicy,
   judgeFsPath,
   judgeFsToolCall,
   resolveFsPath,
-} from "../src/agent-host/sandbox/fs-guard.js";
+} from "@spcode/agent-runtime/sandbox/fs-guard.js";
+import { renderMessage, setLocale } from "@spcode/shared/i18n";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 afterEach(() => setLocale("zh-CN"));
 

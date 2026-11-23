@@ -7,7 +7,7 @@
  * - 把 pi 事件流原样转发给主进程（结构化克隆）
  * - 在 beforeToolCall 钩子里挂权限网关，等待主进程裁决
  *
- * 禁止 import "electron" —— 这里只有 Node API + process.parentPort。
+ * 禁止 import "electron" —— Electron utilityProcess 与普通 Node IPC 共用同一宿主。
  */
 
 import { randomUUID } from "node:crypto";
@@ -46,7 +46,6 @@ import {
 import { getLocale, i18n, setLocale } from "@spcode/shared/i18n";
 import { isImageGenReady } from "@spcode/shared/image-gen";
 import { resolveSpcodeHome, writeJsonFileAtomic } from "@spcode/shared/node";
-import { configureNetworkProxy } from "../network-proxy.js";
 import { exportSessionContext } from "./export-context.js";
 import { HibernationManager } from "./hibernation.js";
 import { getMcpManager } from "./mcp.js";
@@ -66,26 +65,22 @@ import {
   syncManagedModelsJson,
   updateCustomProvider,
 } from "./model-overlay.js";
+import { configureNetworkProxy } from "./network-proxy.js";
 import { createSpcodeSettingsManager } from "./pi-session-config.js";
 import { getSandboxService } from "./sandbox/manager.js";
 import { SessionController } from "./session-controller.js";
 import { getOrCreateOpenedController } from "./session-open.js";
+import { createRuntimeTransport } from "./transport.js";
 import { catalogPricing, priceUsageRecord } from "./usage-pricing.js";
 
 // ---------------------------------------------------------------------------
 // 通信基座
 // ---------------------------------------------------------------------------
 
-declare const process: NodeJS.Process & {
-  parentPort: {
-    postMessage(msg: unknown): void;
-    on(event: "message", cb: (e: { data: unknown }) => void): void;
-    once(event: "message", cb: (e: { data: unknown }) => void): void;
-  };
-};
+const transport = createRuntimeTransport();
 
 function emit(event: HostEvent): void {
-  process.parentPort.postMessage(event);
+  transport.emit(event);
 }
 
 function respond(id: string, success: boolean, data?: unknown, error?: string): void {
@@ -98,6 +93,10 @@ function respond(id: string, success: boolean, data?: unknown, error?: string): 
 
 const SPCODE_HOME = resolveSpcodeHome();
 const AGENT_DIR = join(SPCODE_HOME, "agent");
+const WORKER_ROLE: "plan" | "execute" | null =
+  process.env.SPCODE_WORKER_ROLE === "plan" || process.env.SPCODE_WORKER_ROLE === "execute"
+    ? process.env.SPCODE_WORKER_ROLE
+    : null;
 
 /**
  * 自定义模型层：设置页「添加模型」与 models.json 的合成功能（通用机制，不写死任何模型）。
@@ -110,7 +109,7 @@ const modelOverlay = createModelOverlayStore(AGENT_DIR);
 let modelRuntime: ModelRuntime | null = null;
 let memoryStore: MemoryStore | null = null;
 /** 模型目录自动同步开关（主进程设置页经 modelCatalog.setAutoSync 下发；宿主重启后由主进程重推） */
-let modelCatalogAutoSync = true;
+let modelCatalogAutoSync = WORKER_ROLE === null;
 /** 每次任务运行的模型回合预算；所有活跃会话在下一次 finishTurn 读取最新值 */
 let maxModelTurns = DEFAULT_MAX_MODEL_TURNS;
 /** 最近一次模型目录联网刷新的状态（供 models.catalogSyncStatus 查询） */
@@ -472,7 +471,16 @@ async function createController(params: {
     sessionManager: params.sessionManager,
     planMode: params.planMode,
     permissionMode: params.permissionMode,
-    noTitleAutomation: params.noTitleAutomation,
+    noTitleAutomation: params.noTitleAutomation || WORKER_ROLE !== null,
+    ...(WORKER_ROLE
+      ? {
+          worker: {
+            role: WORKER_ROLE,
+            onReport: (report: import("@spcode/shared/superagent").WorkerWorkReport) =>
+              emit({ type: "session.workReport", sessionId: params.sessionId, report }),
+          },
+        }
+      : {}),
     getMaxModelTurns: () => maxModelTurns,
     getPolicyRevision: () => policyRevision,
     getTaskLimits: () => taskLimits,
@@ -494,13 +502,13 @@ async function createController(params: {
     onRename: (title) => emit({ type: "session.renamed", sessionId: params.sessionId, title }),
     requestPermission,
     askQuestion,
-    isDistillEnabled: () => distillEnabled,
-    getSubagentMode: () => subagentMode,
+    isDistillEnabled: () => WORKER_ROLE === null && distillEnabled,
+    getSubagentMode: () => (WORKER_ROLE === null ? subagentMode : "off"),
     getAdvancedSearchConfig: () => advancedSearchConfig,
     getWebFetchConfig: () => webFetchConfig,
-    getImageGenConfig: () => skillsSettings.imageGen,
+    getImageGenConfig: () => (WORKER_ROLE === null ? skillsSettings.imageGen : null),
     getSandboxSettings: () => sandboxSettings,
-    getMcpTools: () => getMcpManager().tools(),
+    getMcpTools: () => (WORKER_ROLE === null ? getMcpManager().tools() : []),
     piSettings,
   });
 }
@@ -1130,8 +1138,8 @@ async function handleCommand(cmd: HostCommand): Promise<void> {
 // 启动
 // ---------------------------------------------------------------------------
 
-process.parentPort.on("message", (e: { data: unknown }) => {
-  void handleCommand(e.data as HostCommand).catch((err) => {
+transport.onCommand((command) => {
+  void handleCommand(command).catch((err) => {
     emit({ type: "host.error", message: err instanceof Error ? err.message : String(err) });
   });
 });

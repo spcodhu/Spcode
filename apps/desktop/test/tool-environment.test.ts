@@ -1,10 +1,10 @@
 import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
+import { createSandboxedBashTool } from "@spcode/agent-runtime/sandbox/bash-tool.js";
+import { createSessionToolEnvironment } from "@spcode/agent-runtime/tool-environment.js";
 import { DEFAULT_SANDBOX_SETTINGS } from "@spcode/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createSandboxedBashTool } from "../src/agent-host/sandbox/bash-tool.js";
-import { createSessionToolEnvironment } from "../src/agent-host/tool-environment.js";
 
 let root = "";
 let home = "";

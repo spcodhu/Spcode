@@ -13,9 +13,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { buildSandboxRuntimeConfig, isPathInside } from "@spcode/agent-runtime/sandbox/config-builder.js";
 import { DEFAULT_SANDBOX_SETTINGS, type SandboxSettings } from "@spcode/shared";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { buildSandboxRuntimeConfig, isPathInside } from "../src/agent-host/sandbox/config-builder.js";
 
 const execFileP = promisify(execFile);
 const isMac = process.platform === "darwin";

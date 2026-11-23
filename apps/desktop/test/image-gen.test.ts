@@ -5,6 +5,8 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createImageGenTool } from "@spcode/agent-runtime/tools/image-gen.js";
+import { assertPublicHttpUrl } from "@spcode/agent-runtime/tools/ssrf.js";
 import type { ImageGenConfig } from "@spcode/shared";
 import {
   buildCustomImageGenBody,
@@ -23,8 +25,6 @@ import {
   validateImageGenRequestBody,
 } from "@spcode/shared/image-gen";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createImageGenTool } from "../src/agent-host/tools/image-gen.js";
-import { assertPublicHttpUrl } from "../src/agent-host/tools/ssrf.js";
 
 /** 1x1 透明 PNG（真实魔数，sniff/落盘断言用） */
 const PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";

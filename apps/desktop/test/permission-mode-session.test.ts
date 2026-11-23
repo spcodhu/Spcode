@@ -8,10 +8,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { MemoryStore } from "@spcode/agent-runtime/memory-store.js";
+import { SessionController } from "@spcode/agent-runtime/session-controller.js";
 import type { PermissionMode, PermissionRequest } from "@spcode/shared";
 import { afterAll, describe, expect, it } from "vitest";
-import { MemoryStore } from "../src/agent-host/memory-store.js";
-import { SessionController } from "../src/agent-host/session-controller.js";
 
 const dir = mkdtempSync(join(tmpdir(), "spcode-permmode-"));
 

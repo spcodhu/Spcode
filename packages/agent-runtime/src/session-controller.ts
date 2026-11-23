@@ -69,11 +69,13 @@ import { createAdvancedSearchTool } from "./tools/advanced-search.js";
 import { createAskUserQuestionTool } from "./tools/ask-user.js";
 import { createImageGenTool } from "./tools/image-gen.js";
 import { createRenameSessionTool } from "./tools/rename.js";
+import { createReportWorkTool } from "./tools/report-work.js";
 import { createTaskTool, taskDescriptionFor } from "./tools/task.js";
 import { createTodoWriteTool } from "./tools/todowrite.js";
 import { createWebFetchTool } from "./tools/webfetch.js";
 import { createWebSearchTool } from "./tools/websearch.js";
 import { createWritePlanTool } from "./tools/write-plan.js";
+import { workerToolViolation } from "./worker-policy.js";
 import { resolveWorkspaceWriterKey, workspaceWriterManager } from "./workspace-writer.js";
 
 /** 工具风险分级：只读工具自动放行，写类/Shell 要确认（renamesession 无副作用，只读；writeplan/exitplanmode 只写应用自身目录/只改模式状态，只读） */
@@ -91,6 +93,7 @@ export const READONLY_TOOLS = new Set([
   "renamesession",
   "readevidence",
   "writeplan",
+  "reportwork",
   "exitplanmode",
 ]);
 const DANGER_TOOL_NAMES = new Set(["bash", "powershell"]);
@@ -213,6 +216,11 @@ export interface SessionControllerOptions {
   planMode?: boolean;
   /** 权限模式（三档）；缺省「总是询问」——主进程按会话注册表/设置默认值传入 */
   permissionMode?: PermissionMode;
+  /** SuperAgent 独立 Worker：关闭桌面自动化并开放结构化完成报告。 */
+  worker?: {
+    role: import("@spcode/shared/superagent").WorkerRole;
+    onReport: (report: import("@spcode/shared/superagent").WorkerWorkReport) => void;
+  };
   emitEvent: (event: AgentSessionEvent) => void;
   emitUsage: (usage: UsageRecord) => void;
   emitContext?: (snapshot: ContextUsageSnapshot) => void;
@@ -317,7 +325,7 @@ export class SessionController {
 
     // 记忆注入：分层记忆块拼进系统提示尾部
     const isProject = opts.mode === "project";
-    const memoryBlock = opts.memoryStore.buildInjection(isProject ? cwd : null, isProject);
+    const memoryBlock = opts.worker ? "" : opts.memoryStore.buildInjection(isProject ? cwd : null, isProject);
     // 行为约定：引导模型在理解第一轮意图后用 RenameSession 起标题（agent 命名 + harness 兜底生成双保险）
     const titleBlock =
       "Session title convention: If the session has no descriptive title yet (only the default new-chat title), call RenameSession once after understanding the user's first request. Use the current UI language, not the input language, unless the user explicitly requests another language for the title. Keep it short (at most 30 Chinese characters or 60 English characters). Call only once; do not rename it afterwards.";
@@ -325,6 +333,14 @@ export class SessionController {
     // 只约束工作区内文件，实际读取仍由主进程按 cwd/realpath/凭据目录校验。
     const fileLinkBlock =
       "Local file links: When your response refers to a file you created, modified, or want the user to inspect, format it as [filename](file:<absolute-path>) so the desktop can preview it in the right-hand workspace panel. Only link files inside the session working directory; do not use file: links for web URLs.";
+    const workerBlock = opts.worker
+      ? `[SuperAgent Worker ${opts.worker.role} role]
+You are executing inside an isolated worktree under an approved control-plane workflow. Do not run any Git write command, do not modify branches/refs/index, and do not push. Task, MCP, automatic memory, and title automation are unavailable. ${
+          opts.worker.role === "execute"
+            ? "Implement only the approved plan, run its verification commands, then call ReportWork exactly once with structured test evidence and a suggested local commit message. Never claim success from prose alone."
+            : "Perform read-only research and finish with WritePlan. Include explicit baseSha, change scope, verification commands, commit/publish/effect intent, and risks in the plan."
+        }`
+      : "";
     // RenameSession 触发探针：模型主动改名后置位，兜底生成器据此让位
     const renameProbe = { fired: false };
     // 权限模式唯一事实源（Task 工具与网关都拿这个 ref；controller 构造前就需可读）
@@ -384,6 +400,7 @@ export class SessionController {
         appendSystemPrompt: [
           fileLinkBlock,
           ...(opts.noTitleAutomation ? [] : [titleBlock]),
+          ...(workerBlock ? [workerBlock] : []),
           ...(memoryBlock ? [memoryBlock] : []),
         ],
       },
@@ -396,12 +413,17 @@ export class SessionController {
         getSandboxState: () => sandbox.ensureReady(),
         requestPermission: opts.requestPermission,
         getPolicyRevision: opts.getPolicyRevision,
+        validateToolCall: opts.worker
+          ? (name, args) => {
+              const reason = workerToolViolation(name, args);
+              return reason ? { block: true as const, reason } : undefined;
+            }
+          : undefined,
       },
     );
     await resourceLoader.reload();
 
     const mcpTools = opts.getMcpTools?.() ?? [];
-    // off 档把 Task 摘出活跃工具集（工具仍注册，支持热启用）；prefer/direct 保留
     const baseTools =
       (opts.getSubagentMode?.() ?? DEFAULT_SUBAGENT_MODE) === "off"
         ? NORMAL_MODE_TOOLS.filter((name) => name !== "Task")
@@ -409,7 +431,12 @@ export class SessionController {
     // 生图技能：配置完整才进活跃工具集（工具始终注册，skills.setConfig 热插拔）
     const imageGenReady = isImageGenReady(opts.getImageGenConfig?.());
     const normalModeTools = [
-      ...new Set([...baseTools, ...(imageGenReady ? ["GenerateImage"] : []), ...mcpTools.map((tool) => tool.name)]),
+      ...new Set([
+        ...baseTools.filter((name) => !opts.worker || !["Task", "RenameSession", "GenerateImage"].includes(name)),
+        ...(imageGenReady && !opts.worker ? ["GenerateImage"] : []),
+        ...(opts.worker?.role === "execute" ? ["ReportWork"] : []),
+        ...mcpTools.map((tool) => tool.name),
+      ]),
     ];
 
     const guardedFsTools = createGuardedFsTools(cwd, getFsPolicy, toolEnvironment.path).map((tool) =>
@@ -481,6 +508,7 @@ export class SessionController {
         // 生图：始终注册，是否活跃由 normalModeTools 门控（未配置时模型看不到它）
         createImageGenTool({ cwd, getConfig: () => opts.getImageGenConfig?.() ?? null }),
         createTodoWriteTool(opts.emitTodo),
+        ...(opts.worker?.role === "execute" ? [createReportWorkTool(opts.worker.onReport)] : []),
         createAskUserQuestionTool(opts.sessionId, opts.askQuestion),
         createWritePlanTool({
           plansDir: join(opts.agentDir, "..", "plans"),
@@ -568,7 +596,11 @@ export class SessionController {
     const initialPlanMode = opts.planMode === true;
     ctl.planMode = initialPlanMode;
     planModeRef.current = initialPlanMode;
-    session.setActiveToolsByName(initialPlanMode ? PLAN_MODE_TOOLS : ctl.normalModeTools);
+    session.setActiveToolsByName(
+      initialPlanMode
+        ? PLAN_MODE_TOOLS.filter((name) => !opts.worker || name !== "RenameSession")
+        : ctl.normalModeTools,
+    );
     if (initialPlanMode) {
       await session.sendCustomMessage({
         customType: PLAN_MODE_CUSTOM_TYPE,

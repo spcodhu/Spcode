@@ -2,10 +2,11 @@
  * AdvancedSearch 测试：协议解析/示例推断用离线夹具，
  * 工具端到端用 stub 的 fetch（不打真网，避免消耗用户 API 额度）。
  */
+
+import { createAdvancedSearchTool } from "@spcode/agent-runtime/tools/advanced-search.js";
 import type { AdvancedSearchConfig } from "@spcode/shared";
 import { applyMapping, inferMapping, isAdvancedSearchReady, parseSearchResponse } from "@spcode/shared/advanced-search";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createAdvancedSearchTool } from "../src/agent-host/tools/advanced-search.js";
 
 interface ToolResultLike {
   content: { type: string; text?: string }[];

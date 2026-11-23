@@ -2,9 +2,9 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
+import { buildHandoffPrompt, exportSessionContext, renderTranscript } from "@spcode/agent-runtime/export-context.js";
 import { setLocale } from "@spcode/shared/i18n";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildHandoffPrompt, exportSessionContext, renderTranscript } from "../src/agent-host/export-context.js";
 import { teardownHostEvents, useStore } from "../src/renderer/src/store.js";
 
 /**

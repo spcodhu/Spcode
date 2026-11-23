@@ -1,5 +1,5 @@
+import { formatSandboxViolations } from "@spcode/agent-runtime/sandbox/bash-tool.js";
 import { describe, expect, it } from "vitest";
-import { formatSandboxViolations } from "../src/agent-host/sandbox/bash-tool.js";
 
 describe("formatSandboxViolations", () => {
   it("过滤无害系统探测，保留文件与网络边界拒绝", () => {

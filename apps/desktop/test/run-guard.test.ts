@@ -4,6 +4,9 @@ import { join } from "node:path";
 import type { AgentTurnContext } from "@earendil-works/pi-agent-core";
 import { type AssistantMessage, AssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { ModelRuntime, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { MemoryStore } from "@spcode/agent-runtime/memory-store.js";
+import { canonicalizeToolArguments, RunGuard } from "@spcode/agent-runtime/run-guard.js";
+import { SessionController, shouldContinueRunGuard } from "@spcode/agent-runtime/session-controller.js";
 import {
   DEFAULT_MAX_MODEL_TURNS,
   DEFAULT_SETTINGS,
@@ -12,9 +15,6 @@ import {
 } from "@spcode/shared";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MemoryStore } from "../src/agent-host/memory-store.js";
-import { canonicalizeToolArguments, RunGuard } from "../src/agent-host/run-guard.js";
-import { SessionController, shouldContinueRunGuard } from "../src/agent-host/session-controller.js";
 import { sanitizeAppSettings } from "../src/main/settings-store.js";
 
 function usage() {

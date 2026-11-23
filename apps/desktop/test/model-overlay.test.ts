@@ -10,6 +10,19 @@ import { join } from "node:path";
 import { normalizeContext } from "@earendil-works/pi-ai";
 import { streamSimple } from "@earendil-works/pi-ai/api/openai-completions";
 import {
+  addCustomModel,
+  addCustomModels,
+  addCustomProvider,
+  createModelOverlayStore,
+  customProviderConfig,
+  isRemovable,
+  removeCustomModel,
+  removeCustomProvider,
+  sourceOfModel,
+  syncManagedModelsJson,
+  updateCustomProvider,
+} from "@spcode/agent-runtime/model-overlay.js";
+import {
   buildCustomModelEntry,
   buildCustomProviderEntry,
   composeManagedModelsJson,
@@ -23,19 +36,6 @@ import {
   withSystemMessageRole,
 } from "@spcode/shared";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  addCustomModel,
-  addCustomModels,
-  addCustomProvider,
-  createModelOverlayStore,
-  customProviderConfig,
-  isRemovable,
-  removeCustomModel,
-  removeCustomProvider,
-  sourceOfModel,
-  syncManagedModelsJson,
-  updateCustomProvider,
-} from "../src/agent-host/model-overlay.js";
 
 let dir: string;
 afterEach(() => {

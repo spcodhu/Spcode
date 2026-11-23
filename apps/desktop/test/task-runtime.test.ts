@@ -4,10 +4,10 @@
  * writer FIFO、同主体重入、持锁禁止等待写子任务。
  */
 
+import { intersectTaskPermissionMode, TaskTree, taskRoleAllowsTool } from "@spcode/agent-runtime/task-runtime.js";
+import { abortError, WorkspaceWriterManager } from "@spcode/agent-runtime/workspace-writer.js";
 import { normalizeTaskLimits } from "@spcode/shared/task-runtime";
 import { describe, expect, it } from "vitest";
-import { intersectTaskPermissionMode, TaskTree, taskRoleAllowsTool } from "../src/agent-host/task-runtime.js";
-import { abortError, WorkspaceWriterManager } from "../src/agent-host/workspace-writer.js";
 
 describe("任务预算", () => {
   it("设置只能收紧默认上限，不能解除有限预算", () => {

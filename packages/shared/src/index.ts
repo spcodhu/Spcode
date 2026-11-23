@@ -675,6 +675,8 @@ export type HostEvent =
     }
   /** WritePlan 工具落盘了计划文件（主进程回填 planFile 用） */
   | { type: "session.plan"; sessionId: string; path: string }
+  /** SuperAgent Worker 的唯一结构化完成报告；不从自由文本推断成功 */
+  | { type: "session.workReport"; sessionId: string; report: import("./superagent.js").WorkerWorkReport }
   | { type: "permission.request"; request: PermissionRequest }
   /**
    * 权限请求已在任一端裁决（远程控制 M3 双端撤卡）：另一端据此关闭同 requestId 的批准卡。

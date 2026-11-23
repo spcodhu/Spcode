@@ -2,9 +2,9 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
+import { createSpcodeResourceLoader, createSpcodeSettingsManager } from "@spcode/agent-runtime/pi-session-config.js";
 import { Type } from "typebox";
 import { afterEach, describe, expect, it } from "vitest";
-import { createSpcodeResourceLoader, createSpcodeSettingsManager } from "../src/agent-host/pi-session-config.js";
 
 const directories: string[] = [];
 

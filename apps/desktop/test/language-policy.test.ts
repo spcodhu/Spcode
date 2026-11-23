@@ -13,18 +13,18 @@ import {
   type TranscriptContext,
 } from "@earendil-works/pi-ai";
 import { type AgentSession, ModelRuntime, SessionManager } from "@earendil-works/pi-coding-agent";
-import { i18n, setLocale } from "@spcode/shared/i18n";
-import { Type } from "typebox";
-import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildLanguagePolicy,
   installLanguagePolicy,
   LANGUAGE_POLICY_SECTION,
-} from "../src/agent-host/language-policy.js";
-import { MemoryStore } from "../src/agent-host/memory-store.js";
-import { SessionController, type SessionControllerOptions } from "../src/agent-host/session-controller.js";
-import { createTaskTool } from "../src/agent-host/tools/task.js";
-import { createTodoWriteTool } from "../src/agent-host/tools/todowrite.js";
+} from "@spcode/agent-runtime/language-policy.js";
+import { MemoryStore } from "@spcode/agent-runtime/memory-store.js";
+import { SessionController, type SessionControllerOptions } from "@spcode/agent-runtime/session-controller.js";
+import { createTaskTool } from "@spcode/agent-runtime/tools/task.js";
+import { createTodoWriteTool } from "@spcode/agent-runtime/tools/todowrite.js";
+import { i18n, setLocale } from "@spcode/shared/i18n";
+import { Type } from "typebox";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const dirs: string[] = [];
 const controllers: SessionController[] = [];

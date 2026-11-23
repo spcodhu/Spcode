@@ -19,16 +19,16 @@ import {
   type TranscriptContext,
 } from "@earendil-works/pi-ai";
 import { type AgentSession, ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { DEFAULT_SETTINGS, normalizeSubagentMode, type SubagentMode } from "@spcode/shared";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { MemoryStore } from "../src/agent-host/memory-store.js";
-import { SessionController, type SessionControllerOptions } from "../src/agent-host/session-controller.js";
+import { MemoryStore } from "@spcode/agent-runtime/memory-store.js";
+import { SessionController, type SessionControllerOptions } from "@spcode/agent-runtime/session-controller.js";
 import {
   buildSubagentPolicy,
   installSubagentPolicy,
   SUBAGENT_POLICY_SECTION,
-} from "../src/agent-host/subagent-policy.js";
-import { taskDescriptionFor, taskSessionToolNames } from "../src/agent-host/tools/task.js";
+} from "@spcode/agent-runtime/subagent-policy.js";
+import { taskDescriptionFor, taskSessionToolNames } from "@spcode/agent-runtime/tools/task.js";
+import { DEFAULT_SETTINGS, normalizeSubagentMode, type SubagentMode } from "@spcode/shared";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const dirs: string[] = [];
 const controllers: SessionController[] = [];

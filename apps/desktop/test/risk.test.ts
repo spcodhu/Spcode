@@ -1,5 +1,5 @@
+import { applyModelRiskHint, classifyToolRisk } from "@spcode/agent-runtime/session-controller.js";
 import { describe, expect, it } from "vitest";
-import { applyModelRiskHint, classifyToolRisk } from "../src/agent-host/session-controller.js";
 
 describe("模型风险自评合并", () => {
   it("只允许上调普通 write，覆盖本地规则未识别的对外/危险语义", () => {

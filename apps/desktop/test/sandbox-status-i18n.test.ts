@@ -14,7 +14,7 @@ vi.mock("node:fs", async (importOriginal) => ({
   existsSync: () => true,
 }));
 
-import { getSandboxService, resetSandboxServiceForTest } from "../src/agent-host/sandbox/manager.js";
+import { getSandboxService, resetSandboxServiceForTest } from "@spcode/agent-runtime/sandbox/manager.js";
 
 beforeEach(() => {
   vi.clearAllMocks();

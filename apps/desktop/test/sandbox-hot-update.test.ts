@@ -5,10 +5,14 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createSandboxedBashTool } from "@spcode/agent-runtime/sandbox/bash-tool.js";
+import {
+  getSandboxService,
+  resetSandboxServiceForTest,
+  type SandboxState,
+} from "@spcode/agent-runtime/sandbox/manager.js";
 import { DEFAULT_SANDBOX_SETTINGS, type SandboxSettings } from "@spcode/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createSandboxedBashTool } from "../src/agent-host/sandbox/bash-tool.js";
-import { getSandboxService, resetSandboxServiceForTest, type SandboxState } from "../src/agent-host/sandbox/manager.js";
 
 let cwd = "";
 let settings: SandboxSettings;

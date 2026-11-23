@@ -3,8 +3,8 @@
  * 全部离线可跑（DNS 失败用 mock 注入，不依赖本机解析器）。
  */
 import { lookup } from "node:dns/promises";
+import { assertPublicHttpUrl, isPrivateHost, isPrivateIp } from "@spcode/agent-runtime/tools/ssrf.js";
 import { describe, expect, it, vi } from "vitest";
-import { assertPublicHttpUrl, isPrivateHost, isPrivateIp } from "../src/agent-host/tools/ssrf.js";
 
 vi.mock("node:dns/promises", () => ({ lookup: vi.fn() }));
 

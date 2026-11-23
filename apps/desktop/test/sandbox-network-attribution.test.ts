@@ -7,8 +7,8 @@
  * - 空集合（无法归因）、含任一非 never、含未知会话 → 一律问（保守方向）。
  */
 
+import { shouldAllowNetworkSilently } from "@spcode/agent-runtime/sandbox/manager.js";
 import { describe, expect, it } from "vitest";
-import { shouldAllowNetworkSilently } from "../src/agent-host/sandbox/manager.js";
 
 describe("shouldAllowNetworkSilently", () => {
   const resolve = (modes: Record<string, "ask" | "auto" | "never">) => (id: string) => modes[id] ?? null;

@@ -1,5 +1,5 @@
+import { createTodoWriteTool } from "@spcode/agent-runtime/tools/todowrite.js";
 import { describe, expect, it, vi } from "vitest";
-import { createTodoWriteTool } from "../src/agent-host/tools/todowrite.js";
 
 describe("TodoWrite 工具契约", () => {
   it("全量替换清单，允许全部完成和空数组清空", async () => {

@@ -5,8 +5,8 @@
 
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { McpManager, normalizeStdioLaunch } from "@spcode/agent-runtime/mcp.js";
 import { describe, expect, it } from "vitest";
-import { McpManager, normalizeStdioLaunch } from "../src/agent-host/mcp.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURE = join(__dirname, "helpers", "mini-mcp-server.mjs");

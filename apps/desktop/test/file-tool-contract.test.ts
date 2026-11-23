@@ -2,8 +2,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { createGuardedFsTools, type FsGuardPolicy } from "@spcode/agent-runtime/sandbox/fs-guard.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createGuardedFsTools, type FsGuardPolicy } from "../src/agent-host/sandbox/fs-guard.js";
 
 let root = "";
 let cwd = "";

@@ -6,8 +6,8 @@
  */
 import type { AgentSession } from "@earendil-works/pi-coding-agent";
 import { SessionManager, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { findMicrocompactTargets, maybeMicrocompact, placeholderText } from "@spcode/agent-runtime/microcompact.js";
 import { describe, expect, it } from "vitest";
-import { findMicrocompactTargets, maybeMicrocompact, placeholderText } from "../src/agent-host/microcompact.js";
 
 const REF = `ev_${"a".repeat(32)}`;
 const evidence = { referenceEntry: () => REF };

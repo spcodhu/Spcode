@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { buildDistillPrompt, MemoryDistiller } from "@spcode/agent-runtime/distill.js";
+import { MemoryStore } from "@spcode/agent-runtime/memory-store.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildDistillPrompt, MemoryDistiller } from "../src/agent-host/distill.js";
-import { MemoryStore } from "../src/agent-host/memory-store.js";
 
 let dir = "";
 

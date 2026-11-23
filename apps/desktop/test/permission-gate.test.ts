@@ -6,13 +6,12 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createBeforeToolCallGate } from "@spcode/agent-runtime/permission-gate.js";
+import type { FsGuardPolicy } from "@spcode/agent-runtime/sandbox/fs-guard.js";
 import type { PermissionMode, PermissionRequest } from "@spcode/shared";
 import { DEFAULT_SANDBOX_SETTINGS, normalizeProjectCwd } from "@spcode/shared";
 import { renderMessage, setLocale } from "@spcode/shared/i18n";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-
-import { createBeforeToolCallGate } from "../src/agent-host/permission-gate.js";
-import type { FsGuardPolicy } from "../src/agent-host/sandbox/fs-guard.js";
 
 afterEach(() => setLocale("zh-CN"));
 

@@ -2,10 +2,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { addCustomModel, createModelOverlayStore } from "@spcode/agent-runtime/model-overlay.js";
+import { extractUsage } from "@spcode/agent-runtime/session-controller.js";
+import { catalogPricing, priceUsageRecord } from "@spcode/agent-runtime/usage-pricing.js";
 import { afterEach, describe, expect, it } from "vitest";
-import { addCustomModel, createModelOverlayStore } from "../src/agent-host/model-overlay.js";
-import { extractUsage } from "../src/agent-host/session-controller.js";
-import { catalogPricing, priceUsageRecord } from "../src/agent-host/usage-pricing.js";
 import { UsageLedger } from "../src/main/usage-ledger.js";
 
 const dirs: string[] = [];

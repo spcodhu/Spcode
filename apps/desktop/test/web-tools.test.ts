@@ -3,11 +3,11 @@
  * 真网失败优先怀疑本机网络，其次才是实现退化。
  */
 
+import { createWebFetchTool, filterByPrompt, truncateWithNotice } from "@spcode/agent-runtime/tools/webfetch.js";
+import { createWebSearchTool, decodeBingRedirect, parseSearchMarkdown } from "@spcode/agent-runtime/tools/websearch.js";
 import type { WebFetchConfig } from "@spcode/shared";
 import { executeFetch, isWebFetchReady, parseFetchResponse } from "@spcode/shared/web-fetch";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createWebFetchTool, filterByPrompt, truncateWithNotice } from "../src/agent-host/tools/webfetch.js";
-import { createWebSearchTool, decodeBingRedirect, parseSearchMarkdown } from "../src/agent-host/tools/websearch.js";
 
 interface ToolResultLike {
   content: { type: string; text?: string }[];

@@ -1,3 +1,4 @@
+import { createAskUserQuestionTool } from "@spcode/agent-runtime/tools/ask-user.js";
 import {
   buildQuestionAnswers,
   dismissQuestionAnswers,
@@ -6,7 +7,6 @@ import {
   validateQuestionAnswers,
 } from "@spcode/shared";
 import { describe, expect, it, vi } from "vitest";
-import { createAskUserQuestionTool } from "../src/agent-host/tools/ask-user.js";
 
 const request: QuestionRequest = {
   requestId: "q1",

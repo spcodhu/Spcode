@@ -56,6 +56,24 @@ export interface PlanRevision {
   createdAt: number;
 }
 
+export type WorkerRole = "plan" | "execute";
+
+export interface WorkerTestEvidence {
+  command: string;
+  status: "passed" | "failed" | "skipped";
+  exitCode?: number;
+  durationMs?: number;
+  output?: string;
+}
+
+export interface WorkerWorkReport {
+  status: "waiting" | "ready" | "blocked" | "failed";
+  summary: string;
+  tests: WorkerTestEvidence[];
+  commitMessage?: string;
+  artifacts?: string[];
+}
+
 export interface AuditEntry {
   id: number;
   workItemId: string | null;

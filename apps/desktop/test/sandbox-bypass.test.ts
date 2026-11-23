@@ -10,10 +10,14 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createSandboxedBashTool, matchesExcludedCommand } from "@spcode/agent-runtime/sandbox/bash-tool.js";
+import {
+  getSandboxService,
+  resetSandboxServiceForTest,
+  type SandboxState,
+} from "@spcode/agent-runtime/sandbox/manager.js";
 import { DEFAULT_SANDBOX_SETTINGS, type SandboxSettings } from "@spcode/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createSandboxedBashTool, matchesExcludedCommand } from "../src/agent-host/sandbox/bash-tool.js";
-import { getSandboxService, resetSandboxServiceForTest, type SandboxState } from "../src/agent-host/sandbox/manager.js";
 
 interface ToolResultLike {
   content: { type: string; text?: string }[];

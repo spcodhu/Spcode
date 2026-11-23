@@ -8,14 +8,14 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { MemoryStore } from "@spcode/agent-runtime/memory-store.js";
+import { isPlanModeSafeCommand, PLAN_MODE_ON_MESSAGE } from "@spcode/agent-runtime/plan-mode.js";
+import { classifyToolRisk, SessionController } from "@spcode/agent-runtime/session-controller.js";
+import { createExitPlanModeTool, EXIT_PLAN_QUESTION } from "@spcode/agent-runtime/tools/exit-plan-mode.js";
+import { createWritePlanTool } from "@spcode/agent-runtime/tools/write-plan.js";
 import type { QuestionAnswer, QuestionAnswers, QuestionRequest } from "@spcode/shared";
 import { renderMessage, setLocale } from "@spcode/shared/i18n";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
-import { MemoryStore } from "../src/agent-host/memory-store.js";
-import { isPlanModeSafeCommand, PLAN_MODE_ON_MESSAGE } from "../src/agent-host/plan-mode.js";
-import { classifyToolRisk, SessionController } from "../src/agent-host/session-controller.js";
-import { createExitPlanModeTool, EXIT_PLAN_QUESTION } from "../src/agent-host/tools/exit-plan-mode.js";
-import { createWritePlanTool } from "../src/agent-host/tools/write-plan.js";
 
 let dir = "";
 

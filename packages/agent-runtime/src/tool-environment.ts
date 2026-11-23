@@ -11,7 +11,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node
 import { homedir, tmpdir as osTmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import type { BashSpawnHook } from "@earendil-works/pi-coding-agent";
-import { applyNetworkProxyEnvironment } from "../network-proxy.js";
+import { applyNetworkProxyEnvironment } from "./network-proxy.js";
 
 export interface SessionToolEnvironment {
   pathKey: string;

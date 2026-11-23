@@ -5,10 +5,10 @@
 
 import type { Context, Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { generateFallbackTitle } from "@spcode/agent-runtime/session-controller.js";
+import { createRenameSessionTool } from "@spcode/agent-runtime/tools/rename.js";
 import { setLocale } from "@spcode/shared/i18n";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { generateFallbackTitle } from "../src/agent-host/session-controller.js";
-import { createRenameSessionTool } from "../src/agent-host/tools/rename.js";
 
 afterEach(() => setLocale("zh-CN"));
 

@@ -1,5 +1,5 @@
+import { HibernationManager } from "@spcode/agent-runtime/hibernation.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { HibernationManager } from "../src/agent-host/hibernation.js";
 
 /**
  * 非活动会话休眠管理：宽限期计时 + 防抖动 + canSleep 门禁。

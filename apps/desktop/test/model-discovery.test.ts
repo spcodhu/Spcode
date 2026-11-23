@@ -1,5 +1,5 @@
+import { discoverModels } from "@spcode/agent-runtime/model-discovery.js";
 import { describe, expect, it, vi } from "vitest";
-import { discoverModels } from "../src/agent-host/model-discovery.js";
 
 function mockFetch(handler: (url: URL, init?: RequestInit) => Response | Promise<Response>) {
   const calls: { url: URL; init?: RequestInit }[] = [];

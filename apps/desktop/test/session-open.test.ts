@@ -1,5 +1,5 @@
+import { getOrCreateOpenedController } from "@spcode/agent-runtime/session-open.js";
 import { describe, expect, it, vi } from "vitest";
-import { getOrCreateOpenedController } from "../src/agent-host/session-open.js";
 
 describe("session.open 活跃实例复用", () => {
   it("运行中重复打开：不重建、不 dispose，保留同一个 controller", async () => {

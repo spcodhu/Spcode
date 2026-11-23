@@ -6,10 +6,10 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createExitPlanModeTool } from "@spcode/agent-runtime/tools/exit-plan-mode.js";
 import { DEFAULT_SETTINGS, type HostEvent, type PermissionRequest, type QuestionRequest } from "@spcode/shared";
 import { setLocale } from "@spcode/shared/i18n";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createExitPlanModeTool } from "../src/agent-host/tools/exit-plan-mode.js";
 import { RemoteServer, type RemoteServerDeps } from "../src/main/remote/index.js";
 import { PairingManager } from "../src/main/remote/pairing.js";
 import type { TailscaleManager } from "../src/main/remote/transport/tailscale.js";
