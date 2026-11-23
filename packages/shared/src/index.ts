@@ -961,6 +961,8 @@ export interface AutoLaunchStatus {
 export const IPC = {
   /** renderer -> main (invoke)，payload 为 HostCommand（id 由 main 补发也可） */
   hostCommand: "spcode:host-command",
+  /** renderer -> main：在系统浏览器打开同一控制面工作台 */
+  workbenchOpen: "spcode:workbench-open",
   /** main -> renderer，payload 为 HostEvent */
   hostEvent: "spcode:host-event",
   /** renderer -> main：权限确认回复 */

@@ -3,6 +3,8 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
 import App from "./App";
+import { createBrowserSpcodeApi } from "./browser-api";
+import { initializeControlTransport } from "./control";
 import { useStore } from "./store";
 import "./styles.css";
 
@@ -13,6 +15,12 @@ function syncDocumentLanguage() {
 i18n.on("languageChanged", syncDocumentLanguage);
 
 async function boot() {
+  try {
+    const control = await initializeControlTransport();
+    if (!window.spcode && control) window.spcode = createBrowserSpcodeApi(control);
+  } catch {
+    // 控制面认证失败由 SuperAgent 页面给出恢复入口，不阻塞共享工作台启动。
+  }
   try {
     const settings = await window.spcode.getSettings();
     setLocale(settings.locale);

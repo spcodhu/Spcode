@@ -36,6 +36,10 @@ import {
 import { contextBridge, ipcRenderer } from "electron";
 
 export interface SpcodeApi {
+  /** 同一 Web 工作台中的运行时标识；浏览器适配器为 false。 */
+  isDesktop: boolean;
+  /** 用系统浏览器打开同一个本地控制面工作台（包含一次性 fragment 引导）。 */
+  openWorkbench?(): Promise<void>;
   /** 发送带 id 的宿主命令并等待响应 */
   command<T = unknown>(cmd: HostCommandInput): Promise<T>;
   /** 订阅宿主事件流 */
@@ -153,6 +157,10 @@ export interface SpcodeApi {
 }
 
 const api: SpcodeApi = {
+  isDesktop: true,
+  openWorkbench() {
+    return ipcRenderer.invoke(IPC.workbenchOpen);
+  },
   command(cmd) {
     // id 由主进程补发（preload 不引 crypto——为 sandbox:true 扫清障碍，评审 R3-C6）
     return ipcRenderer.invoke(IPC.hostCommand, cmd);

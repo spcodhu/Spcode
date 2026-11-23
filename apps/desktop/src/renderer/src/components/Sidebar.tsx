@@ -39,11 +39,17 @@ export function Sidebar({
   onOpenSettings,
   onOpenSearch,
   onOpenSchedule,
+  superAgentOpen = false,
+  onOpenSuperAgent,
+  onShowSessions,
 }: {
   width?: number;
   onOpenSettings: () => void;
   onOpenSearch: () => void;
   onOpenSchedule: () => void;
+  superAgentOpen?: boolean;
+  onOpenSuperAgent?: () => void;
+  onShowSessions?: () => void;
 }) {
   const { t } = useTranslation("chat");
   const sessions = useStore((s) => s.sessions);
@@ -123,6 +129,7 @@ export function Sidebar({
   );
 
   const openRegistry = (r: RegistrySession) => {
+    onShowSessions?.();
     if (sessions[r.id]) setActive(r.id);
     else void openSession(r);
   };
@@ -182,7 +189,10 @@ export function Sidebar({
       >
         <button
           type="button"
-          onClick={() => setActive("")}
+          onClick={() => {
+            onShowSessions?.();
+            setActive("");
+          }}
           data-testid="sidebar-home"
           title={t("sidebar.home")}
           className="titlebar-no-drag flex h-7 shrink-0 items-center justify-center gap-2 rounded-md px-2 text-[13px] text-text-primary hover:bg-bg-hover"
@@ -210,6 +220,21 @@ export function Sidebar({
           data-testid="sidebar-schedule"
         >
           <Icon name="clock" size={16} />
+        </button>
+      </div>
+
+      <div className="px-2 pt-1">
+        <button
+          type="button"
+          onClick={onOpenSuperAgent}
+          data-testid="superagent-nav"
+          className={`flex h-10 w-full items-center gap-2 rounded-lg px-3 text-[13px] ${
+            superAgentOpen ? "bg-bg-active text-text-primary" : "text-text-secondary hover:bg-bg-hover"
+          }`}
+        >
+          <Icon name="cpu" size={16} />
+          <span>{t("sidebar.superAgent")}</span>
+          {superAgentOpen && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-accent" />}
         </button>
       </div>
 

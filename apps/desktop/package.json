@@ -8,8 +8,8 @@
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "dev": "pnpm --filter @spcode/workbench build && pnpm --filter @spcode/control-plane build && electron-vite dev",
+    "build": "pnpm --filter @spcode/workbench build && pnpm --filter @spcode/control-plane build && electron-vite build",
     "build:mobile": "pnpm --filter @spcode/mobile build",
     "check:mobile": "node scripts/check-mobile-dist.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.e2e.json",

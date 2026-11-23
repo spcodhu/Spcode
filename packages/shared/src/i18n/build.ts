@@ -15,6 +15,7 @@ const namespaces = [
   "errors",
   "mobile",
   "integration",
+  "superagent",
 ];
 const supportedLocales: Locale[] = ["zh-CN", "en"];
 

@@ -1,0 +1,25 @@
+{
+  "name": "@spcode/control-plane",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm build && node dist/index.mjs",
+    "start": "node dist/index.mjs",
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@spcode/shared": "workspace:*",
+    "@spcode/superagent": "workspace:*",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "@types/ws": "^8.18.2",
+    "esbuild": "0.28.2",
+    "typescript": "^5.9.2",
+    "vitest": "^5.0.2"
+  }
+}

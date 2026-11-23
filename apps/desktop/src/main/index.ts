@@ -43,6 +43,7 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { AgentBridge } from "./agent-bridge.js";
 import { DraftsStore } from "./drafts-store.js";
 import { showImageContextMenu } from "./image-actions.js";
+import { LocalService } from "./local-service.js";
 import { LoginItemService } from "./login-item.js";
 import { Notifier } from "./notifier.js";
 import { isExistingPlanFile, readSessionPlan, resolveSessionPlanPath } from "./plan-file.js";
@@ -255,7 +256,14 @@ function createWindow(): void {
   const allowedEntryUrl = pathToFileURL(join(__dirname, "../renderer/index.html")).href;
   mainWindow.webContents.on("will-navigate", (e, url) => {
     const devUrl = process.env.ELECTRON_RENDERER_URL;
-    if (url === allowedEntryUrl || (devUrl && url.startsWith(devUrl))) return;
+    const workbenchUrl = localService.workbenchUrl("session");
+    if (
+      url === allowedEntryUrl ||
+      (devUrl && url.startsWith(devUrl)) ||
+      (workbenchUrl && url.startsWith(new URL(workbenchUrl).origin))
+    ) {
+      return;
+    }
     e.preventDefault();
     if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
   });
@@ -266,7 +274,10 @@ function createWindow(): void {
     mainWindow = null;
   });
 
-  if (process.env.ELECTRON_RENDERER_URL) {
+  const workbenchUrl = localService.workbenchUrl("session");
+  if (workbenchUrl) {
+    void mainWindow.loadURL(workbenchUrl);
+  } else if (process.env.ELECTRON_RENDERER_URL) {
     void mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
     void mainWindow.loadFile(join(__dirname, "../renderer/index.html"));
@@ -398,119 +409,249 @@ const remote = new RemoteServer({
   },
 });
 
+let settingsPatchHandler: ((patch: Partial<AppSettings>) => Promise<AppSettings>) | null = null;
+
+/** 独立控制面服务；桌面关闭只断开适配，不停止 SuperAgent。 */
+const localService = new LocalService({
+  appPath: app.getAppPath(),
+  resourcesPath: process.resourcesPath,
+  isPackaged: app.isPackaged,
+  enabled: !backgroundE2E || process.env.SPCODE_E2E_CONTROL_PLANE === "1",
+  invoke: invokeDesktopMethod,
+});
+bridge.onEvent((event) => localService.publishHostEvent(event));
+
 // ---------------------------------------------------------------------------
 // IPC
 // ---------------------------------------------------------------------------
 
-function registerIpc(): void {
-  // 长调用命令的超时覆盖（bridge.call 默认 30s——评审 P1-8）
-  const CALL_TIMEOUTS: Partial<Record<HostCommand["type"], number>> = {
-    "theme.generate": 120_000, // 要跑一轮模型生成
-    "models.list": 60_000, // 首次初始化 ModelRuntime 可能做网络探测
-    "models.catalog": 60_000,
-    "models.addModel": 60_000, // 内部触发 ModelRuntime 首次初始化 + rebuildProviders
-    "models.removeModel": 60_000,
-    "models.addProvider": 60_000,
-    "models.updateProvider": 60_000,
-    "models.removeProvider": 60_000,
-    "models.refreshCatalog": 30_000, // pi.dev 单请求 4s 超时 + 重试 + 代理转发余量
-    "models.discoverModels": 60_000, // 标准列表接口可能有分页；单请求自身 15s 超时
-    "models.importModels": 60_000,
-    "session.compact": 180_000, // 评审 R3-C11：LLM 压缩大上下文常超 30s（压缩实际会继续，误报错误最迷惑）
-  };
+// 长调用命令的超时覆盖（bridge.call 默认 30s——评审 P1-8）
+const CALL_TIMEOUTS: Partial<Record<HostCommand["type"], number>> = {
+  "theme.generate": 120_000, // 要跑一轮模型生成
+  "models.list": 60_000, // 首次初始化 ModelRuntime 可能做网络探测
+  "models.catalog": 60_000,
+  "models.addModel": 60_000, // 内部触发 ModelRuntime 首次初始化 + rebuildProviders
+  "models.removeModel": 60_000,
+  "models.addProvider": 60_000,
+  "models.updateProvider": 60_000,
+  "models.removeProvider": 60_000,
+  "models.refreshCatalog": 30_000, // pi.dev 单请求 4s 超时 + 重试 + 代理转发余量
+  "models.discoverModels": 60_000, // 标准列表接口可能有分页；单请求自身 15s 超时
+  "models.importModels": 60_000,
+  "session.compact": 180_000, // 评审 R3-C11：LLM 压缩大上下文常超 30s（压缩实际会继续，误报错误最迷惑）
+};
 
-  ipcMain.handle(IPC.hostCommand, async (_e, raw: HostCommandInput) => {
-    // id 统一在这里补发（preload 不生成；评审 R3-C6）
-    const id = "id" in raw && typeof raw.id === "string" && raw.id ? raw.id : randomUUID();
-    const cmd = { ...raw, id } as Extract<HostCommand, { id: string }>;
+/** 桌面 IPC 与本地浏览器代理共用的权威命令入口。 */
+async function executeHostCommand(raw: HostCommandInput): Promise<unknown> {
+  // id 统一在这里补发（preload 不生成；评审 R3-C6）
+  const id = "id" in raw && typeof raw.id === "string" && raw.id ? raw.id : randomUUID();
+  const cmd = { ...raw, id } as Extract<HostCommand, { id: string }>;
 
-    // 创建/恢复会话时写入注册表
-    if (cmd.type === "session.create") {
-      const now = Date.now();
-      const current = settings.get();
-      const requestedModel = cmd.payload.model ?? current.defaultModel;
-      const model = isModelEnabled(requestedModel, current.disabledProviders, current.disabledModels)
-        ? requestedModel
-        : undefined;
-      // 停用模型不得进入新会话：即使旧草稿仍带着它，也在主进程边界归一为“未选择”。
-      cmd.payload.model = model;
-      // 新会话继承设置页的默认档位（单会话随后可在输入框覆盖）
-      cmd.payload.permissionMode = cmd.payload.permissionMode ?? current.permissionMode;
-      registry.upsert({
-        id: cmd.payload.sessionId,
-        mode: cmd.payload.mode,
-        cwd: cmd.payload.cwd,
-        title:
-          cmd.payload.mode === "chat"
-            ? i18n.t("common:newChat")
-            : baseName(cmd.payload.cwd) || i18n.t("common:newProject"),
-        titleKind: "default",
-        model: model ?? null,
-        thinkingLevel: cmd.payload.thinkingLevel ?? current.defaultThinkingLevel,
-        permissionMode: cmd.payload.permissionMode,
-        sessionFile: null,
-        createdAt: now,
-        updatedAt: now,
+  // 创建/恢复会话时写入注册表
+  if (cmd.type === "session.create") {
+    const now = Date.now();
+    const current = settings.get();
+    const requestedModel = cmd.payload.model ?? current.defaultModel;
+    const model = isModelEnabled(requestedModel, current.disabledProviders, current.disabledModels)
+      ? requestedModel
+      : undefined;
+    // 停用模型不得进入新会话：即使旧草稿仍带着它，也在主进程边界归一为“未选择”。
+    cmd.payload.model = model;
+    // 新会话继承设置页的默认档位（单会话随后可在输入框覆盖）
+    cmd.payload.permissionMode = cmd.payload.permissionMode ?? current.permissionMode;
+    registry.upsert({
+      id: cmd.payload.sessionId,
+      mode: cmd.payload.mode,
+      cwd: cmd.payload.cwd,
+      title:
+        cmd.payload.mode === "chat"
+          ? i18n.t("common:newChat")
+          : baseName(cmd.payload.cwd) || i18n.t("common:newProject"),
+      titleKind: "default",
+      model: model ?? null,
+      thinkingLevel: cmd.payload.thinkingLevel ?? current.defaultThinkingLevel,
+      permissionMode: cmd.payload.permissionMode,
+      sessionFile: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  // 兜底标题：标题还是出厂默认时，用首条用户消息推导（AI RenameSession 之后可覆盖）
+  if (cmd.type === "session.prompt") {
+    const entry = registry.get(cmd.payload.sessionId);
+    if (entry && isDefaultTitle(entry.title, entry.cwd, entry.titleKind)) {
+      const title = cleanSessionTitle(cmd.payload.text);
+      if (title) registry.patch(entry.id, { title, titleKind: "custom", updatedAt: Date.now() });
+    }
+    // 评审 R3-F2：项目会话首次 prompt 前记 git 基线（会话级「还原到会话开始前」的锚点）
+    if (entry?.cwd && !gitBaselines.has(cmd.payload.sessionId)) {
+      void gitBaseline(entry.cwd).then((base) => {
+        if (base && !gitBaselines.has(cmd.payload.sessionId)) gitBaselines.set(cmd.payload.sessionId, base);
       });
     }
+  }
 
-    // 兜底标题：标题还是出厂默认时，用首条用户消息推导（AI RenameSession 之后可覆盖）
-    if (cmd.type === "session.prompt") {
-      const entry = registry.get(cmd.payload.sessionId);
-      if (entry && isDefaultTitle(entry.title, entry.cwd, entry.titleKind)) {
-        const title = cleanSessionTitle(cmd.payload.text);
-        if (title) registry.patch(entry.id, { title, titleKind: "custom", updatedAt: Date.now() });
-      }
-      // 评审 R3-F2：项目会话首次 prompt 前记 git 基线（会话级「还原到会话开始前」的锚点）
-      if (entry?.cwd && !gitBaselines.has(cmd.payload.sessionId)) {
-        void gitBaseline(entry.cwd).then((base) => {
-          if (base && !gitBaselines.has(cmd.payload.sessionId)) gitBaselines.set(cmd.payload.sessionId, base);
-        });
-      }
-    }
+  // 恢复/唤醒会话：把注册表里的计划模式状态捎带给宿主（渲染进程不感知这个字段）
+  if (cmd.type === "session.open" || cmd.type === "session.activate") {
+    const entry = registry.get(cmd.payload.sessionId);
+    cmd.payload.planMode = entry?.planMode ?? false;
+    cmd.payload.permissionMode = entry?.permissionMode ?? settings.get().permissionMode;
+  }
 
-    // 恢复/唤醒会话：把注册表里的计划模式状态捎带给宿主（渲染进程不感知这个字段）
-    if (cmd.type === "session.open" || cmd.type === "session.activate") {
-      const entry = registry.get(cmd.payload.sessionId);
-      cmd.payload.planMode = entry?.planMode ?? false;
-      cmd.payload.permissionMode = entry?.permissionMode ?? settings.get().permissionMode;
-    }
+  // Fork 会话：渲染层只传 sourceSessionId/newSessionId 与可选项，
+  // 源会话的 sessionFile/cwd/mode 与缺省继承的 model/thinkingLevel/planMode 在这里补齐
+  if (cmd.type === "session.fork") {
+    const prepared = prepareForkCommand(registry, cmd.payload);
+    if (!prepared.ok) throw new Error(prepared.error);
+    cmd.payload = prepared.payload;
+  }
 
-    // Fork 会话：渲染层只传 sourceSessionId/newSessionId 与可选项，
-    // 源会话的 sessionFile/cwd/mode 与缺省继承的 model/thinkingLevel/planMode 在这里补齐
+  // 导出会话上下文：渲染层只传 sessionId，sessionFile/cwd/title 从注册表补齐
+  if (cmd.type === "session.exportContext") {
+    const entry = registry.get(cmd.payload.sessionId);
+    if (!entry) throw new Error(i18n.t("integration:session.missing", { id: cmd.payload.sessionId }));
+    cmd.payload.sessionFile = entry.sessionFile ?? undefined;
+    cmd.payload.cwd = entry.cwd;
+    cmd.payload.title = entry.title;
+  }
+
+  return bridge.call(cmd, { timeoutMs: CALL_TIMEOUTS[cmd.type] }).then((result) => {
+    // Fork 成功：注册表写入新条目（标题后缀/继承关系见 buildForkRegistryEntry），广播列表刷新
     if (cmd.type === "session.fork") {
-      const prepared = prepareForkCommand(registry, cmd.payload);
-      if (!prepared.ok) throw new Error(prepared.error);
-      cmd.payload = prepared.payload;
-    }
-
-    // 导出会话上下文：渲染层只传 sessionId，sessionFile/cwd/title 从注册表补齐
-    if (cmd.type === "session.exportContext") {
-      const entry = registry.get(cmd.payload.sessionId);
-      if (!entry) throw new Error(i18n.t("integration:session.missing", { id: cmd.payload.sessionId }));
-      cmd.payload.sessionFile = entry.sessionFile ?? undefined;
-      cmd.payload.cwd = entry.cwd;
-      cmd.payload.title = entry.title;
-    }
-
-    return bridge.call(cmd, { timeoutMs: CALL_TIMEOUTS[cmd.type] }).then((result) => {
-      // Fork 成功：注册表写入新条目（标题后缀/继承关系见 buildForkRegistryEntry），广播列表刷新
-      if (cmd.type === "session.fork") {
-        const source = registry.get(cmd.payload.sourceSessionId);
-        if (source) {
-          registry.upsert(buildForkRegistryEntry(source, cmd.payload));
-          bridge.emitLocal({ type: "sessions.changed" });
-        }
+      const source = registry.get(cmd.payload.sourceSessionId);
+      if (source) {
+        registry.upsert(buildForkRegistryEntry(source, cmd.payload));
+        bridge.emitLocal({ type: "sessions.changed" });
       }
-      // 桌面端可用模型与远程端使用同一启用口径；未过滤的全量目录只走 models.catalog。
-      if (cmd.type === "models.list" && Array.isArray(result)) {
-        const current = settings.get();
-        return filterEnabledModels(result as ModelInfo[], current.disabledProviders, current.disabledModels);
-      }
-      backfillSessionFile(cmd, result, registry);
-      return result;
-    });
+    }
+    // 桌面端可用模型与远程端使用同一启用口径；未过滤的全量目录只走 models.catalog。
+    if (cmd.type === "models.list" && Array.isArray(result)) {
+      const current = settings.get();
+      return filterEnabledModels(result as ModelInfo[], current.disabledProviders, current.disabledModels);
+    }
+    backfillSessionFile(cmd, result, registry);
+    return result;
   });
+}
+
+/** 控制面只允许调用白名单方法；这里仍按主进程权威状态执行，不让浏览器直接读写事实文件。 */
+async function invokeDesktopMethod(method: string, args: unknown[]): Promise<unknown> {
+  switch (method) {
+    case "command":
+      return executeHostCommand(args[0] as HostCommandInput);
+    case "getSettings":
+      return redactSettingsForRenderer(settings.get());
+    case "setSettings": {
+      if (!settingsPatchHandler) throw new Error("设置服务尚未就绪");
+      return settingsPatchHandler((args[0] ?? {}) as Partial<AppSettings>);
+    }
+    case "listSessions":
+      return registry.list();
+    case "removeSession": {
+      const id = String(args[0] ?? "");
+      gitBaselines.delete(id);
+      runRetries.cancelForSession(id);
+      return removeSessionEverywhere({ registry, bridge, events: bridge }, id);
+    }
+    case "searchSessions":
+      return searchSessions(registry.list(), String(args[0] ?? ""));
+    case "getComposerDrafts":
+      return draftsStore.get();
+    case "setComposerDrafts":
+      return draftsStore.set((args[0] ?? {}) as Record<string, ComposerDraft>);
+    case "runRetryList":
+      return runRetries.list();
+    case "runRetrySchedule":
+      return runRetries.schedule(args[0] as ScheduledRunRetryInput);
+    case "runRetryCancel":
+      return runRetries.cancel(String(args[0] ?? ""));
+    case "usageSession":
+      return ledger.sessionUsage(String(args[0] ?? ""));
+    case "usageSummary":
+      return ledger.summarize(typeof args[0] === "number" ? args[0] : 14);
+    case "usageAggregate":
+      return ledger.aggregateRange((args[0] as "today" | "week" | "all" | undefined) ?? "week");
+    case "quotaQuery":
+      return quota.queryAll({ force: args[0] === true });
+    case "sandboxStatus":
+      return bridge.call(AgentBridge.withId({ type: "sandbox.status" }), { timeoutMs: 10_000 });
+    case "scheduleList":
+      return scheduler.list();
+    case "scheduleCreate":
+      return scheduler.create(args[0] as ScheduleTaskInput);
+    case "scheduleUpdate":
+      return scheduler.update(String(args[0] ?? ""), (args[1] ?? {}) as Partial<ScheduleTaskInput>);
+    case "scheduleDelete":
+      return scheduler.remove(String(args[0] ?? ""));
+    case "scheduleRunNow":
+      return scheduler.runNow(String(args[0] ?? ""));
+    case "replyPermission": {
+      const requestId = String(args[0] ?? "");
+      const approved = args[1] === true;
+      const scope = (args[2] as import("@spcode/shared").PermissionScope | undefined) ?? "once";
+      if (approved && scope === "project") {
+        rememberProjectPermissionRules(settings, bridge.getPendingPermission(requestId));
+      }
+      bridge.replyPermission(requestId, approved, "remote", scope);
+      return { ok: true };
+    }
+    case "replyQuestion":
+      bridge.replyQuestion(String(args[0] ?? ""), (args[1] ?? {}) as import("@spcode/shared").QuestionAnswers);
+      return { ok: true };
+    case "revokePermissions":
+      bridge.revokePermissions(typeof args[0] === "string" ? args[0] : undefined);
+      return { ok: true };
+    case "sessionGitState": {
+      const entry = registry.get(String(args[0] ?? ""));
+      const base = gitBaselines.get(entry?.id ?? "");
+      if (!entry?.cwd || !base) return { hasBaseline: false, changed: false, stat: "" };
+      const current = await gitStatusPorcelain(entry.cwd);
+      if (current === null) return { hasBaseline: true, changed: false, stat: "" };
+      const changed = hasChanges(base, current);
+      return {
+        hasBaseline: true,
+        changed,
+        stat: changed ? ((await gitDiff(entry.cwd))?.stat ?? "") : "",
+      };
+    }
+    case "sessionGitDiff": {
+      const entry = registry.get(String(args[0] ?? ""));
+      return entry?.cwd && gitBaselines.has(entry.id) ? gitDiff(entry.cwd) : null;
+    }
+    case "sessionGitRevert": {
+      const entry = registry.get(String(args[0] ?? ""));
+      return entry?.cwd && gitBaselines.has(entry.id)
+        ? gitStashPush(entry.cwd, `spcode rewind: ${entry.title} @${new Date().toISOString()}`)
+        : null;
+    }
+    case "readPlanFile":
+      return readSessionPlan(String(args[0] ?? ""));
+    case "readWorkspaceFile": {
+      const entry = registry.get(String(args[1] ?? ""));
+      if (!entry) throw new Error("Unknown session for workspace file preview");
+      try {
+        return readWorkspaceFile(String(args[0] ?? ""), entry.mode === "chat" ? "" : entry.cwd);
+      } catch (error) {
+        throw localizeWorkspaceFileError(error);
+      }
+    }
+    case "readWorkspaceImage": {
+      const entry = registry.get(String(args[1] ?? ""));
+      if (!entry) throw new Error("Unknown session for workspace image preview");
+      return readWorkspaceImage(
+        String(args[0] ?? ""),
+        entry.mode === "chat" ? "" : entry.cwd,
+        typeof args[2] === "string" ? args[2] : undefined,
+      );
+    }
+    default:
+      throw new Error(`不支持的桌面适配方法：${method}`);
+  }
+}
+
+function registerIpc(): void {
+  ipcMain.handle(IPC.hostCommand, (_e, raw: HostCommandInput) => executeHostCommand(raw));
 
   ipcMain.on(
     IPC.permissionReply,
@@ -706,6 +847,11 @@ function registerIpc(): void {
   });
 
   ipcMain.handle(IPC.getSettings, () => redactSettingsForRenderer(settings.get()));
+  ipcMain.handle(IPC.workbenchOpen, async () => {
+    const url = localService.workbenchUrl("superagent");
+    if (!url) throw new Error("本地控制面尚未就绪");
+    await shell.openExternal(url);
+  });
   ipcMain.handle(IPC.autoLaunchStatus, () => loginItems.status());
   ipcMain.handle(IPC.autoLaunchSetEnabled, (_e, enabled: boolean) => loginItems.setEnabled(enabled === true));
   ipcMain.handle(IPC.planRead, (_e, path: string) => readSessionPlan(String(path)));
@@ -766,7 +912,7 @@ function registerIpc(): void {
     settings.set({ ignoredUpdateVersion: version });
     ignoreVersion();
   });
-  ipcMain.handle(IPC.setSettings, async (_e, patch: Partial<AppSettings>) => {
+  settingsPatchHandler = async (patch: Partial<AppSettings>) => {
     // 掩码密钥还原（渲染层只见过掩码；评审 R3-C8）
     const next = settings.set(restoreMaskedSecrets(patch, settings.get()));
     if (process.platform === "win32" && ("themeId" in patch || "customTheme" in patch)) {
@@ -833,6 +979,10 @@ function registerIpc(): void {
       void remote.applySettings();
     }
     return redactSettingsForRenderer(next);
+  };
+  ipcMain.handle(IPC.setSettings, (_e, patch: Partial<AppSettings>) => {
+    if (!settingsPatchHandler) throw new Error("设置服务尚未就绪");
+    return settingsPatchHandler(patch);
   });
 
   // 远程控制：状态查询 / 开关 / 重新生成配对 QR / 解绑设备
@@ -988,6 +1138,12 @@ if (!app.requestSingleInstanceLock()) {
     registerNetworkProxyAuthentication(() => settings.get().proxy);
     await applyNetworkProxy(settings.get().proxy);
     watchSessionLifecycle();
+    try {
+      const started = await localService.start();
+      if (!started && !backgroundE2E) console.warn("[main] 本地控制面未就绪，回退到桌面渲染入口");
+    } catch (err) {
+      console.error("[main] local control plane startup failed", err);
+    }
     // 宿主每次 ready（含崩溃重启后）都重推一次运行时设置
     bridge.onEvent((event) => {
       if (event.type === "ready") {
@@ -1043,6 +1199,7 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   windowCloseController.allowWithoutConfirmation();
+  localService.stop();
   runRetries.stop();
   void remote.stop();
   void bridge.dispose();

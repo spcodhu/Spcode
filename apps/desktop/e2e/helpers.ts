@@ -21,6 +21,8 @@ export interface LaunchOptions {
   spcodeHome?: string;
   /** 固定 Chromium user-data-dir；localStorage 跨重启测试用 */
   userDataDir?: string;
+  /** 启用独立控制面；普通桌面 E2E 仍使用 file 入口避免遗留后台服务。 */
+  controlPlane?: boolean;
 }
 
 export async function launchApp(opts?: LaunchOptions): Promise<ElectronApplication> {
@@ -33,6 +35,10 @@ export async function launchApp(opts?: LaunchOptions): Promise<ElectronApplicati
     if (value !== undefined) env[key] = value;
   }
   env.SPCODE_HOME = spcodeHome;
+  if (opts?.controlPlane) {
+    env.SPCODE_E2E_CONTROL_PLANE = "1";
+    env.SPCODE_CONTROL_PORT = "0";
+  }
   // 默认后台跑：窗口不显示、不抢焦点（调试交互时可设 SPCODE_E2E_FOREGROUND=1 恢复可见）
   if (process.env.SPCODE_E2E_FOREGROUND !== "1") env.SPCODE_E2E_BACKGROUND = "1";
   // 防御：在 Electron 系宿主终端（如 Kimi 桌面 runtime node）里跑 e2e 时，

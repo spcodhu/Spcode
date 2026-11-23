@@ -10,6 +10,7 @@ import { SchedulePage } from "./components/SchedulePage";
 import { SearchPalette } from "./components/SearchPalette";
 import { SettingsPage } from "./components/SettingsPage";
 import { Sidebar } from "./components/Sidebar";
+import { SuperAgentPage } from "./components/SuperAgentPage";
 import { ToastRegion } from "./components/ToastRegion";
 import { TopBar } from "./components/TopBar";
 import { closeTopModal } from "./components/ui/Modal";
@@ -36,10 +37,21 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [windowCloseOpen, setWindowCloseOpen] = useState(false);
+  const [view, setView] = useState<"session" | "superagent">(() => {
+    const requested = new URLSearchParams(window.location.search).get("view");
+    if (requested === "superagent" || requested === "session") return requested;
+    return window.spcode.isDesktop === false ? "superagent" : "session";
+  });
+  const showView = (next: "session" | "superagent") => {
+    setView(next);
+    const url = new URL(window.location.href);
+    url.searchParams.set("view", next);
+    window.history.replaceState(null, "", url);
+  };
   // 右侧工作区面板是否占位：有已打开文件、任务清单或计划模式任一就算（与 WorkspacePanel 自身的显示判断同源）
   const workspaceOpen = useStore((s) => {
     const id = s.activeSessionId;
-    return !!id && workspacePanelVisible(s.sessions[id], s.workspacePanels[id]);
+    return view === "session" && !!id && workspacePanelVisible(s.sessions[id], s.workspacePanels[id]);
   });
   const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
   const [widths, setWidths] = useState(() => parseLayoutWidths(localStorage.getItem(LAYOUT_STORAGE_KEY)));
@@ -113,6 +125,9 @@ export default function App() {
           onOpenSettings={() => setSettingsOpen(true)}
           onOpenSearch={() => setSearchOpen(true)}
           onOpenSchedule={() => setScheduleOpen(true)}
+          superAgentOpen={view === "superagent"}
+          onOpenSuperAgent={() => showView("superagent")}
+          onShowSessions={() => showView("session")}
         />
         <ResizeHandle
           label={t("layout.resizeSidebar")}
@@ -125,26 +140,34 @@ export default function App() {
           onReset={() => setWidths((current) => ({ ...current, sidebar: DEFAULT_LAYOUT_WIDTHS.sidebar }))}
         />
         <div className="flex min-w-0 flex-1 flex-col">
-          <TopBar />
-          <div className="min-h-0 flex-1">
-            {activeSessionId ? (
-              // 会话区单独兜一层：消息渲染炸掉时侧栏/顶栏仍可用（评审 P2-6）
-              <ErrorBoundary label={t("app.chatArea")} key={activeSessionId}>
-                <ChatView sessionId={activeSessionId} />
-              </ErrorBoundary>
-            ) : (
-              <EmptyHome />
-            )}
-          </div>
+          {view === "superagent" ? (
+            <SuperAgentPage />
+          ) : (
+            <>
+              <TopBar />
+              <div className="min-h-0 flex-1">
+                {activeSessionId ? (
+                  // 会话区单独兜一层：消息渲染炸掉时侧栏/顶栏仍可用（评审 P2-6）
+                  <ErrorBoundary label={t("app.chatArea")} key={activeSessionId}>
+                    <ChatView sessionId={activeSessionId} />
+                  </ErrorBoundary>
+                ) : (
+                  <EmptyHome />
+                )}
+              </div>
+            </>
+          )}
         </div>
-        <WorkspacePanelFrame
-          key={activeSessionId ?? "empty"}
-          width={layout.plan}
-          min={planMin}
-          max={planMax}
-          onChange={(plan) => setWidths((current) => ({ ...current, plan }))}
-          onReset={() => setWidths((current) => ({ ...current, plan: DEFAULT_LAYOUT_WIDTHS.plan }))}
-        />
+        {view === "session" && (
+          <WorkspacePanelFrame
+            key={activeSessionId ?? "empty"}
+            width={layout.plan}
+            min={planMin}
+            max={planMax}
+            onChange={(plan) => setWidths((current) => ({ ...current, plan }))}
+            onReset={() => setWidths((current) => ({ ...current, plan: DEFAULT_LAYOUT_WIDTHS.plan }))}
+          />
+        )}
         {forkDialogFor && <ForkDialog sourceId={forkDialogFor} onClose={() => setForkDialogFor(null)} />}
         {settingsOpen && <SettingsPage onClose={() => setSettingsOpen(false)} />}
         {searchOpen && <SearchPalette onClose={() => setSearchOpen(false)} />}

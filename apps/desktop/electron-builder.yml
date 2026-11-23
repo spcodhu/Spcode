@@ -14,6 +14,10 @@ files:
 extraResources:
   - from: ../mobile/dist
     to: mobile
+  - from: ../workbench/dist
+    to: workbench
+  - from: ../control-plane/dist
+    to: control-plane
 
 # pi 引擎是 ESM，Node 的 ESM loader 不支持 asar 归档，
 # agent-host 入口与全部依赖必须 unpacked（与 Finch 的 app.asar.unpacked 同款做法）

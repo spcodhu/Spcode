@@ -8,6 +8,7 @@ import type * as main from "./main.js";
 import type * as mobile from "./mobile.js";
 import type * as questions from "./questions.js";
 import type * as settings from "./settings.js";
+import type * as superagent from "./superagent.js";
 
 export interface TranslationResources {
   common: typeof common.en;
@@ -20,6 +21,7 @@ export interface TranslationResources {
   errors: typeof errors.en;
   mobile: typeof mobile.en;
   integration: typeof integration.en;
+  superagent: typeof superagent.en;
 }
 
 export type TranslationKey = {
