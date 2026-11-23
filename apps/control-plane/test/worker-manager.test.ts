@@ -206,4 +206,30 @@ describe("WorkerManager 单机可信闭环", () => {
     expect(item.commitSha).toBeNull();
     expect(item.report?.tests[0]).toMatchObject({ status: "failed", exitCode: 7 });
   });
+
+  it("usage 达到预算后不再签发新 Attempt", async () => {
+    const { engine, workers, manager } = await fixture({ budgetUsd: () => 0.01 });
+    const workItemId = create(engine, "req_budget", "budget");
+    const planning = workers.startAttempt(workItemId, "plan");
+    workers.attachWorker(planning.id, planning.fence, 1234, {
+      workItemId,
+      repo: "owner/repo",
+      sourcePath: "/source",
+      mirrorPath: "/mirror",
+      worktreePath: `/worktree/${workItemId}`,
+      branch: `superagent/${workItemId}`,
+      baseSha: "a8ad263",
+    });
+    workers.appendEvent(planning.id, planning.fence, 1, "session.usage", {
+      type: "session.usage",
+      sessionId: workItemId,
+      usage: { costTotal: 0.02 },
+    });
+    workers.finishAttempt(planning.id, planning.fence, "COMPLETED");
+    expect(workers.costForWorkItem(workItemId)).toBeCloseTo(0.02);
+    await manager.start();
+    await waitFor(() => workers.getItem(workItemId).status === "BLOCKED");
+    expect(workers.getItem(workItemId).activeAttemptId).toBeNull();
+    expect(workers.listAttempts()).toHaveLength(1);
+  });
 });

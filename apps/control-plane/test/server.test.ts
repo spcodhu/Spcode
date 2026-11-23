@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { readRuntimeInfo } from "../src/discovery.js";
 import { ControlPlane } from "../src/server.js";
+import { SqliteSuperAgentStore } from "../src/store-sqlite.js";
 
 const cleanups: Array<() => void | Promise<void>> = [];
 
@@ -183,5 +184,18 @@ describe("Headless 控制面 HTTP / WSS", () => {
       expect(statSync(join(app.home, "runtime.json")).mode & 0o777).toBe(0o600);
       expect(statSync(join(app.home, "device-token")).mode & 0o777).toBe(0o600);
     }
+  });
+
+  it("Artifact 匿名访问失败，认证后可按原内容下载", async () => {
+    const app = await fixture();
+    const store = new SqliteSuperAgentStore(join(app.home, "control.sqlite"));
+    const artifact = store.artifacts.put({ kind: "diff", content: "diff --git a/a b/a\n", mimeType: "text/x-diff" });
+    store.close();
+    const anonymous = await fetch(`${app.origin}/api/v1/artifacts/${artifact.id}`);
+    expect(anonymous.status).toBe(401);
+    const response = await fetch(`${app.origin}/api/v1/artifacts/${artifact.id}`, { headers: { Cookie: app.cookie } });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-disposition")).toContain("attachment");
+    expect(await response.text()).toBe("diff --git a/a b/a\n");
   });
 });

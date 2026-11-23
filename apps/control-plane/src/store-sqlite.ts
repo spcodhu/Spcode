@@ -12,6 +12,7 @@ import type {
   WorkItemState,
 } from "@spcode/shared/superagent";
 import { assertPlanApproval, assertTransition } from "@spcode/superagent";
+import { ArtifactStore, migrateArtifactSchema } from "./artifact-store.js";
 import { migrateSourceSchema } from "./source-store.js";
 import { migrateWorkerSchema } from "./worker-store.js";
 
@@ -238,6 +239,7 @@ interface WorkItemRow {
   base_sha?: string | null;
   commit_sha?: string | null;
   diff_json?: string | null;
+  diff_artifact_id?: string | null;
   report_json?: string | null;
   last_error?: string | null;
 }
@@ -254,6 +256,7 @@ interface PlanRow {
   publish_intent: number;
   effect_intent_json: string;
   risk: string;
+  artifact_id?: string | null;
   status: PlanStatus;
   created_at: number;
 }
@@ -284,6 +287,7 @@ function workItemFromRow(row: WorkItemRow): WorkItem {
     baseSha: row.base_sha ?? null,
     commitSha: row.commit_sha ?? null,
     diff: jsonValue(row.diff_json),
+    diffArtifactId: row.diff_artifact_id ?? null,
     report: jsonValue(row.report_json),
     lastError: row.last_error ?? null,
     createdAt: row.created_at,
@@ -313,6 +317,7 @@ function planFromRow(row: PlanRow): PlanRevision {
     publishIntent: row.publish_intent === 1,
     effectIntent: jsonArray(row.effect_intent_json),
     risk: row.risk,
+    artifactId: row.artifact_id ?? null,
     status: row.status,
     createdAt: row.created_at,
   };
@@ -338,23 +343,26 @@ export interface SourceWorkItemInput {
 
 export class SqliteSuperAgentStore {
   readonly db: DatabaseSync;
+  readonly artifacts: ArtifactStore;
 
   constructor(readonly file: string) {
     if (file !== ":memory:") mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
     this.db = new DatabaseSync(file);
     this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
     this.migrate();
+    this.artifacts = new ArtifactStore(dirname(file), this.db);
   }
 
   private migrate(): void {
     const version = this.db.prepare("PRAGMA user_version").get() as { user_version: number };
-    if (version.user_version > 3) throw new Error(`控制面数据库版本 ${version.user_version} 高于当前程序支持的版本 3`);
+    if (version.user_version > 4) throw new Error(`控制面数据库版本 ${version.user_version} 高于当前程序支持的版本 4`);
     if (version.user_version === 0) {
       this.db.exec(SCHEMA);
       this.db.exec("PRAGMA user_version = 1");
     }
     migrateWorkerSchema(this.db);
     migrateSourceSchema(this.db);
+    migrateArtifactSchema(this.db);
   }
 
   close(): void {
@@ -414,10 +422,12 @@ export class SqliteSuperAgentStore {
         leaseExpiresAt: row.lease_expires_at,
         report: jsonValue(row.report_json),
         lastError: row.last_error,
+        logArtifactId: row.log_artifact_id ?? null,
         lastEventSeq: row.last_event_seq,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       })),
+      artifacts: this.artifacts.list().map(({ storageKey: _storageKey, metadata: _metadata, ...meta }) => meta),
       audit,
     };
   }
@@ -517,6 +527,7 @@ export class SqliteSuperAgentStore {
         case "digest.run":
         case "digest.resolve":
         case "outbox.reconcile":
+        case "config.update":
           throw new Error("Source 命令必须由控制面 SourceService 处理");
         case "processing.setPaused": {
           this.db

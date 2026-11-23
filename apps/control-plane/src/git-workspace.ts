@@ -225,11 +225,25 @@ export class GitWorkspaceManager {
       git(["diff", "--no-ext-diff", "--unified=3", workspace.baseSha], workspace.worktreePath),
     ]);
     const entries = parseStatus(status);
-    return {
+    const untracked = entries.filter((entry) => entry.untracked).map((entry) => entry.path);
+    const additions: string[] = [];
+    for (const file of untracked) {
+      const result = await runGit(["diff", "--no-index", "--", "/dev/null", file], workspace.worktreePath);
+      if (result.code > 1) throw new GitWorkspaceError(`读取 untracked diff 失败：${result.stderr}`, "GIT_FAILED");
+      additions.push(result.stdout);
+    }
+    const patchWithUntracked = [patch, ...additions].filter(Boolean).join("\n");
+    const statWithUntracked = [
       stat,
-      patch,
+      ...additions.map((diff) => `${diff.split("\n").filter((line) => line.startsWith("+")).length} additions`),
+    ]
+      .filter(Boolean)
+      .join("\n");
+    return {
+      stat: statWithUntracked,
+      patch: patchWithUntracked,
       files: entries.filter((entry) => !entry.untracked).map((entry) => entry.path),
-      untracked: entries.filter((entry) => entry.untracked).map((entry) => entry.path),
+      untracked,
     };
   }
 

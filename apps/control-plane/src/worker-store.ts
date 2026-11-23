@@ -225,6 +225,30 @@ export class WorkerStore {
     ).map(itemFromRow);
   }
 
+  costForWorkItem(workItemId: string): number {
+    const row = this.db
+      .prepare(
+        `SELECT COALESCE(SUM(CAST(COALESCE(
+          json_extract(payload_json, '$.usage.costTotal'),
+          json_extract(payload_json, '$.usage.costInput') + json_extract(payload_json, '$.usage.costOutput') +
+            json_extract(payload_json, '$.usage.costCacheRead') + json_extract(payload_json, '$.usage.costCacheWrite')
+        ) AS REAL)), 0) AS cost FROM worker_events WHERE work_item_id = ? AND type = 'session.usage'`,
+      )
+      .get(workItemId) as { cost: number | null };
+    return row.cost ?? 0;
+  }
+
+  blockWithoutAttempt(workItemId: string, error: string): void {
+    this.changed(workItemId, "workitem.budgetBlocked", (now) => {
+      const item = this.getItem(workItemId);
+      if (item.activeAttemptId) throw new Error("已有活跃 Attempt，不能用无 Attempt 预算状态覆盖");
+      if (item.status !== "BLOCKED") assertTransition(item.status, "BLOCKED");
+      this.db
+        .prepare("UPDATE work_items SET status = 'BLOCKED', last_error = ?, updated_at = ? WHERE id = ?")
+        .run(error, now, workItemId);
+    });
+  }
+
   startAttempt(workItemId: string, role: WorkerRole): AttemptSnapshot {
     const id = this.changed(workItemId, "attempt.start", (now) => {
       const item = this.getItem(workItemId);

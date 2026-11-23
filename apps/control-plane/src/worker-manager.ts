@@ -1,6 +1,8 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import type { ModelRef } from "@spcode/shared";
 import type { PlanRevision, WorkerWorkReport } from "@spcode/shared/superagent";
 import type { SuperAgentEngine } from "@spcode/superagent";
+import type { ArtifactStore } from "./artifact-store.js";
 import type { GitWorkspace, GitWorkspaceManager } from "./git-workspace.js";
 import { GitWorkspaceError } from "./git-workspace.js";
 import type { SqliteSuperAgentStore } from "./store-sqlite.js";
@@ -22,7 +24,10 @@ export interface WorkerManagerOptions {
   git: GitWorkspaceManager;
   runner: WorkerRunner;
   engine: SuperAgentEngine;
+  artifacts?: ArtifactStore;
   concurrency?: () => number;
+  budgetUsd?: () => number;
+  model?: ModelRef;
   pollMs?: number;
   /** 故障注入：真实 commit 已完成，但 completeCommit 回执前中止。 */
   afterCommit?: () => void;
@@ -117,13 +122,18 @@ export class WorkerManager {
 
   private async dispatch(item: ManagedWorkItem): Promise<void> {
     const role = item.status === "PLANNING" ? "plan" : "execute";
+    const budget = this.options.budgetUsd?.() ?? Number.POSITIVE_INFINITY;
+    if (this.options.workers.costForWorkItem(item.id) >= budget) {
+      this.options.workers.blockWithoutAttempt(item.id, `WorkItem 已达到模型预算上限 $${budget}`);
+      return;
+    }
     const attempt = this.options.workers.startAttempt(item.id, role);
     let handle: WorkerHandle | null = null;
     try {
       const workspace = await this.workspaceFor(item);
       const plan = role === "execute" ? this.currentPlan(item) : null;
       handle = await this.options.runner.start(
-        { attempt, item: this.options.workers.getItem(item.id), workspace, plan },
+        { attempt, item: this.options.workers.getItem(item.id), workspace, plan, model: this.options.model },
         (seq, type, payload) => {
           if (type === "session.file") {
             const sessionFile = (payload as { sessionFile?: unknown }).sessionFile;
@@ -137,6 +147,7 @@ export class WorkerManager {
       this.running.set(item.id, { attemptId: attempt.id, handle });
       this.options.workers.attachWorker(attempt.id, attempt.fence, handle.pid, workspace);
       const outcome = await handle.done;
+      this.storeLog(item.id, outcome.logPath);
       if (role === "plan") {
         if (!outcome.planContent)
           throw new Error(outcome.question ? "计划 Worker 有需要人工回答的问题" : "计划 Worker 未调用 WritePlan");
@@ -156,6 +167,19 @@ export class WorkerManager {
           "local-device",
         );
         this.options.workers.finishAttempt(attempt.id, attempt.fence, "COMPLETED");
+        const planRecord = this.options.store.snapshot().plans.find((candidate) => candidate.workItemId === item.id);
+        if (this.options.artifacts && planRecord) {
+          const artifact = this.options.artifacts.put({
+            workItemId: item.id,
+            kind: "plan",
+            content: outcome.planContent,
+            mimeType: "text/markdown",
+            metadata: { planHash: planRecord.planHash },
+          });
+          this.options.store.db
+            .prepare("UPDATE plan_revisions SET artifact_id = ? WHERE id = ?")
+            .run(artifact.id, planRecord.id);
+        }
         return;
       }
 
@@ -174,6 +198,12 @@ export class WorkerManager {
       for (const command of plan.verification) tests.push(await runVerification(command, workspace.worktreePath));
       const verifiedReport: WorkerWorkReport = { ...report, tests };
       this.options.workers.recordReport(attempt.id, attempt.fence, verifiedReport);
+      this.options.artifacts?.put({
+        workItemId: item.id,
+        kind: "test-report",
+        content: JSON.stringify(verifiedReport, null, 2),
+        mimeType: "application/json",
+      });
       if (tests.length === 0 || tests.some((test) => test.status !== "passed")) {
         this.options.workers.setStatus(attempt.id, attempt.fence, "FAILED", "批准计划中的验证命令失败");
         this.options.workers.finishAttempt(attempt.id, attempt.fence, "FAILED");
@@ -183,6 +213,17 @@ export class WorkerManager {
       const current = this.options.workers.getItem(item.id);
       if (current.activeAttemptId !== attempt.id) throw new Error("commit 前 fence/activeAttempt 已变化");
       const committed = await this.options.git.commit(workspace, report.commitMessage ?? `功能: ${item.title}`);
+      const diffArtifact = this.options.artifacts?.put({
+        workItemId: item.id,
+        kind: "diff",
+        content: `${committed.diff.stat}\n\n${committed.diff.patch}\n`,
+        mimeType: "text/x-diff",
+      });
+      if (diffArtifact) {
+        this.options.store.db
+          .prepare("UPDATE work_items SET diff_artifact_id = ? WHERE id = ?")
+          .run(diffArtifact.id, item.id);
+      }
       this.options.afterCommit?.();
       this.options.workers.completeCommit(attempt.id, attempt.fence, committed.sha, committed.diff, verifiedReport);
     } catch (error) {
@@ -219,6 +260,23 @@ export class WorkerManager {
       if (handle) await handle.stop().catch(() => {});
       this.running.delete(item.id);
     }
+  }
+
+  private storeLog(workItemId: string, logPath: string): void {
+    if (!this.options.artifacts || !existsSync(logPath)) return;
+    const content = readFileSync(logPath);
+    if (content.byteLength === 0) return;
+    const tail = content.subarray(Math.max(0, content.byteLength - 16 * 1024 * 1024));
+    const artifact = this.options.artifacts.put({
+      workItemId,
+      kind: "worker-log",
+      content: tail,
+      mimeType: "text/plain",
+      metadata: { truncated: content.byteLength > tail.byteLength },
+    });
+    const attemptId = this.options.workers.getItem(workItemId).activeAttemptId;
+    if (attemptId)
+      this.options.store.db.prepare("UPDATE attempts SET log_artifact_id = ? WHERE id = ?").run(artifact.id, attemptId);
   }
 
   private async workspaceFor(item: ManagedWorkItem): Promise<GitWorkspace> {

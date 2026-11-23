@@ -56,7 +56,6 @@ function parse<T>(value: unknown): T {
 
 export function migrateSourceSchema(db: DatabaseSync): void {
   const { user_version: version } = db.prepare("PRAGMA user_version").get() as { user_version: number };
-  if (version > 3) throw new Error(`控制面数据库版本 ${version} 高于当前程序支持的版本 3`);
   if (version >= 3) return;
   if (version !== 2) throw new Error("Source schema 需要从 v2 迁移");
   db.exec("BEGIN IMMEDIATE");

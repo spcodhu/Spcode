@@ -12,6 +12,7 @@ import {
 import { SuperAgentEngine } from "@spcode/superagent";
 import { WebSocketServer } from "ws";
 import { AuthService, CONTROL_COOKIE, ensureDeviceToken, parseCookies } from "./auth.js";
+import { ConfigStore } from "./config.js";
 import { DesktopHub } from "./desktop-hub.js";
 import { removeRuntimeInfo, writeRuntimeInfo } from "./discovery.js";
 import { GitWorkspaceManager } from "./git-workspace.js";
@@ -114,8 +115,8 @@ export class ControlPlane {
   private readonly workers: WorkerStore;
   private readonly sources: SourceStore;
   private readonly feishuApi: FeishuApi | null;
+  private readonly configuration: ConfigStore;
   private readonly digest: DigestService;
-  private readonly enabled: boolean;
   private readonly auth: AuthService;
   private readonly server: Server;
   private readonly browserWss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
@@ -126,8 +127,13 @@ export class ControlPlane {
   private feishuGateway: FeishuGateway | null = null;
   private outboxDispatcher: OutboxDispatcher | null = null;
   private digestTimer: NodeJS.Timeout | null = null;
+  private sourcesRunning = false;
   private port = 0;
   private closing = false;
+
+  private get enabled(): boolean {
+    return this.options.superAgentEnabled ?? this.configuration.get().enabled;
+  }
 
   constructor(private readonly options: ControlPlaneOptions) {
     this.baseDir = options.baseDir ?? join(resolveSpcodeHome(), "superagent");
@@ -136,6 +142,7 @@ export class ControlPlane {
     this.requestedPort = options.port ?? 0;
     this.workbenchDir = resolve(options.workbenchDir);
     this.store = new SqliteSuperAgentStore(options.databaseFile ?? join(this.baseDir, "control.sqlite"));
+    this.configuration = new ConfigStore(this.baseDir, options.superAgentEnabled);
     this.workers = new WorkerStore(this.store.db, (sequence, workItemId) => this.publishEvent(sequence, workItemId));
     this.sources = new SourceStore(this.store.db, this.store, (sequence, workItemId) =>
       this.publishEvent(sequence, workItemId),
@@ -144,7 +151,6 @@ export class ControlPlane {
       this.sources,
       options.githubConnector ?? new GitHubConnector({ token: process.env.SPCODE_GITHUB_TOKEN }),
     );
-    this.enabled = options.superAgentEnabled ?? process.env.SPCODE_SUPERAGENT_ENABLED === "1";
     this.auth = new AuthService(this.store.db, ensureDeviceToken(this.baseDir));
     this.server = createServer((request, response) => void this.handle(request, response));
     this.server.on("upgrade", (request, socket, head) => this.upgrade(request, socket, head));
@@ -161,8 +167,8 @@ export class ControlPlane {
         feishuApi,
         () => ({
           enabled: this.enabled,
-          allowedChats: envList(process.env.SPCODE_SUPERAGENT_ALLOWED_CHATS),
-          authorizedOperators: envList(process.env.SPCODE_SUPERAGENT_AUTHORIZED_OPERATORS),
+          allowedChats: this.configuration.get().allowedChats,
+          authorizedOperators: this.configuration.get().authorizedOperators,
           defaultRepo: DEFAULT_SUPERAGENT_CONFIG.defaultRepo,
           botOpenId: process.env.SPCODE_FEISHU_BOT_OPEN_ID ?? "",
         }),
@@ -207,7 +213,25 @@ export class ControlPlane {
     });
     this.sources.recoverSending();
     this.sources.projectNotifications();
-    if (this.enabled) {
+    await this.startSuperAgent();
+    return { port: this.port, deviceToken: ensureDeviceToken(this.baseDir) };
+  }
+
+  async close(): Promise<void> {
+    if (this.closing) return;
+    this.closing = true;
+    await this.stopSuperAgent();
+    this.hub?.close();
+    this.browserWss.close();
+    this.desktopWss.close();
+    await new Promise<void>((resolveClose) => this.server.close(() => resolveClose()));
+    this.store.close();
+    removeRuntimeInfo(this.baseDir);
+  }
+
+  private async startSuperAgent(): Promise<void> {
+    if (!this.enabled || this.closing) return;
+    if (!this.sourcesRunning) {
       if (this.feishuGateway) {
         try {
           await this.feishuGateway.start();
@@ -218,39 +242,38 @@ export class ControlPlane {
       }
       await this.runDueDigests();
       this.digestTimer = setInterval(() => void this.runDueDigests(), 30_000);
-      const git = new GitWorkspaceManager(this.baseDir, (repo) => this.repoSource(repo));
-      this.workerManager = new WorkerManager({
-        baseDir: this.baseDir,
-        store: this.store,
-        workers: this.workers,
-        git,
-        runner:
-          this.options.workerRunner ??
-          createDefaultWorkerRunner(this.baseDir, this.options.spcodeHome ?? dirname(this.baseDir)),
-        engine: this.engine,
-        pollMs: this.options.workerPollMs,
-        afterCommit: this.options.afterCommit,
-        onError: (error, workItemId) => console.error(`[worker] ${workItemId}:`, error),
-      });
-      await this.workerManager.start();
+      this.sourcesRunning = true;
     }
-    return { port: this.port, deviceToken: ensureDeviceToken(this.baseDir) };
+    if (this.workerManager) return;
+    const git = new GitWorkspaceManager(this.baseDir, (repo) => this.repoSource(repo));
+    this.workerManager = new WorkerManager({
+      baseDir: this.baseDir,
+      store: this.store,
+      workers: this.workers,
+      git,
+      runner:
+        this.options.workerRunner ??
+        createDefaultWorkerRunner(this.baseDir, this.options.spcodeHome ?? dirname(this.baseDir)),
+      engine: this.engine,
+      artifacts: this.store.artifacts,
+      concurrency: () => this.configuration.get().concurrency,
+      budgetUsd: () => this.configuration.get().budgetUsd,
+      model: this.configuration.get().model ?? undefined,
+      pollMs: this.options.workerPollMs,
+      afterCommit: this.options.afterCommit,
+      onError: (error, workItemId) => console.error(`[worker] ${workItemId}:`, error),
+    });
+    await this.workerManager.start();
   }
 
-  async close(): Promise<void> {
-    if (this.closing) return;
-    this.closing = true;
+  private async stopSuperAgent(): Promise<void> {
     if (this.digestTimer) clearInterval(this.digestTimer);
     this.digestTimer = null;
     this.outboxDispatcher?.stop();
     await this.feishuGateway?.stop().catch(() => {});
+    this.sourcesRunning = false;
     await this.workerManager?.stop();
-    this.hub?.close();
-    this.browserWss.close();
-    this.desktopWss.close();
-    await new Promise<void>((resolveClose) => this.server.close(() => resolveClose()));
-    this.store.close();
-    removeRuntimeInfo(this.baseDir);
+    this.workerManager = null;
   }
 
   private async desktopControl(method: string, args: unknown[]): Promise<unknown> {
@@ -271,6 +294,8 @@ export class ControlPlane {
 
   private repoSource(repo: string): string {
     if (this.options.resolveRepoPath) return this.options.resolveRepoPath(repo);
+    const configuredRepo = this.configuration.get().repositories.find((candidate) => candidate.repo === repo);
+    if (configuredRepo?.localPath) return configuredRepo.localPath;
     const configured = process.env.SPCODE_SUPERAGENT_REPOS?.trim();
     if (configured) {
       try {
@@ -281,7 +306,7 @@ export class ControlPlane {
       }
     }
     const localPath = process.env.SPCODE_SUPERAGENT_REPO_PATH?.trim();
-    if (localPath && repo === DEFAULT_SUPERAGENT_CONFIG.defaultRepo) return localPath;
+    if (localPath && repo === this.configuration.get().defaultRepo) return localPath;
     return `https://github.com/${repo}.git`;
   }
 
@@ -316,15 +341,27 @@ export class ControlPlane {
     this.sources?.projectNotifications();
   }
 
+  private digestChatId(repo: string): string {
+    const config = this.configuration.get();
+    return (
+      config.repositories.find((candidate) => candidate.repo === repo)?.chatId ||
+      this.options.digestChatId ||
+      config.digestChatId ||
+      process.env.SPCODE_SUPERAGENT_DIGEST_CHAT_ID ||
+      ""
+    );
+  }
+
   private async runDueDigests(): Promise<void> {
     if (!this.enabled || this.closing || this.options.digestSchedulerEnabled === false) return;
-    const chatId = this.options.digestChatId ?? process.env.SPCODE_SUPERAGENT_DIGEST_CHAT_ID ?? "";
-    if (!chatId) return;
     const repos = envList(process.env.SPCODE_SUPERAGENT_DIGEST_REPOS);
-    for (const repo of repos.length ? repos : [DEFAULT_SUPERAGENT_CONFIG.defaultRepo]) {
+    const config = this.configuration.get();
+    const configuredRepos = config.repositories.length ? config.repositories.map((item) => item.repo) : repos;
+    for (const repo of configuredRepos.length ? configuredRepos : [config.defaultRepo]) {
+      const chatId = this.digestChatId(repo);
       try {
-        if (this.digest.dueDaily(repo, DEFAULT_SUPERAGENT_CONFIG.timezone, DEFAULT_SUPERAGENT_CONFIG.dailyDigestTime)) {
-          await this.digest.run({ repo, chatId, mode: "daily", timezone: DEFAULT_SUPERAGENT_CONFIG.timezone });
+        if (this.digest.dueDaily(repo, config.timezone, config.dailyDigestTime)) {
+          await this.digest.run({ repo, chatId, mode: "daily", timezone: config.timezone });
         }
       } catch (error) {
         console.error(`[digest] ${repo}:`, error);
@@ -378,18 +415,59 @@ export class ControlPlane {
           this.json(response, 200, this.snapshot());
           return;
         }
+        if (url.pathname === "/api/v1/superagent/config" && request.method === "GET") {
+          this.json(response, 200, this.configuration.public());
+          return;
+        }
+        const workItemEventsMatch = url.pathname.match(
+          /^\/api\/v1\/superagent\/workitems\/(wi_[A-Za-z0-9_-]+)\/events$/,
+        );
+        if (workItemEventsMatch && request.method === "GET") {
+          this.json(response, 200, { events: this.workers.workerEvents(workItemEventsMatch[1]!) });
+          return;
+        }
+        const artifactMatch = url.pathname.match(/^\/api\/v1\/artifacts\/(ar_[A-Za-z0-9_-]+)$/);
+        if (artifactMatch && request.method === "GET") {
+          const artifact = this.store.artifacts.get(artifactMatch[1]!);
+          if (!artifact) {
+            this.json(response, 404, { error: { code: "NOT_FOUND", message: "Artifact 不存在" } });
+            return;
+          }
+          const content = this.store.artifacts.read(artifact);
+          response.writeHead(200, {
+            "Content-Type": artifact.mimeType,
+            "Content-Length": content.byteLength,
+            "Content-Disposition": `attachment; filename="${artifact.id}"`,
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "default-src 'none'",
+          });
+          response.end(content);
+          return;
+        }
         if (url.pathname === "/api/v1/superagent/commands" && request.method === "POST") {
           const command = parseSuperAgentCommand(await this.readJson(request));
+          if (command.type === "config.update") {
+            const wasEnabled = this.enabled;
+            this.configuration.set(command.patch);
+            if (wasEnabled !== this.enabled) {
+              if (this.enabled) await this.startSuperAgent();
+              else await this.stopSuperAgent();
+            }
+            this.hub.publish(this.store.snapshot().revision);
+            this.json(response, 200, this.snapshot());
+            return;
+          }
           if (command.type === "digest.run") {
             if (!this.enabled) throw new Error("SuperAgent 未启用");
-            const chatId = this.options.digestChatId ?? process.env.SPCODE_SUPERAGENT_DIGEST_CHAT_ID ?? "";
+            const chatId = this.digestChatId(command.repo);
             if (!chatId) throw new Error("请先配置 SPCODE_SUPERAGENT_DIGEST_CHAT_ID");
             await this.digest.run({
               repo: command.repo,
               chatId,
               mode: "manual",
               requestId: command.requestId,
-              timezone: DEFAULT_SUPERAGENT_CONFIG.timezone,
+              timezone: this.configuration.get().timezone,
             });
           } else if (command.type === "digest.resolve") {
             this.sources.resolveDigestItem({

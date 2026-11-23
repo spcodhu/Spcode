@@ -42,6 +42,7 @@ export interface WorkItem {
   baseSha?: string | null;
   commitSha?: string | null;
   diff?: { stat: string; patch: string; files: string[]; untracked: string[] } | null;
+  diffArtifactId?: string | null;
   report?: WorkerWorkReport | null;
   lastError?: string | null;
   createdAt: number;
@@ -60,6 +61,7 @@ export interface PlanRevision {
   publishIntent: boolean;
   effectIntent: string[];
   risk: string;
+  artifactId?: string | null;
   status: PlanStatus;
   createdAt: number;
 }
@@ -96,6 +98,7 @@ export interface AttemptSnapshot {
   leaseExpiresAt: number | null;
   report: WorkerWorkReport | null;
   lastError: string | null;
+  logArtifactId?: string | null;
   lastEventSeq: number;
   createdAt: number;
   updatedAt: number;
@@ -108,6 +111,17 @@ export interface AuditEntry {
   action: string;
   subjectHash: string | null;
   detail: Record<string, unknown>;
+  createdAt: number;
+}
+
+export interface ArtifactMeta {
+  id: string;
+  workItemId: string | null;
+  kind: string;
+  sha256: string;
+  size: number;
+  mimeType: string;
+  visibility: "private";
   createdAt: number;
 }
 
@@ -165,6 +179,7 @@ export interface SuperAgentSnapshot {
   audit: AuditEntry[];
   digests?: DigestSnapshot[];
   outbox?: OutboxSnapshot[];
+  artifacts?: ArtifactMeta[];
 }
 
 export type SuperAgentCommand =
@@ -203,6 +218,7 @@ export type SuperAgentCommand =
       action: "approve" | "ignore";
     }
   | { type: "outbox.reconcile"; id: string; outcome: "SENT" | "FAILED"; externalId?: string }
+  | { type: "config.update"; patch: Partial<SuperAgentConfig> }
   | { type: "processing.setPaused"; paused: boolean };
 
 export interface SuperAgentChangedEvent {
@@ -212,26 +228,49 @@ export interface SuperAgentChangedEvent {
   at: number;
 }
 
+export interface SuperAgentRepositoryConfig {
+  repo: string;
+  localPath: string;
+  chatId: string;
+  defaultBranch: string;
+  labels: string[];
+}
+
 export interface SuperAgentConfig {
   enabled: boolean;
   concurrency: number;
   defaultRepo: string;
+  digestChatId: string;
   dailyDigestTime: string;
   timezone: string;
   budgetUsd: number;
   authorizedOperators: string[];
   allowedChats: string[];
+  repositories: SuperAgentRepositoryConfig[];
+  model: { provider: string; modelId: string } | null;
+}
+
+export interface SuperAgentPublicConfig extends SuperAgentConfig {
+  credentials: {
+    github: boolean;
+    feishu: boolean;
+    botIdentity: boolean;
+  };
+  configFile: string;
 }
 
 export const DEFAULT_SUPERAGENT_CONFIG: SuperAgentConfig = {
   enabled: false,
   concurrency: 2,
   defaultRepo: "spcodhu/Spcode",
+  digestChatId: "",
   dailyDigestTime: "09:00",
   timezone: "Asia/Shanghai",
   budgetUsd: 20,
   authorizedOperators: [],
   allowedChats: [],
+  repositories: [],
+  model: null,
 };
 
 function boundedInteger(value: unknown, fallback: number, min: number, max: number): number {
@@ -260,15 +299,49 @@ export function sanitizeSuperAgentConfig(input: unknown): SuperAgentConfig {
   const repo = typeof value.defaultRepo === "string" ? value.defaultRepo.trim() : "";
   const time = typeof value.dailyDigestTime === "string" ? value.dailyDigestTime : "";
   const timezone = typeof value.timezone === "string" ? value.timezone.trim() : "";
+  let validTimezone = DEFAULT_SUPERAGENT_CONFIG.timezone;
+  try {
+    if (timezone) new Intl.DateTimeFormat("en", { timeZone: timezone });
+    if (timezone) validTimezone = timezone;
+  } catch {
+    // 非法时区回落默认值，不让调度器在后台反复抛错。
+  }
+  const repositories = Array.isArray(value.repositories)
+    ? value.repositories.flatMap((entry) => {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
+        const candidate = entry as Record<string, unknown>;
+        const repoName = typeof candidate.repo === "string" ? candidate.repo.trim() : "";
+        if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repoName)) return [];
+        const branch = typeof candidate.defaultBranch === "string" ? candidate.defaultBranch.trim() : "";
+        return [
+          {
+            repo: repoName,
+            localPath: typeof candidate.localPath === "string" ? candidate.localPath.trim() : "",
+            chatId: typeof candidate.chatId === "string" ? candidate.chatId.trim() : "",
+            defaultBranch: /^[^\s~^:?*\\]+$/.test(branch) ? branch : "main",
+            labels: stringList(candidate.labels, 50),
+          },
+        ];
+      })
+    : [];
+  const model =
+    value.model && typeof value.model === "object" && !Array.isArray(value.model)
+      ? (value.model as Record<string, unknown>)
+      : null;
+  const provider = model && typeof model.provider === "string" ? model.provider.trim() : "";
+  const modelId = model && typeof model.modelId === "string" ? model.modelId.trim() : "";
   return {
     enabled: value.enabled === true,
     concurrency: boundedInteger(value.concurrency, DEFAULT_SUPERAGENT_CONFIG.concurrency, 1, 8),
     defaultRepo: /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo) ? repo : DEFAULT_SUPERAGENT_CONFIG.defaultRepo,
+    digestChatId: typeof value.digestChatId === "string" ? value.digestChatId.trim() : "",
     dailyDigestTime: /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time) ? time : DEFAULT_SUPERAGENT_CONFIG.dailyDigestTime,
-    timezone: timezone && timezone.length <= 100 ? timezone : DEFAULT_SUPERAGENT_CONFIG.timezone,
+    timezone: validTimezone,
     budgetUsd: boundedNumber(value.budgetUsd, DEFAULT_SUPERAGENT_CONFIG.budgetUsd, 0, 100_000),
     authorizedOperators: stringList(value.authorizedOperators),
     allowedChats: stringList(value.allowedChats),
+    repositories: repositories.slice(0, 50),
+    model: provider && modelId ? { provider, modelId } : null,
   };
 }
 
@@ -356,6 +429,9 @@ export function parseSuperAgentCommand(input: unknown): SuperAgentCommand {
         outcome: input.outcome,
         ...(input.externalId === undefined ? {} : { externalId: requiredString(input.externalId, "externalId", 500) }),
       };
+    case "config.update":
+      if (!isRecord(input.patch)) throw new Error("Invalid config patch");
+      return { type: input.type, patch: input.patch as Partial<SuperAgentConfig> };
     case "processing.setPaused":
       if (typeof input.paused !== "boolean") throw new Error("Invalid paused");
       return { type: input.type, paused: input.paused };

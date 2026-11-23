@@ -1,4 +1,9 @@
-import { parseSuperAgentSnapshot, type SuperAgentCommand, type SuperAgentSnapshot } from "./superagent.js";
+import {
+  parseSuperAgentSnapshot,
+  type SuperAgentCommand,
+  type SuperAgentPublicConfig,
+  type SuperAgentSnapshot,
+} from "./superagent.js";
 
 export interface ControlHealth {
   ok: true;
@@ -87,12 +92,33 @@ export class ControlClient {
     return this.request("/api/v1/superagent/snapshot", {}, parseSuperAgentSnapshot);
   }
 
+  async superAgentConfig(): Promise<SuperAgentPublicConfig> {
+    return this.request("/api/v1/superagent/config");
+  }
+
   async superAgentCommand(command: SuperAgentCommand): Promise<SuperAgentSnapshot> {
     return this.request(
       "/api/v1/superagent/commands",
       { method: "POST", body: JSON.stringify(command) },
       parseSuperAgentSnapshot,
     );
+  }
+
+  async workItemEvents(
+    id: string,
+  ): Promise<Array<{ id: number; seq: number; type: string; payload: unknown; createdAt: number }>> {
+    return this.request(`/api/v1/superagent/workitems/${encodeURIComponent(id)}/events`, {}, (value) => {
+      if (!value || typeof value !== "object" || !Array.isArray((value as { events?: unknown }).events)) {
+        throw new Error("Invalid Worker event response");
+      }
+      return (
+        value as { events: Array<{ id: number; seq: number; type: string; payload: unknown; createdAt: number }> }
+      ).events;
+    });
+  }
+
+  artifactUrl(id: string): string {
+    return `${this.baseUrl}/api/v1/artifacts/${encodeURIComponent(id)}`;
   }
 
   async desktopInvoke<T = unknown>(method: string, args: unknown[] = []): Promise<T> {

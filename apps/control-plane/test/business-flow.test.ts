@@ -105,7 +105,10 @@ describe("阶段一 Issue 与群 @ 完整业务链", () => {
       const waitFor = async (check: () => boolean | Promise<boolean>, label: string) => {
         const deadline = Date.now() + 12_000;
         while (!(await check())) {
-          if (Date.now() > deadline) throw new Error(`等待超时：${label}; ${JSON.stringify(feishu.messages)}`);
+          if (Date.now() > deadline) {
+            const state = await snapshot();
+            throw new Error(`等待超时：${label}; ${JSON.stringify({ messages: feishu.messages, state })}`);
+          }
           await new Promise((resolveWait) => setTimeout(resolveWait, 30));
         }
       };
