@@ -36,6 +36,14 @@ export interface WorkItem {
   desiredState: DesiredState;
   currentPlanId: string | null;
   activeAttemptId: string | null;
+  workerSessionFile?: string | null;
+  worktreePath?: string | null;
+  branch?: string | null;
+  baseSha?: string | null;
+  commitSha?: string | null;
+  diff?: { stat: string; patch: string; files: string[]; untracked: string[] } | null;
+  report?: WorkerWorkReport | null;
+  lastError?: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -74,6 +82,25 @@ export interface WorkerWorkReport {
   artifacts?: string[];
 }
 
+export interface AttemptSnapshot {
+  id: string;
+  runId: string | null;
+  workItemId: string;
+  fence: number;
+  role: WorkerRole;
+  status: string;
+  workerPid: number | null;
+  worktreePath: string | null;
+  branch: string | null;
+  heartbeatAt: number | null;
+  leaseExpiresAt: number | null;
+  report: WorkerWorkReport | null;
+  lastError: string | null;
+  lastEventSeq: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface AuditEntry {
   id: number;
   workItemId: string | null;
@@ -98,6 +125,7 @@ export interface SuperAgentSnapshot {
   service: SuperAgentServiceSnapshot;
   workItems: WorkItem[];
   plans: PlanRevision[];
+  attempts: AttemptSnapshot[];
   audit: AuditEntry[];
 }
 

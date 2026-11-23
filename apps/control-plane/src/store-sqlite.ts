@@ -12,6 +12,7 @@ import type {
   WorkItemState,
 } from "@spcode/shared/superagent";
 import { assertPlanApproval, assertTransition } from "@spcode/superagent";
+import { migrateWorkerSchema } from "./worker-store.js";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS metadata (
@@ -230,6 +231,14 @@ interface WorkItemRow {
   active_attempt_id: string | null;
   created_at: number;
   updated_at: number;
+  worker_session_file?: string | null;
+  worktree_path?: string | null;
+  branch?: string | null;
+  base_sha?: string | null;
+  commit_sha?: string | null;
+  diff_json?: string | null;
+  report_json?: string | null;
+  last_error?: string | null;
 }
 
 interface PlanRow {
@@ -248,6 +257,15 @@ interface PlanRow {
   created_at: number;
 }
 
+function jsonValue<T>(value: string | null | undefined): T | null {
+  if (!value) return null;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return null;
+  }
+}
+
 function workItemFromRow(row: WorkItemRow): WorkItem {
   return {
     id: row.id,
@@ -259,6 +277,14 @@ function workItemFromRow(row: WorkItemRow): WorkItem {
     desiredState: row.desired_state,
     currentPlanId: row.current_plan_id,
     activeAttemptId: row.active_attempt_id,
+    workerSessionFile: row.worker_session_file ?? null,
+    worktreePath: row.worktree_path ?? null,
+    branch: row.branch ?? null,
+    baseSha: row.base_sha ?? null,
+    commitSha: row.commit_sha ?? null,
+    diff: jsonValue(row.diff_json),
+    report: jsonValue(row.report_json),
+    lastError: row.last_error ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -307,11 +333,12 @@ export class SqliteSuperAgentStore {
 
   private migrate(): void {
     const version = this.db.prepare("PRAGMA user_version").get() as { user_version: number };
-    if (version.user_version > 1) throw new Error(`控制面数据库版本 ${version.user_version} 高于当前程序支持的版本 1`);
+    if (version.user_version > 2) throw new Error(`控制面数据库版本 ${version.user_version} 高于当前程序支持的版本 2`);
     if (version.user_version === 0) {
       this.db.exec(SCHEMA);
       this.db.exec("PRAGMA user_version = 1");
     }
+    migrateWorkerSchema(this.db);
   }
 
   close(): void {
@@ -350,7 +377,33 @@ export class SqliteSuperAgentStore {
       detail: this.parseDetail(row.detail_json),
       createdAt: row.created_at,
     }));
-    return { revision: this.revision(), workItems, plans, audit };
+    const attempts = this.db
+      .prepare("SELECT * FROM attempts ORDER BY created_at DESC LIMIT 200")
+      .all() as unknown as Array<Record<string, any>>;
+    return {
+      revision: this.revision(),
+      workItems,
+      plans,
+      attempts: attempts.map((row) => ({
+        id: row.id,
+        runId: row.run_id,
+        workItemId: row.work_item_id,
+        fence: row.fence,
+        role: row.role,
+        status: row.status,
+        workerPid: row.worker_pid,
+        worktreePath: row.worktree_path,
+        branch: row.branch,
+        heartbeatAt: row.heartbeat_at,
+        leaseExpiresAt: row.lease_expires_at,
+        report: jsonValue(row.report_json),
+        lastError: row.last_error,
+        lastEventSeq: row.last_event_seq,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      })),
+      audit,
+    };
   }
 
   processingPaused(): boolean {
@@ -505,7 +558,9 @@ export class SqliteSuperAgentStore {
     if (!row) throw new Error("计划不存在");
     const plan = planFromRow(row);
     if (
-      item.status === "QUEUED" &&
+      item.currentPlanId === plan.id &&
+      item.status !== "PLANNING" &&
+      item.status !== "AWAITING_PLAN_APPROVAL" &&
       plan.status === "APPROVED" &&
       plan.planHash === command.planHash &&
       plan.workItemId === item.id
