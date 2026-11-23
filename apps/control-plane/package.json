@@ -11,8 +11,11 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.74.0",
     "@spcode/shared": "workspace:*",
     "@spcode/superagent": "workspace:*",
+    "axios": "1.20.0",
+    "https-proxy-agent": "7.0.6",
     "ws": "^8.22.0"
   },
   "devDependencies": {

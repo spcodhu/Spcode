@@ -113,7 +113,6 @@ function attemptFromRow(row: AttemptRow): AttemptSnapshot {
 /** v1 只有审批，没有任何真实 Attempt；v2 重建 attempts 以允许 planning.run_id=NULL。 */
 export function migrateWorkerSchema(db: DatabaseSync): void {
   const { user_version: version } = db.prepare("PRAGMA user_version").get() as { user_version: number };
-  if (version > 2) throw new Error(`控制面数据库版本 ${version} 高于当前程序支持的版本 2`);
   if (version >= 2) return;
   if (version < 1) throw new Error("基础控制面 schema 尚未初始化");
   db.exec("PRAGMA foreign_keys = OFF");

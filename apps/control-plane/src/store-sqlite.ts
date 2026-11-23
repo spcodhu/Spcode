@@ -12,6 +12,7 @@ import type {
   WorkItemState,
 } from "@spcode/shared/superagent";
 import { assertPlanApproval, assertTransition } from "@spcode/superagent";
+import { migrateSourceSchema } from "./source-store.js";
 import { migrateWorkerSchema } from "./worker-store.js";
 
 const SCHEMA = `
@@ -321,6 +322,20 @@ function hashPayload(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+export interface SourceWorkItemInput {
+  source: string;
+  externalEventId: string;
+  triggerExternalId: string;
+  actorId: string;
+  containerId: string;
+  payloadHash: string;
+  payload: unknown;
+  repo: string;
+  title: string;
+  request: string;
+  threadExternalId?: string;
+}
+
 export class SqliteSuperAgentStore {
   readonly db: DatabaseSync;
 
@@ -333,12 +348,13 @@ export class SqliteSuperAgentStore {
 
   private migrate(): void {
     const version = this.db.prepare("PRAGMA user_version").get() as { user_version: number };
-    if (version.user_version > 2) throw new Error(`控制面数据库版本 ${version.user_version} 高于当前程序支持的版本 2`);
+    if (version.user_version > 3) throw new Error(`控制面数据库版本 ${version.user_version} 高于当前程序支持的版本 3`);
     if (version.user_version === 0) {
       this.db.exec(SCHEMA);
       this.db.exec("PRAGMA user_version = 1");
     }
     migrateWorkerSchema(this.db);
+    migrateSourceSchema(this.db);
   }
 
   close(): void {
@@ -406,6 +422,78 @@ export class SqliteSuperAgentStore {
     };
   }
 
+  createSourceWorkItem(
+    input: SourceWorkItemInput,
+    beforeCommit?: (workItemId: string, triggerId: string) => void,
+  ): { eventId: number; workItemId: string; triggerId: string; created: boolean } {
+    return this.transaction(() => {
+      const existing = this.db
+        .prepare("SELECT * FROM source_events WHERE source_id = ? AND external_event_id = ?")
+        .get(input.source, input.externalEventId) as { id: string; payload_hash: string } | undefined;
+      if (existing) {
+        if (existing.payload_hash !== input.payloadHash) throw new Error("相同 SourceEvent id 对应不同 payload");
+        const trigger = this.db.prepare("SELECT id FROM triggers WHERE source_event_id = ?").get(existing.id) as
+          | { id: string }
+          | undefined;
+        if (!trigger) throw new Error("SourceEvent 已存在但 Trigger 缺失，需要人工对账");
+        const item = this.db.prepare("SELECT id FROM work_items WHERE trigger_id = ?").get(trigger.id) as {
+          id: string;
+        };
+        return { eventId: this.revision(), workItemId: item.id, triggerId: trigger.id, created: false };
+      }
+      if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(input.repo)) throw new Error("仓库必须使用 owner/repo 格式");
+      const now = Date.now();
+      const sourceEventId = `se_${randomUUID()}`;
+      const triggerId = `tr_${randomUUID()}`;
+      const workItemId = `wi_${randomUUID()}`;
+      this.db
+        .prepare(
+          "INSERT INTO source_events(id, source_id, external_event_id, actor_id, container_id, payload_hash, payload_json, received_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .run(
+          sourceEventId,
+          input.source,
+          input.externalEventId,
+          input.actorId,
+          input.containerId,
+          input.payloadHash,
+          JSON.stringify(input.payload),
+          now,
+        );
+      this.db
+        .prepare(
+          "INSERT INTO triggers(id, source_event_id, source, external_id, payload_hash, repo, request_text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .run(
+          triggerId,
+          sourceEventId,
+          input.source,
+          input.triggerExternalId,
+          input.payloadHash,
+          input.repo,
+          input.request,
+          now,
+        );
+      this.db
+        .prepare(
+          "INSERT INTO work_items(id, trigger_id, repo, title, request_text, status, desired_state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'PLANNING', 'ACTIVE', ?, ?)",
+        )
+        .run(workItemId, triggerId, input.repo, input.title, input.request, now, now);
+      this.db
+        .prepare("INSERT INTO threads(id, source, external_id, work_item_id, created_at) VALUES (?, ?, ?, ?, ?)")
+        .run(`th_${randomUUID()}`, input.source, input.threadExternalId ?? input.containerId, workItemId, now);
+      this.db
+        .prepare(
+          "INSERT INTO approvals(id, subject_id, subject_hash, kind, actor_id, policy_version, decision, created_at) VALUES (?, ?, ?, 'TRIGGER_CREATE', ?, 1, 'APPROVED', ?)",
+        )
+        .run(`ap_${randomUUID()}`, triggerId, input.payloadHash, input.actorId, now);
+      beforeCommit?.(workItemId, triggerId);
+      const eventId = this.recordEvent(workItemId, "source.trigger");
+      this.recordAudit(workItemId, input.actorId, "source.trigger", input.payloadHash, { source: input.source });
+      return { eventId, workItemId, triggerId, created: true };
+    });
+  }
+
   processingPaused(): boolean {
     const row = this.db.prepare("SELECT value FROM metadata WHERE key = 'processingPaused'").get() as
       | { value: string }
@@ -426,6 +514,10 @@ export class SqliteSuperAgentStore {
           return this.cancelWorkItem(command.workItemId, actorId);
         case "workitem.retry":
           return this.retryWorkItem(command.workItemId, actorId);
+        case "digest.run":
+        case "digest.resolve":
+        case "outbox.reconcile":
+          throw new Error("Source 命令必须由控制面 SourceService 处理");
         case "processing.setPaused": {
           this.db
             .prepare(
@@ -569,7 +661,7 @@ export class SqliteSuperAgentStore {
     }
     assertPlanApproval({
       actorId,
-      authorized: actorId === "local-device",
+      authorized: actorId === "local-device" || actorId.startsWith("feishu:"),
       workItem: item,
       plan,
       presentedPlanHash: command.planHash,

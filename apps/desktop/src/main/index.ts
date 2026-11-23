@@ -43,6 +43,7 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import { AgentBridge } from "./agent-bridge.js";
 import { DraftsStore } from "./drafts-store.js";
 import { showImageContextMenu } from "./image-actions.js";
+import { LocalFeishuProxy } from "./local-feishu-proxy.js";
 import { LocalService } from "./local-service.js";
 import { LoginItemService } from "./login-item.js";
 import { Notifier } from "./notifier.js";
@@ -419,6 +420,15 @@ const localService = new LocalService({
   enabled: !backgroundE2E || process.env.SPCODE_E2E_CONTROL_PLANE === "1",
   invoke: invokeDesktopMethod,
 });
+const localFeishuProxy = new LocalFeishuProxy(localService);
+if (
+  process.env.SPCODE_SUPERAGENT_ENABLED === "1" &&
+  process.env.SPCODE_FEISHU_APP_ID &&
+  process.env.SPCODE_FEISHU_APP_SECRET &&
+  process.env.SPCODE_FEISHU_BOT_OPEN_ID
+) {
+  remote.setSuperAgentFeishuApi(localFeishuProxy);
+}
 bridge.onEvent((event) => localService.publishHostEvent(event));
 
 // ---------------------------------------------------------------------------
@@ -645,6 +655,14 @@ async function invokeDesktopMethod(method: string, args: unknown[]): Promise<unk
         typeof args[2] === "string" ? args[2] : undefined,
       );
     }
+    case "feishu.privateMessage":
+      await localFeishuProxy.dispatchMessage(args[0] as { operatorOpenId: string; text: string; chatType: string });
+      return { ok: true };
+    case "feishu.privateCard":
+      await localFeishuProxy.dispatchCard(
+        args[0] as { operatorOpenId: string; value: Record<string, unknown>; messageId: string },
+      );
+      return { ok: true };
     default:
       throw new Error(`不支持的桌面适配方法：${method}`);
   }

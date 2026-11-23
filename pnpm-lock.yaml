@@ -31,12 +31,21 @@ importers:
 
   apps/control-plane:
     dependencies:
+      '@larksuiteoapi/node-sdk':
+        specifier: ^1.74.0
+        version: 1.74.0
       '@spcode/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       '@spcode/superagent':
         specifier: workspace:*
         version: link:../../packages/superagent
+      axios:
+        specifier: 1.20.0
+        version: 1.20.0
+      https-proxy-agent:
+        specifier: 7.0.6
+        version: 7.0.6
       ws:
         specifier: ^8.22.0
         version: 8.22.0

@@ -15,6 +15,11 @@ import { AuthService, CONTROL_COOKIE, ensureDeviceToken, parseCookies } from "./
 import { DesktopHub } from "./desktop-hub.js";
 import { removeRuntimeInfo, writeRuntimeInfo } from "./discovery.js";
 import { GitWorkspaceManager } from "./git-workspace.js";
+import { type FeishuApi, LarkFeishuApi } from "./integrations/feishu/api.js";
+import { FeishuGateway } from "./integrations/feishu/gateway.js";
+import { OutboxDispatcher } from "./integrations/feishu/outbox.js";
+import { SourceStore } from "./source-store.js";
+import { DigestService, GitHubConnector, type GitHubIssueConnector } from "./sources/github.js";
 import { SqliteSuperAgentStore } from "./store-sqlite.js";
 import { WorkerManager } from "./worker-manager.js";
 import { createDefaultWorkerRunner, type WorkerRunner } from "./worker-runner.js";
@@ -69,6 +74,17 @@ const MIME: Record<string, string> = {
   ".map": "application/json; charset=utf-8",
 };
 
+function envList(value: string | undefined): string[] {
+  return [
+    ...new Set(
+      (value ?? "")
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  ];
+}
+
 export interface ControlPlaneOptions {
   baseDir?: string;
   databaseFile?: string;
@@ -81,6 +97,11 @@ export interface ControlPlaneOptions {
   workerRunner?: WorkerRunner;
   workerPollMs?: number;
   afterCommit?: () => void;
+  githubConnector?: GitHubIssueConnector;
+  feishuApi?: FeishuApi;
+  digestChatId?: string;
+  digestSchedulerEnabled?: boolean;
+  outboxPollMs?: number;
 }
 
 export class ControlPlane {
@@ -91,6 +112,9 @@ export class ControlPlane {
   private readonly workbenchDir: string;
   private readonly store: SqliteSuperAgentStore;
   private readonly workers: WorkerStore;
+  private readonly sources: SourceStore;
+  private readonly feishuApi: FeishuApi | null;
+  private readonly digest: DigestService;
   private readonly enabled: boolean;
   private readonly auth: AuthService;
   private readonly server: Server;
@@ -99,6 +123,9 @@ export class ControlPlane {
   private hub!: DesktopHub;
   private engine!: SuperAgentEngine;
   private workerManager: WorkerManager | null = null;
+  private feishuGateway: FeishuGateway | null = null;
+  private outboxDispatcher: OutboxDispatcher | null = null;
+  private digestTimer: NodeJS.Timeout | null = null;
   private port = 0;
   private closing = false;
 
@@ -109,11 +136,52 @@ export class ControlPlane {
     this.requestedPort = options.port ?? 0;
     this.workbenchDir = resolve(options.workbenchDir);
     this.store = new SqliteSuperAgentStore(options.databaseFile ?? join(this.baseDir, "control.sqlite"));
-    this.workers = new WorkerStore(this.store.db, (sequence, workItemId) => this.hub?.publish(sequence, workItemId));
+    this.workers = new WorkerStore(this.store.db, (sequence, workItemId) => this.publishEvent(sequence, workItemId));
+    this.sources = new SourceStore(this.store.db, this.store, (sequence, workItemId) =>
+      this.publishEvent(sequence, workItemId),
+    );
+    this.digest = new DigestService(
+      this.sources,
+      options.githubConnector ?? new GitHubConnector({ token: process.env.SPCODE_GITHUB_TOKEN }),
+    );
     this.enabled = options.superAgentEnabled ?? process.env.SPCODE_SUPERAGENT_ENABLED === "1";
     this.auth = new AuthService(this.store.db, ensureDeviceToken(this.baseDir));
     this.server = createServer((request, response) => void this.handle(request, response));
     this.server.on("upgrade", (request, socket, head) => this.upgrade(request, socket, head));
+    const appId = process.env.SPCODE_FEISHU_APP_ID?.trim();
+    const appSecret = process.env.SPCODE_FEISHU_APP_SECRET?.trim();
+    const botOpenId = process.env.SPCODE_FEISHU_BOT_OPEN_ID?.trim();
+    const feishuApi =
+      options.feishuApi ??
+      (appId && appSecret && botOpenId ? new LarkFeishuApi({ appId, appSecret, botOpenId }) : null);
+    this.feishuApi = feishuApi;
+    if (feishuApi) {
+      this.feishuGateway = new FeishuGateway(
+        this.sources,
+        feishuApi,
+        () => ({
+          enabled: this.enabled,
+          allowedChats: envList(process.env.SPCODE_SUPERAGENT_ALLOWED_CHATS),
+          authorizedOperators: envList(process.env.SPCODE_SUPERAGENT_AUTHORIZED_OPERATORS),
+          defaultRepo: DEFAULT_SUPERAGENT_CONFIG.defaultRepo,
+          botOpenId: process.env.SPCODE_FEISHU_BOT_OPEN_ID ?? "",
+        }),
+        (input) => {
+          this.engine.execute(
+            { type: "plan.approve", workItemId: input.workItemId, planId: input.planId, planHash: input.planHash },
+            `feishu:${input.actorId}`,
+          );
+          this.sources.projectNotifications();
+        },
+        async (message) => {
+          await this.hub.invoke("feishu.privateMessage", [message]).catch(() => {});
+        },
+        async (action) => {
+          await this.hub.invoke("feishu.privateCard", [action]).catch(() => {});
+        },
+      );
+      this.outboxDispatcher = new OutboxDispatcher(this.sources, feishuApi, { pollMs: this.options.outboxPollMs });
+    }
   }
 
   async start(): Promise<{ port: number; deviceToken: string }> {
@@ -129,11 +197,27 @@ export class ControlPlane {
     if (!address || typeof address === "string") throw new Error("控制面端口绑定失败");
     this.port = address.port;
     const runtime = writeRuntimeInfo(this.baseDir, this.port, this.startedAt);
-    this.hub = new DesktopHub(runtime.serviceToken, () => {});
+    this.hub = new DesktopHub(
+      runtime.serviceToken,
+      () => {},
+      (method, args) => this.desktopControl(method, args),
+    );
     this.engine = new SuperAgentEngine(this.store, {
-      publish: (event) => this.hub.publish(event.sequence, event.workItemId),
+      publish: (event) => this.publishEvent(event.sequence, event.workItemId),
     });
+    this.sources.recoverSending();
+    this.sources.projectNotifications();
     if (this.enabled) {
+      if (this.feishuGateway) {
+        try {
+          await this.feishuGateway.start();
+          this.outboxDispatcher?.start();
+        } catch (error) {
+          console.error("[feishu] 长连接启动失败，Outbox 保持持久化等待恢复", error);
+        }
+      }
+      await this.runDueDigests();
+      this.digestTimer = setInterval(() => void this.runDueDigests(), 30_000);
       const git = new GitWorkspaceManager(this.baseDir, (repo) => this.repoSource(repo));
       this.workerManager = new WorkerManager({
         baseDir: this.baseDir,
@@ -156,6 +240,10 @@ export class ControlPlane {
   async close(): Promise<void> {
     if (this.closing) return;
     this.closing = true;
+    if (this.digestTimer) clearInterval(this.digestTimer);
+    this.digestTimer = null;
+    this.outboxDispatcher?.stop();
+    await this.feishuGateway?.stop().catch(() => {});
     await this.workerManager?.stop();
     this.hub?.close();
     this.browserWss.close();
@@ -163,6 +251,22 @@ export class ControlPlane {
     await new Promise<void>((resolveClose) => this.server.close(() => resolveClose()));
     this.store.close();
     removeRuntimeInfo(this.baseDir);
+  }
+
+  private async desktopControl(method: string, args: unknown[]): Promise<unknown> {
+    if (!this.feishuApi) throw new Error("飞书控制面未配置");
+    if (method === "feishu.sendPrivateText") {
+      if (!this.feishuApi.sendPrivateText) throw new Error("当前飞书 Provider 不支持私聊文本");
+      return this.feishuApi.sendPrivateText(String(args[0]), String(args[1]));
+    }
+    if (method === "feishu.sendPrivateCard") {
+      if (!this.feishuApi.sendPrivateCard) throw new Error("当前飞书 Provider 不支持私聊卡片");
+      return this.feishuApi.sendPrivateCard(String(args[0]), args[1] as Record<string, unknown>);
+    }
+    if (method === "feishu.updateCard") {
+      return this.feishuApi.updateCard(String(args[0]), args[1] as Record<string, unknown>);
+    }
+    throw new Error(`未知控制面回调：${method}`);
   }
 
   private repoSource(repo: string): string {
@@ -185,6 +289,18 @@ export class ControlPlane {
     return {
       ...this.store.snapshot(),
       enabled: this.enabled,
+      digests: this.sources.listDigests(),
+      outbox: this.sources.listOutbox().map((record) => ({
+        id: record.id,
+        conversationId: record.conversationId,
+        kind: record.kind,
+        status: record.status,
+        externalId: record.externalId,
+        attemptCount: record.attemptCount,
+        lastError: record.lastError,
+        createdAt: record.createdAt,
+        updatedAt: record.updatedAt,
+      })),
       service: {
         protocolVersion: SUPERAGENT_PROTOCOL_VERSION,
         startedAt: this.startedAt,
@@ -193,6 +309,27 @@ export class ControlPlane {
         processingPaused: this.store.processingPaused(),
       },
     };
+  }
+
+  private publishEvent(sequence: number, workItemId?: string): void {
+    this.hub?.publish(sequence, workItemId);
+    this.sources?.projectNotifications();
+  }
+
+  private async runDueDigests(): Promise<void> {
+    if (!this.enabled || this.closing || this.options.digestSchedulerEnabled === false) return;
+    const chatId = this.options.digestChatId ?? process.env.SPCODE_SUPERAGENT_DIGEST_CHAT_ID ?? "";
+    if (!chatId) return;
+    const repos = envList(process.env.SPCODE_SUPERAGENT_DIGEST_REPOS);
+    for (const repo of repos.length ? repos : [DEFAULT_SUPERAGENT_CONFIG.defaultRepo]) {
+      try {
+        if (this.digest.dueDaily(repo, DEFAULT_SUPERAGENT_CONFIG.timezone, DEFAULT_SUPERAGENT_CONFIG.dailyDigestTime)) {
+          await this.digest.run({ repo, chatId, mode: "daily", timezone: DEFAULT_SUPERAGENT_CONFIG.timezone });
+        }
+      } catch (error) {
+        console.error(`[digest] ${repo}:`, error);
+      }
+    }
   }
 
   private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -243,8 +380,29 @@ export class ControlPlane {
         }
         if (url.pathname === "/api/v1/superagent/commands" && request.method === "POST") {
           const command = parseSuperAgentCommand(await this.readJson(request));
-          this.engine.execute(command, "local-device");
-          if (command.type === "workitem.cancel") await this.workerManager?.cancel(command.workItemId);
+          if (command.type === "digest.run") {
+            if (!this.enabled) throw new Error("SuperAgent 未启用");
+            const chatId = this.options.digestChatId ?? process.env.SPCODE_SUPERAGENT_DIGEST_CHAT_ID ?? "";
+            if (!chatId) throw new Error("请先配置 SPCODE_SUPERAGENT_DIGEST_CHAT_ID");
+            await this.digest.run({
+              repo: command.repo,
+              chatId,
+              mode: "manual",
+              requestId: command.requestId,
+              timezone: DEFAULT_SUPERAGENT_CONFIG.timezone,
+            });
+          } else if (command.type === "digest.resolve") {
+            this.sources.resolveDigestItem({
+              ...command,
+              actorId: "local-device",
+              chatId: this.sources.digestConversation(command.digestId),
+            });
+          } else if (command.type === "outbox.reconcile") {
+            this.sources.reconcileOutbox(command.id, command.outcome, command.externalId);
+          } else {
+            this.engine.execute(command, "local-device");
+            if (command.type === "workitem.cancel") await this.workerManager?.cancel(command.workItemId);
+          }
           this.json(response, 200, this.snapshot());
           return;
         }

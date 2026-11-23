@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, openSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { HostEvent } from "@spcode/shared";
@@ -21,6 +22,10 @@ export class LocalService {
   private socket: WebSocket | null = null;
   private active = false;
   private reconnectTimer: NodeJS.Timeout | null = null;
+  private readonly controlPending = new Map<
+    string,
+    { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: NodeJS.Timeout }
+  >();
 
   constructor(private readonly options: LocalServiceOptions) {}
 
@@ -59,6 +64,19 @@ export class LocalService {
     if (this.connected) this.socket?.send(JSON.stringify({ type: "desktop.event", event }));
   }
 
+  invokeControl<T = unknown>(method: string, args: unknown[]): Promise<T> {
+    if (!this.connected) return Promise.reject(new Error("控制面桌面通道未连接"));
+    const id = randomUUID();
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.controlPending.delete(id);
+        reject(new Error(`控制面回调超时：${method}`));
+      }, 60_000);
+      this.controlPending.set(id, { resolve: resolve as (value: unknown) => void, reject, timer });
+      this.socket?.send(JSON.stringify({ type: "desktop.control", id, method, args }));
+    });
+  }
+
   /** 只断开 Electron 适配器；独立控制面与 SuperAgent 任务继续运行。 */
   stop(): void {
     this.active = false;
@@ -66,6 +84,7 @@ export class LocalService {
     this.reconnectTimer = null;
     this.socket?.close(1000, "desktop shutting down");
     this.socket = null;
+    this.rejectControl(new Error("桌面已停止"));
   }
 
   private async discoverHealthy(): Promise<ControlRuntimeInfo | null> {
@@ -129,6 +148,7 @@ export class LocalService {
     socket.on("error", (error) => console.warn("[local-service] 控制面连接异常", error.message));
     socket.on("close", () => {
       if (this.socket === socket) this.socket = null;
+      this.rejectControl(new Error("控制面连接已断开"));
       if (this.active && !this.reconnectTimer) {
         this.reconnectTimer = setTimeout(() => {
           this.reconnectTimer = null;
@@ -140,10 +160,27 @@ export class LocalService {
   }
 
   private async accept(raw: string): Promise<void> {
-    let message: { type?: string; id?: string; method?: string; args?: unknown[] };
+    let message: {
+      type?: string;
+      id?: string;
+      method?: string;
+      args?: unknown[];
+      ok?: boolean;
+      result?: unknown;
+      error?: string;
+    };
     try {
       message = JSON.parse(raw);
     } catch {
+      return;
+    }
+    if (message.type === "desktop.control.response" && message.id) {
+      const pending = this.controlPending.get(message.id);
+      if (!pending) return;
+      this.controlPending.delete(message.id);
+      clearTimeout(pending.timer);
+      if (message.ok) pending.resolve(message.result);
+      else pending.reject(new Error(message.error || "控制面回调失败"));
       return;
     }
     if (message.type !== "desktop.invoke" || !message.id || typeof message.method !== "string") return;
@@ -160,5 +197,13 @@ export class LocalService {
         }),
       );
     }
+  }
+
+  private rejectControl(error: Error): void {
+    for (const pending of this.controlPending.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(error);
+    }
+    this.controlPending.clear();
   }
 }

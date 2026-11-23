@@ -20,6 +20,9 @@ export class DesktopHub {
   constructor(
     private readonly serviceToken: string,
     private readonly onHostEvent: (event: HostEvent) => void,
+    private readonly onControl: (method: string, args: unknown[]) => Promise<unknown> = async () => {
+      throw new Error("控制面回调未配置");
+    },
   ) {}
 
   get connected(): boolean {
@@ -87,7 +90,16 @@ export class DesktopHub {
   }
 
   private acceptDesktopMessage(raw: string): void {
-    let message: { type?: string; id?: string; ok?: boolean; result?: unknown; error?: string; event?: HostEvent };
+    let message: {
+      type?: string;
+      id?: string;
+      ok?: boolean;
+      result?: unknown;
+      error?: string;
+      event?: HostEvent;
+      method?: string;
+      args?: unknown[];
+    };
     try {
       message = JSON.parse(raw);
     } catch {
@@ -96,6 +108,23 @@ export class DesktopHub {
     if (message.type === "desktop.event" && message.event) {
       this.onHostEvent(message.event);
       this.broadcast({ type: "host.event", event: message.event });
+      return;
+    }
+    if (message.type === "desktop.control" && message.id && message.method) {
+      void this.onControl(message.method, Array.isArray(message.args) ? message.args : [])
+        .then((result) => {
+          this.desktop?.send(JSON.stringify({ type: "desktop.control.response", id: message.id, ok: true, result }));
+        })
+        .catch((error) => {
+          this.desktop?.send(
+            JSON.stringify({
+              type: "desktop.control.response",
+              id: message.id,
+              ok: false,
+              error: error instanceof Error ? error.message : String(error),
+            }),
+          );
+        });
       return;
     }
     if (message.type !== "desktop.response" || !message.id) return;

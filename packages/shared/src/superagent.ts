@@ -111,6 +111,42 @@ export interface AuditEntry {
   createdAt: number;
 }
 
+export interface DigestSnapshot {
+  id: string;
+  repo: string;
+  localDate: string;
+  digestHash: string;
+  status: string;
+  items: Array<{
+    itemId: string;
+    digestId: string;
+    id: string;
+    number: number;
+    title: string;
+    body: string;
+    author: string;
+    labels: string[];
+    url: string;
+    updatedAt: string;
+    contentHash: string;
+    resolution: "APPROVED" | "IGNORED" | null;
+    workItemId?: string;
+  }>;
+  createdAt: number;
+}
+
+export interface OutboxSnapshot {
+  id: string;
+  conversationId: string;
+  kind: string;
+  status: string;
+  externalId: string | null;
+  attemptCount: number;
+  lastError: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface SuperAgentServiceSnapshot {
   protocolVersion: typeof SUPERAGENT_PROTOCOL_VERSION;
   startedAt: number;
@@ -127,6 +163,8 @@ export interface SuperAgentSnapshot {
   plans: PlanRevision[];
   attempts: AttemptSnapshot[];
   audit: AuditEntry[];
+  digests?: DigestSnapshot[];
+  outbox?: OutboxSnapshot[];
 }
 
 export type SuperAgentCommand =
@@ -156,6 +194,15 @@ export type SuperAgentCommand =
     }
   | { type: "workitem.cancel"; workItemId: string }
   | { type: "workitem.retry"; workItemId: string }
+  | { type: "digest.run"; repo: string; requestId: string }
+  | {
+      type: "digest.resolve";
+      digestId: string;
+      itemId: string;
+      digestHash: string;
+      action: "approve" | "ignore";
+    }
+  | { type: "outbox.reconcile"; id: string; outcome: "SENT" | "FAILED"; externalId?: string }
   | { type: "processing.setPaused"; paused: boolean };
 
 export interface SuperAgentChangedEvent {
@@ -286,6 +333,29 @@ export function parseSuperAgentCommand(input: unknown): SuperAgentCommand {
     case "workitem.cancel":
     case "workitem.retry":
       return { type: input.type, workItemId: requiredId(input.workItemId, "workItemId") };
+    case "digest.run":
+      return {
+        type: input.type,
+        repo: requiredString(input.repo, "repo", 200),
+        requestId: requiredId(input.requestId, "requestId"),
+      };
+    case "digest.resolve":
+      if (input.action !== "approve" && input.action !== "ignore") throw new Error("Invalid digest action");
+      return {
+        type: input.type,
+        digestId: requiredId(input.digestId, "digestId"),
+        itemId: requiredId(input.itemId, "itemId"),
+        digestHash: requiredString(input.digestHash, "digestHash", 128),
+        action: input.action,
+      };
+    case "outbox.reconcile":
+      if (input.outcome !== "SENT" && input.outcome !== "FAILED") throw new Error("Invalid outbox outcome");
+      return {
+        type: input.type,
+        id: requiredId(input.id, "id"),
+        outcome: input.outcome,
+        ...(input.externalId === undefined ? {} : { externalId: requiredString(input.externalId, "externalId", 500) }),
+      };
     case "processing.setPaused":
       if (typeof input.paused !== "boolean") throw new Error("Invalid paused");
       return { type: input.type, paused: input.paused };

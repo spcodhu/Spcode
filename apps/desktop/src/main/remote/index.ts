@@ -196,6 +196,10 @@ export class RemoteServer {
     await this.syncFeishu();
   }
 
+  setSuperAgentFeishuApi(api: FeishuApi): void {
+    this.deps.feishuApi = api;
+  }
+
   setLocale(locale: Locale): void {
     this.emitRemote({ type: "locale.changed", locale });
     void this.feishuChannel?.refreshLocale();
