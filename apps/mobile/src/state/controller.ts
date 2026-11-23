@@ -46,6 +46,30 @@ export function getClient(): RemoteClient | null {
   return client;
 }
 
+/**
+ * 首屏门禁：连接就绪 + 语言同步 + 首个会话列表三者齐备才一次性放行内容；
+ * 需用户处理的终态（unpaired/incompatible/grant_expired）也放行，露出横幅与操作入口。
+ * 在连接状态、语言、会话列表任一变化后调用，幂等。
+ */
+function settleBootIfReady(): void {
+  const s = useAppStore.getState();
+  if (s.bootSettled) return;
+  if (s.route.name === "pair") {
+    s.setBootSettled(true);
+    return;
+  }
+  if (s.connState === "unpaired" || s.connState === "incompatible" || s.connState === "grant_expired") {
+    s.setBootSettled(true);
+    return;
+  }
+  if (s.connState === "ready" && s.localeReady && s.sessionsLoaded) s.setBootSettled(true);
+}
+
+/** 首屏加载兜底（如桌面离线）：超时后主动放行以露出真实连接状态，避免无限加载动画。由 BootLoader 超时调用。 */
+export function revealBootStatus(): void {
+  useAppStore.getState().setBootSettled(true);
+}
+
 /** App 启动：读 IndexedDB 配对记录；有则建连，无则进配对页 */
 export async function boot(): Promise<void> {
   initializeMobileLocale();
@@ -58,6 +82,7 @@ export async function boot(): Promise<void> {
   }
   if (!record) {
     store.setRoute({ name: "pair" });
+    store.setBootSettled(true);
     return;
   }
   // 无密钥的旧官方地址按历史 official 配置自动迁移，避免老配对升级后仍连旧域名。
@@ -104,6 +129,7 @@ function startClient(record: PairingRecord): void {
         void refreshAll();
         void backfillOutputs(); // 断线补拉：auth 成功后按已收到的最大 seq 补缺口
       }
+      settleBootIfReady();
     },
   });
   store.setConn("connecting");
@@ -111,8 +137,12 @@ function startClient(record: PairingRecord): void {
 }
 
 export function attachPairedRecord(record: PairingRecord): void {
-  useAppStore.getState().setPairing(record);
-  useAppStore.getState().setRoute({ name: "sessions" });
+  const store = useAppStore.getState();
+  store.setPairing(record);
+  store.setRoute({ name: "sessions" });
+  // 新配对重新进入首屏门禁：等新连接就绪 + 语言 + 首个列表后再一次性放行。
+  store.setBootSettled(false);
+  store.setSessionsLoaded(false);
   startClient(record);
 }
 
@@ -173,6 +203,7 @@ function handleEvent(event: RemoteEventExt): void {
   switch (event.type) {
     case "session.snapshot":
       s.applySessionSnapshot(event.sessions, event.pendingPermissions ?? [], event.pendingQuestions ?? []);
+      settleBootIfReady();
       break;
     case "session.status": {
       const previous = s.sessions[event.sessionId];
@@ -238,11 +269,13 @@ function handleEvent(event: RemoteEventExt): void {
     case "locale.changed":
       applyDesktopLocale(event.locale);
       s.setLocaleReady(true);
+      settleBootIfReady();
       break;
     case "remote.hello":
       // A missing locale is an older desktop: explicitly use the shared profile default.
       applyDesktopLocale(event.locale);
       s.setLocaleReady(true);
+      settleBootIfReady();
       // Web Push 契约：auth 成功后桌面下发 VAPID 公钥；已开启通知则（重）上报订阅
       s.setVapidKey(event.vapidPublicKey);
       void resubscribePushIfEnabled(event.vapidPublicKey);
@@ -271,6 +304,7 @@ async function refreshSessionList(): Promise<void> {
     });
     if (request === sessionListRequest && generation === clientGeneration) {
       useAppStore.getState().setSessions(data.sessions);
+      settleBootIfReady();
     }
   } catch {
     // 快照事件兜底

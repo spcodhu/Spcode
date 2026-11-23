@@ -9,9 +9,63 @@
     <script src="./theme-boot.js"></script>
     <link rel="manifest" href="./manifest.webmanifest" />
     <title>Spcode</title>
+    <style>
+      /* 首屏 app-shell：JS 加载前先呈现主题自适应的加载动画，消除白屏。
+         React 挂载后会替换 #root 内的本占位（见 BootLoader，二者同款）。
+         内联样式符合 relay CSP（style-src 'unsafe-inline'）；颜色与 index.css 主题变量一致。 */
+      #boot-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1rem;
+        background: #f7f7f5;
+        color: #1c1c1c;
+        font-family: system-ui, -apple-system, "PingFang SC", "Noto Sans SC", sans-serif;
+      }
+      :root[data-theme-base="dark"] #boot-splash {
+        background: #101012;
+        color: #f0f0f2;
+      }
+      #boot-splash .boot-mark {
+        font-size: 1.125rem;
+        font-weight: 600;
+        letter-spacing: -0.025em;
+      }
+      #boot-splash .boot-ring {
+        width: 1.75rem;
+        height: 1.75rem;
+        border-radius: 9999px;
+        border: 3px solid #e2e2de;
+        border-top-color: #171717;
+        animation: boot-splash-spin 0.8s linear infinite;
+      }
+      :root[data-theme-base="dark"] #boot-splash .boot-ring {
+        border-color: #343439;
+        border-top-color: #f4f4f5;
+      }
+      @keyframes boot-splash-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #boot-splash .boot-ring {
+          animation: none;
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="boot-splash" aria-hidden="true">
+        <div class="boot-mark">Spcode</div>
+        <div class="boot-ring"></div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

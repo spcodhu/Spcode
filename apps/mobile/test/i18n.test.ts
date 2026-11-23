@@ -247,6 +247,8 @@ describe("mobile locale lifecycle", () => {
   });
 
   it("announces connection state appropriately and exposes an explicit re-pair action", () => {
+    // 首屏门禁放行后（稳态）才展示连接横幅；冷启动期间由加载动画接管。
+    useAppStore.getState().setBootSettled(true);
     useAppStore.getState().setConn("connecting");
     expect(render(createElement(App))).toContain('role="status"');
     useAppStore.getState().setConn("unpaired");

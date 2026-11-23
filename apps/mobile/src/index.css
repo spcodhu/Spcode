@@ -171,6 +171,34 @@ pre,
   }
 }
 
+/* 首屏加载环形 spinner（与 index.html 内联 splash 同款，主题变量自适应）。 */
+.boot-spinner {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 9999px;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-accent);
+  animation: boot-spin 0.8s linear infinite;
+}
+@keyframes boot-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 首屏内容一次性放行时的轻量淡入，避免生硬切换。 */
+.content-reveal {
+  animation: content-reveal 0.25s ease;
+}
+@keyframes content-reveal {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 /* 悬浮输入区：高度随内容增长，最大四行半，焦点反馈放在整个胶囊上。 */
 .mobile-composer {
   box-shadow: 0 4px 20px rgb(0 0 0 / 6%);

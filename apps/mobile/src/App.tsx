@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { BootLoader } from "./components/BootLoader";
 import { PermissionCard } from "./components/PermissionCard";
 import { QuestionCard } from "./components/QuestionCard";
 import { errorText } from "./lib/i18n";
@@ -53,19 +54,24 @@ export default function App() {
   const { t } = useTranslation("mobile");
   const route = useAppStore((s) => s.route);
   const localeReady = useAppStore((s) => s.localeReady);
+  const bootSettled = useAppStore((s) => s.bootSettled);
   const connState = useAppStore((s) => s.connState);
   const topPermission = useAppStore((s) => s.permissions[0] ?? null);
   const topQuestion = useAppStore((s) => s.questions[0] ?? null);
+  // 首屏门禁：冷启动/新配对后先展示加载动画，待连接 + 语言 + 首个会话列表齐备再一次性放行；
+  // 未配对（pair 路由）不受门禁限制，直接放出配对页。
+  const bootLoading = !bootSettled && route.name !== "pair";
   // Keep disconnected cached content accessible, but do not render a fresh snapshot in the
   // cached language while the authenticated desktop's hello is still in flight.
   const showContent =
-    route.name === "pair" ||
-    localeReady ||
-    connState === "reconnecting" ||
-    connState === "unpaired" ||
-    connState === "incompatible" ||
-    connState === "grant_expired" ||
-    connState === "stopped";
+    !bootLoading &&
+    (route.name === "pair" ||
+      localeReady ||
+      connState === "reconnecting" ||
+      connState === "unpaired" ||
+      connState === "incompatible" ||
+      connState === "grant_expired" ||
+      connState === "stopped");
 
   useEffect(() => {
     void boot();
@@ -73,14 +79,15 @@ export default function App() {
 
   return (
     <div className="mobile-app relative mx-auto flex w-full max-w-md flex-col bg-bg-root">
-      {route.name !== "pair" && <ConnBanner />}
+      {route.name !== "pair" && !bootLoading && <ConnBanner />}
       <div className="min-h-0 flex-1">
-        {!showContent && (
+        {bootLoading && <BootLoader />}
+        {!bootLoading && !showContent && (
           <div role="status" data-testid="locale-pending" className="px-4 py-8 text-center text-sm text-text-tertiary">
             {t("connection.localePending")}
           </div>
         )}
-        <div hidden={!showContent} data-testid="session-content" className="h-full">
+        <div hidden={!showContent} data-testid="session-content" className="content-reveal h-full">
           {route.name === "pair" && <PairPage />}
           {route.name === "sessions" && <SessionsPage />}
           {route.name === "session" && <SessionDetailPage key={route.id} sessionId={route.id} />}

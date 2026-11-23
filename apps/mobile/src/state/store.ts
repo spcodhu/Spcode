@@ -77,9 +77,15 @@ interface AppState {
   connDetail?: ConnectionDetail;
   /** Authenticated locale must arrive before rendering newly connected session content. */
   localeReady: boolean;
+  /** 首屏装载门禁：冷启动/新配对后，连接就绪 + 语言同步 + 首个会话列表到达（或进入需用户处理的终态）才一次性放行内容。 */
+  bootSettled: boolean;
+  /** 是否已收到首个权威会话列表/快照（空列表也算）；用于首屏一次性放行，避免先闪空列表再填充。 */
+  sessionsLoaded: boolean;
   themeBase: ThemeBase;
   setThemeBase(base: ThemeBase): void;
   setLocaleReady(ready: boolean): void;
+  setBootSettled(settled: boolean): void;
+  setSessionsLoaded(loaded: boolean): void;
   pairing: PairingRecord | null;
   sessions: Record<string, SessionView>;
   models: ModelInfo[];
@@ -140,6 +146,8 @@ const initialData = {
   connState: "connecting" as ConnectionState,
   connDetail: undefined as ConnectionDetail | undefined,
   localeReady: false,
+  bootSettled: false,
+  sessionsLoaded: false,
   themeBase: readMobileTheme(),
   pairing: null as PairingRecord | null,
   sessions: {} as Record<string, SessionView>,
@@ -282,6 +290,8 @@ export const useAppStore = create<AppState>((set) => ({
     set({ themeBase });
   },
   setLocaleReady: (localeReady) => set({ localeReady }),
+  setBootSettled: (bootSettled) => set({ bootSettled }),
+  setSessionsLoaded: (sessionsLoaded) => set({ sessionsLoaded }),
   setConn: (connState, detail) => set({ connState, connDetail: detail }),
   setPairing: (pairing) => set({ pairing }),
   setModels: (models, defaultModel) => set({ models, defaultModel }),
@@ -290,7 +300,7 @@ export const useAppStore = create<AppState>((set) => ({
     set((s) => {
       const sessions: Record<string, SessionView> = {};
       for (const m of metas) sessions[m.id] = { ...m, status: s.sessions[m.id]?.status ?? "idle" };
-      return reconcileSessions(s, sessions);
+      return { ...reconcileSessions(s, sessions), sessionsLoaded: true };
     }),
 
   applySessionSnapshot: (metas, pendingPermissions, pendingQuestions) =>
@@ -320,7 +330,11 @@ export const useAppStore = create<AppState>((set) => ({
         if (meta.todos.length > 0) nextTodos[meta.id] = meta.todos;
         else delete nextTodos[meta.id];
       }
-      return { ...reconcileSessions(s, sessions, pendingPermissions, pendingQuestions), todos: nextTodos };
+      return {
+        ...reconcileSessions(s, sessions, pendingPermissions, pendingQuestions),
+        todos: nextTodos,
+        sessionsLoaded: true,
+      };
     }),
 
   patchSession: (id, patch) =>
