@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -50,6 +50,20 @@ describe("私有 Artifact Store", () => {
     expect(() => store.artifacts.put({ kind: "html", content: "<script>x</script>", mimeType: "text/html" })).toThrow(
       /不允许/,
     );
+    store.close();
+  });
+
+  it("配额、HTML 类型与内容篡改均失败关闭", () => {
+    const home = mkdtempSync(join(tmpdir(), "spcode-artifact-test-"));
+    homes.push(home);
+    const store = new SqliteSuperAgentStore(join(home, "control.sqlite"));
+    expect(() => store.artifacts.put({ kind: "large", content: Buffer.alloc(16 * 1024 * 1024 + 1, 1) })).toThrow(
+      /16MB/,
+    );
+    const artifact = store.artifacts.put({ kind: "diff", content: "original", mimeType: "text/x-diff" });
+    const file = join(home, "artifact-content", artifact.storageKey.slice(0, 2), `${artifact.storageKey.slice(2)}.bin`);
+    writeFileSync(file, "tampered");
+    expect(() => store.artifacts.read(artifact)).toThrow(/哈希|大小/);
     store.close();
   });
 });

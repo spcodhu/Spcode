@@ -351,10 +351,13 @@ export class SourceStore {
     operatorId: string;
     text: string;
     repo: string;
+    createTime?: number;
     rootId?: string;
     threadId?: string;
     mentions: unknown[];
-  }): { workItemId: string; created: boolean } {
+  }): { workItemId?: string; created: boolean } {
+    if (input.createTime !== undefined && input.createTime <= this.lastGroupMessageAt(input.chatId))
+      return { created: false };
     const payloadHash = hash({ eventId: input.eventId, text: input.text, repo: input.repo });
     const result = this.base.createSourceWorkItem(
       {
@@ -376,10 +379,26 @@ export class SourceStore {
           kind: "group.accepted",
           payload: { workItemId, replyToMessageId: input.messageId, text: input.text },
         });
+        if (input.createTime !== undefined) this.recordGroupMessageTime(input.chatId, input.createTime);
       },
     );
     this.publish(result.eventId, result.workItemId);
     return { workItemId: result.workItemId, created: result.created };
+  }
+
+  lastGroupMessageAt(chatId: string): number {
+    const row = this.db.prepare("SELECT value FROM metadata WHERE key = ?").get(`group.lastMessageAt:${chatId}`) as
+      | { value: string }
+      | undefined;
+    return Number(row?.value ?? 0);
+  }
+
+  private recordGroupMessageTime(chatId: string, createTime: number): void {
+    this.db
+      .prepare(
+        `INSERT INTO metadata(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = MAX(CAST(value AS INTEGER), ?)`,
+      )
+      .run(`group.lastMessageAt:${chatId}`, String(createTime), createTime);
   }
 
   /** 事件日志是恢复依据；eventId 幂等投影，覆盖落库后/发卡前崩溃。 */

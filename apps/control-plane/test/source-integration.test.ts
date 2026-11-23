@@ -143,6 +143,14 @@ describe("飞书授权群 @ Gate", () => {
     await dispatcher.dispatchOne();
     expect(api.messages.filter((item) => item.kind === "reply")).toHaveLength(1);
   });
+  it("同群旧时间戳消息按乱序丢弃，不重复触发", async () => {
+    const { base, gateway } = fixture();
+    const message = { ...groupMessage("ordered-1"), createTime: 2000 };
+    expect((await gateway.handleMessage(message)).created).toBe(true);
+    expect((await gateway.handleMessage({ ...groupMessage("ordered-2"), createTime: 1000 })).created).toBe(false);
+    expect((await gateway.handleMessage({ ...groupMessage("ordered-3"), createTime: 3000 })).created).toBe(true);
+    expect(base.snapshot().workItems).toHaveLength(2);
+  });
 });
 
 describe("Outbox 重试与 UNKNOWN 对账", () => {

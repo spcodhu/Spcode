@@ -34,6 +34,9 @@ importers:
       '@larksuiteoapi/node-sdk':
         specifier: ^1.74.0
         version: 1.74.0
+      '@spcode/agent-runtime':
+        specifier: workspace:*
+        version: link:../../packages/agent-runtime
       '@spcode/shared':
         specifier: workspace:*
         version: link:../../packages/shared

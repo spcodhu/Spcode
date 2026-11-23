@@ -9,6 +9,7 @@ export interface FeishuInboundMessage {
   chatType: "p2p" | "group";
   operatorOpenId: string;
   text: string;
+  createTime?: number;
   rootId?: string;
   threadId?: string;
   mentions: Array<{ openId: string; name: string; key: string }>;
@@ -119,6 +120,7 @@ export class LarkFeishuApi implements FeishuApi {
           chatType: message.chat_type === "group" ? "group" : "p2p",
           operatorOpenId: openId,
           text,
+          createTime: Number(message.create_time) > 0 ? Number(message.create_time) * 1000 : undefined,
           ...(message.root_id ? { rootId: String(message.root_id) } : {}),
           ...(message.thread_id ? { threadId: String(message.thread_id) } : {}),
           mentions,

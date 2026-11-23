@@ -8,10 +8,11 @@
     "start": "node dist/index.mjs",
     "build": "node build.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run"
+    "test": "node build.mjs && vitest run"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.74.0",
+    "@spcode/agent-runtime": "workspace:*",
     "@spcode/shared": "workspace:*",
     "@spcode/superagent": "workspace:*",
     "axios": "1.20.0",

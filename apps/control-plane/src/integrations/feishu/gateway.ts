@@ -75,6 +75,7 @@ export class FeishuGateway {
       operatorId: message.operatorOpenId,
       text,
       repo,
+      ...(message.createTime === undefined ? {} : { createTime: message.createTime }),
       ...(message.rootId ? { rootId: message.rootId } : {}),
       ...(message.threadId ? { threadId: message.threadId } : {}),
       mentions: message.mentions,

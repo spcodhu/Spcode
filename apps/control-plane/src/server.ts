@@ -111,6 +111,7 @@ export interface ControlPlaneOptions {
   watchdogEntry?: string;
   watchdogPollMs?: number;
   exitOnStop?: boolean;
+  afterOutboxSend?: () => void;
 }
 
 export class ControlPlane {
@@ -270,7 +271,10 @@ export class ControlPlane {
         await this.hub.invoke("feishu.privateCard", [action]).catch(() => {});
       },
     );
-    this.outboxDispatcher = new OutboxDispatcher(this.sources, this.feishuApi, { pollMs: this.options.outboxPollMs });
+    this.outboxDispatcher = new OutboxDispatcher(this.sources, this.feishuApi, {
+      pollMs: this.options.outboxPollMs,
+      afterSend: this.options.afterOutboxSend,
+    });
   }
 
   private async startSuperAgent(): Promise<void> {

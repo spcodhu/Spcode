@@ -23,6 +23,8 @@ export interface LaunchOptions {
   userDataDir?: string;
   /** 启用独立控制面；普通桌面 E2E 仍使用 file 入口避免遗留后台服务。 */
   controlPlane?: boolean;
+  /** 控制面专用环境变量（测试仓库、Fake Worker 等）。 */
+  controlPlaneEnv?: Record<string, string>;
 }
 
 export async function launchApp(opts?: LaunchOptions): Promise<ElectronApplication> {
@@ -38,6 +40,7 @@ export async function launchApp(opts?: LaunchOptions): Promise<ElectronApplicati
   if (opts?.controlPlane) {
     env.SPCODE_E2E_CONTROL_PLANE = "1";
     env.SPCODE_CONTROL_PORT = "0";
+    Object.assign(env, opts.controlPlaneEnv);
   }
   // 默认后台跑：窗口不显示、不抢焦点（调试交互时可设 SPCODE_E2E_FOREGROUND=1 恢复可见）
   if (process.env.SPCODE_E2E_FOREGROUND !== "1") env.SPCODE_E2E_BACKGROUND = "1";
