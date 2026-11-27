@@ -18,7 +18,7 @@ import { migrateSourceSchema } from "./source-store.js";
 import { migrateWatchdogSchema } from "./watchdog-store.js";
 import { migrateWorkerSchema } from "./worker-store.js";
 
-const SCHEMA = `
+export const SQLITE_BASE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS metadata (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -359,7 +359,7 @@ export class SqliteSuperAgentStore {
     const version = this.db.prepare("PRAGMA user_version").get() as { user_version: number };
     if (version.user_version > 6) throw new Error(`控制面数据库版本 ${version.user_version} 高于当前程序支持的版本 6`);
     if (version.user_version === 0) {
-      this.db.exec(SCHEMA);
+      this.db.exec(SQLITE_BASE_SCHEMA);
       this.db.exec("PRAGMA user_version = 1");
     }
     migrateWorkerSchema(this.db);

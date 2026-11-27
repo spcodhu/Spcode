@@ -1,5 +1,5 @@
 import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { InjectedOutboxFault } from "./integrations/feishu/outbox.js";
 import { ControlPlane } from "./server.js";
 import { InjectedWorkerFault } from "./worker-manager.js";
@@ -23,6 +23,14 @@ export function createLocalControlPlane(
 ): ControlPlane {
   return new ControlPlane({
     workbenchDir: options.workbenchDir ?? process.env.SPCODE_WORKBENCH_DIR ?? resolve(here, "../../workbench/dist"),
+    postgres:
+      options.postgres ??
+      (process.env.SPCODE_POSTGRES_URL
+        ? {
+            connectionString: process.env.SPCODE_POSTGRES_URL,
+            workerFile: pathToFileURL(resolve(here, "../dist/postgres-sync-worker.mjs")),
+          }
+        : undefined),
     public:
       options.public ??
       (process.env.SPCODE_PUBLIC_URL

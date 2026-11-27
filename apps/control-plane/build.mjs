@@ -20,6 +20,7 @@ for (const [entry, output] of [
   ["src/api.ts", "dist/api.mjs"],
   ["src/fake-worker.ts", "dist/fake-worker.mjs"],
   ["src/watchdog-main.ts", "dist/watchdog.mjs"],
+  ["src/postgres-sync-worker.ts", "dist/postgres-sync-worker.mjs"],
   ["../../packages/agent-runtime/src/index.ts", "dist/agent-runtime.mjs"],
 ]) {
   await build({

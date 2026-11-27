@@ -226,16 +226,27 @@ export class WorkerStore {
   }
 
   costForWorkItem(workItemId: string): number {
-    const row = this.db
-      .prepare(
-        `SELECT COALESCE(SUM(CAST(COALESCE(
-          json_extract(payload_json, '$.usage.costTotal'),
-          json_extract(payload_json, '$.usage.costInput') + json_extract(payload_json, '$.usage.costOutput') +
-            json_extract(payload_json, '$.usage.costCacheRead') + json_extract(payload_json, '$.usage.costCacheWrite')
-        ) AS REAL)), 0) AS cost FROM worker_events WHERE work_item_id = ? AND type = 'session.usage'`,
-      )
-      .get(workItemId) as { cost: number | null };
-    return row.cost ?? 0;
+    const rows = this.db
+      .prepare("SELECT payload_json FROM worker_events WHERE work_item_id = ? AND type = 'session.usage'")
+      .all(workItemId) as unknown as Array<{ payload_json: string }>;
+    let total = 0;
+    for (const row of rows) {
+      try {
+        const usage = (JSON.parse(row.payload_json) as { usage?: Record<string, unknown> }).usage;
+        if (!usage) continue;
+        const totalCost = Number(usage.costTotal);
+        if (Number.isFinite(totalCost) && totalCost > 0) total += totalCost;
+        else {
+          for (const key of ["costInput", "costOutput", "costCacheRead", "costCacheWrite"]) {
+            const value = Number(usage[key]);
+            if (Number.isFinite(value) && value > 0) total += value;
+          }
+        }
+      } catch {
+        // 单个坏 usage 不增加预算，也不让后台派工循环崩溃。
+      }
+    }
+    return total;
   }
 
   blockWithoutAttempt(workItemId: string, error: string): void {

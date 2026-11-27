@@ -30,8 +30,10 @@ import {
   type PublicSecurityOptions,
   RateLimiter,
 } from "./public-security.js";
+import { RouterStore } from "./router-store.js";
 import { SourceStore } from "./source-store.js";
 import { DigestService, GitHubConnector, type GitHubIssueConnector } from "./sources/github.js";
+import { PostgresSuperAgentStore } from "./store-postgres.js";
 import { SqliteSuperAgentStore } from "./store-sqlite.js";
 import type { WatchdogHealth } from "./watchdog.js";
 import { WatchdogStore } from "./watchdog-store.js";
@@ -123,6 +125,7 @@ export interface ControlPlaneOptions {
   afterOutboxSend?: () => void;
   public?: PublicSecurityOptions;
   oidc?: OidcOptions;
+  postgres?: { connectionString: string; workerFile: URL };
 }
 
 export class ControlPlane {
@@ -132,6 +135,8 @@ export class ControlPlane {
   private readonly requestedPort: number;
   private readonly workbenchDir: string;
   private readonly store: SqliteSuperAgentStore;
+  private readonly router: RouterStore;
+  private readonly routerId = `router_${process.pid}_${Math.random().toString(36).slice(2, 10)}`;
   private readonly workers: WorkerStore;
   private readonly sources: SourceStore;
   private feishuApi: FeishuApi | null = null;
@@ -152,6 +157,8 @@ export class ControlPlane {
   private feishuGateway: FeishuGateway | null = null;
   private outboxDispatcher: OutboxDispatcher | null = null;
   private digestTimer: NodeJS.Timeout | null = null;
+  private routerTimer: NodeJS.Timeout | null = null;
+  private readonly sourceLeases = new Set<string>();
   private sourcesRunning = false;
   private sourceConnected = false;
   private watchdogChild: ChildProcess | null = null;
@@ -172,7 +179,10 @@ export class ControlPlane {
     if (this.host !== "127.0.0.1" && this.host !== "localhost") throw new Error("阶段一控制面只允许监听 loopback");
     this.requestedPort = options.port ?? 0;
     this.workbenchDir = resolve(options.workbenchDir);
-    this.store = new SqliteSuperAgentStore(options.databaseFile ?? join(this.baseDir, "control.sqlite"));
+    this.store = options.postgres
+      ? new PostgresSuperAgentStore({ ...options.postgres, baseDir: this.baseDir })
+      : new SqliteSuperAgentStore(options.databaseFile ?? join(this.baseDir, "control.sqlite"));
+    this.router = new RouterStore(this.store.db);
     this.configuration = new ConfigStore(this.baseDir, options.superAgentEnabled);
     this.watchdog = new WatchdogStore(this.store.db);
     this.workers = new WorkerStore(this.store.db, (sequence, workItemId) => this.publishEvent(sequence, workItemId));
@@ -214,6 +224,11 @@ export class ControlPlane {
     this.engine = new SuperAgentEngine(this.store, {
       publish: (event) => this.publishEvent(event.sequence, event.workItemId),
     });
+    this.router.register(this.routerId, `http://${this.host}:${this.port}`);
+    this.routerTimer = setInterval(() => {
+      this.router.heartbeat(this.routerId);
+      for (const source of this.sourceLeases) this.router.renewSourceLease(source, this.routerId);
+    }, 5000);
     await this.initializeFeishu();
     this.sources.recoverSending();
     this.sources.projectNotifications();
@@ -227,7 +242,10 @@ export class ControlPlane {
     this.closing = true;
     this.watchdogChild?.kill("SIGTERM");
     this.watchdogChild = null;
+    if (this.routerTimer) clearInterval(this.routerTimer);
+    this.routerTimer = null;
     await this.stopSuperAgent();
+    this.router.offline(this.routerId);
     this.hub?.close();
     this.browserWss.close();
     this.desktopWss.close();
@@ -306,9 +324,11 @@ export class ControlPlane {
     if (!this.sourcesRunning) {
       if (this.feishuGateway) {
         try {
-          await this.feishuGateway.start();
-          this.outboxDispatcher?.start();
-          this.sourceConnected = true;
+          if (this.acquireSource("feishu")) {
+            await this.feishuGateway.start();
+            this.outboxDispatcher?.start();
+            this.sourceConnected = true;
+          }
         } catch (error) {
           this.sourceConnected = false;
           console.error("[feishu] 长连接启动失败，Outbox 保持持久化等待恢复", error);
@@ -349,6 +369,18 @@ export class ControlPlane {
     this.sourcesRunning = false;
     await this.workerManager?.stop();
     this.workerManager = null;
+    this.releaseSources();
+  }
+
+  private acquireSource(source: string): boolean {
+    const acquired = this.router.acquireSourceLease(source, this.routerId);
+    if (acquired) this.sourceLeases.add(source);
+    return acquired;
+  }
+
+  private releaseSources(): void {
+    for (const source of this.sourceLeases) this.router.releaseSourceLease(source, this.routerId);
+    this.sourceLeases.clear();
   }
 
   private async desktopControl(method: string, args: unknown[]): Promise<unknown> {
@@ -436,7 +468,10 @@ export class ControlPlane {
     for (const repo of configuredRepos.length ? configuredRepos : [config.defaultRepo]) {
       const chatId = this.digestChatId(repo);
       try {
-        if (this.digest.dueDaily(repo, config.timezone, config.dailyDigestTime)) {
+        if (
+          this.digest.dueDaily(repo, config.timezone, config.dailyDigestTime) &&
+          this.acquireSource(`digest:${repo}`)
+        ) {
           await this.digest.run({ repo, chatId, mode: "daily", timezone: config.timezone });
         }
       } catch (error) {

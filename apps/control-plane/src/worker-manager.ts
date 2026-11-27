@@ -127,7 +127,14 @@ export class WorkerManager {
       this.options.workers.blockWithoutAttempt(item.id, `WorkItem 已达到模型预算上限 $${budget}`);
       return;
     }
-    const attempt = this.options.workers.startAttempt(item.id, role);
+    let attempt: import("@spcode/shared/superagent").AttemptSnapshot;
+    try {
+      attempt = this.options.workers.startAttempt(item.id, role);
+    } catch (error) {
+      const current = this.options.workers.getItem(item.id);
+      if (current.activeAttemptId || current.desiredState === "STOPPED") return;
+      throw error;
+    }
     let handle: WorkerHandle | null = null;
     try {
       const workspace = await this.workspaceFor(item);
