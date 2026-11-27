@@ -131,6 +131,42 @@ export class RouterStore {
     }
   }
 
+  assignAttempt(attemptId: string, nodeId: string, ttlMs = 120_000): RouterLease {
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const now = Date.now();
+      const attempt = this.db.prepare("SELECT work_item_id, fence FROM attempts WHERE id = ?").get(attemptId) as
+        | { work_item_id: string; fence: number }
+        | undefined;
+      const node = this.db.prepare("SELECT status, revoked_at FROM worker_nodes WHERE id = ?").get(nodeId) as
+        | { status: string; revoked_at: number | null }
+        | undefined;
+      if (!attempt || node?.status !== "ACTIVE" || node.revoked_at !== null)
+        throw new Error("节点或 Attempt 不具备分配资格");
+      const active = this.db
+        .prepare("SELECT active_attempt_id FROM work_items WHERE id = ?")
+        .get(attempt.work_item_id) as { active_attempt_id: string | null } | undefined;
+      if (active?.active_attempt_id !== attemptId) throw new Error("Attempt activeAttempt 已变化");
+      this.db
+        .prepare(
+          "INSERT INTO worker_leases(id, work_item_id, attempt_id, node_id, fence, status, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?)",
+        )
+        .run(attemptId, attempt.work_item_id, attemptId, nodeId, attempt.fence, now + ttlMs, now, now);
+      this.db.exec("COMMIT");
+      return {
+        id: attemptId,
+        workItemId: attempt.work_item_id,
+        nodeId,
+        fence: attempt.fence,
+        status: "ACTIVE",
+        expiresAt: now + ttlMs,
+      };
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   renew(leaseId: string, nodeId: string, fence: number, ttlMs = 120_000): boolean {
     const now = Date.now();
     return (

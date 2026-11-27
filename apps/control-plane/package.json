@@ -3,6 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./worker-runtime": "./src/worker-runner.ts",
+    "./git-workspace": "./src/git-workspace.ts",
+    "./worker-execution": "./src/worker-execution.ts",
+    "./worker-store": "./src/worker-store.ts",
+    "./store-sqlite": "./src/store-sqlite.ts"
+  },
   "scripts": {
     "dev": "pnpm build && node dist/index.mjs",
     "start": "node dist/index.mjs",

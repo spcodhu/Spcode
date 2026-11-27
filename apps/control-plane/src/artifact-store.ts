@@ -12,6 +12,7 @@ const ALLOWED_MIME = new Set([
   "application/json",
   "application/x-ndjson",
   "text/x-diff",
+  "application/octet-stream",
 ]);
 
 export interface ArtifactRecord extends ArtifactMeta {

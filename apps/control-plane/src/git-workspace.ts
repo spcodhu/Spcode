@@ -131,7 +131,7 @@ export class GitWorkspaceManager {
     mkdirSync(join(baseDir, "worktrees"), { recursive: true });
   }
 
-  async prepare(workItemId: string, repo: string): Promise<GitWorkspace> {
+  async prepare(workItemId: string, repo: string, approvedBaseSha?: string): Promise<GitWorkspace> {
     const configured = this.resolveSource(repo).trim();
     if (!configured) throw new GitWorkspaceError(`仓库 ${repo} 未配置本地路径`, "GIT_FAILED");
     let source = configured;
@@ -155,9 +155,14 @@ export class GitWorkspaceManager {
           180_000,
         );
       }
-      const baseSha = !/^[a-z]+:\/\//i.test(source)
-        ? await git(["rev-parse", "HEAD"], source)
-        : await git(["--git-dir", mirrorPath, "rev-parse", "HEAD"]);
+      const baseSha = approvedBaseSha
+        ? await (async () => {
+            await git(["--git-dir", mirrorPath, "cat-file", "-e", `${approvedBaseSha}^{commit}`]);
+            return approvedBaseSha;
+          })()
+        : !/^[a-z]+:\/\//i.test(source)
+          ? await git(["rev-parse", "HEAD"], source)
+          : await git(["--git-dir", mirrorPath, "rev-parse", "HEAD"]);
       const worktreePath = join(this.baseDir, "worktrees", workItemId);
       const branch = `superagent/${workItemId}`;
       if (existsSync(worktreePath)) {

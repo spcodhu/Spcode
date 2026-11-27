@@ -11,6 +11,7 @@ import {
   SUPERAGENT_PROTOCOL_VERSION,
   type SuperAgentSnapshot,
 } from "@spcode/shared/superagent";
+import { WORKER_NODE_PROTOCOL_VERSION, type WorkerNodeCapabilities } from "@spcode/shared/worker-node";
 import { SuperAgentEngine } from "@spcode/superagent";
 import { WebSocketServer } from "ws";
 import { AuthService, CONTROL_COOKIE, ensureDeviceToken, parseCookies, tokensEqual } from "./auth.js";
@@ -38,6 +39,7 @@ import { SqliteSuperAgentStore } from "./store-sqlite.js";
 import type { WatchdogHealth } from "./watchdog.js";
 import { WatchdogStore } from "./watchdog-store.js";
 import { WorkerManager } from "./worker-manager.js";
+import { WorkerNodeService } from "./worker-node-service.js";
 import { createDefaultWorkerRunner, type WorkerRunner } from "./worker-runner.js";
 import { WorkerStore } from "./worker-store.js";
 
@@ -101,6 +103,22 @@ function envList(value: string | undefined): string[] {
   ];
 }
 
+function sanitizeCapabilities(value: unknown): WorkerNodeCapabilities {
+  const input = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  const list = (key: string) =>
+    Array.isArray(input[key])
+      ? input[key].filter((item): item is string => typeof item === "string").slice(0, 100)
+      : [];
+  const capacity = Number(input.capacity);
+  return {
+    platform: typeof input.platform === "string" ? input.platform.slice(0, 50) : process.platform,
+    hostname: typeof input.hostname === "string" ? input.hostname.slice(0, 200) : "worker-node",
+    capacity: Number.isSafeInteger(capacity) && capacity >= 1 && capacity <= 4 ? capacity : 1,
+    repos: list("repos"),
+    models: list("models"),
+  };
+}
+
 export interface ControlPlaneOptions {
   baseDir?: string;
   databaseFile?: string;
@@ -126,6 +144,8 @@ export interface ControlPlaneOptions {
   public?: PublicSecurityOptions;
   oidc?: OidcOptions;
   postgres?: { connectionString: string; workerFile: URL };
+  /** false 表示仅使用远程 Worker Node，不在本 Router 启动本地 WorkerManager。 */
+  localWorkerEnabled?: boolean;
 }
 
 export class ControlPlane {
@@ -136,6 +156,7 @@ export class ControlPlane {
   private readonly workbenchDir: string;
   private readonly store: SqliteSuperAgentStore;
   private readonly router: RouterStore;
+  private readonly workerNodes: WorkerNodeService;
   private readonly routerId = `router_${process.pid}_${Math.random().toString(36).slice(2, 10)}`;
   private readonly workers: WorkerStore;
   private readonly sources: SourceStore;
@@ -189,6 +210,7 @@ export class ControlPlane {
     this.sources = new SourceStore(this.store.db, this.store, (sequence, workItemId) =>
       this.publishEvent(sequence, workItemId),
     );
+    this.workerNodes = new WorkerNodeService(this.store, this.workers, this.router, () => this.enabled);
     this.digest = new DigestService(
       this.sources,
       options.githubConnector ?? new GitHubConnector({ token: process.env.SPCODE_GITHUB_TOKEN }),
@@ -225,6 +247,8 @@ export class ControlPlane {
       publish: (event) => this.publishEvent(event.sequence, event.workItemId),
     });
     this.router.register(this.routerId, `http://${this.host}:${this.port}`);
+    this.workerNodes.attachEngine(this.engine);
+    this.workerNodes.start();
     this.routerTimer = setInterval(() => {
       this.router.heartbeat(this.routerId);
       for (const source of this.sourceLeases) this.router.renewSourceLease(source, this.routerId);
@@ -246,6 +270,7 @@ export class ControlPlane {
     this.routerTimer = null;
     await this.stopSuperAgent();
     this.router.offline(this.routerId);
+    this.workerNodes.close();
     this.hub?.close();
     this.browserWss.close();
     this.desktopWss.close();
@@ -339,6 +364,7 @@ export class ControlPlane {
       this.sourcesRunning = true;
     }
     if (this.workerManager) return;
+    if (this.options.localWorkerEnabled === false) return;
     const git = new GitWorkspaceManager(this.baseDir, (repo) => this.repoSource(repo));
     this.workerManager = new WorkerManager({
       baseDir: this.baseDir,
@@ -381,6 +407,10 @@ export class ControlPlane {
   private releaseSources(): void {
     for (const source of this.sourceLeases) this.router.releaseSourceLease(source, this.routerId);
     this.sourceLeases.clear();
+  }
+
+  recoverWorkerNodes(): void {
+    this.workerNodes.recoverStale();
   }
 
   private async desktopControl(method: string, args: unknown[]): Promise<unknown> {
@@ -570,6 +600,58 @@ export class ControlPlane {
         this.json(response, 200, { ok: true });
         return;
       }
+      if (url.pathname === "/api/v1/worker-nodes/pair" && request.method === "POST") {
+        const principal = this.principal(request);
+        if (!this.internalAuthorized(request) && !principal?.roles.includes("admin")) {
+          this.json(response, 403, {
+            error: { code: "FORBIDDEN", message: "只有 admin 或本地 serviceToken 可以配对节点" },
+          });
+          return;
+        }
+        if (!this.validMutation(request, response)) return;
+        const input = (await this.readJson(request)) as {
+          name?: string;
+          protocolVersion?: number;
+          capabilities?: WorkerNodeCapabilities;
+        };
+        const capabilities = sanitizeCapabilities(input.capabilities);
+        const paired = this.workerNodes.pair(
+          String(input.name ?? ""),
+          Number(input.protocolVersion ?? WORKER_NODE_PROTOCOL_VERSION),
+          capabilities,
+        );
+        this.json(response, 200, paired);
+        return;
+      }
+      if (url.pathname === "/api/v1/worker-nodes/revoke" && request.method === "POST") {
+        const principal = this.principal(request);
+        if (!this.internalAuthorized(request) && !principal?.roles.includes("admin")) {
+          this.json(response, 403, {
+            error: { code: "FORBIDDEN", message: "只有 admin 或本地 serviceToken 可以吊销节点" },
+          });
+          return;
+        }
+        if (!this.validMutation(request, response)) return;
+        const input = (await this.readJson(request)) as { nodeId?: string };
+        if (!input.nodeId) throw new Error("nodeId 必填");
+        this.workerNodes.revoke(input.nodeId);
+        this.json(response, 200, { ok: true });
+        return;
+      }
+      if (url.pathname === "/api/v1/worker-nodes" && request.method === "GET") {
+        if (!this.principal(request)) {
+          this.json(response, 401, { error: { code: "UNAUTHENTICATED", message: "请先登录" } });
+          return;
+        }
+        this.json(response, 200, { nodes: this.workerNodes.nodes() });
+        return;
+      }
+      if (url.pathname === "/api/v1/worker-node/artifacts" && request.method === "POST") {
+        const body = await this.readBody(request, 16 * 1024 * 1024);
+        const artifact = await this.workerNodes.handleArtifact(request, body);
+        this.json(response, 200, { id: artifact.id, sha256: artifact.sha256, size: artifact.size });
+        return;
+      }
       if (url.pathname === "/api/v1/auth/oidc" && request.method === "POST") {
         if (!this.publicMode || !this.oidc) {
           this.json(response, 403, { error: { code: "OIDC_DISABLED", message: "公网 OIDC 未启用" } });
@@ -754,6 +836,10 @@ export class ControlPlane {
         return;
       }
     }
+    if (url.pathname === "/api/v1/worker-node") {
+      this.workerNodes.handleUpgrade(request, socket, head);
+      return;
+    }
     if (url.pathname === "/api/v1/desktop") {
       this.hub.handleDesktopUpgrade(request, socket, head, this.desktopWss);
       return;
@@ -835,6 +921,18 @@ export class ControlPlane {
     return (
       host === `${this.host}:${this.port}` || host === `127.0.0.1:${this.port}` || host === `localhost:${this.port}`
     );
+  }
+
+  private async readBody(request: IncomingMessage, maxBytes: number): Promise<Buffer> {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for await (const chunk of request) {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      size += buffer.length;
+      if (size > maxBytes) throw new Error("请求体超过大小限制");
+      chunks.push(buffer);
+    }
+    return Buffer.concat(chunks);
   }
 
   private async readJson(request: IncomingMessage): Promise<unknown> {
