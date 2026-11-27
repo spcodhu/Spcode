@@ -113,7 +113,7 @@ describe("WatchdogStore", () => {
     expect(store.list()[0]?.evidence.ageMs).toBe(2);
     store.resolve("WORKER_STALE", "at_1");
     expect(store.list()).toHaveLength(0);
-    expect(store.db.prepare("PRAGMA user_version").get()!.user_version).toBe(5);
+    expect(store.db.prepare("PRAGMA user_version").get()!.user_version).toBe(6);
     base.close();
     rmSync(home, { recursive: true, force: true });
   });

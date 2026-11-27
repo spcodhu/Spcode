@@ -14,14 +14,15 @@ const streamListeners = new Set<(event: ControlStreamEvent) => void>();
 /** Electron 与浏览器都初始化同一控制面 SDK；preload 只决定是否额外拥有原生能力。 */
 export async function initializeControlTransport(): Promise<ControlClient | null> {
   if (location.protocol !== "http:" && location.protocol !== "https:") return null;
-  if (location.hostname !== "127.0.0.1" && location.hostname !== "localhost") return null;
+  const loopback = location.hostname === "127.0.0.1" || location.hostname === "localhost";
+  if (location.protocol === "http:" && !loopback) return null;
   controlClient = new ControlClient();
   const hash = new URLSearchParams(location.hash.replace(/^#/, ""));
   const token = hash.get("bootstrap");
   if (token) {
     // fragment 不参与 HTTP 请求；换到 HttpOnly Cookie 后立即从地址栏与历史记录中移除。
     try {
-      await controlClient.bootstrap(token).catch(() => {});
+      await controlClient.login(token).catch(() => {});
     } finally {
       hash.delete("bootstrap");
       const nextHash = hash.toString();

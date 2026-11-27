@@ -4,7 +4,6 @@ import type { WatchdogFinding } from "@spcode/shared/superagent";
 
 export function migrateWatchdogSchema(db: DatabaseSync): void {
   const { user_version: version } = db.prepare("PRAGMA user_version").get() as { user_version: number };
-  if (version > 5) throw new Error(`控制面数据库版本 ${version} 高于当前程序支持的版本 5`);
   if (version >= 5) return;
   if (version !== 4) throw new Error("Watchdog schema 需要从 v4 迁移");
   db.exec(`

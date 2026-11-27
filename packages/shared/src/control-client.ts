@@ -11,6 +11,7 @@ export interface ControlHealth {
   pid: number;
   startedAt: number;
   desktopConnected: boolean;
+  authMode?: "device" | "oidc";
 }
 
 export class ControlApiError extends Error {
@@ -90,6 +91,15 @@ export class ControlClient {
       headers: { Authorization: `Bearer ${token}` },
       body: JSON.stringify({}),
     });
+  }
+
+  async login(token: string): Promise<void> {
+    const health = await this.health();
+    if (health.authMode === "oidc") {
+      await this.request("/api/v1/auth/oidc", { method: "POST", body: JSON.stringify({ token }) });
+    } else {
+      await this.bootstrap(token);
+    }
   }
 
   async superAgentSnapshot(): Promise<SuperAgentSnapshot> {

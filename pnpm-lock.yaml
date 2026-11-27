@@ -49,6 +49,9 @@ importers:
       https-proxy-agent:
         specifier: 7.0.6
         version: 7.0.6
+      jose:
+        specifier: ^6.1.3
+        version: 6.2.12
       ws:
         specifier: ^8.22.0
         version: 8.22.0
@@ -59,6 +62,9 @@ importers:
       '@types/ws':
         specifier: ^8.18.2
         version: 8.18.2
+      embedded-postgres:
+        specifier: 19.0.0-beta.20
+        version: 19.0.0-beta.20
       esbuild:
         specifier: 0.28.2
         version: 0.28.2
@@ -777,6 +783,54 @@ packages:
     resolution: {integrity: sha512-dfZeox66AvdPtb2lD8OsIIQh12Tp0GNCRUDfBHIKGpbmopZto2/A8nSpYYLoedPIHpqkeblZ/k8OV0Gy7PYuyQ==}
     engines: {node: '>=14.14'}
     hasBin: true
+
+  '@embedded-postgres/darwin-arm64@19.0.0-beta.20':
+    resolution: {integrity: sha512-nR2WBpdvlXYPSLTMD/SHB/5knINzyFo/Cz/277JuWnuG/bSN4isI+3jVnFl/bFuS7EXCU8zp/RnAI9k0XG0xJA==}
+    engines: {node: '>=16'}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@embedded-postgres/darwin-x64@19.0.0-beta.20':
+    resolution: {integrity: sha512-teIfaPnPMWuM22m/PZZyr86uxla5d1dZJgJclR8cxq4FEcMfKddWWOeNvTlyfqKeW9qQmhkgopllKCyquMwUxQ==}
+    engines: {node: '>=16'}
+    cpu: [x64]
+    os: [darwin]
+
+  '@embedded-postgres/linux-arm64@19.0.0-beta.20':
+    resolution: {integrity: sha512-udssxM2AwCAmeXbCdOzjOCniaB+86ugiV2y9SheNDgYfHLAXx2aVbFK/lyHCVo9mJM7sepiPL9UI9hgX6wZwfw==}
+    engines: {node: '>=16'}
+    cpu: [arm64]
+    os: [linux]
+
+  '@embedded-postgres/linux-arm@19.0.0-beta.20':
+    resolution: {integrity: sha512-Jizg8MCtGqhuRGV0jA2ODo5LK/VZX9PJwZT7g4gmQIT4bMt0JH/Hc4O0DAJCqRaEXI3LwO5Ny8q4n6eyJlsljA==}
+    engines: {node: '>=16'}
+    cpu: [arm]
+    os: [linux]
+
+  '@embedded-postgres/linux-ia32@19.0.0-beta.20':
+    resolution: {integrity: sha512-Ab5ps9vx2HJ1SYLjJf7LYG280zy5OTVsqXghDGhWqTj0jtOobd+YBLKfmxZUIe5xH1JDqFUxgWOXdy11/U/1Hg==}
+    engines: {node: '>=16'}
+    cpu: [ia32]
+    os: [linux]
+
+  '@embedded-postgres/linux-ppc64@19.0.0-beta.20':
+    resolution: {integrity: sha512-o39iHWlvDEDJy+aHlCPEpLPd2haTohrN563JrncsGc5rb9d+NH1tdRaqRBGlkXOpIGZxtq3DOtZvrsKQkIKW+w==}
+    engines: {node: '>=16'}
+    cpu: [ppc64]
+    os: [linux]
+
+  '@embedded-postgres/linux-x64@19.0.0-beta.20':
+    resolution: {integrity: sha512-vUwUAHtqSWCEzp4H7qyiykmSsTpVHjQuKGrrPkY4bQEo7MsP8tSRU7Hgy51Pbqe7v0DYfWfOoxLY8SgT3XdPUA==}
+    engines: {node: '>=16'}
+    cpu: [x64]
+    os: [linux]
+
+  '@embedded-postgres/windows-x64@19.0.0-beta.20':
+    resolution: {integrity: sha512-s06KzQBUe9cqZuHlTUnqh2jKGJFsWu8Uy95Vi/CytBDx/kYVS7wRqVY7CyQBubkvSMdtzoNhew6cGEx0EZS3ZA==}
+    engines: {node: '>=16'}
+    cpu: [x64]
+    os: [win32]
 
   '@esbuild/aix-ppc64@0.25.12':
     resolution: {integrity: sha512-Hhmwd6CInZ3dwpuGTF8fJG6yoWmsToE+vYgD4nytZVxcu1ulHpUQRAB1UJ8+N1Am3Mz4+xOByoQoSZf4D+CpkA==}
@@ -2378,6 +2432,10 @@ packages:
     engines: {node: '>= 22.12.0'}
     hasBin: true
 
+  embedded-postgres@19.0.0-beta.20:
+    resolution: {integrity: sha512-k1V1xaBv/NMNg+F4zt5wbHlpxqVXWraDk5Erak3qFpoPIhhKCd+SMmU4Oj2DZt1ZymX9u25HVrw9p6yEd2wOFA==}
+    engines: {node: '>=16'}
+
   emoji-regex@8.0.0:
     resolution: {integrity: sha512-MSjYzcWNOA0ewAHpz0MxpYFvwg6yjy1NG3xteoqz644VCo/RPgnr1/GGt+ic3iJTzQ8Eu3TdM14SawnVUmGE6A==}
 
@@ -2478,6 +2536,10 @@ packages:
   eventsource@3.0.7:
     resolution: {integrity: sha512-CRT1WTyuQoD771GW56XEZFQ/ZoSfWid1alKGDYMmkt2yl8UXrVR4pspqWNEcqKvVIzg6PAltWjxcSSPrboA4iA==}
     engines: {node: '>=18.0.0'}
+
+  exit-hook@5.1.0:
+    resolution: {integrity: sha512-INjr2xyxHo7bhAqf5ong++GZPPnpcuBcaXUKt03yf7Fie9yWD7FapL4teOU0+awQazGs5ucBh7xWs/AD+6nhog==}
+    engines: {node: '>=20'}
 
   expect-type@1.4.0:
     resolution: {integrity: sha512-KfYbmpRm0VbLjEvVa9yGwCi9GI34xvi7A/HXYWQO65CSD2u3MczUJSuwXKFIxlGsgBQizV9q5J9NHj4VG0n+pA==}
@@ -3571,6 +3633,40 @@ packages:
     resolution: {integrity: sha512-eRWB5LBz7PpDu4PUlwT0PhnQfTQJlDDdPa35urV4Osrm0t0AqQFGn+UIkU3klZvwJ8KPO3VbBFsXquA6p6kqZw==}
     engines: {node: '>=12', npm: '>=6'}
 
+  pg-cloudflare@1.4.1:
+    resolution: {integrity: sha512-6PQbsFWZcp9EmJEwy5cGQ2La+AMWpP46lgbb8X+U/XsHIUweYDNCpeuKck5RxL2MdVFi7krbbEi5nX4Zh7JhrQ==}
+
+  pg-connection-string@2.14.1:
+    resolution: {integrity: sha512-qR3kGNPBLpCNtz0evbKA0Y/MRFXwSSdT+pTJvYp/bXTcReZbvX1kzF0IyTc1QnxqF7AZbOeBhNL8R5mYQZV/MA==}
+
+  pg-int8@1.0.1:
+    resolution: {integrity: sha512-WCtabS6t3c8SkpDBUlb1kjOs7l66xsGdKpIPZsg4wR+B3+u9UAum2odSsF9tnvxg80h4ZxLWMy4pRjOsFIqQpw==}
+    engines: {node: '>=4.0.0'}
+
+  pg-pool@3.14.0:
+    resolution: {integrity: sha512-gKtPkFdQPU3DksooVLi9LsjZxrsBUZIpa+7aVx+LV5pNh0KzP4Zleud2po+ConrxbuXGBJ6Hfer6hdgpIBpBaw==}
+    peerDependencies:
+      pg: '>=8.0'
+
+  pg-protocol@1.16.1:
+    resolution: {integrity: sha512-p9VOFMiHB/ZbJATetbg+99PxssTVSQRnyuPSQ67mN1+1KBOjZaZ83ZQzltnxPhJwSsC3nwVjJ10DVJlerbFzLg==}
+
+  pg-types@2.2.0:
+    resolution: {integrity: sha512-qTAAlrEsl8s4OiEQY69wDvcMIdQN6wdz5ojQiOy6YRMuynxenON0O5oCpJI6lshc6scgAY8qvJ2On/p+CXY0GA==}
+    engines: {node: '>=4'}
+
+  pg@8.23.1:
+    resolution: {integrity: sha512-aL96AHANtWjPLDOLqnhx+ngp9+UK7ETEU8VJrDCGvsSSi/mGLcWYsS6Herg7lmaBJe4uwrfqsa7gTEFaSizDoQ==}
+    engines: {node: '>= 16.0.0'}
+    peerDependencies:
+      pg-native: '>=3.0.1'
+    peerDependenciesMeta:
+      pg-native:
+        optional: true
+
+  pgpass@1.0.5:
+    resolution: {integrity: sha512-FdW9r/jQZhSeohs1Z3sI1yxFQNFvMcnmfuj4WBMUTxOrAyLMaTcE1aAMBiTlbMNaXvBCQuVi0R7hd8udDSP7ug==}
+
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
 
@@ -3609,6 +3705,22 @@ packages:
   postcss@8.5.28:
     resolution: {integrity: sha512-RRuzqDtt5Y9h3quz5hWhK+TPnsmVs6WwSU6LkJMeY4HstUEDuYTG8UJSdawMRzmzAtV+KEoG8N3Qg2qLy5vM/A==}
     engines: {node: ^10 || ^12 || >=14}
+
+  postgres-array@2.0.0:
+    resolution: {integrity: sha512-VpZrUqU5A69eQyW2c5CA1jtLecCsN2U/bD6VilrFDWq5+5UIEVO7nazS3TEcHf1zuPYO/sqGvUvW62g86RXZuA==}
+    engines: {node: '>=4'}
+
+  postgres-bytea@1.0.1:
+    resolution: {integrity: sha512-5+5HqXnsZPE65IJZSMkZtURARZelel2oXUEO8rH83VS/hxH5vv1uHquPg5wZs8yMAfdv971IU+kcPUczi7NVBQ==}
+    engines: {node: '>=0.10.0'}
+
+  postgres-date@1.0.7:
+    resolution: {integrity: sha512-suDmjLVQg78nMK2UZ454hAG+OAW+HQPZ6n++TNDUX+L0+uUlLywnoxJKDou51Zm+zTCjrCl0Nq6J9C5hP9vK/Q==}
+    engines: {node: '>=0.10.0'}
+
+  postgres-interval@1.2.0:
+    resolution: {integrity: sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ==}
+    engines: {node: '>=0.10.0'}
 
   postject@1.0.0-alpha.6:
     resolution: {integrity: sha512-b9Eb8h2eVqNE8edvKdwqkrY6O7kAwmI8kcnBv1NScolYJbo59XUF0noFq+lxbC1yN20bmC0WBEbDC5H/7ASb0A==}
@@ -3953,6 +4065,10 @@ packages:
 
   space-separated-tokens@2.0.2:
     resolution: {integrity: sha512-PEGlAwrG8yXGXRjW32fGbg66JAlOAwbObuqVoJpv/mRgoWDQfgH1wDPvtzWyUSNAXBGSk8h755YDbbcEy3SH2Q==}
+
+  split2@4.2.0:
+    resolution: {integrity: sha512-UcjcJOWknrNkF6PLX83qcHM6KHgVKNkV62Y8a5uYDVv9ydGQVwAHMKqHdJje1VTWpljG0WYpCDhrCdAOYH4TWg==}
+    engines: {node: '>= 10.x'}
 
   sprintf-js@1.1.3:
     resolution: {integrity: sha512-Oo+0REFV59/rz3gfJNKQiBlwfHaSESl1pcGyABQsnnIfWOFt6JNj5gCog2U6MLZ//IGYD+nA8nI+mTShREReaA==}
@@ -4381,6 +4497,10 @@ packages:
 
   xmlchars@2.2.0:
     resolution: {integrity: sha512-JZnDKK8B0RCDw84FNdDAIpZK+JuJw+s7Lz8nksI7SIuU3UXJJslUthsi+uWBUYOwPFwW7W7PRLRfUKpxjtjFCw==}
+
+  xtend@4.0.2:
+    resolution: {integrity: sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ==}
+    engines: {node: '>=0.4'}
 
   y18n@5.0.8:
     resolution: {integrity: sha512-0pfFzegeDWJHJIAmTLRP2DwHjdF5s7jo9tuztdQxAhINCdvS+3nGINqPd00AphqJR/0LhANUS6/+7SCb98YOfA==}
@@ -5076,6 +5196,30 @@ snapshots:
       postject: 1.0.0-alpha.6
     transitivePeerDependencies:
       - supports-color
+    optional: true
+
+  '@embedded-postgres/darwin-arm64@19.0.0-beta.20':
+    optional: true
+
+  '@embedded-postgres/darwin-x64@19.0.0-beta.20':
+    optional: true
+
+  '@embedded-postgres/linux-arm64@19.0.0-beta.20':
+    optional: true
+
+  '@embedded-postgres/linux-arm@19.0.0-beta.20':
+    optional: true
+
+  '@embedded-postgres/linux-ia32@19.0.0-beta.20':
+    optional: true
+
+  '@embedded-postgres/linux-ppc64@19.0.0-beta.20':
+    optional: true
+
+  '@embedded-postgres/linux-x64@19.0.0-beta.20':
+    optional: true
+
+  '@embedded-postgres/windows-x64@19.0.0-beta.20':
     optional: true
 
   '@esbuild/aix-ppc64@0.25.12':
@@ -6658,6 +6802,22 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  embedded-postgres@19.0.0-beta.20:
+    dependencies:
+      exit-hook: 5.1.0
+      pg: 8.23.1
+    optionalDependencies:
+      '@embedded-postgres/darwin-arm64': 19.0.0-beta.20
+      '@embedded-postgres/darwin-x64': 19.0.0-beta.20
+      '@embedded-postgres/linux-arm': 19.0.0-beta.20
+      '@embedded-postgres/linux-arm64': 19.0.0-beta.20
+      '@embedded-postgres/linux-ia32': 19.0.0-beta.20
+      '@embedded-postgres/linux-ppc64': 19.0.0-beta.20
+      '@embedded-postgres/linux-x64': 19.0.0-beta.20
+      '@embedded-postgres/windows-x64': 19.0.0-beta.20
+    transitivePeerDependencies:
+      - pg-native
+
   emoji-regex@8.0.0: {}
 
   encodeurl@2.0.0: {}
@@ -6783,6 +6943,8 @@ snapshots:
   eventsource@3.0.7:
     dependencies:
       eventsource-parser: 3.1.1
+
+  exit-hook@5.1.0: {}
 
   expect-type@1.4.0: {}
 
@@ -8175,6 +8337,41 @@ snapshots:
 
   pe-library@0.4.1: {}
 
+  pg-cloudflare@1.4.1:
+    optional: true
+
+  pg-connection-string@2.14.1: {}
+
+  pg-int8@1.0.1: {}
+
+  pg-pool@3.14.0(pg@8.23.1):
+    dependencies:
+      pg: 8.23.1
+
+  pg-protocol@1.16.1: {}
+
+  pg-types@2.2.0:
+    dependencies:
+      pg-int8: 1.0.1
+      postgres-array: 2.0.0
+      postgres-bytea: 1.0.1
+      postgres-date: 1.0.7
+      postgres-interval: 1.2.0
+
+  pg@8.23.1:
+    dependencies:
+      pg-connection-string: 2.14.1
+      pg-pool: 3.14.0(pg@8.23.1)
+      pg-protocol: 1.16.1
+      pg-types: 2.2.0
+      pgpass: 1.0.5
+    optionalDependencies:
+      pg-cloudflare: 1.4.1
+
+  pgpass@1.0.5:
+    dependencies:
+      split2: 4.2.0
+
   picocolors@1.1.1: {}
 
   picomatch@4.0.7: {}
@@ -8214,6 +8411,16 @@ snapshots:
       nanoid: 3.3.19
       picocolors: 1.1.1
       source-map-js: 1.2.1
+
+  postgres-array@2.0.0: {}
+
+  postgres-bytea@1.0.1: {}
+
+  postgres-date@1.0.7: {}
+
+  postgres-interval@1.2.0:
+    dependencies:
+      xtend: 4.0.2
 
   postject@1.0.0-alpha.6:
     dependencies:
@@ -8652,6 +8859,8 @@ snapshots:
 
   space-separated-tokens@2.0.2: {}
 
+  split2@4.2.0: {}
+
   sprintf-js@1.1.3:
     optional: true
 
@@ -9072,6 +9281,8 @@ snapshots:
   xmlbuilder@15.1.1: {}
 
   xmlchars@2.2.0: {}
+
+  xtend@4.0.2: {}
 
   y18n@5.0.8: {}
 

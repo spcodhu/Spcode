@@ -158,10 +158,10 @@ describe("WorkerStore Lease / Fence / Attempt", () => {
     expect(workers.heartbeat(old.id, old.fence)).toBe(false);
   });
 
-  it("schema v5 与审批事实可跨重启恢复", () => {
+  it("schema v6 与审批事实可跨重启恢复", () => {
     const { base, workItemId } = fixture();
     const file = base.file;
-    expect(base.db.prepare("PRAGMA user_version").get()!.user_version).toBe(5);
+    expect(base.db.prepare("PRAGMA user_version").get()!.user_version).toBe(6);
     expect(base.snapshot().workItems[0]!.id).toBe(workItemId);
     base.close();
     const reopened = new SqliteSuperAgentStore(file);

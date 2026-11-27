@@ -111,7 +111,7 @@ export function SuperAgentPage() {
   const authenticate = async () => {
     setBusy(true);
     try {
-      await client.bootstrap(token.trim());
+      await client.login(token.trim());
       setToken("");
       setAuthRequired(false);
       await refresh();

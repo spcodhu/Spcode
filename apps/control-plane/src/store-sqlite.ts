@@ -13,6 +13,7 @@ import type {
 } from "@spcode/shared/superagent";
 import { assertPlanApproval, assertTransition } from "@spcode/superagent";
 import { ArtifactStore, migrateArtifactSchema } from "./artifact-store.js";
+import { migratePhase2Schema } from "./phase2-schema.js";
 import { migrateSourceSchema } from "./source-store.js";
 import { migrateWatchdogSchema } from "./watchdog-store.js";
 import { migrateWorkerSchema } from "./worker-store.js";
@@ -356,7 +357,7 @@ export class SqliteSuperAgentStore {
 
   private migrate(): void {
     const version = this.db.prepare("PRAGMA user_version").get() as { user_version: number };
-    if (version.user_version > 5) throw new Error(`控制面数据库版本 ${version.user_version} 高于当前程序支持的版本 5`);
+    if (version.user_version > 6) throw new Error(`控制面数据库版本 ${version.user_version} 高于当前程序支持的版本 6`);
     if (version.user_version === 0) {
       this.db.exec(SCHEMA);
       this.db.exec("PRAGMA user_version = 1");
@@ -365,6 +366,7 @@ export class SqliteSuperAgentStore {
     migrateSourceSchema(this.db);
     migrateArtifactSchema(this.db);
     migrateWatchdogSchema(this.db);
+    migratePhase2Schema(this.db);
   }
 
   close(): void {
@@ -674,7 +676,7 @@ export class SqliteSuperAgentStore {
     }
     assertPlanApproval({
       actorId,
-      authorized: actorId === "local-device" || actorId.startsWith("feishu:"),
+      authorized: actorId === "local-device" || actorId.startsWith("feishu:") || actorId.startsWith("external:"),
       workItem: item,
       plan,
       presentedPlanHash: command.planHash,

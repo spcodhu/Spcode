@@ -21,6 +21,15 @@ import { GitWorkspaceManager } from "./git-workspace.js";
 import { type FeishuApi, LarkFeishuApi } from "./integrations/feishu/api.js";
 import { FeishuGateway } from "./integrations/feishu/gateway.js";
 import { OutboxDispatcher } from "./integrations/feishu/outbox.js";
+import {
+  assertPublicOptions,
+  IdentityStore,
+  type OidcOptions,
+  OidcVerifier,
+  type PublicPrincipal,
+  type PublicSecurityOptions,
+  RateLimiter,
+} from "./public-security.js";
 import { SourceStore } from "./source-store.js";
 import { DigestService, GitHubConnector, type GitHubIssueConnector } from "./sources/github.js";
 import { SqliteSuperAgentStore } from "./store-sqlite.js";
@@ -112,6 +121,8 @@ export interface ControlPlaneOptions {
   watchdogPollMs?: number;
   exitOnStop?: boolean;
   afterOutboxSend?: () => void;
+  public?: PublicSecurityOptions;
+  oidc?: OidcOptions;
 }
 
 export class ControlPlane {
@@ -128,6 +139,10 @@ export class ControlPlane {
   private readonly watchdog: WatchdogStore;
   private readonly digest: DigestService;
   private readonly auth: AuthService;
+  private readonly identities: IdentityStore;
+  private readonly oidc: OidcVerifier | null;
+  private readonly rateLimiter: RateLimiter;
+  private readonly publicSecurity: PublicSecurityOptions;
   private readonly server: Server;
   private readonly browserWss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
   private readonly desktopWss = new WebSocketServer({ noServer: true, maxPayload: 25 * 1024 * 1024 });
@@ -142,6 +157,10 @@ export class ControlPlane {
   private watchdogChild: ChildProcess | null = null;
   private port = 0;
   private closing = false;
+
+  private get publicMode(): boolean {
+    return !!this.publicSecurity.publicUrl;
+  }
 
   private get enabled(): boolean {
     return this.options.superAgentEnabled ?? this.configuration.get().enabled;
@@ -165,6 +184,11 @@ export class ControlPlane {
       options.githubConnector ?? new GitHubConnector({ token: process.env.SPCODE_GITHUB_TOKEN }),
     );
     this.auth = new AuthService(this.store.db, ensureDeviceToken(this.baseDir));
+    this.identities = new IdentityStore(this.store.db);
+    this.oidc = options.oidc ? new OidcVerifier(options.oidc) : null;
+    this.publicSecurity = options.public ?? {};
+    assertPublicOptions(this.publicSecurity);
+    this.rateLimiter = new RateLimiter(this.publicSecurity.rateLimitPerMinute ?? (this.publicMode ? 120 : 6000));
     this.server = createServer((request, response) => void this.handle(request, response));
     this.server.on("upgrade", (request, socket, head) => this.upgrade(request, socket, head));
   }
@@ -428,6 +452,24 @@ export class ControlPlane {
         return;
       }
       const url = new URL(request.url ?? "/", `http://${this.host}:${this.port}`);
+      if (this.publicMode && this.publicSecurity.requireTls !== false) {
+        const forwarded = request.headers["x-forwarded-proto"];
+        if (forwarded !== "https" && !this.publicSecurity.allowInsecureForTest) {
+          this.json(response, 403, { error: { code: "TLS_REQUIRED", message: "公网请求必须经 HTTPS 反向代理" } });
+          return;
+        }
+      }
+      const clientIp = this.publicSecurity.trustProxy
+        ? String(request.headers["x-forwarded-for"] ?? request.socket.remoteAddress ?? "unknown")
+            .split(",")[0]!
+            .trim()
+        : (request.socket.remoteAddress ?? "unknown");
+      const rate = this.rateLimiter.check(`${clientIp}:${url.pathname}`);
+      if (!rate.allowed) {
+        response.setHeader("Retry-After", String(rate.retryAfterSeconds));
+        this.json(response, 429, { error: { code: "RATE_LIMITED", message: "请求过于频繁" } });
+        return;
+      }
       if (url.pathname === "/api/v1/health" && request.method === "GET") {
         this.json(response, 200, {
           ok: true,
@@ -435,6 +477,7 @@ export class ControlPlane {
           pid: process.pid,
           startedAt: this.startedAt,
           desktopConnected: this.hub.connected,
+          authMode: this.publicMode ? "oidc" : "device",
         });
         return;
       }
@@ -492,7 +535,28 @@ export class ControlPlane {
         this.json(response, 200, { ok: true });
         return;
       }
+      if (url.pathname === "/api/v1/auth/oidc" && request.method === "POST") {
+        if (!this.publicMode || !this.oidc) {
+          this.json(response, 403, { error: { code: "OIDC_DISABLED", message: "公网 OIDC 未启用" } });
+          return;
+        }
+        if (!this.validMutation(request, response)) return;
+        const input = (await this.readJson(request)) as { token?: unknown };
+        if (typeof input.token !== "string" || input.token.length > 32_000) throw new Error("OIDC token 无效");
+        const principal = await this.oidc.verify(input.token);
+        const token = this.identities.create(principal);
+        response.setHeader(
+          "Set-Cookie",
+          `${CONTROL_COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${12 * 3600}${this.publicSecurity.publicUrl?.startsWith("https:") ? "; Secure" : ""}`,
+        );
+        this.json(response, 200, { subject: principal.subject, roles: principal.roles });
+        return;
+      }
       if (url.pathname === "/api/v1/auth/bootstrap" && request.method === "POST") {
+        if (this.publicMode) {
+          this.json(response, 403, { error: { code: "DEVICE_BOOTSTRAP_DISABLED", message: "公网模式必须使用 OIDC" } });
+          return;
+        }
         if (!this.validMutation(request, response)) return;
         const authorization = request.headers.authorization ?? "";
         const token = authorization.startsWith("Bearer ") ? this.auth.bootstrap(authorization.slice(7)) : null;
@@ -508,8 +572,18 @@ export class ControlPlane {
         return;
       }
       if (url.pathname.startsWith("/api/")) {
-        if (!this.authenticated(request)) {
-          this.json(response, 401, { error: { code: "UNAUTHENTICATED", message: "请先使用本地启动链接完成设备认证" } });
+        const principal = this.principal(request);
+        if (!principal) {
+          this.json(response, 401, {
+            error: {
+              code: "UNAUTHENTICATED",
+              message: this.publicMode ? "请先通过 OIDC 登录" : "请先使用本地启动链接完成设备认证",
+            },
+          });
+          return;
+        }
+        if (!this.authorized(principal, request.method ?? "GET", url)) {
+          this.json(response, 403, { error: { code: "FORBIDDEN", message: "当前身份无权执行此动作" } });
           return;
         }
         if (request.method !== "GET" && !this.validMutation(request, response)) return;
@@ -559,6 +633,10 @@ export class ControlPlane {
         if (url.pathname === "/api/v1/superagent/commands" && request.method === "POST") {
           const command = parseSuperAgentCommand(await this.readJson(request));
           if (command.type === "config.update") {
+            if (!principal.roles.includes("admin")) {
+              this.json(response, 403, { error: { code: "FORBIDDEN", message: "只有 admin 可以修改配置" } });
+              return;
+            }
             const wasEnabled = this.enabled;
             this.configuration.set(command.patch);
             if (wasEnabled !== this.enabled) {
@@ -583,13 +661,13 @@ export class ControlPlane {
           } else if (command.type === "digest.resolve") {
             this.sources.resolveDigestItem({
               ...command,
-              actorId: "local-device",
+              actorId: this.commandActor(principal),
               chatId: this.sources.digestConversation(command.digestId),
             });
           } else if (command.type === "outbox.reconcile") {
             this.sources.reconcileOutbox(command.id, command.outcome, command.externalId);
           } else {
-            this.engine.execute(command, "local-device");
+            this.engine.execute(command, this.commandActor(principal));
             if (command.type === "workitem.cancel") await this.workerManager?.cancel(command.workItemId);
           }
           this.json(response, 200, this.snapshot());
@@ -634,6 +712,13 @@ export class ControlPlane {
       return;
     }
     const url = new URL(request.url ?? "/", `http://${this.host}:${this.port}`);
+    if (this.publicMode && this.publicSecurity.requireTls !== false && !this.publicSecurity.allowInsecureForTest) {
+      if (request.headers["x-forwarded-proto"] !== "https") {
+        socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+    }
     if (url.pathname === "/api/v1/desktop") {
       this.hub.handleDesktopUpgrade(request, socket, head, this.desktopWss);
       return;
@@ -655,8 +740,29 @@ export class ControlPlane {
   }
 
   private authenticated(request: IncomingMessage): boolean {
+    return !!this.principal(request);
+  }
+
+  private principal(request: IncomingMessage): PublicPrincipal | null {
     const cookies = parseCookies(request.headers.cookie);
-    return this.auth.authenticate(cookies[CONTROL_COOKIE]);
+    const token = cookies[CONTROL_COOKIE];
+    if (this.publicMode) return this.identities.authenticate(token);
+    return this.auth.authenticate(token) ? { subject: "local-device", roles: ["admin"], issuer: "local" } : null;
+  }
+
+  private authorized(principal: PublicPrincipal, method: string, url: URL): boolean {
+    if (method === "GET" || method === "HEAD") return true;
+    const admin = principal.roles.includes("admin");
+    if (url.pathname === "/api/v1/service/stop" || url.pathname === "/api/v1/desktop/invoke") return admin;
+    if (url.pathname === "/api/v1/superagent/commands" && !admin) {
+      // config.update 需要 admin，其余工作项命令 operator 即可；请求体由后续运行时校验。
+      return principal.roles.includes("operator");
+    }
+    return admin || principal.roles.includes("operator");
+  }
+
+  private commandActor(principal: PublicPrincipal): string {
+    return this.publicMode ? `external:${principal.subject}` : "local-device";
   }
 
   private validMutation(request: IncomingMessage, response: ServerResponse): boolean {
@@ -671,6 +777,13 @@ export class ControlPlane {
     if (!origin) return true;
     try {
       const url = new URL(origin);
+      if (this.publicMode) {
+        const trusted = new Set([
+          ...(this.publicSecurity.trustedOrigins ?? []),
+          ...(this.publicSecurity.publicUrl ? [new URL(this.publicSecurity.publicUrl).origin] : []),
+        ]);
+        return trusted.has(url.origin);
+      }
       return (url.protocol === "http:" || url.protocol === "https:") && this.validHost(url.host);
     } catch {
       return false;
@@ -679,6 +792,11 @@ export class ControlPlane {
 
   private validHost(host: string | undefined): boolean {
     if (!host) return false;
+    if (this.publicMode) {
+      const publicHost = this.publicSecurity.publicUrl ? new URL(this.publicSecurity.publicUrl).host : null;
+      const trusted = new Set([...(this.publicSecurity.trustedHosts ?? []), ...(publicHost ? [publicHost] : [])]);
+      return trusted.has(host) || host === `${this.host}:${this.port}` || host === `127.0.0.1:${this.port}`;
+    }
     return (
       host === `${this.host}:${this.port}` || host === `127.0.0.1:${this.port}` || host === `localhost:${this.port}`
     );

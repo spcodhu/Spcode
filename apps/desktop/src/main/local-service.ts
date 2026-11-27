@@ -13,6 +13,8 @@ export interface LocalServiceOptions {
   resourcesPath: string;
   isPackaged: boolean;
   enabled: boolean;
+  externalControlPlaneUrl?: string;
+  externalBootstrapToken?: string;
   invoke(method: string, args: unknown[]): Promise<unknown>;
 }
 
@@ -33,6 +35,23 @@ export class LocalService {
   async start(): Promise<boolean> {
     if (!this.options.enabled) return false;
     this.active = true;
+    if (this.options.externalControlPlaneUrl) {
+      try {
+        const base = new URL(this.options.externalControlPlaneUrl);
+        const loopback = base.hostname === "127.0.0.1" || base.hostname === "localhost";
+        if (base.protocol !== "https:" && !(base.protocol === "http:" && loopback)) return false;
+        const response = await fetch(new URL("/api/v1/health", base), {
+          headers: { "X-Spcode-Control-Client": "1" },
+          signal: AbortSignal.timeout(3000),
+        });
+        if (!response.ok) return false;
+        const health = (await response.json()) as { protocolVersion?: number };
+        if (health.protocolVersion !== 1) return false;
+        return true;
+      } catch {
+        return false;
+      }
+    }
     this.runtime = await this.discoverHealthy();
     if (!this.runtime) {
       await this.spawn();
@@ -51,6 +70,13 @@ export class LocalService {
   }
 
   workbenchUrl(view: "session" | "superagent"): string | null {
+    if (this.options.externalControlPlaneUrl) {
+      const url = new URL(this.options.externalControlPlaneUrl);
+      url.searchParams.set("view", view);
+      if (this.options.externalBootstrapToken)
+        url.hash = `bootstrap=${encodeURIComponent(this.options.externalBootstrapToken)}`;
+      return url.toString();
+    }
     if (!this.runtime) return null;
     try {
       const token = readFileSync(join(this.baseDir, "device-token"), "utf8").trim();

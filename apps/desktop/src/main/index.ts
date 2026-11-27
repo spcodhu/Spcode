@@ -418,6 +418,8 @@ const localService = new LocalService({
   resourcesPath: process.resourcesPath,
   isPackaged: app.isPackaged,
   enabled: !backgroundE2E || process.env.SPCODE_E2E_CONTROL_PLANE === "1",
+  externalControlPlaneUrl: process.env.SPCODE_CONTROL_PLANE_URL,
+  externalBootstrapToken: process.env.SPCODE_CONTROL_PLANE_BOOTSTRAP_TOKEN,
   invoke: invokeDesktopMethod,
 });
 const localFeishuProxy = new LocalFeishuProxy(localService);
