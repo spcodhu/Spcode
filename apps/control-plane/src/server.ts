@@ -753,6 +753,19 @@ export class ControlPlane {
         this.json(response, 200, { events: this.threads.list(workItemId) });
         return;
       }
+      if (url.pathname === "/api/v1/worker-nodes/recover" && request.method === "POST") {
+        const principal = this.principal(request);
+        if (!principal?.roles.some((role) => role === "operator" || role === "admin")) {
+          this.json(response, 403, {
+            error: { code: "FORBIDDEN", message: "只有 operator/admin 可以恢复失联 Worker" },
+          });
+          return;
+        }
+        if (!this.validMutation(request, response)) return;
+        this.recoverWorkerNodes();
+        this.json(response, 200, { ok: true });
+        return;
+      }
       if (url.pathname === "/api/v1/worker-nodes/pair" && request.method === "POST") {
         const principal = this.principal(request);
         if (!this.internalAuthorized(request) && !principal?.roles.includes("admin")) {

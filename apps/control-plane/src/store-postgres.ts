@@ -7,6 +7,7 @@ import { SQLITE_BASE_SCHEMA, SqliteSuperAgentStore } from "./store-sqlite.js";
 
 const NUMERIC_FIELDS = new Set([
   "revision",
+  "protocol_version",
   "fence",
   "lease_fence",
   "created_at",

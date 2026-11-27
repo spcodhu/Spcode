@@ -198,6 +198,7 @@ export class EffectGateway {
     if (!row) throw new Error("Effect 请求不存在");
     const plan = this.store.snapshot().plans.find((candidate) => candidate.id === row.current_plan_id);
     if (!plan) throw new Error("Effect 对应计划不存在");
+    if (plan.revision !== row.expected_revision) throw new Error("Effect expectedRevision 已过期");
     return {
       effectId,
       fence: row.fence,

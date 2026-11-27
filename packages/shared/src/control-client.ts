@@ -135,6 +135,32 @@ export class ControlClient {
     return `${this.baseUrl}/api/v1/artifacts/${encodeURIComponent(id)}`;
   }
 
+  async workerNodes(): Promise<Array<Record<string, unknown>>> {
+    const value = await this.request<{ nodes: Array<Record<string, unknown>> }>("/api/v1/worker-nodes");
+    return value.nodes;
+  }
+
+  async effects(): Promise<Array<Record<string, unknown>>> {
+    const value = await this.request<{ effects: Array<Record<string, unknown>> }>("/api/v1/effects");
+    return value.effects;
+  }
+
+  async shareLinks(): Promise<Array<Record<string, unknown>>> {
+    const value = await this.request<{ links: Array<Record<string, unknown>> }>("/api/v1/share-links");
+    return value.links;
+  }
+
+  async createShareLink(artifactId: string, expiresAt: number): Promise<{ id: string; url: string }> {
+    return this.request(`/api/v1/artifacts/${encodeURIComponent(artifactId)}/share`, {
+      method: "POST",
+      body: JSON.stringify({ expiresAt }),
+    });
+  }
+
+  async recoverWorkers(): Promise<void> {
+    await this.request("/api/v1/worker-nodes/recover", { method: "POST", body: JSON.stringify({}) });
+  }
+
   async desktopInvoke<T = unknown>(method: string, args: unknown[] = []): Promise<T> {
     const envelope = await this.request<{ result: T }>("/api/v1/desktop/invoke", {
       method: "POST",

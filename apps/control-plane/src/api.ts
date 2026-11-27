@@ -3,5 +3,7 @@
 export { readRuntimeInfo } from "./discovery.js";
 export { LarkFeishuApi } from "./integrations/feishu/api.js";
 export { ControlPlane, type ControlPlaneOptions } from "./server.js";
+export { exportStoreBackup, importStoreBackup, readStoreBackup } from "./store-migration.js";
+export { PostgresSuperAgentStore } from "./store-postgres.js";
 export { SqliteSuperAgentStore } from "./store-sqlite.js";
 export { WorkerStore } from "./worker-store.js";

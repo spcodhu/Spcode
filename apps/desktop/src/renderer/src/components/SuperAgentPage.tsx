@@ -11,6 +11,7 @@ import { useTranslation } from "react-i18next";
 import { getControlClient, subscribeControlEvents } from "../control";
 import { Icon } from "./Icon";
 import { SuperAgentDigest } from "./SuperAgentDigest";
+import { SuperAgentOperations } from "./SuperAgentOperations";
 import { SuperAgentSettings } from "./SuperAgentSettings";
 
 export function SuperAgentPage() {
@@ -29,11 +30,13 @@ export function SuperAgentPage() {
   const [baseSha, setBaseSha] = useState("");
   const [verification, setVerification] = useState("pnpm lint && pnpm typecheck && pnpm test");
   const [changeScope, setChangeScope] = useState("");
-  const [tab, setTab] = useState<"work" | "digest" | "settings">("work");
+  const [tab, setTab] = useState<"work" | "digest" | "settings" | "operations">("work");
+
   const [config, setConfig] = useState<SuperAgentPublicConfig | null>(null);
   const [events, setEvents] = useState<
     Array<{ id: number; seq: number; type: string; payload: unknown; createdAt: number }>
   >([]);
+  const [shareUrl, setShareUrl] = useState("");
 
   const refresh = useCallback(async () => {
     try {
@@ -105,6 +108,16 @@ export function SuperAgentPage() {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const shareArtifact = async (artifactId: string) => {
+    try {
+      const created = await client.createShareLink(artifactId, Date.now() + 60 * 60_000);
+      setShareUrl(new URL(created.url, window.location.href).href);
+      setError("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
     }
   };
 
@@ -205,7 +218,7 @@ export function SuperAgentPage() {
         </section>
 
         <nav className="mt-5 flex gap-1 rounded-lg bg-bg-sidebar p-1" aria-label={t("tabs.label")}>
-          {(["work", "digest", "settings"] as const).map((item) => (
+          {(["work", "digest", "settings", "operations"] as const).map((item) => (
             <button
               key={item}
               type="button"
@@ -471,12 +484,32 @@ export function SuperAgentPage() {
                           </div>
                         ))}
                         {selected.diffArtifactId && (
-                          <a
-                            href={client.artifactUrl(selected.diffArtifactId)}
-                            className="mt-3 inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
-                          >
-                            <Icon name="fileText" size={13} /> {t("detail.downloadDiff")}
-                          </a>
+                          <div className="mt-3 flex flex-wrap items-center gap-3">
+                            <a
+                              href={client.artifactUrl(selected.diffArtifactId)}
+                              className="inline-flex items-center gap-1 text-[11px] text-accent hover:underline"
+                            >
+                              <Icon name="fileText" size={13} /> {t("detail.downloadDiff")}
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => void shareArtifact(selected.diffArtifactId!)}
+                              className="text-[11px] text-accent hover:underline"
+                              data-testid="share-diff"
+                            >
+                              {t("detail.share")}
+                            </button>
+                            {shareUrl && (
+                              <a
+                                href={shareUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-[11px] text-success hover:underline"
+                              >
+                                {t("detail.shared")}
+                              </a>
+                            )}
+                          </div>
                         )}
                       </section>
                     )}
@@ -576,6 +609,7 @@ export function SuperAgentPage() {
           <SuperAgentDigest snapshot={snapshot} repo={repo} onRepoChange={setRepo} busy={busy} execute={execute} />
         )}
         {tab === "settings" && <SuperAgentSettings config={config} snapshot={snapshot} busy={busy} execute={execute} />}
+        {tab === "operations" && <SuperAgentOperations />}
       </div>
     </main>
   );
