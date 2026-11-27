@@ -1,6 +1,7 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { InjectedOutboxFault } from "./integrations/feishu/outbox.js";
+import { S3ObjectBackend } from "./object-artifact-backend.js";
 import { ControlPlane } from "./server.js";
 import { InjectedWorkerFault } from "./worker-manager.js";
 
@@ -23,6 +24,21 @@ export function createLocalControlPlane(
 ): ControlPlane {
   return new ControlPlane({
     workbenchDir: options.workbenchDir ?? process.env.SPCODE_WORKBENCH_DIR ?? resolve(here, "../../workbench/dist"),
+    artifactBackend:
+      options.artifactBackend ??
+      (process.env.SPCODE_ARTIFACT_S3_BUCKET
+        ? new S3ObjectBackend({
+            bucket: process.env.SPCODE_ARTIFACT_S3_BUCKET,
+            endpoint: process.env.SPCODE_ARTIFACT_S3_ENDPOINT ?? "https://s3.amazonaws.com",
+            region: process.env.SPCODE_ARTIFACT_S3_REGION ?? "us-east-1",
+            accessKeyId: process.env.SPCODE_ARTIFACT_S3_ACCESS_KEY_ID ?? "",
+            secretAccessKey: process.env.SPCODE_ARTIFACT_S3_SECRET_ACCESS_KEY ?? "",
+            sessionToken: process.env.SPCODE_ARTIFACT_S3_SESSION_TOKEN,
+            forcePathStyle: process.env.SPCODE_ARTIFACT_S3_FORCE_PATH_STYLE !== "0",
+            prefix: process.env.SPCODE_ARTIFACT_S3_PREFIX,
+            workerFile: pathToFileURL(resolve(here, "../dist/s3-sync-worker.mjs")),
+          })
+        : undefined),
     postgres:
       options.postgres ??
       (process.env.SPCODE_POSTGRES_URL

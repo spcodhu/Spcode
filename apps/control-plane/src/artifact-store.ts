@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { writeFileAtomic } from "@spcode/shared/node";
 import type { ArtifactMeta } from "@spcode/shared/superagent";
+import type { ObjectArtifactBackend } from "./object-artifact-backend.js";
 
 const MAX_ARTIFACT_BYTES = 16 * 1024 * 1024;
 const ALLOWED_MIME = new Set([
@@ -18,6 +19,26 @@ const ALLOWED_MIME = new Set([
 export interface ArtifactRecord extends ArtifactMeta {
   storageKey: string;
   metadata: Record<string, unknown>;
+}
+
+class LocalObjectBackend implements ObjectArtifactBackend {
+  constructor(private readonly contentDir: string) {
+    mkdirSync(contentDir, { recursive: true, mode: 0o700 });
+  }
+  put(key: string, encodedContent: Buffer): void {
+    const file = join(this.contentDir, key.slice(0, 2), `${key.slice(2)}.bin`);
+    mkdirSync(join(this.contentDir, key.slice(0, 2)), { recursive: true, mode: 0o700 });
+    writeFileAtomic(file, encodedContent.toString("base64"), { mode: 0o600 });
+  }
+  get(key: string): Buffer {
+    const file = join(this.contentDir, key.slice(0, 2), `${key.slice(2)}.bin`);
+    if (!existsSync(file)) throw new Error("Artifact 内容缺失");
+    return readFileSync(file);
+  }
+  delete(key: string): void {
+    const file = join(this.contentDir, key.slice(0, 2), `${key.slice(2)}.bin`);
+    if (existsSync(file)) rmSync(file, { force: true });
+  }
 }
 
 export function migrateArtifactSchema(db: DatabaseSync): void {
@@ -38,16 +59,16 @@ export function migrateArtifactSchema(db: DatabaseSync): void {
   }
 }
 
-/** 本地私有 Artifact Store；数据库只存元数据，内容按 SHA-256 寻址落盘。 */
+/** 私有 Artifact Store：数据库保存元数据，内容由本地磁盘或 S3/OSS 后端按 SHA-256 寻址。 */
 export class ArtifactStore {
-  private readonly contentDir: string;
+  private readonly backend: ObjectArtifactBackend;
 
   constructor(
     readonly baseDir: string,
     readonly db: DatabaseSync,
+    backend?: ObjectArtifactBackend,
   ) {
-    this.contentDir = join(baseDir, "artifact-content");
-    mkdirSync(this.contentDir, { recursive: true, mode: 0o700 });
+    this.backend = backend ?? new LocalObjectBackend(join(baseDir, "artifact-content"));
   }
 
   put(input: {
@@ -64,9 +85,7 @@ export class ArtifactStore {
     if (!ALLOWED_MIME.has(mimeType)) throw new Error(`不允许的 Artifact 类型：${mimeType}`);
     const sha256 = createHash("sha256").update(content).digest("hex");
     const storageKey = sha256;
-    const file = join(this.contentDir, storageKey.slice(0, 2), `${storageKey.slice(2)}.bin`);
-    mkdirSync(join(this.contentDir, storageKey.slice(0, 2)), { recursive: true, mode: 0o700 });
-    writeFileAtomic(file, content.toString("base64"), { mode: 0o600 });
+    this.backend.put(storageKey, content);
     const existing = this.db.prepare("SELECT * FROM artifacts WHERE storage_key = ?").get(storageKey) as
       | Record<string, any>
       | undefined;
@@ -108,15 +127,28 @@ export class ArtifactStore {
 
   read(record: ArtifactRecord): Buffer {
     if (!/^[0-9a-f]{64}$/.test(record.storageKey)) throw new Error("Artifact storageKey 非法");
-    const file = join(this.contentDir, record.storageKey.slice(0, 2), `${record.storageKey.slice(2)}.bin`);
-    if (!existsSync(file)) throw new Error("Artifact 内容缺失");
-    const encoded = readFileSync(file, "utf8");
-    const content = Buffer.from(encoded, "base64");
+    const encoded = this.backend.get(record.storageKey);
+    const content = Buffer.from(encoded.toString("utf8"), "base64");
     const sha256 = createHash("sha256").update(content).digest("hex");
-    if (sha256 !== record.sha256 || content.byteLength !== record.size || statSync(file).size <= 0) {
+    if (sha256 !== record.sha256 || content.byteLength !== record.size || content.byteLength === 0) {
       throw new Error("Artifact 内容哈希或大小不匹配");
     }
     return content;
+  }
+
+  /** 生命周期清理：先删内容，再删元数据与分享授权；失败保留元数据以便对账。 */
+  prune(before: number): number {
+    const rows = this.db
+      .prepare("SELECT storage_key, id FROM artifacts WHERE created_at < ?")
+      .all(before) as unknown as Array<{ storage_key: string; id: string }>;
+    let count = 0;
+    for (const row of rows) {
+      this.backend.delete(row.storage_key);
+      this.db.prepare("DELETE FROM share_links WHERE artifact_id = ?").run(row.id);
+      this.db.prepare("DELETE FROM artifacts WHERE id = ?").run(row.id);
+      count++;
+    }
+    return count;
   }
 
   private map(row: Record<string, any>): ArtifactRecord {

@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { ArtifactStore } from "./artifact-store.js";
+import type { ObjectArtifactBackend } from "./object-artifact-backend.js";
 import { PostgresSyncClient } from "./postgres-sync-client.js";
 import { SQLITE_BASE_SCHEMA, SqliteSuperAgentStore } from "./store-sqlite.js";
 
@@ -198,6 +199,7 @@ export interface PostgresStoreOptions {
   connectionString: string;
   baseDir: string;
   workerFile: URL;
+  artifactBackend?: ObjectArtifactBackend;
 }
 
 /** 与 SQLite 共用领域方法的 PostgreSQL Store；连接串只传 worker，不写日志或 Artifact。 */
@@ -215,7 +217,11 @@ export class PostgresSuperAgentStore extends SqliteSuperAgentStore {
       writable: false,
     });
     Object.defineProperty(this, "artifacts", {
-      value: new ArtifactStore(join(options.baseDir, "artifacts"), adapter as unknown as DatabaseSync),
+      value: new ArtifactStore(
+        join(options.baseDir, "artifacts"),
+        adapter as unknown as DatabaseSync,
+        options.artifactBackend,
+      ),
       configurable: false,
       writable: false,
     });

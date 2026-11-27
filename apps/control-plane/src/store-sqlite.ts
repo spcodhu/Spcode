@@ -13,6 +13,7 @@ import type {
 } from "@spcode/shared/superagent";
 import { assertPlanApproval, assertTransition } from "@spcode/superagent";
 import { ArtifactStore, migrateArtifactSchema } from "./artifact-store.js";
+import type { ObjectArtifactBackend } from "./object-artifact-backend.js";
 import { migratePhase2Schema } from "./phase2-schema.js";
 import { migrateSourceSchema } from "./source-store.js";
 import { migrateWatchdogSchema } from "./watchdog-store.js";
@@ -347,12 +348,15 @@ export class SqliteSuperAgentStore {
   readonly db: DatabaseSync;
   readonly artifacts: ArtifactStore;
 
-  constructor(readonly file: string) {
+  constructor(
+    readonly file: string,
+    options: { artifactBackend?: ObjectArtifactBackend } = {},
+  ) {
     if (file !== ":memory:") mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
     this.db = new DatabaseSync(file);
     this.db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;");
     this.migrate();
-    this.artifacts = new ArtifactStore(dirname(file), this.db);
+    this.artifacts = new ArtifactStore(dirname(file), this.db, options.artifactBackend);
   }
 
   private migrate(): void {

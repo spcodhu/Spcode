@@ -23,7 +23,8 @@
     "./context": "./src/context.ts",
     "./superagent": "./src/superagent.ts",
     "./control-client": "./src/control-client.ts",
-    "./worker-node": "./src/worker-node.ts"
+    "./worker-node": "./src/worker-node.ts",
+    "./effect": "./src/effect.ts"
   },
   "dependencies": {
     "i18next": "^26.5.5",

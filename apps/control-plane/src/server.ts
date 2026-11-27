@@ -4,6 +4,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { dirname, extname, join, resolve, sep } from "node:path";
 import type { Duplex } from "node:stream";
 import { fileURLToPath } from "node:url";
+import type { EffectRequestInput, EffectResult, EffectType } from "@spcode/shared/effect";
 import { resolveSpcodeHome } from "@spcode/shared/node";
 import {
   DEFAULT_SUPERAGENT_CONFIG,
@@ -18,6 +19,7 @@ import { AuthService, CONTROL_COOKIE, ensureDeviceToken, parseCookies, tokensEqu
 import { ConfigStore } from "./config.js";
 import { DesktopHub } from "./desktop-hub.js";
 import { readRuntimeInfo, removeRuntimeInfo, writeRuntimeInfo } from "./discovery.js";
+import { EffectGateway } from "./effect-gateway.js";
 import { GitWorkspaceManager } from "./git-workspace.js";
 import { type FeishuApi, LarkFeishuApi } from "./integrations/feishu/api.js";
 import { FeishuGateway } from "./integrations/feishu/gateway.js";
@@ -32,10 +34,12 @@ import {
   RateLimiter,
 } from "./public-security.js";
 import { RouterStore } from "./router-store.js";
+import { ShareLinkStore } from "./share-link-store.js";
 import { SourceStore } from "./source-store.js";
 import { DigestService, GitHubConnector, type GitHubIssueConnector } from "./sources/github.js";
 import { PostgresSuperAgentStore } from "./store-postgres.js";
 import { SqliteSuperAgentStore } from "./store-sqlite.js";
+import { type ThreadEventInput, ThreadService } from "./thread-service.js";
 import type { WatchdogHealth } from "./watchdog.js";
 import { WatchdogStore } from "./watchdog-store.js";
 import { WorkerManager } from "./worker-manager.js";
@@ -119,6 +123,38 @@ function sanitizeCapabilities(value: unknown): WorkerNodeCapabilities {
   };
 }
 
+function parseEffectRequest(value: unknown): EffectRequestInput {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Effect 请求格式无效");
+  const input = value as Record<string, unknown>;
+  const types = new Set<EffectType>([
+    "artifact.report",
+    "git.push",
+    "git.pr",
+    "nginx.reload",
+    "deployment.apply",
+    "dns.upsert",
+    "system.exec",
+  ]);
+  if (!types.has(input.type as EffectType)) throw new Error("Effect 类型不允许");
+  if (
+    typeof input.workItemId !== "string" ||
+    typeof input.planHash !== "string" ||
+    typeof input.resource !== "string" ||
+    typeof input.idempotencyKey !== "string"
+  ) {
+    throw new Error("Effect 请求缺少必要字段");
+  }
+  if (
+    !Number.isSafeInteger(input.expectedRevision) ||
+    !input.input ||
+    typeof input.input !== "object" ||
+    Array.isArray(input.input)
+  ) {
+    throw new Error("Effect expectedRevision/input 无效");
+  }
+  return { ...input, type: input.type as EffectType } as EffectRequestInput;
+}
+
 export interface ControlPlaneOptions {
   baseDir?: string;
   databaseFile?: string;
@@ -144,6 +180,7 @@ export interface ControlPlaneOptions {
   public?: PublicSecurityOptions;
   oidc?: OidcOptions;
   postgres?: { connectionString: string; workerFile: URL };
+  artifactBackend?: import("./object-artifact-backend.js").ObjectArtifactBackend;
   /** false 表示仅使用远程 Worker Node，不在本 Router 启动本地 WorkerManager。 */
   localWorkerEnabled?: boolean;
 }
@@ -157,12 +194,15 @@ export class ControlPlane {
   private readonly store: SqliteSuperAgentStore;
   private readonly router: RouterStore;
   private readonly workerNodes: WorkerNodeService;
+  private readonly effects: EffectGateway;
   private readonly routerId = `router_${process.pid}_${Math.random().toString(36).slice(2, 10)}`;
   private readonly workers: WorkerStore;
   private readonly sources: SourceStore;
   private feishuApi: FeishuApi | null = null;
   private readonly configuration: ConfigStore;
   private readonly watchdog: WatchdogStore;
+  private readonly shareLinks: ShareLinkStore;
+  private readonly threads: ThreadService;
   private readonly digest: DigestService;
   private readonly auth: AuthService;
   private readonly identities: IdentityStore;
@@ -179,6 +219,7 @@ export class ControlPlane {
   private outboxDispatcher: OutboxDispatcher | null = null;
   private digestTimer: NodeJS.Timeout | null = null;
   private routerTimer: NodeJS.Timeout | null = null;
+  private effectTimer: NodeJS.Timeout | null = null;
   private readonly sourceLeases = new Set<string>();
   private sourcesRunning = false;
   private sourceConnected = false;
@@ -201,16 +242,27 @@ export class ControlPlane {
     this.requestedPort = options.port ?? 0;
     this.workbenchDir = resolve(options.workbenchDir);
     this.store = options.postgres
-      ? new PostgresSuperAgentStore({ ...options.postgres, baseDir: this.baseDir })
-      : new SqliteSuperAgentStore(options.databaseFile ?? join(this.baseDir, "control.sqlite"));
+      ? new PostgresSuperAgentStore({
+          ...options.postgres,
+          baseDir: this.baseDir,
+          artifactBackend: options.artifactBackend,
+        })
+      : new SqliteSuperAgentStore(options.databaseFile ?? join(this.baseDir, "control.sqlite"), {
+          artifactBackend: options.artifactBackend,
+        });
     this.router = new RouterStore(this.store.db);
     this.configuration = new ConfigStore(this.baseDir, options.superAgentEnabled);
     this.watchdog = new WatchdogStore(this.store.db);
+    this.shareLinks = new ShareLinkStore(this.store.db);
+    this.threads = new ThreadService(this.store, (sequence, workItemId) => this.publishEvent(sequence, workItemId));
     this.workers = new WorkerStore(this.store.db, (sequence, workItemId) => this.publishEvent(sequence, workItemId));
     this.sources = new SourceStore(this.store.db, this.store, (sequence, workItemId) =>
       this.publishEvent(sequence, workItemId),
     );
     this.workerNodes = new WorkerNodeService(this.store, this.workers, this.router, () => this.enabled);
+    this.effects = new EffectGateway(this.store, this.workers, (sequence, workItemId) =>
+      this.publishEvent(sequence, workItemId),
+    );
     this.digest = new DigestService(
       this.sources,
       options.githubConnector ?? new GitHubConnector({ token: process.env.SPCODE_GITHUB_TOKEN }),
@@ -249,6 +301,7 @@ export class ControlPlane {
     this.router.register(this.routerId, `http://${this.host}:${this.port}`);
     this.workerNodes.attachEngine(this.engine);
     this.workerNodes.start();
+    this.effectTimer = setInterval(() => this.effects.recoverStale(), 5000);
     this.routerTimer = setInterval(() => {
       this.router.heartbeat(this.routerId);
       for (const source of this.sourceLeases) this.router.renewSourceLease(source, this.routerId);
@@ -267,7 +320,9 @@ export class ControlPlane {
     this.watchdogChild?.kill("SIGTERM");
     this.watchdogChild = null;
     if (this.routerTimer) clearInterval(this.routerTimer);
+    if (this.effectTimer) clearInterval(this.effectTimer);
     this.routerTimer = null;
+    this.effectTimer = null;
     await this.stopSuperAgent();
     this.router.offline(this.routerId);
     this.workerNodes.close();
@@ -600,6 +655,104 @@ export class ControlPlane {
         this.json(response, 200, { ok: true });
         return;
       }
+      if (url.pathname === "/api/v1/share-links" && request.method === "GET") {
+        if (!this.principal(request)) {
+          this.json(response, 401, { error: { code: "UNAUTHENTICATED", message: "请先登录" } });
+          return;
+        }
+        this.json(response, 200, { links: this.shareLinks.list() });
+        return;
+      }
+      if (url.pathname.startsWith("/api/v1/share/") && request.method === "GET") {
+        const token = url.pathname.slice("/api/v1/share/".length);
+        if (token.length > 256) {
+          this.json(response, 400, { error: { code: "INVALID_SHARE", message: "ShareLink 无效" } });
+          return;
+        }
+        const resolved = this.shareLinks.resolve(token);
+        if (!resolved) {
+          this.json(response, 404, { error: { code: "SHARE_NOT_FOUND", message: "ShareLink 已过期、撤销或不存在" } });
+          return;
+        }
+        const artifact = this.store.artifacts.get(resolved.artifactId);
+        if (!artifact) {
+          this.json(response, 404, { error: { code: "NOT_FOUND", message: "Artifact 不存在" } });
+          return;
+        }
+        const content = this.store.artifacts.read(artifact);
+        response.writeHead(200, {
+          "Content-Type": artifact.mimeType,
+          "Content-Length": content.byteLength,
+          "Content-Disposition": `attachment; filename="${artifact.id}"`,
+          "Cache-Control": "private, no-store",
+          "X-Content-Type-Options": "nosniff",
+          "Content-Security-Policy": "default-src 'none'",
+        });
+        response.end(content);
+        return;
+      }
+      const shareMatch = url.pathname.match(/^\/api\/v1\/artifacts\/(ar_[A-Za-z0-9_-]+)\/share$/);
+      if (shareMatch && request.method === "POST") {
+        const principal = this.principal(request);
+        if (!principal?.roles.some((role) => role === "operator" || role === "admin")) {
+          this.json(response, 403, {
+            error: { code: "FORBIDDEN", message: "匿名分享需要独立的 operator/admin 发布授权" },
+          });
+          return;
+        }
+        if (!this.validMutation(request, response)) return;
+        const artifactId = shareMatch[1]!;
+        if (!this.store.artifacts.get(artifactId)) throw new Error("Artifact 不存在");
+        const input = (await this.readJson(request)) as { expiresAt?: number; scope?: string };
+        const created = this.shareLinks.create({
+          artifactId,
+          actorId: this.commandActor(principal),
+          expiresAt: Number(input.expiresAt),
+          scope: input.scope,
+        });
+        this.json(response, 200, { id: created.id, url: `/api/v1/share/${created.token}`, record: created.record });
+        return;
+      }
+      const revokeShareMatch = url.pathname.match(/^\/api\/v1\/share-links\/(sl_[A-Za-z0-9_-]+)\/revoke$/);
+      if (revokeShareMatch && request.method === "POST") {
+        const principal = this.principal(request);
+        if (!principal?.roles.some((role) => role === "operator" || role === "admin")) {
+          this.json(response, 403, { error: { code: "FORBIDDEN", message: "只有分享创建者或 admin 可以撤销" } });
+          return;
+        }
+        if (!this.validMutation(request, response)) return;
+        this.shareLinks.revoke(revokeShareMatch[1]!, this.commandActor(principal), principal.roles.includes("admin"));
+        this.json(response, 200, { ok: true });
+        return;
+      }
+      if (url.pathname === "/api/v1/threads/events" && request.method === "POST") {
+        const principal = this.principal(request);
+        if (!principal?.roles.some((role) => role === "operator" || role === "admin")) {
+          this.json(response, 403, {
+            error: { code: "FORBIDDEN", message: "只有 operator/admin 可以写入 ThreadEvent" },
+          });
+          return;
+        }
+        if (!this.validMutation(request, response)) return;
+        const input = (await this.readJson(request)) as Omit<ThreadEventInput, "actorId">;
+        const result = this.threads.record({ ...input, actorId: this.commandActor(principal) });
+        if (result.requiresStop) {
+          this.engine.execute({ type: "workitem.cancel", workItemId: input.workItemId }, this.commandActor(principal));
+          await this.workerManager?.cancel(input.workItemId);
+        }
+        this.json(response, 200, result);
+        return;
+      }
+      if (url.pathname === "/api/v1/threads/events" && request.method === "GET") {
+        if (!this.principal(request)) {
+          this.json(response, 401, { error: { code: "UNAUTHENTICATED", message: "请先登录" } });
+          return;
+        }
+        const workItemId = url.searchParams.get("workItemId");
+        if (!workItemId) throw new Error("workItemId 必填");
+        this.json(response, 200, { events: this.threads.list(workItemId) });
+        return;
+      }
       if (url.pathname === "/api/v1/worker-nodes/pair" && request.method === "POST") {
         const principal = this.principal(request);
         if (!this.internalAuthorized(request) && !principal?.roles.includes("admin")) {
@@ -650,6 +803,103 @@ export class ControlPlane {
         const body = await this.readBody(request, 16 * 1024 * 1024);
         const artifact = await this.workerNodes.handleArtifact(request, body);
         this.json(response, 200, { id: artifact.id, sha256: artifact.sha256, size: artifact.size });
+        return;
+      }
+      if (url.pathname === "/api/v1/effects/request" && request.method === "POST") {
+        const principal = this.principal(request);
+        if (!principal?.roles.some((role) => role === "operator" || role === "admin")) {
+          this.json(response, 403, { error: { code: "FORBIDDEN", message: "只有 operator/admin 可以请求 Effect" } });
+          return;
+        }
+        if (!this.validMutation(request, response)) return;
+        const input = parseEffectRequest(await this.readJson(request));
+        this.json(response, 200, this.effects.request(input, this.commandActor(principal)));
+        return;
+      }
+      if (url.pathname === "/api/v1/effects/approve" && request.method === "POST") {
+        const principal = this.principal(request);
+        if (!principal?.roles.some((role) => role === "operator" || role === "admin")) {
+          this.json(response, 403, { error: { code: "FORBIDDEN", message: "只有 operator/admin 可以批准 Effect" } });
+          return;
+        }
+        if (!this.validMutation(request, response)) return;
+        const input = (await this.readJson(request)) as { effectId?: string; inputHash?: string };
+        if (!input.effectId || !input.inputHash) throw new Error("effectId/inputHash 必填");
+        this.json(response, 200, this.effects.approve(input.effectId, input.inputHash, this.commandActor(principal)));
+        return;
+      }
+      if (url.pathname === "/api/v1/effects/claim" && request.method === "POST") {
+        if (!this.executorAuthorized(request)) {
+          this.json(response, 403, { error: { code: "FORBIDDEN", message: "Executor 凭据无效" } });
+          return;
+        }
+        const effect = this.effects.claim(String(request.headers["x-spcode-executor-id"] ?? "executor-local"));
+        this.json(response, 200, effect ? { effect, request: this.effects.payload(effect.id) } : { effect: null });
+        return;
+      }
+      if (url.pathname === "/api/v1/effects/complete" && request.method === "POST") {
+        if (!this.executorAuthorized(request)) {
+          this.json(response, 403, { error: { code: "FORBIDDEN", message: "Executor 凭据无效" } });
+          return;
+        }
+        const input = (await this.readJson(request)) as {
+          effectId?: string;
+          executorId?: string;
+          fence?: number;
+          result?: EffectResult;
+        };
+        if (!input.effectId || !input.executorId || !input.result) throw new Error("Effect 回执格式无效");
+        this.effects.complete(input.effectId, input.executorId, Number(input.fence), input.result);
+        this.json(response, 200, { ok: true });
+        return;
+      }
+      if (url.pathname === "/api/v1/effects/reconcile" && request.method === "POST") {
+        const principal = this.principal(request);
+        if (!principal?.roles.some((role) => role === "operator" || role === "admin")) {
+          this.json(response, 403, { error: { code: "FORBIDDEN", message: "只有 operator/admin 可以对账" } });
+          return;
+        }
+        if (!this.validMutation(request, response)) return;
+        const input = (await this.readJson(request)) as { effectId?: string; result?: EffectResult };
+        if (!input.effectId || !input.result) throw new Error("Effect 对账格式无效");
+        this.json(response, 200, this.effects.reconcile(input.effectId, input.result));
+        return;
+      }
+      if (url.pathname === "/api/v1/effects/retry" && request.method === "POST") {
+        const principal = this.principal(request);
+        if (!principal?.roles.some((role) => role === "operator" || role === "admin")) {
+          this.json(response, 403, { error: { code: "FORBIDDEN", message: "只有 operator/admin 可以重试" } });
+          return;
+        }
+        if (!this.validMutation(request, response)) return;
+        const input = (await this.readJson(request)) as { effectId?: string };
+        if (!input.effectId) throw new Error("effectId 必填");
+        this.json(response, 200, this.effects.retry(input.effectId));
+        return;
+      }
+      if (url.pathname === "/api/v1/effects" && request.method === "GET") {
+        if (!this.principal(request)) {
+          this.json(response, 401, { error: { code: "UNAUTHENTICATED", message: "请先登录" } });
+          return;
+        }
+        this.json(response, 200, { effects: this.effects.list() });
+        return;
+      }
+      if (url.pathname === "/api/v1/effect-artifacts" && request.method === "POST") {
+        if (!this.executorAuthorized(request)) {
+          this.json(response, 403, { error: { code: "FORBIDDEN", message: "Executor 凭据无效" } });
+          return;
+        }
+        const body = await this.readBody(request, 16 * 1024 * 1024);
+        const effectId = String(request.headers["x-spcode-effect-id"] ?? "");
+        const record = this.effects.record(effectId);
+        const artifact = this.store.artifacts.put({
+          workItemId: record.workItemId,
+          kind: "effect-report",
+          content: body,
+          mimeType: "application/json",
+        });
+        this.json(response, 200, { id: artifact.id });
         return;
       }
       if (url.pathname === "/api/v1/auth/oidc" && request.method === "POST") {
@@ -858,6 +1108,13 @@ export class ControlPlane {
     return (
       !!runtime && authorization.startsWith("Bearer ") && tokensEqual(authorization.slice(7), runtime.serviceToken)
     );
+  }
+
+  private executorAuthorized(request: IncomingMessage): boolean {
+    if (this.internalAuthorized(request)) return true;
+    const token = process.env.SPCODE_EXECUTOR_TOKEN;
+    const authorization = request.headers.authorization ?? "";
+    return !!token && authorization.startsWith("Bearer ") && tokensEqual(authorization.slice(7), token);
   }
 
   private authenticated(request: IncomingMessage): boolean {
